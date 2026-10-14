@@ -6134,12 +6134,21 @@ async fn mcp_attribution_checkpoints_cover_batch_prefixes_compaction_and_restore
     assert_eq!(restored.mcp_attribution_snapshot(), expected);
 }
 
+#[test_case(None; "idle")]
+#[test_case(Some(ActiveTurn::default()); "reserved turn")]
+#[test_case(Some(ActiveTurn {
+    finishing: Some(tokio_util::sync::CancellationToken::new()),
+    ..Default::default()
+}); "finishing turn")]
 #[tokio::test]
-async fn standalone_settings_invalidate_continuation_before_delivering_acceptance() {
+async fn standalone_settings_invalidate_continuation_before_delivering_acceptance(
+    active_turn: Option<ActiveTurn>,
+) {
     let (mut session, turn_context) = make_session_and_context().await;
     let (tx, rx) = async_channel::bounded(1);
     session.tx_event = tx;
     session.state.lock().await.last_started_turn_id = Some("superseded-turn".into());
+    *session.active_turn.lock().await = active_turn;
     session
         .tx_event
         .send(Event {

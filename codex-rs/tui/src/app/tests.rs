@@ -128,6 +128,7 @@ use codex_utils_absolute_path::test_support::PathExt;
 
 use crate::chatwidget::ChatWidgetInit;
 use crate::chatwidget::create_initial_user_message;
+use crate::chatwidget::tests::helpers::normalize_snapshot_paths;
 use crate::chatwidget::tests::helpers::render_bottom_popup;
 use crate::chatwidget::tests::helpers::set_active_cell;
 use crate::chatwidget::tests::make_chatwidget_manual_with_sender;
@@ -2733,13 +2734,31 @@ fn selected_and_resumed_threads_use_server_capability_for_v1_and_v2_children() -
                 "type": "session_meta",
                 "payload": serde_json::to_value(session_meta)?,
             });
-            std::fs::write(rollout_path, format!("{session_meta_line}\n"))?;
+            let saved_message = format!("Saved work from child-{index}");
+            let response_item = serde_json::json!({
+                "timestamp": timestamp,
+                "type": "response_item",
+                "payload": {
+                    "type": "message", "role": "user",
+                    "content": [{"type": "input_text", "text": saved_message}]
+                }
+            });
+            let user_message = serde_json::json!({
+                "timestamp": timestamp,
+                "type": "event_msg",
+                "payload": {"type": "user_message", "message": saved_message, "kind": "plain"}
+            });
+            std::fs::write(
+                rollout_path,
+                format!("{session_meta_line}\n{response_item}\n{user_message}\n"),
+            )?;
             child_thread_ids.push(child_thread_id);
         }
 
         // Cold-resume the persisted V2 root so its children are registered before selection.
+        app.config.thread_unload_delay = Duration::ZERO;
         let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(
-            app.chat_widget.config_ref(),
+            &app.config,
         ))
         .await?;
         let root = Box::pin(app_server.resume_thread(
@@ -2751,20 +2770,82 @@ fn selected_and_resumed_threads_use_server_capability_for_v1_and_v2_children() -
         .await?;
         app.enqueue_primary_thread_session(root.session, root.turns)
             .await?;
-        for (child_thread_id, multi_agent_version) in child_thread_ids
+        let mut tui = crate::tui::test_support::make_test_tui()?;
+        for (index, (child_thread_id, multi_agent_version)) in child_thread_ids
             .iter()
             .copied()
             .zip([MultiAgentVersion::V1, MultiAgentVersion::V2])
+            .enumerate()
         {
-            assert!(
-                app.attach_live_thread_for_selection(&mut app_server, child_thread_id)
-                    .await?
+            while app_event_rx.try_recv().is_ok() {}
+            assert_eq!(
+                app_server.thread_read(child_thread_id, /*include_turns*/ false).await?.status,
+                codex_app_server_protocol::ThreadStatus::NotLoaded
             );
+            app.select_agent_thread(&mut tui, &mut app_server, child_thread_id)
+                .await?;
+            assert_eq!(app.active_thread_id, Some(child_thread_id));
             assert_eq!(
                 app.agent_navigation.is_parent_owned(child_thread_id),
                 multi_agent_version == MultiAgentVersion::V2
             );
+            assert_app_snapshot!(
+                format!("selected_unloaded_subagent_{multi_agent_version:?}"),
+                normalize_snapshot_paths(render_bottom_popup(&app.chat_widget, /*width*/ 80))
+            );
+            let saved_message = format!("Saved work from child-{index}");
+            while let Ok(event) = app_event_rx.try_recv() {
+                if let AppEvent::InsertHistoryCell(cell) = event {
+                    app.transcript_cells.push(Arc::from(cell));
+                }
+            }
+            assert!(
+                app.render_transcript_lines_for_reflow(/*width*/ 80)
+                    .lines
+                    .iter()
+                    .any(|line| rendered_line_text(line).contains(&saved_message))
+            );
+            app.select_agent_thread(&mut tui, &mut app_server, root_thread_id)
+                .await?;
+            app_server.thread_unsubscribe(child_thread_id).await?;
+            let closed = tokio::time::timeout(Duration::from_secs(/*secs*/ 5), async {
+                while let Some(event) = app_server.next_event().await {
+                    if matches!(&event,
+                        codex_app_server_client::AppServerEvent::ServerNotification(notification)
+                            if matches!(notification.as_ref(), ServerNotification::ThreadClosed(closed)
+                                if closed.thread_id == child_thread_id.to_string()))
+                    {
+                        return event;
+                    }
+                }
+                panic!("server event stream ended before the child closed");
+            })
+            .await?;
+            while app_event_rx.try_recv().is_ok() {}
+            app.select_agent_thread(&mut tui, &mut app_server, child_thread_id)
+                .await?;
+            // A queued close from the old runtime must not undo the new attachment.
+            app.handle_app_server_event(&app_server, closed).await;
+            app.drain_active_thread_events(&mut tui).await?;
+            assert_eq!(app.active_thread_id, Some(child_thread_id));
+            assert!(!matches!(
+                app_server.thread_read(child_thread_id, /*include_turns*/ false).await?.status,
+                codex_app_server_protocol::ThreadStatus::NotLoaded
+            ));
+            while let Ok(event) = app_event_rx.try_recv() {
+                if let AppEvent::InsertHistoryCell(cell) = event {
+                    app.transcript_cells.push(Arc::from(cell));
+                }
+            }
+            assert!(
+                app.render_transcript_lines_for_reflow(/*width*/ 80)
+                    .lines
+                    .iter()
+                    .any(|line| rendered_line_text(line).contains(&saved_message))
+            );
         }
+        app.select_agent_thread(&mut tui, &mut app_server, root_thread_id)
+            .await?;
 
         app.agent_navigation
             .record_sub_agent_activity(SubAgentActivityDisplay {
@@ -2792,7 +2873,6 @@ fn selected_and_resumed_threads_use_server_capability_for_v1_and_v2_children() -
         assert!(!app.agent_navigation.is_parent_owned(child_thread_ids[0]));
         assert!(app.agent_navigation.is_parent_owned(child_thread_ids[1]));
 
-        let mut tui = crate::tui::test_support::make_test_tui()?;
         app.select_agent_thread(&mut tui, &mut app_server, child_thread_ids[0])
             .await?;
         while app_event_rx.try_recv().is_ok() {}
@@ -2930,32 +3010,6 @@ fn attach_live_thread_for_selection_rejects_unmaterialized_fallback_threads() ->
         assert!(!app.thread_event_channels.contains_key(&thread_id));
         Ok(())
     })
-}
-
-#[tokio::test]
-async fn should_attach_live_thread_for_selection_skips_closed_metadata_only_threads() {
-    let mut app = make_test_app().await;
-    let thread_id = ThreadId::new();
-    app.agent_navigation.upsert(
-        thread_id,
-        Some("Ghost".to_string()),
-        Some("worker".to_string()),
-        /*is_closed*/ true,
-    );
-
-    assert!(!app.should_attach_live_thread_for_selection(thread_id));
-
-    app.agent_navigation.upsert(
-        thread_id,
-        Some("Ghost".to_string()),
-        Some("worker".to_string()),
-        /*is_closed*/ false,
-    );
-    assert!(app.should_attach_live_thread_for_selection(thread_id));
-
-    app.thread_event_channels
-        .insert(thread_id, ThreadEventChannel::new(/*capacity*/ 1));
-    assert!(!app.should_attach_live_thread_for_selection(thread_id));
 }
 
 #[tokio::test]

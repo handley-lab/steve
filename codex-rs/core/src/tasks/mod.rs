@@ -283,7 +283,7 @@ impl Session {
 
     #[expect(
         clippy::await_holding_invalid_type,
-        reason = "record the started turn atomically with its active reservation"
+        reason = "record the started turn atomically with task registration"
     )]
     pub(crate) async fn start_task<T: SessionTask>(
         self: &Arc<Self>,
@@ -328,11 +328,6 @@ impl Session {
         let (pending_items, _) = self.input_queue.drain_mailbox_input_items().await;
         let turn_state = {
             let mut active = self.active_turn.lock().await;
-            self.record_started_turn(
-                &turn_context.sub_id,
-                (task_kind == TaskKind::Regular).then(|| turn_context.attribution()),
-            )
-            .await;
             let turn = active.get_or_insert_with(ActiveTurn::default);
             debug_assert!(turn.task.is_none());
             turn.finishing = None;
@@ -352,6 +347,12 @@ impl Session {
         let mut active = self.active_turn.lock().await;
         let turn = active.get_or_insert_with(ActiveTurn::default);
         debug_assert!(turn.task.is_none());
+        // Record lineage only when the task starts: settings changes can invalidate a reservation.
+        self.record_started_turn(
+            &turn_context.sub_id,
+            (task_kind == TaskKind::Regular).then(|| turn_context.attribution()),
+        )
+        .await;
         let agent_execution_guard = self.services.agent_control.admit_turn(
             turn_context.multi_agent_version,
             &turn_context.session_source,

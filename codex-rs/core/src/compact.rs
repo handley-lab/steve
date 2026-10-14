@@ -858,26 +858,8 @@ async fn drain_to_completed(
             ));
         };
         match event {
-            Ok(ResponseEvent::OutputItemDone(item)) => {
-                if matches!(phase, CompactionPhase::PostTurn) {
-                    // Commit post-turn summaries only after success; failures must leave both
-                    // the live history and persisted rollout intact.
-                    output.push(item);
-                } else {
-                    sess.record_annotated_conversation_items(
-                        turn_context,
-                        turn_context.model_info(),
-                        vec![ResponseItemEnvelope {
-                            item,
-                            metadata: Some(CodexHarnessMetadata {
-                                compaction_output: true,
-                                ..Default::default()
-                            }),
-                        }],
-                    )
-                    .await;
-                }
-            }
+            // Keep each attempt isolated until the response completes successfully.
+            Ok(ResponseEvent::OutputItemDone(item)) => output.push(item),
             Ok(ResponseEvent::ServerReasoningIncluded(included)) => {
                 sess.set_server_reasoning_included(included).await;
             }
@@ -890,6 +872,22 @@ async fn drain_to_completed(
                 usage_metadata,
                 ..
             }) => {
+                if !matches!(phase, CompactionPhase::PostTurn) {
+                    for item in std::mem::take(&mut output) {
+                        sess.record_annotated_conversation_items(
+                            turn_context,
+                            turn_context.model_info(),
+                            vec![ResponseItemEnvelope {
+                                item,
+                                metadata: Some(CodexHarnessMetadata {
+                                    compaction_output: true,
+                                    ..Default::default()
+                                }),
+                            }],
+                        )
+                        .await;
+                    }
+                }
                 sess.record_observed_response_completed(
                     turn_context,
                     &response_id,
