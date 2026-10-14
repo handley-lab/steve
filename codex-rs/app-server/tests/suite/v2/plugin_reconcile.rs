@@ -212,11 +212,6 @@ async fn turn_hook_runs(
     thread_id: String,
     active_plugin_ids: Vec<String>,
 ) -> Result<usize> {
-    Mock::given(method("POST"))
-        .and(path("/backend-api/codex/analytics-events/events"))
-        .respond_with(ResponseTemplate::new(200))
-        .mount(server)
-        .await;
     let _response = responses::mount_sse_once(
         server,
         responses::sse(vec![

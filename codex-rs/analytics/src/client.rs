@@ -64,7 +64,6 @@ use codex_app_server_protocol::TurnStartedNotification;
 use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::item_event_to_server_notification;
 use codex_login::AuthManager;
-use codex_login::CodexAuth;
 use codex_plugin::PluginId;
 use codex_plugin::PluginTelemetryMetadata;
 use codex_protocol::ThreadId;
@@ -85,8 +84,6 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
 const ANALYTICS_EVENTS_QUEUE_SIZE: usize = 256;
-const ANALYTICS_EVENTS_TIMEOUT: Duration = Duration::from_secs(10);
-// Covers two sequential POSTs plus queue/barrier scheduling; additional queued sends remain best-effort.
 const ANALYTICS_EVENTS_FLUSH_TIMEOUT: Duration = Duration::from_secs(25);
 const ANALYTICS_EVENT_DEDUPE_MAX_KEYS: usize = 4096;
 
@@ -113,46 +110,27 @@ pub struct AnalyticsEventsClient {
     queue: Option<AnalyticsEventsQueue>,
 }
 
+#[cfg(debug_assertions)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum AnalyticsEventsDestination {
-    Http {
-        url: String,
-    },
-    #[cfg(debug_assertions)]
-    CaptureFile {
-        path: PathBuf,
-    },
+    CaptureFile { path: PathBuf },
 }
 
+#[cfg(debug_assertions)]
 impl AnalyticsEventsDestination {
-    fn from_base_url(base_url: String) -> Self {
-        let capture_file = analytics_capture_file_from_env();
-        Self::from_base_url_and_capture_file(base_url, capture_file)
-    }
-
-    fn from_base_url_and_capture_file(base_url: String, capture_file: Option<PathBuf>) -> Self {
-        #[cfg(debug_assertions)]
-        if let Some(path) = capture_file {
-            if let Err(err) = crate::analytics_capture::initialize(&path) {
-                tracing::error!(
-                    path = %path.display(),
-                    "failed to initialize analytics event capture; network delivery remains disabled: {err}"
-                );
-            }
-            tracing::warn!(
+    fn from_capture_file(capture_file: Option<PathBuf>) -> Option<Self> {
+        let path = capture_file?;
+        if let Err(err) = crate::analytics_capture::initialize(&path) {
+            tracing::error!(
                 path = %path.display(),
-                "analytics event capture enabled; network delivery is disabled"
+                "failed to initialize analytics event capture: {err}"
             );
-            return Self::CaptureFile { path };
         }
-
-        #[cfg(not(debug_assertions))]
-        let _ = capture_file;
-
-        let base_url = base_url.trim_end_matches('/');
-        Self::Http {
-            url: format!("{base_url}/codex/analytics-events/events"),
-        }
+        tracing::warn!(
+            path = %path.display(),
+            "analytics event capture enabled"
+        );
+        Some(Self::CaptureFile { path })
     }
 }
 
@@ -169,6 +147,7 @@ fn analytics_capture_file_from_env() -> Option<PathBuf> {
 }
 
 impl AnalyticsEventsQueue {
+    #[cfg(debug_assertions)]
     fn new(auth_manager: Arc<AuthManager>, destination: AnalyticsEventsDestination) -> Self {
         let (sender, mut receiver) = mpsc::channel(ANALYTICS_EVENTS_QUEUE_SIZE);
         let product_generation = Arc::new(AtomicU64::new(0));
@@ -206,23 +185,39 @@ impl AnalyticsEventsQueue {
                         {
                             reducer.flush_thread(evicted, &mut events);
                         }
-                        send_track_events(&auth_manager, &destination, events, &thread_products)
-                            .await;
+                        capture_filtered_track_events(
+                            &auth_manager,
+                            &destination,
+                            events,
+                            &thread_products,
+                        )
+                        .await;
                         thread_products.register(thread_id, product_sku);
                         continue;
                     }
                     AnalyticsEventsQueueMessage::Flush(done_tx) => {
                         let mut events = Vec::new();
                         reducer.flush(&mut events);
-                        send_track_events(&auth_manager, &destination, events, &thread_products)
-                            .await;
+                        capture_filtered_track_events(
+                            &auth_manager,
+                            &destination,
+                            events,
+                            &thread_products,
+                        )
+                        .await;
                         let _ = done_tx.send(());
                         continue;
                     }
                 };
                 let mut events = Vec::new();
                 reducer.ingest(input, &mut events).await;
-                send_track_events(&auth_manager, &destination, events, &thread_products).await;
+                capture_filtered_track_events(
+                    &auth_manager,
+                    &destination,
+                    events,
+                    &thread_products,
+                )
+                .await;
             }
         });
         Self {
@@ -311,15 +306,40 @@ impl AnalyticsEventsClient {
         }
     }
 
-    pub fn new(
+    pub fn new(auth_manager: Arc<AuthManager>, analytics_enabled: Option<bool>) -> Self {
+        if analytics_enabled == Some(false) {
+            return Self::disabled();
+        }
+        if let Some(path) = analytics_capture_file_from_env() {
+            return Self::capturing(auth_manager, analytics_enabled, path);
+        }
+        let _ = auth_manager;
+        Self::disabled()
+    }
+
+    /// Records events in a local file. This does not build a request URL.
+    pub fn capturing(
         auth_manager: Arc<AuthManager>,
-        base_url: String,
         analytics_enabled: Option<bool>,
+        path: PathBuf,
     ) -> Self {
-        let destination = AnalyticsEventsDestination::from_base_url(base_url);
-        Self {
-            queue: (analytics_enabled != Some(false))
-                .then(|| AnalyticsEventsQueue::new(Arc::clone(&auth_manager), destination)),
+        if analytics_enabled == Some(false) {
+            return Self::disabled();
+        }
+        #[cfg(debug_assertions)]
+        {
+            if let Some(destination) = AnalyticsEventsDestination::from_capture_file(Some(path)) {
+                return Self {
+                    queue: Some(AnalyticsEventsQueue::new(auth_manager, destination)),
+                };
+            }
+            let _ = auth_manager;
+            return Self::disabled();
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            let _ = (auth_manager, path);
+            Self::disabled()
         }
     }
 
@@ -955,7 +975,8 @@ fn analytics_turn(turn_id: &str, status: TurnStatus) -> Turn {
     }
 }
 
-async fn send_track_events(
+#[cfg(debug_assertions)]
+async fn capture_filtered_track_events(
     auth_manager: &AuthManager,
     destination: &AnalyticsEventsDestination,
     mut events: Vec<TrackEventRequest>,
@@ -965,8 +986,7 @@ async fn send_track_events(
         return;
     }
 
-    let Some((auth, http_client_factory)) = auth_manager.auth_with_http_client_factory().await
-    else {
+    let Some(auth) = auth_manager.auth().await else {
         return;
     };
     if auth.is_api_key_auth() {
@@ -978,32 +998,13 @@ async fn send_track_events(
         return;
     }
 
-    // Product streams are capped by product_event_batches. Parallel streams add no
-    // timeout waves to the existing sequential isolated-event request splitting.
-    let mut requests = tokio::task::JoinSet::new();
     for (product_sku, events) in product_event_batches(events, thread_products) {
-        let (auth, destination, factory) = (
-            auth.clone(),
-            destination.clone(),
-            http_client_factory.clone(),
-        );
-        let product_sku = product_sku.map(str::to_string);
-        requests.spawn(async move {
-            for events in track_event_request_batches(events) {
-                send_track_events_request(
-                    &auth,
-                    &destination,
-                    events,
-                    &factory,
-                    product_sku.as_deref(),
-                )
-                .await;
+        for events in track_event_request_batches(events) {
+            if events.is_empty() {
+                continue;
             }
-        });
-    }
-    while let Some(result) = requests.join_next().await {
-        if let Err(error) = result {
-            tracing::warn!(%error, "analytics product stream failed");
+            let payload = TrackEventsRequest { events };
+            capture_track_events_request(destination, product_sku, &payload);
         }
     }
 }
@@ -1031,83 +1032,21 @@ fn track_event_request_batches(events: Vec<TrackEventRequest>) -> Vec<Vec<TrackE
     batches
 }
 
-async fn send_track_events_request(
-    auth: &CodexAuth,
-    destination: &AnalyticsEventsDestination,
-    events: Vec<TrackEventRequest>,
-    http_client_factory: &codex_http_client::HttpClientFactory,
-    product_sku: Option<&str>,
-) {
-    if events.is_empty() {
-        return;
-    }
-
-    let payload = TrackEventsRequest { events };
-
-    #[cfg(debug_assertions)]
-    if capture_track_events_request(destination, &payload) {
-        return;
-    }
-
-    let url = match destination {
-        AnalyticsEventsDestination::Http { url } => url,
-        #[cfg(debug_assertions)]
-        AnalyticsEventsDestination::CaptureFile { .. } => return,
-    };
-    let client = match codex_login::default_client::create_client_for_route_async(
-        http_client_factory.clone(),
-        url.clone(),
-        codex_http_client::ClientRouteClass::Api,
-        codex_login::default_client::ClientRedirectPolicy::Default,
-    )
-    .await
-    {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::warn!(%error, "failed to build events client");
-            return;
-        }
-    };
-    let mut request = client
-        .post(url)
-        .timeout(ANALYTICS_EVENTS_TIMEOUT)
-        .headers(codex_model_provider::auth_provider_from_auth(auth).to_auth_headers())
-        .header("Content-Type", "application/json")
-        .json(&payload);
-    if let Some(product_sku) = product_sku {
-        request = request.header("X-OpenAI-Product-Sku", product_sku);
-    }
-    let response = request.send().await;
-
-    match response {
-        Ok(response) if response.status().is_success() => {}
-        Ok(response) => {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            tracing::warn!("events failed with status {status}: {body}");
-        }
-        Err(err) => {
-            tracing::warn!("failed to send events request: {err}");
-        }
-    }
-}
-
 #[cfg(debug_assertions)]
 fn capture_track_events_request(
     destination: &AnalyticsEventsDestination,
+    product_sku: Option<&str>,
     payload: &TrackEventsRequest,
 ) -> bool {
-    let AnalyticsEventsDestination::CaptureFile { path } = destination else {
-        return false;
-    };
+    let AnalyticsEventsDestination::CaptureFile { path } = destination;
 
     use std::sync::PoisonError;
     static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
     let _capture_guard = CAPTURE_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
-    if let Err(err) = crate::analytics_capture::append_payload(path, payload) {
+    if let Err(err) = crate::analytics_capture::append_payload(path, product_sku, payload) {
         tracing::error!(
             path = %path.display(),
-            "failed to capture analytics events; network delivery remains disabled: {err}"
+            "failed to capture analytics events: {err}"
         );
     }
     true

@@ -691,11 +691,6 @@ async fn direct_metadata_limit_respects_provider_support(
         .with_priority(/*p*/ 1)
         .mount(&server)
         .await;
-    Mock::given(method("POST"))
-        .and(path("/codex/analytics-events/events"))
-        .respond_with(ResponseTemplate::new(/*s*/ 200))
-        .mount(&server)
-        .await;
     let mut events = vec![
         sse(vec![
             ev_response_created("resp-1"),

@@ -24,6 +24,7 @@ use regex_lite::Regex;
 use std::path::Path;
 use std::path::PathBuf;
 
+pub mod analytics_capture;
 pub mod apps_test_server;
 #[cfg(unix)]
 pub mod code_mode_host;

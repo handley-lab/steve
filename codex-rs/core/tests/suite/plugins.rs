@@ -369,16 +369,14 @@ fn searched_plugin_tools(
 async fn shared_analytics_client_preserves_session_products() -> Result<()> {
     skip_if_no_network!(Ok(()));
     let server = start_mock_server().await;
-    Mock::given(path("/codex/analytics-events/events"))
-        .respond_with(ResponseTemplate::new(200))
-        .mount(&server)
-        .await;
-    let client = AnalyticsEventsClient::new(
+    let analytics_capture = tempfile::tempdir()?;
+    let analytics_capture_path = analytics_capture.path().join("analytics-events.jsonl");
+    let client = AnalyticsEventsClient::capturing(
         codex_core::test_support::auth_manager_from_auth(
             CodexAuth::create_dummy_chatgpt_auth_for_testing(),
         ),
-        server.uri(),
         /*analytics_enabled*/ Some(true),
+        analytics_capture_path.clone(),
     );
     let mut products = [Some("aeon"), Some("tpp"), None];
     let mut sessions = Vec::new();
@@ -442,15 +440,8 @@ async fn shared_analytics_client_preserves_session_products() -> Result<()> {
     }
     client.flush().await;
     let mut actual = Vec::new();
-    for request in server.received_requests().await.unwrap_or_default() {
-        if request.url.path() != "/codex/analytics-events/events" {
-            continue;
-        }
-        let product = request
-            .headers
-            .get("x-openai-product-sku")
-            .map(|value| value.to_str().unwrap().to_string());
-        let body: serde_json::Value = serde_json::from_slice(&request.body)?;
+    for body in core_test_support::analytics_capture::read_analytics_lines(&analytics_capture_path) {
+        let product = body["product_sku"].as_str().map(str::to_string);
         for event in body["events"].as_array().unwrap() {
             if event["event_type"] == "codex_plugin_measurement_event" {
                 let thread_id = event["event_params"]["thread_id"].as_str().unwrap();
@@ -2327,21 +2318,12 @@ fn persist_sample_remote_plugin_id(home: &TempDir) {
 }
 
 async fn wait_for_analytics_event(server: &MockServer, event_type: &str) -> serde_json::Value {
+    let path = core_test_support::analytics_capture::analytics_capture_path_for(&server.uri());
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let requests = server.received_requests().await.unwrap_or_default();
-        if let Some(event) = requests
+        if let Some(event) = core_test_support::analytics_capture::read_analytics_events(&path)
             .into_iter()
-            .filter(|request| request.url.path() == "/codex/analytics-events/events")
-            .find_map(|request| {
-                let payload: serde_json::Value = serde_json::from_slice(&request.body).ok()?;
-                payload["events"].as_array().and_then(|events| {
-                    events
-                        .iter()
-                        .find(|event| event["event_type"] == event_type)
-                        .cloned()
-                })
-            })
+            .find(|event| event["event_type"] == event_type)
         {
             break event;
         }

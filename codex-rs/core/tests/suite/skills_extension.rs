@@ -379,16 +379,11 @@ async fn wait_for_analytics_events(
     event_type: &str,
     expected_count: usize,
 ) -> Vec<Value> {
+    let path = core_test_support::analytics_capture::analytics_capture_path_for(&server.uri());
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let events = server
-            .received_requests()
-            .await
-            .unwrap_or_default()
+        let events = core_test_support::analytics_capture::read_analytics_events(&path)
             .into_iter()
-            .filter(|request| request.url.path() == "/codex/analytics-events/events")
-            .filter_map(|request| serde_json::from_slice::<Value>(&request.body).ok())
-            .flat_map(|payload| payload["events"].as_array().cloned().unwrap_or_default())
             .filter(|event| event["event_type"] == event_type)
             .collect::<Vec<_>>();
         if events.len() >= expected_count {

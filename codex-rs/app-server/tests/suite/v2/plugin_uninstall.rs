@@ -67,6 +67,7 @@ enabled = true
 async fn plugin_uninstall_tracks_analytics_event() -> Result<()> {
     let analytics_server = start_analytics_events_server().await?;
     let codex_home = TempDir::new()?;
+    app_test_support::register_analytics_capture(&analytics_server.uri(), codex_home.path());
     write_installed_plugin(&codex_home, "debug", "sample-plugin")?;
     std::fs::write(
         codex_home.path().join("config.toml"),
@@ -94,20 +95,22 @@ async fn plugin_uninstall_tracks_analytics_event() -> Result<()> {
 
     let payload = timeout(DEFAULT_TIMEOUT, async {
         loop {
-            let Some(requests) = analytics_server.received_requests().await else {
-                tokio::time::sleep(Duration::from_millis(25)).await;
-                continue;
-            };
-            if let Some(request) = requests.iter().find(|request| {
-                request.method == "POST" && request.url.path() == "/codex/analytics-events/events"
+            let lines = app_test_support::read_analytics_lines(&app_test_support::analytics_capture_path(
+                codex_home.path(),
+            ));
+            if let Some(payload) = lines.into_iter().find(|payload| {
+                payload["events"].as_array().is_some_and(|events| {
+                    events
+                        .iter()
+                        .any(|event| event["event_type"] == "codex_plugin_uninstalled")
+                })
             }) {
-                break request.body.clone();
+                return Ok::<serde_json::Value, anyhow::Error>(payload);
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
     })
-    .await?;
-    let payload: serde_json::Value = serde_json::from_slice(&payload).expect("analytics payload");
+    .await??;
     assert_eq!(
         payload,
         json!({
@@ -168,6 +171,7 @@ plugins = false
 async fn plugin_uninstall_writes_remote_plugin_to_cloud_when_remote_plugin_enabled() -> Result<()> {
     let codex_home = TempDir::new()?;
     let server = MockServer::start().await;
+    app_test_support::register_analytics_capture(&server.uri(), codex_home.path());
     write_remote_plugin_catalog_config(
         codex_home.path(),
         &format!("{}/backend-api/", server.uri()),
@@ -195,12 +199,6 @@ async fn plugin_uninstall_writes_remote_plugin_to_cloud_when_remote_plugin_enabl
         )
         .mount(&server)
         .await;
-    Mock::given(method("POST"))
-        .and(path("/backend-api/codex/analytics-events/events"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"status":"ok"}"#))
-        .mount(&server)
-        .await;
-
     let remote_plugin_cache_root = codex_home
         .path()
         .join("plugins/cache/openai-curated-remote/linear");
@@ -664,21 +662,18 @@ async fn mount_remote_plugin_detail_with_name(
 }
 
 async fn wait_for_plugin_analytics_payload(server: &MockServer) -> Result<serde_json::Value> {
+    let path = app_test_support::analytics_capture_path_for(&server.uri());
     timeout(DEFAULT_TIMEOUT, async {
         loop {
-            let Some(requests) = server.received_requests().await else {
-                tokio::time::sleep(Duration::from_millis(25)).await;
-                continue;
-            };
-            if let Some(request) = requests.iter().find(|request| {
-                request.method == "POST"
-                    && request
-                        .url
-                        .path()
-                        .ends_with("/codex/analytics-events/events")
-            }) {
-                return serde_json::from_slice(&request.body)
-                    .map_err(|err| anyhow::anyhow!("invalid analytics payload: {err}"));
+            if let Some(payload) = app_test_support::read_analytics_lines(&path)
+                .into_iter()
+                .find(|payload| {
+                    payload["events"]
+                        .as_array()
+                        .is_some_and(|events| !events.is_empty())
+                })
+            {
+                return Ok(payload);
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }

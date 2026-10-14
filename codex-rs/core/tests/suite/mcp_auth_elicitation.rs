@@ -156,12 +156,6 @@ async fn actual_turn_elicitation_analytics(scenario: Scenario) -> Result<()> {
     );
     let server = responses::start_mock_server().await;
     AppsTestServer::mount_searchable(&server).await?;
-    Mock::given(method("POST"))
-        .and(path("/codex/analytics-events/events"))
-        .respond_with(ResponseTemplate::new(/*status*/ 200))
-        .mount(&server)
-        .await;
-
     if auth_failure {
         Mock::given(method("POST"))
             .and(path_regex("^/api/codex/ps/mcp/?$"))
@@ -198,12 +192,14 @@ async fn actual_turn_elicitation_analytics(scenario: Scenario) -> Result<()> {
     )
     .await;
 
-    let client = AnalyticsEventsClient::new(
+    let analytics_capture = tempfile::tempdir()?;
+    let analytics_capture_path = analytics_capture.path().join("analytics-events.jsonl");
+    let client = AnalyticsEventsClient::capturing(
         codex_core::test_support::auth_manager_from_auth(
             CodexAuth::create_dummy_chatgpt_auth_for_testing(),
         ),
-        server.uri(),
         /*analytics_enabled*/ Some(true),
+        analytics_capture_path.clone(),
     );
     let mut builder = search_capable_apps_builder(server.uri())
         .with_analytics_events_client(client.clone())
@@ -458,15 +454,8 @@ approvals_reviewer = "user"
     }
 
     tokio::time::timeout(Duration::from_secs(10), client.flush()).await?;
-    let mut events = Vec::new();
-    for request in server.received_requests().await.unwrap_or_default() {
-        if request.method != "POST" || request.url.path() != "/codex/analytics-events/events" {
-            continue;
-        }
-        let payload: Value = serde_json::from_slice(&request.body)?;
-        let batch = payload["events"].as_array().expect("analytics events");
-        events.extend(batch.iter().cloned());
-    }
+    let events =
+        core_test_support::analytics_capture::read_analytics_events(&analytics_capture_path);
     let mcp_events = events
         .iter()
         .filter(|event| {

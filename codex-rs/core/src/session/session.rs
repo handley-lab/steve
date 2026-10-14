@@ -1649,7 +1649,6 @@ impl Session {
                 analytics_events_client.unwrap_or_else(|| {
                     AnalyticsEventsClient::new(
                         Arc::clone(&auth_manager),
-                        config.chatgpt_base_url.trim_end_matches('/').to_string(),
                         config.analytics_enabled,
                     )
                 })

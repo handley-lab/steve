@@ -1182,21 +1182,12 @@ async fn run_remote_plugin_install_metadata_case() -> Result<()> {
     assert_eq!(meta["remote_plugin_id"], REMOTE_PLUGIN_ID);
     assert_eq!(meta["app_connector_ids"], json!([APP_CONNECTOR_ID]));
 
+    let path = core_test_support::analytics_capture::analytics_capture_path_for(&server.uri());
     let deadline = Instant::now() + Duration::from_secs(10);
     let analytics_event = loop {
-        let requests = server.received_requests().await.unwrap_or_default();
-        if let Some(event) = requests
+        if let Some(event) = core_test_support::analytics_capture::read_analytics_events(&path)
             .into_iter()
-            .filter(|request| request.url.path() == "/codex/analytics-events/events")
-            .find_map(|request| {
-                let payload: Value = serde_json::from_slice(&request.body).ok()?;
-                payload["events"].as_array().and_then(|events| {
-                    events
-                        .iter()
-                        .find(|event| event["event_type"] == "codex_plugin_install_requested")
-                        .cloned()
-                })
-            })
+            .find(|event| event["event_type"] == "codex_plugin_install_requested")
         {
             break event;
         }

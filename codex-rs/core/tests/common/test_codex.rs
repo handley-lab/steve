@@ -603,6 +603,7 @@ impl TestCodexBuilder {
             Some(home) => home,
             None => Arc::new(TempDir::new()?),
         };
+        crate::analytics_capture::register_analytics_capture(&server.uri(), home.path());
         let base_url = format!("{}/v1", server.uri());
         let test_env = TestEnv::local().await?;
         Box::pin(self.build_with_home_and_base_url(
@@ -639,6 +640,7 @@ impl TestCodexBuilder {
             Some(home) => home,
             None => Arc::new(TempDir::new()?),
         };
+        crate::analytics_capture::register_analytics_capture(&server.uri(), home.path());
         let base_url = format!("{}/v1", server.uri());
         Box::pin(self.build_with_home_and_base_url(
             base_url, home, /*resume_from*/ None, test_env,
@@ -655,6 +657,7 @@ impl TestCodexBuilder {
             Some(home) => home,
             None => Arc::new(TempDir::new()?),
         };
+        crate::analytics_capture::register_analytics_capture(&server.uri(), home.path());
         let base_url = format!("{}/v1", server.uri());
         let test_env = test_env().await?;
         Box::pin(self.build_with_home_and_base_url(
@@ -673,6 +676,7 @@ impl TestCodexBuilder {
             Some(home) => home,
             None => Arc::new(TempDir::new()?),
         };
+        crate::analytics_capture::register_analytics_capture(&server.uri(), home.path());
         let test_env = TestEnv::local().await?;
         Box::pin(self.build_with_home_and_base_url(
             format!("{base_url}/v1"),
@@ -693,6 +697,7 @@ impl TestCodexBuilder {
             Some(home) => home,
             None => Arc::new(TempDir::new()?),
         };
+        crate::analytics_capture::register_analytics_capture(&server.uri(), home.path());
         self.config_mutators.push(Box::new(move |config| {
             config.model_provider.supports_websockets = true;
             config.experimental_realtime_ws_model = Some("realtime-test-model".to_string());
@@ -712,6 +717,7 @@ impl TestCodexBuilder {
         home: Arc<TempDir>,
         rollout_path: PathBuf,
     ) -> anyhow::Result<TestCodex> {
+        crate::analytics_capture::register_analytics_capture(&server.uri(), home.path());
         let base_url = format!("{}/v1", server.uri());
         let test_env = TestEnv::local().await?;
         Box::pin(self.build_with_home_and_base_url(
@@ -842,6 +848,13 @@ impl TestCodexBuilder {
                 ))
             });
         let auth_manager = self.auth.manager_for_home(config.codex_home.as_path());
+        if self.analytics_events_client.is_none() {
+            self.analytics_events_client = Some(AnalyticsEventsClient::capturing(
+                auth_manager.clone(),
+                config.analytics_enabled,
+                crate::analytics_capture::analytics_capture_path(home.path()),
+            ));
+        }
         let models_manager = self
             .models_manager
             .clone()

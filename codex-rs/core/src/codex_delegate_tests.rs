@@ -239,20 +239,13 @@ async fn run_codex_thread_interactive_respects_pre_cancelled_spawn() {
 async fn delegate_start_analytics_honors_child_opt_out_with_enabled_parent() {
     use codex_analytics::AnalyticsEventsClient;
     use codex_login::CodexAuth;
-    use wiremock::Mock;
-    use wiremock::MockServer;
-    use wiremock::ResponseTemplate;
-    use wiremock::matchers::path;
 
-    let server = MockServer::start().await;
-    Mock::given(path("/codex/analytics-events/events"))
-        .respond_with(ResponseTemplate::new(200))
-        .mount(&server)
-        .await;
-    let client = AnalyticsEventsClient::new(
+    let analytics_capture = tempfile::tempdir().expect("analytics capture dir");
+    let analytics_capture_path = analytics_capture.path().join("analytics-events.jsonl");
+    let client = AnalyticsEventsClient::capturing(
         AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
-        server.uri(),
         /*analytics_enabled*/ Some(true),
+        analytics_capture_path.clone(),
     );
     let (mut parent_session, parent_ctx, _rx_events) =
         crate::session::tests::make_session_and_context_with_rx().await;
@@ -301,13 +294,12 @@ async fn delegate_start_analytics_honors_child_opt_out_with_enabled_parent() {
             .expect("delegate session should shut down");
     }
     client.flush().await;
-    let events = server
-        .received_requests()
-        .await
-        .expect("analytics requests")
-        .into_iter()
-        .flat_map(|request| {
-            let payload: Value = serde_json::from_slice(&request.body).expect("analytics payload");
+    let events = std::fs::read_to_string(&analytics_capture_path)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| !line.is_empty())
+        .flat_map(|line| {
+            let payload: Value = serde_json::from_str(line).expect("analytics capture line");
             payload["events"].as_array().expect("events array").clone()
         })
         .map(|event| serde_json::json!([event["event_type"], event["event_params"]["thread_id"]]))

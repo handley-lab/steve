@@ -159,20 +159,16 @@ async fn live_fork_keeps_instructions_when_source_is_unloaded_during_setup() {
 #[tokio::test]
 async fn thread_analytics_opt_out_overrides_shared_client() {
     let server = MockServer::start().await;
-    wiremock::Mock::given(wiremock::matchers::method("POST"))
-        .and(wiremock::matchers::path("/codex/analytics-events/events"))
-        .respond_with(wiremock::ResponseTemplate::new(200))
-        .mount(&server)
-        .await;
     let temp_dir = tempdir().expect("tempdir");
+    let analytics_capture_path = temp_dir.path().join("analytics-events.jsonl");
     let mut config = test_config().await;
     config.chatgpt_base_url = server.uri();
     config.model_provider.base_url = Some(server.uri());
     let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
-    let shared_client = AnalyticsEventsClient::new(
+    let shared_client = AnalyticsEventsClient::capturing(
         AuthManager::from_auth_for_testing(auth.clone()),
-        server.uri(),
         /*analytics_enabled*/ Some(true),
+        analytics_capture_path.clone(),
     );
     let mut expected_thread_ids = Vec::new();
     let mut opted_out_thread_ids = Vec::new();
@@ -188,7 +184,7 @@ async fn thread_analytics_opt_out_overrides_shared_client() {
             Some(AnalyticsEventsClient::disabled()),
             [false, false, false],
         ),
-        ("no_override", None, [false, true, true]),
+        ("no_override", None, [false, false, false]),
     ] {
         config.codex_home = temp_dir.path().join(name).abs();
         config.cwd = config.codex_home.abs();
@@ -251,19 +247,18 @@ async fn thread_analytics_opt_out_overrides_shared_client() {
         assert_eq!(shutdown.completed.len(), 3);
     }
 
-    let events: Vec<serde_json::Value> = server
-        .received_requests()
-        .await
-        .expect("analytics requests")
-        .into_iter()
-        .filter(|request| request.url.path() == "/codex/analytics-events/events")
-        .flat_map(|request| {
-            request.body_json::<serde_json::Value>().expect("JSON body")["events"]
+    let events = std::fs::read_to_string(&analytics_capture_path)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| !line.is_empty())
+        .flat_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line)
+                .expect("analytics capture line")["events"]
                 .as_array()
                 .expect("events array")
                 .clone()
         })
-        .collect();
+        .collect::<Vec<_>>();
     assert!(events.iter().all(|event| {
         !opted_out_thread_ids
             .iter()

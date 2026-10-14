@@ -5272,25 +5272,15 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
 async fn emit_subagent_session_started_includes_fork_lineage_and_originator() {
     use codex_app_server_protocol::ServerNotification;
     use codex_app_server_protocol::ThreadArchivedNotification;
-    use wiremock::Mock;
-    use wiremock::MockServer;
-    use wiremock::ResponseTemplate;
-    use wiremock::matchers::method;
-    use wiremock::matchers::path;
 
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/codex/analytics-events/events"))
-        .respond_with(ResponseTemplate::new(200))
-        .mount(&server)
-        .await;
-
+    let analytics_capture = tempfile::tempdir().expect("analytics capture dir");
+    let analytics_capture_path = analytics_capture.path().join("analytics-events.jsonl");
     let auth_manager =
         AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
-    let analytics_events_client = AnalyticsEventsClient::new(
+    let analytics_events_client = AnalyticsEventsClient::capturing(
         auth_manager,
-        server.uri(),
         /*analytics_enabled*/ Some(true),
+        analytics_capture_path.clone(),
     );
 
     let parent_thread_id = ThreadId::new();
@@ -5371,14 +5361,13 @@ async fn emit_subagent_session_started_includes_fork_lineage_and_originator() {
         },
     ));
     analytics_events_client.flush().await;
-    let events = server
-        .received_requests()
-        .await
-        .expect("analytics requests")
-        .into_iter()
-        .flat_map(|request| {
+    let events = std::fs::read_to_string(&analytics_capture_path)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| !line.is_empty())
+        .flat_map(|line| {
             let payload: serde_json::Value =
-                serde_json::from_slice(&request.body).expect("valid analytics payload");
+                serde_json::from_str(line).expect("valid analytics capture line");
             payload["events"]
                 .as_array()
                 .expect("analytics events")
@@ -6752,7 +6741,6 @@ async fn responses_metadata_uses_selected_harness_analytics_client() {
         let (mut session, mut turn_context) = make_session_and_context().await;
         session.services.analytics_events_client = AnalyticsEventsClient::new(
             Arc::clone(&session.services.auth_manager),
-            turn_context.config.chatgpt_base_url.clone(),
             Some(enabled),
         );
         Arc::make_mut(&mut turn_context.config).analytics_enabled = Some(!enabled);
@@ -6904,7 +6892,6 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         elicitations: crate::elicitation::ElicitationService::new(),
         analytics_events_client: AnalyticsEventsClient::new(
             Arc::clone(&auth_manager),
-            config.chatgpt_base_url.trim_end_matches('/').to_string(),
             config.analytics_enabled,
         ),
         hooks: arc_swap::ArcSwap::from_pointee(hooks),
@@ -9172,7 +9159,6 @@ where
         elicitations: crate::elicitation::ElicitationService::new(),
         analytics_events_client: AnalyticsEventsClient::new(
             Arc::clone(&auth_manager),
-            config.chatgpt_base_url.trim_end_matches('/').to_string(),
             config.analytics_enabled,
         ),
         hooks: arc_swap::ArcSwap::from_pointee(hooks),

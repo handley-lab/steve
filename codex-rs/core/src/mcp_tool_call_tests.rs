@@ -2176,23 +2176,15 @@ fn accepted_elicitation_without_content_defaults_to_accept() {
 
 #[tokio::test]
 async fn dispatched_mcp_approval_with_closed_response_is_classified_as_approval() {
-    use wiremock::matchers::method;
-    use wiremock::matchers::path;
-
-    let server = wiremock::MockServer::start().await;
-    wiremock::Mock::given(method("POST"))
-        .and(path("/codex/analytics-events/events"))
-        .respond_with(wiremock::ResponseTemplate::new(200))
-        .mount(&server)
-        .await;
-
+    let analytics_capture = tempfile::tempdir().expect("analytics capture dir");
+    let analytics_capture_path = analytics_capture.path().join("analytics-events.jsonl");
     let (mut session, turn_context, rx_event) = make_session_and_context_with_rx().await;
-    let client = codex_analytics::AnalyticsEventsClient::new(
+    let client = codex_analytics::AnalyticsEventsClient::capturing(
         crate::test_support::auth_manager_from_auth(
             codex_login::CodexAuth::create_dummy_chatgpt_auth_for_testing(),
         ),
-        server.uri(),
         /*analytics_enabled*/ Some(true),
+        analytics_capture_path.clone(),
     );
     Arc::get_mut(&mut session)
         .expect("session should be uniquely owned")
@@ -2288,14 +2280,13 @@ async fn dispatched_mcp_approval_with_closed_response_is_classified_as_approval(
         .expect("item-completed notification should deserialize"),
     ));
     client.flush().await;
-    let events = server
-        .received_requests()
-        .await
-        .expect("analytics requests should be recorded")
-        .into_iter()
-        .flat_map(|request| {
-            serde_json::from_slice::<serde_json::Value>(&request.body)
-                .expect("analytics request should deserialize")["events"]
+    let events = std::fs::read_to_string(&analytics_capture_path)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| !line.is_empty())
+        .flat_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line)
+                .expect("analytics capture line")["events"]
                 .as_array()
                 .expect("analytics events should be an array")
                 .clone()
