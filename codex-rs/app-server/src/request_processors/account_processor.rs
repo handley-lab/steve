@@ -295,12 +295,6 @@ impl AccountRequestProcessor {
                 });
                 thread_manager
                     .plugins_manager()
-                    .maybe_start_curated_repo_sync_for_config(
-                        &plugins_config,
-                        Some(Arc::clone(&on_effective_plugins_changed)),
-                    );
-                thread_manager
-                    .plugins_manager()
                     .maybe_start_remote_plugin_caches_refresh(
                         &plugins_config,
                         auth,
