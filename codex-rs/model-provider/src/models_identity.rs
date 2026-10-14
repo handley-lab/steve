@@ -14,7 +14,18 @@ pub(crate) fn identity(
     provider_info: &ModelProviderInfo,
     auth: Option<&CodexAuth>,
 ) -> CoreResult<String> {
-    let mut api_provider = provider_info.to_api_provider(auth.map(CodexAuth::auth_mode))?;
+    let mut headers = provider_info.api_headers()?;
+    let base_url = provider_info
+        .base_url
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_default();
+    let query_params = provider_info.query_params.clone().map(|params| {
+        params
+            .into_iter()
+            .map(|(name, value)| (name, value.into_inner()))
+            .collect::<std::collections::HashMap<_, _>>()
+    });
     let mut digest = Sha256::new();
     // Length-prefix every field to avoid ambiguity between adjacent values.
     let mut field = |value: &[u8]| {
@@ -22,15 +33,14 @@ pub(crate) fn identity(
         digest.update(value);
     };
     field(b"models-cache-v1");
-    field(api_provider.name.as_bytes());
-    field(api_provider.base_url.as_bytes());
-    // Preserve existing cache identities when no explicit catalog is configured.
-    // The API provider resolves base_url defaults; model_catalog_url stays on ModelProviderInfo.
+    field(provider_info.name.as_bytes());
+    field(base_url.as_bytes());
+    // A missing base URL contributes no host. model_catalog_url stays on ModelProviderInfo.
     if let Some(catalog_url) = &provider_info.model_catalog_url {
         field(b"model_catalog_url");
         field(catalog_url.as_bytes());
     }
-    let mut query: Vec<_> = api_provider.query_params.iter().flatten().collect();
+    let mut query: Vec<_> = query_params.iter().flatten().collect();
     query.sort();
     field(&(query.len() as u64).to_le_bytes());
     for (name, value) in query {
@@ -68,10 +78,10 @@ pub(crate) fn identity(
     // Command auth also returns opaque API keys. A changed key may belong to a
     // different account, so only credentials with stable owner metadata can be reused.
     if !has_stable_account || explicit_bearer {
-        let headers = resolve_provider_auth(auth, provider_info)?.to_auth_headers();
-        api_provider.headers.extend(headers);
+        let auth_headers = resolve_provider_auth(auth, provider_info)?.to_auth_headers();
+        headers.extend(auth_headers);
     }
-    let mut headers: Vec<_> = api_provider.headers.iter().collect();
+    let mut headers: Vec<_> = headers.iter().collect();
     headers.sort_by(|(a, av), (b, bv)| {
         a.as_str()
             .cmp(b.as_str())

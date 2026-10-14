@@ -24,6 +24,7 @@ fn runtime_internal_metadata_opt_in_is_not_serialized_or_configurable() {
 #[test]
 fn test_api_provider_applies_current_managed_residency() {
     let info = ModelProviderInfo {
+        base_url: Some("https://provider.example/v1".to_string()),
         http_headers: Some(maplit::hashmap! {
             "X-OpenAI-Internal-Codex-Residency".to_string() => "eu".into(),
             "x-provider-header".to_string() => "preserved".into(),
@@ -213,21 +214,36 @@ supports_websockets = true
 }
 
 #[test]
-fn test_personal_access_token_uses_chatgpt_codex_base_url() {
-    let api_provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None)
-        .to_api_provider(Some(AuthMode::PersonalAccessToken))
-        .expect("OpenAI provider should build API provider");
-
-    assert_eq!(api_provider.base_url, CHATGPT_CODEX_BASE_URL);
+fn missing_base_url_is_not_replaced_with_an_openai_host() {
+    for auth_mode in [
+        None,
+        Some(AuthMode::ApiKey),
+        Some(AuthMode::Chatgpt),
+        Some(AuthMode::ChatgptAuthTokens),
+        Some(AuthMode::Headers),
+        Some(AuthMode::AgentIdentity),
+        Some(AuthMode::PersonalAccessToken),
+    ] {
+        let error = ModelProviderInfo::create_openai_provider(/*base_url*/ None)
+            .to_api_provider(auth_mode)
+            .expect_err("missing base_url must not select an OpenAI host");
+        let message = error.to_string();
+        assert!(!message.contains("api.openai.com"), "{message}");
+        assert!(!message.contains("chatgpt.com"), "{message}");
+    }
 }
 
 #[test]
-fn test_header_auth_uses_chatgpt_codex_base_url() {
-    let api_provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None)
-        .to_api_provider(Some(AuthMode::Headers))
-        .expect("OpenAI provider should build API provider");
-
-    assert_eq!(api_provider.base_url, CHATGPT_CODEX_BASE_URL);
+fn explicit_cambridge_base_url_is_unchanged() {
+    let provider = ModelProviderInfo::create_openai_provider(Some(
+        "https://llm.hpc.cam.ac.uk/v1".to_string(),
+    ));
+    for auth_mode in [None, Some(AuthMode::ApiKey), Some(AuthMode::Chatgpt)] {
+        let api_provider = provider
+            .to_api_provider(auth_mode)
+            .expect("explicit base_url should build");
+        assert_eq!(api_provider.base_url, "https://llm.hpc.cam.ac.uk/v1");
+    }
 }
 
 #[test]
@@ -434,13 +450,15 @@ fn provider_auth_for_test() -> ModelProviderAuthInfo {
 
 #[test]
 fn test_amazon_bedrock_providers_add_mantle_client_agent_header() {
-    for provider in [
+    for mut provider in [
         ModelProviderInfo::create_amazon_bedrock_provider(/*aws*/ None),
         ModelProviderInfo::create_amazon_bedrock_runtime_provider(/*aws*/ None),
     ] {
+        provider.base_url = Some(AMAZON_BEDROCK_DEFAULT_BASE_URL.to_string());
         let api_provider = provider
             .to_api_provider(/*auth_mode*/ None)
             .expect("Amazon Bedrock provider should build API provider");
+        assert_eq!(api_provider.base_url, AMAZON_BEDROCK_DEFAULT_BASE_URL);
 
         assert_eq!(
             api_provider

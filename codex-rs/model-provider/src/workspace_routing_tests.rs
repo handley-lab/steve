@@ -63,7 +63,9 @@ async fn concurrent_discovery_cannot_forget_established_routing() {
         &(resolver.clone() as Arc<dyn WorkspaceRoutingResolver>),
     ));
     let provider = create_model_provider(
-        ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+        ModelProviderInfo::create_openai_provider(Some(
+            "https://chatgpt.com/backend-api/codex".to_string(),
+        )),
         Some(auth),
     );
     let mut first = provider.responses_api_provider(&context);
@@ -115,7 +117,9 @@ async fn workspace_routing_preserves_paths_and_excludes_other_providers() {
         account_routing_override: "us_cr".into(),
     }));
     auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
-    let info = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+    let info = ModelProviderInfo::create_openai_provider(Some(
+        "https://chatgpt.com/backend-api/codex".to_string(),
+    ));
     let provider = create_model_provider(info.clone(), Some(auth.clone()));
     let routed = provider
         .responses_api_provider(&routing_context)
@@ -161,12 +165,16 @@ async fn workspace_routing_preserves_paths_and_excludes_other_providers() {
     }
     let api_auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("api-key"));
     api_auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
-    let api = create_model_provider(info, Some(api_auth))
-        .responses_api_provider(&routing_context)
-        .await
-        .unwrap();
-    assert_eq!(api.provider.base_url, "https://api.openai.com/v1");
-    assert!(!api.provider.headers.contains_key(ACCOUNT_ROUTING_HEADER));
+    let error = create_model_provider(
+        ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+        Some(api_auth),
+    )
+    .responses_api_provider(&routing_context)
+    .await
+    .expect_err("missing base_url must not select an OpenAI host");
+    let message = error.to_string();
+    assert!(!message.contains("api.openai.com"), "{message}");
+    assert!(!message.contains("chatgpt.com"), "{message}");
 }
 
 #[tokio::test]
@@ -181,7 +189,9 @@ async fn missing_routing_owner_and_wrong_workspace_fail_closed() {
     }));
     auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
     let provider = create_model_provider(
-        ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+        ModelProviderInfo::create_openai_provider(Some(
+            "https://chatgpt.com/backend-api/codex".to_string(),
+        )),
         Some(auth),
     );
     assert!(

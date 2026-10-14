@@ -394,6 +394,17 @@ other non-default provider fields are not supported"
         }
     }
 
+    pub fn api_headers(&self) -> CodexResult<HeaderMap> {
+        let mut headers = self.build_header_map()?;
+        if let Some(requirement) = read_managed_residency_requirement() {
+            let value = match requirement {
+                ResidencyRequirement::Us => HeaderValue::from_static("us"),
+            };
+            headers.insert(RESIDENCY_HEADER_NAME, value);
+        }
+        Ok(headers)
+    }
+
     fn build_header_map(&self) -> CodexResult<HeaderMap> {
         let capacity = self.http_headers.as_ref().map_or(0, HashMap::len)
             + self.env_http_headers.as_ref().map_or(0, HashMap::len);
@@ -425,32 +436,18 @@ other non-default provider fields are not supported"
 
     /// Builds an API provider with managed residency taking precedence over configured headers.
     pub fn to_api_provider(&self, auth_mode: Option<AuthMode>) -> CodexResult<ApiProvider> {
-        let default_base_url = if matches!(
-            auth_mode,
-            Some(
-                AuthMode::Chatgpt
-                    | AuthMode::ChatgptAuthTokens
-                    | AuthMode::Headers
-                    | AuthMode::AgentIdentity
-                    | AuthMode::PersonalAccessToken
-            )
-        ) {
-            CHATGPT_CODEX_BASE_URL
-        } else {
-            "https://api.openai.com/v1"
-        };
-        let base_url = self
+        let _ = auth_mode;
+        let Some(base_url) = self
             .base_url
             .clone()
-            .unwrap_or_else(|| default_base_url.to_string());
+            .filter(|value| !value.trim().is_empty())
+        else {
+            return Err(CodexErr::Fatal(
+                "model provider base_url is not configured".to_string(),
+            ));
+        };
 
-        let mut headers = self.build_header_map()?;
-        if let Some(requirement) = read_managed_residency_requirement() {
-            let value = match requirement {
-                ResidencyRequirement::Us => HeaderValue::from_static("us"),
-            };
-            headers.insert(RESIDENCY_HEADER_NAME, value);
-        }
+        let headers = self.api_headers()?;
         let retry = ApiRetryConfig {
             max_attempts: self.request_max_retries(),
             base_delay: Duration::from_millis(200),

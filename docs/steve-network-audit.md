@@ -193,8 +193,8 @@ Sources: `codex-rs/cloud-tasks/src/lib.rs`,
 
 | Mechanism | Destination | Data leaving the client | Control |
 | --- | --- | --- | --- |
-| Inference | Selected provider's `base_url`; defaults can be `api.openai.com/v1` or `chatgpt.com/backend-api/codex` | Prompts, conversation context, tool definitions and results, model/reasoning settings, request metadata and authentication | Configure the intended provider and an explicit base URL. Provider credentials and first-party authentication have separate selection rules. |
-| Model discovery | Provider `/models`, explicit catalog URL, or eligible first-party catalog fallback | Authentication, configured headers/query parameters and client version; receives model definitions and ETag | An explicit provider base or catalog URL prevents the first-party default-base substitution. Cache/refresh policy also controls fetching. |
+| Inference | Selected provider's explicit `base_url` | Prompts, conversation context, tool definitions and results, model/reasoning settings, request metadata and authentication | A missing base URL is not replaced with `api.openai.com` or `chatgpt.com`. An explicit base URL is used as configured. |
+| Model discovery | Provider `/models` or an explicit catalog URL | Authentication, configured headers/query parameters and client version; receives model definitions and ETag | A missing base URL is not replaced with the ChatGPT Codex catalog. Cache/refresh policy also controls fetching. |
 | Built-in Statsig metrics | none | A configured `statsig` metrics exporter does not create a client or send metrics. | The config value still parses. Explicit OTLP collectors are unchanged. |
 | Explicit OTLP | Configured HTTP/gRPC endpoints | Configured metrics, logs or traces and resource attributes; content depends on instrumentation and logging settings | Configure the individual exporters. Analytics consent does not override these explicitly configured collectors. |
 | App-server analytics | none | Steve does not POST `{chatgpt_base_url}/codex/analytics-events/events`. | `[analytics].enabled` still parses. A debug capture file can record events locally. |

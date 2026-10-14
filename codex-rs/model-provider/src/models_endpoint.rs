@@ -23,7 +23,6 @@ use codex_login::GatewayAuthManager;
 use codex_login::collect_auth_env_telemetry;
 use codex_login::default_client::ClientRedirectPolicy;
 use codex_login::default_client::create_client_for_route_async;
-use codex_model_provider_info::CHATGPT_CODEX_BASE_URL;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_models_manager::manager::ModelsEndpointClient;
 use codex_models_manager::manager::ModelsEndpointFuture;
@@ -109,15 +108,17 @@ impl OpenAiModelsEndpoint {
         );
         let identity = crate::models_identity::identity(&self.provider_info, auth.as_ref())?;
         let auth_mode = auth.as_ref().map(CodexAuth::auth_mode);
-        let mut api_provider = self.provider_info.to_api_provider(auth_mode)?;
-        if (auth.as_ref().is_some_and(CodexAuth::is_api_key_auth) || self.has_provider_api_key())
-            && self.supports_api_key_models()
-            && self.provider_info.base_url.is_none()
-            && self.provider_info.model_catalog_url.is_none()
-        {
-            // Codex metadata is served by the Codex backend, not the public /v1/models API.
-            api_provider.base_url = CHATGPT_CODEX_BASE_URL.to_string();
-        }
+        let api_provider = match self.provider_info.to_api_provider(auth_mode) {
+            Ok(provider) => provider,
+            Err(error) => match self.provider_info.model_catalog_url.clone() {
+                Some(catalog_url) => {
+                    let mut provider_info = self.provider_info.clone();
+                    provider_info.base_url = Some(catalog_url.into_inner());
+                    provider_info.to_api_provider(auth_mode)?
+                }
+                None => return Err(error),
+            },
+        };
         let resolved = compose_auth(
             &self.provider_info,
             self.gateway_auth_manager.as_ref(),
@@ -466,14 +467,8 @@ mod tests {
         for (name, base_url, models_url, inference_url) in [
             (
                 "OpenAI",
-                None,
-                Some("https://chatgpt.com/backend-api/codex/models"),
-                "https://api.openai.com/v1",
-            ),
-            (
-                "OpenAI",
                 Some("https://example.com/codex"),
-                None,
+                None::<&str>,
                 "https://example.com/codex",
             ),
             (
@@ -481,6 +476,12 @@ mod tests {
                 Some("https://example.openai.azure.com/openai/v1"),
                 None,
                 "https://example.openai.azure.com/openai/v1",
+            ),
+            (
+                "Cambridge",
+                Some("https://llm.hpc.cam.ac.uk/v1"),
+                None,
+                "https://llm.hpc.cam.ac.uk/v1",
             ),
         ] {
             let capture = Arc::new(CaptureModelsUrl(Mutex::new(/*t*/ None)));
@@ -518,7 +519,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn provider_api_key_without_endpoint_overrides_uses_codex_backend() {
+    async fn provider_api_key_without_base_url_does_not_request_a_catalog() {
         for auth in [
             None,
             Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
@@ -542,13 +543,8 @@ mod tests {
                     HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
                 )
                 .await;
-            assert_eq!(
-                *capture.0.lock().unwrap(),
-                Some(format!(
-                    "{CHATGPT_CODEX_BASE_URL}/models?client_version={}",
-                    codex_models_manager::client_version_to_whole(),
-                ))
-            );
+            let observed = capture.0.lock().unwrap().clone();
+            assert!(observed.is_none(), "{observed:?}");
         }
     }
 
