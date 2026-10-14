@@ -1,11 +1,11 @@
-//! Timing and easing for smooth rotation and focus fades.
+//! Timing and easing for silent calling and focus fades.
 
 use std::time::Duration;
 
 pub(super) const STATIC_FADE: Duration = Duration::from_millis(/*millis*/ 400);
 pub(super) const STATIC_OPACITY: f32 = 0.18;
-// The renderer performs two complete rotations per loop.
-pub(super) const LOOP_SECONDS: f64 = 7.2;
+// Complete 12 calls and settle at the open-mouth half-cycle.
+pub(super) const LOOP_SECONDS: f64 = 0.864;
 pub(super) const SPIN_DURATION: Duration = Duration::from_millis(/*millis*/ 10_800);
 
 pub(super) fn static_opacity(elapsed: Duration, from: f32) -> f32 {

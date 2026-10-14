@@ -60,15 +60,13 @@ impl Renderer {
         let columns = usize::from(columns);
         let rows = usize::from(rows);
         let phase = phase.rem_euclid(/*rhs*/ 1.0);
-        let second = if phase >= 0.5 { 1.0 } else { 0.0 };
-        let spin = smooth((phase * 2.0 - second) / 0.82);
-        let morph = smooth((spin - 2.0 / 3.0) * 3.0);
-        let rotation = (second + spin) * TAU;
-        let blend = if second == 1.0 { 1.0 - morph } else { morph };
+        let blend = smooth((1.0 - (phase * TAU).cos()) * 0.5);
+        let rotation: f64 = 0.0;
+        let nod = (phase * TAU).sin() * 0.025;
         let (sx, cx) = (rotation.sin() * WOBBLE).sin_cos();
         let (sy, cy) = rotation.sin_cos();
-        let (sz, cz) = ((phase * TAU).sin() * 0.045).sin_cos();
-        let bevel = 0.075 + blend * 0.012;
+        let (sz, cz) = (0.0_f64).sin_cos();
+        let bevel = 0.045;
         let dot_columns = columns * 2;
         let dot_rows = rows * 4;
         let dot_width = 800.0 / dot_columns as f64;
@@ -78,7 +76,8 @@ impl Renderer {
             *value =
                 (f64::from(FIELDS[0][i]) * (1.0 - blend) + f64::from(FIELDS[1][i]) * blend) as f32;
         }
-        let mut project = |[x, y, mut z]: [f64; 3], [mut nx, mut ny, mut nz]: [f64; 3]| {
+        let mut project = |[x, mut y, mut z]: [f64; 3], [mut nx, mut ny, mut nz]: [f64; 3]| {
+            y += nod * ((0.35 - y) / 0.5).clamp(0.0, 1.0);
             let u = x * 2.2 + y * 0.7;
             let v = y * 2.8 - x * 0.4;
             z += u.sin() * 0.075 + v.sin() * 0.04;
