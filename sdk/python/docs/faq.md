@@ -2,16 +2,16 @@
 
 ## Is the Python SDK stable?
 
-`steve-sdk` publishes stable releases. Install the latest one with
-`pip install steve-sdk`.
+Registry publication of `steve-sdk` is pending. Use the local checkout and CLI
+configuration described in [Getting Started](getting-started.md).
 
 ## Why does the SDK install a runtime package?
 
-Stable CLI releases publish the SDK with the same version and an exact runtime
-pin. CLI prereleases do not trigger Python package publishing. Independent SDK
-beta releases can still be published manually with a different version number,
-but must pin a compatible runtime. The dependency is installed automatically.
-See [Python SDK releases](../RELEASING.md) for publishing and retry instructions.
+SDK release metadata pins a matching `steve-cli-bin` runtime. Local development
+resolves that dependency from the adjacent runtime checkout, which contains no
+native payload until package staging. Pass a local CLI build through
+`SteveConfig(steve_bin="/path/to/steve")`.
+See [Python SDK releases](../RELEASING.md) for the release procedure.
 
 ## Thread vs turn
 

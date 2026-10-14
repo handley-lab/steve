@@ -2022,7 +2022,11 @@ foo = "xyzzy"
             windows_system_requirements_toml_file()
                 .expect("requirements.toml path")
                 .as_path()
-                .ends_with(Path::new("OpenAI").join("Steve").join("requirements.toml"))
+                .ends_with(
+                    Path::new("HandleyLab")
+                        .join("Steve")
+                        .join("requirements.toml")
+                )
         );
     }
 
@@ -2044,7 +2048,7 @@ foo = "xyzzy"
             windows_system_config_toml_file()
                 .expect("config.toml path")
                 .as_path()
-                .ends_with(Path::new("OpenAI").join("Steve").join("config.toml"))
+                .ends_with(Path::new("HandleyLab").join("Steve").join("config.toml"))
         );
     }
 }

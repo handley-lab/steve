@@ -77,7 +77,7 @@ class InstallShTest(unittest.TestCase):
             self.assertEqual(old_bin.read_text(), canary)
             self.assertEqual(old_config.read_bytes(), b"Codex configuration canary\n")
             self.assertEqual(list(old_home.iterdir()), [old_config])
-            self.assertNotIn("Detected existing", result.stdout)
+            self.assertNotIn(str(old_bin), result.stdout)
             self.assertTrue((root / "install-bin" / "steve").is_symlink())
             self.assertTrue(all("handley-lab/steve" in url for url in requests))
 

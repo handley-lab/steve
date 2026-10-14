@@ -20,14 +20,8 @@ authorization or approval; example 16 establishes the user's task first.
 - Python `>=3.10`
 - Install the SDK for the same Python interpreter you will use to run examples
 
-Install the published SDK:
-
-```bash
-python -m pip install steve-sdk
-```
-
-The SDK installs its pinned `steve-cli-bin` runtime dependency.
-The pinned runtime version comes from the SDK package dependency.
+Registry publication is pending. For local use with an explicitly configured CLI
+build, follow [Getting Started](../docs/getting-started.md).
 
 ## Run From A Checkout
 
@@ -42,6 +36,8 @@ source .venv/bin/activate
 The examples bootstrap local SDK imports from `sdk/python/src`. If the pinned
 runtime is not already installed, the bootstrap installs the matching runtime
 package for the active interpreter and cleans up temporary files afterward.
+These scripts therefore require a staged matching runtime; automatic release
+downloads will not work until Steve releases are published.
 
 ## Run examples
 

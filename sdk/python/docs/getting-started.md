@@ -1,14 +1,14 @@
 # Getting Started
 
-This guide gets a published OpenAI Steve Python SDK installation running
+This guide gets a local Steve Python SDK checkout running
 with a multi-turn thread.
 
 ## 1. Install
 
-Install the SDK:
+Registry publication is pending. From `sdk/python`, prepare the local environment:
 
 ```bash
-pip install steve-sdk
+uv sync --group dev
 ```
 
 Requirements:
@@ -16,8 +16,18 @@ Requirements:
 - Python `>=3.10`
 - An existing Steve account session, or one of the login flows below
 
-The SDK installs its matching `steve-cli-bin` runtime dependency
-automatically. Stable SDK releases track the corresponding stable Steve CLI release.
+The local runtime checkout contains no native payload. Build the CLI as described
+in the [repository README](../../../README.md), then pass its absolute path in
+`SteveConfig(steve_bin="/path/to/steve")` when constructing `Steve`:
+
+```python
+from steve_sdk import Steve, SteveConfig
+
+with Steve(config=SteveConfig(steve_bin="/path/to/steve")) as codex:
+    print(codex.models())
+```
+
+The remaining examples assume the same local CLI configuration.
 
 ## 2. Authenticate When Needed
 
