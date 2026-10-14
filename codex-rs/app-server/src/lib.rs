@@ -498,7 +498,7 @@ pub async fn run_main_with_transport_options(
     cli_config_overrides: CliConfigOverrides,
     loader_overrides: LoaderOverrides,
     strict_config: bool,
-    default_analytics_enabled: bool,
+    _default_analytics_enabled: bool,
     transport: AppServerTransport,
     session_source: SessionSource,
     auth: WebsocketAuthSettings,
@@ -639,7 +639,6 @@ pub async fn run_main_with_transport_options(
         &config,
         env!("CARGO_PKG_VERSION"),
         Some(OTEL_SERVICE_NAME),
-        default_analytics_enabled,
     )
     .map_err(|e| {
         std::io::Error::new(
@@ -913,7 +912,6 @@ pub async fn run_main_with_transport_options(
         otel_logger_reload_handle,
         config_manager.clone(),
         Arc::clone(&auth_manager),
-        default_analytics_enabled,
         transport_shutdown_token.clone(),
     );
 

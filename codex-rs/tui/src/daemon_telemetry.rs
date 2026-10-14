@@ -46,7 +46,6 @@ pub(super) async fn record_start(
             config,
             env!("CARGO_PKG_VERSION"),
             /*service_name_override*/ None,
-            /*default_analytics_enabled*/ true,
         )
     })) else {
         return;

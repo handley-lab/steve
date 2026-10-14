@@ -126,7 +126,6 @@ metrics_exporter = {{ otlp-http = {{ endpoint = "{}/metrics", protocol = "json" 
         &config,
         "test",
         Some("steve-app-server"),
-        /*default_analytics_enabled*/ false,
     )
     .map_err(|error| anyhow::anyhow!(error.to_string()))?
     .expect("OTLP enabled");

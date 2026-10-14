@@ -105,7 +105,6 @@ impl MetricReader for SharedManualReader {
 
 #[derive(Debug)]
 pub(super) struct MetricsClientInner {
-    pub(super) network_policy: codex_http_client::NetworkPolicy,
     meter_provider: SdkMeterProvider,
     meter: Meter,
     counters: Mutex<HashMap<InstrumentKey, Counter<u64>>>,
@@ -114,7 +113,6 @@ pub(super) struct MetricsClientInner {
     duration_histograms: Mutex<HashMap<InstrumentKey, Histogram<f64>>>,
     runtime_reader: Option<Arc<ManualReader>>,
     requires_analytics_consent: bool,
-    statsig_disabled_metrics: &'static [&'static str],
     default_tags: BTreeMap<String, String>,
 }
 
@@ -134,10 +132,6 @@ impl MetricsClientInner {
             });
         }
         let attributes = self.attributes(tags)?;
-
-        if self.statsig_disabled_metrics.contains(&name) {
-            return Ok(());
-        }
 
         let mut counters = self
             .counters
@@ -169,10 +163,6 @@ impl MetricsClientInner {
         validate_metric_name(name)?;
         let attributes = self.attributes(tags)?;
 
-        if self.statsig_disabled_metrics.contains(&name) {
-            return Ok(());
-        }
-
         let mut histograms = self
             .histograms
             .lock()
@@ -197,10 +187,6 @@ impl MetricsClientInner {
     ) -> Result<()> {
         validate_metric_name(name)?;
         let attributes = self.attributes(tags)?;
-
-        if self.statsig_disabled_metrics.contains(&name) {
-            return Ok(());
-        }
 
         let mut gauges = self
             .gauges
@@ -232,10 +218,6 @@ impl MetricsClientInner {
         validate_metric_name(name)?;
         let attributes = self.attributes(tags)?;
 
-        if self.statsig_disabled_metrics.contains(&name) {
-            return Ok(());
-        }
-
         let _gauge = self
             .meter
             .i64_observable_gauge(name.to_string())
@@ -256,10 +238,6 @@ impl MetricsClientInner {
     ) -> Result<()> {
         validate_metric_name(name)?;
         let attributes = self.attributes(tags)?;
-
-        if self.statsig_disabled_metrics.contains(&name) {
-            return Ok(());
-        }
 
         let mut histograms = self
             .duration_histograms
@@ -336,7 +314,6 @@ impl MetricsClient {
             exporter,
             export_interval,
             runtime_reader,
-            statsig_disabled_metrics,
             default_tags,
         } = config;
 
@@ -363,8 +340,6 @@ impl MetricsClient {
             )
         });
 
-        let requires_analytics_consent =
-            matches!(exporter, MetricsExporter::Otlp(OtelExporter::Statsig));
         let (meter_provider, meter) = match exporter {
             MetricsExporter::InMemory(exporter) => {
                 build_provider(resource, exporter, export_interval, runtime_reader.clone())
@@ -390,7 +365,6 @@ impl MetricsClient {
 
         Ok(Self {
             inner: Arc::new(MetricsClientInner {
-                network_policy: http_client_factory.network_policy().clone(),
                 meter_provider,
                 meter,
                 counters: Mutex::new(HashMap::new()),
@@ -398,8 +372,7 @@ impl MetricsClient {
                 histograms: Mutex::new(HashMap::new()),
                 duration_histograms: Mutex::new(HashMap::new()),
                 runtime_reader,
-                requires_analytics_consent,
-                statsig_disabled_metrics,
+                requires_analytics_consent: false,
                 default_tags,
             }),
             active: None,
@@ -620,9 +593,8 @@ where
 }
 
 fn otlp_metrics_temporality(exporter: &OtelExporter, preference: Option<&str>) -> Temporality {
-    // Select before resolving Statsig to OTLP so its built-in route stays Delta.
     match exporter {
-        OtelExporter::None | OtelExporter::Statsig => Temporality::Delta,
+        OtelExporter::None => Temporality::Delta,
         OtelExporter::OtlpGrpc { .. } | OtelExporter::OtlpHttp { .. } => match preference {
             Some(value) if value.eq_ignore_ascii_case("cumulative") => Temporality::Cumulative,
             Some(value) if value.eq_ignore_ascii_case("lowmemory") => Temporality::LowMemory,
@@ -639,11 +611,6 @@ fn build_otlp_metric_exporter(
 ) -> Result<opentelemetry_otlp::MetricExporter> {
     match exporter {
         OtelExporter::None => Err(MetricsError::ExporterDisabled),
-        OtelExporter::Statsig => build_otlp_metric_exporter(
-            crate::config::resolve_exporter(&OtelExporter::Statsig),
-            temporality,
-            factory,
-        ),
         OtelExporter::OtlpGrpc {
             endpoint,
             headers,

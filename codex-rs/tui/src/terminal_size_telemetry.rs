@@ -8,8 +8,7 @@ pub(crate) type LaunchTags = Vec<(&'static str, &'static str)>;
 
 pub(crate) fn enabled(config: &Config) -> bool {
     match config.otel.metrics_exporter {
-        OtelExporterKind::None => false,
-        OtelExporterKind::Statsig => config.analytics_enabled != Some(false),
+        OtelExporterKind::None | OtelExporterKind::Statsig => false,
         OtelExporterKind::OtlpHttp { .. } | OtelExporterKind::OtlpGrpc { .. } => true,
     }
 }

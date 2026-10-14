@@ -642,7 +642,7 @@ pub struct OtelConfigToml {
     /// Optional trace exporter
     pub trace_exporter: Option<OtelExporterKind>,
 
-    /// Metrics exporter. Defaults to `statsig`, which follows `analytics.enabled`.
+    /// Metrics exporter. Defaults to `statsig`, which parses and does not export.
     /// Custom OTLP exporters are independent of `analytics.enabled`; `none` disables metrics export.
     pub metrics_exporter: Option<OtelExporterKind>,
 

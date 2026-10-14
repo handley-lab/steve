@@ -12,8 +12,7 @@ fn counter_consent_uses_the_active_exporter() -> Result<()> {
     let mut builtin = MetricsClient::new(
         MetricsConfig::in_memory("test", "test", "1", Default::default()).with_runtime_reader(),
     )?;
-    // Use the existing in-memory exporter to observe the built-in consent policy without
-    // contacting Statsig (the real Statsig exporter is disabled in debug builds).
+    // The in-memory exporter carries the consent flag this test observes.
     Arc::get_mut(&mut builtin.inner)
         .expect("unique provider")
         .requires_analytics_consent = true;

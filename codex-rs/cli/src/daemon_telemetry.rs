@@ -7,7 +7,6 @@ use tokio::time::timeout;
 
 pub(crate) async fn record_command(
     overrides: &CliConfigOverrides,
-    analytics_default_enabled: bool,
     target: &'static str,
     result: &anyhow::Result<Option<codex_app_server_daemon::UpdateOutput>>,
 ) {
@@ -38,7 +37,6 @@ pub(crate) async fn record_command(
             &config,
             env!("CARGO_PKG_VERSION"),
             /*service_name_override*/ None,
-            analytics_default_enabled,
         )
     })) else {
         return;

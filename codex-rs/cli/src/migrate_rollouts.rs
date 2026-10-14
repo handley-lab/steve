@@ -60,7 +60,6 @@ pub(crate) async fn run(
         &config,
         env!("CARGO_PKG_VERSION"),
         /*service_name_override*/ None,
-        /*default_analytics_enabled*/ true,
     )
     .unwrap_or_else(|error| {
         eprintln!("Could not create otel exporter: {error}");

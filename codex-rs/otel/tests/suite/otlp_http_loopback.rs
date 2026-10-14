@@ -310,7 +310,7 @@ fn otlp_http_exporter_honors_cumulative_temporality_env() -> Result<()> {
     );
     assert!(
         body.contains(EXEC_SERVER_CLIENT_REQUEST_COUNT_METRIC),
-        "custom OTLP must retain the exec-server client counter excluded from built-in Statsig"
+        "custom OTLP must retain the exec-server client counter"
     );
     assert!(
         body.contains("\"codex.api_request.duration_ms\""),

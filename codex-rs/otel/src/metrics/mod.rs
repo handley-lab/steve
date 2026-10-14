@@ -9,7 +9,6 @@ pub(crate) mod tags;
 pub(crate) mod timer;
 pub(crate) mod validation;
 
-use crate::config::StatsigMetricsSettings;
 pub use crate::metrics::buffered::record_global_operation;
 pub use crate::metrics::client::MetricsClient;
 pub use crate::metrics::config::MetricsConfig;
@@ -26,7 +25,6 @@ pub use tags::SessionMetricTagValues;
 pub use tags::bounded_originator_tag_value;
 
 static GLOBAL_METRICS: OnceLock<MetricsClient> = OnceLock::new();
-static GLOBAL_STATSIG_METRICS_SETTINGS: OnceLock<StatsigMetricsSettings> = OnceLock::new();
 
 pub(crate) fn install_global(mut metrics: MetricsClient) -> MetricsClient {
     let active = GLOBAL_METRICS
@@ -46,16 +44,3 @@ pub fn global() -> Option<MetricsClient> {
     GLOBAL_METRICS.get().cloned()
 }
 
-pub(crate) fn install_global_statsig_settings(settings: StatsigMetricsSettings) {
-    let _ = GLOBAL_STATSIG_METRICS_SETTINGS.set(settings);
-}
-
-pub(crate) fn global_statsig_settings() -> Option<StatsigMetricsSettings> {
-    if GLOBAL_METRICS
-        .get()
-        .is_some_and(|metrics| metrics.active_inner().network_policy.is_managed())
-    {
-        return None;
-    }
-    GLOBAL_STATSIG_METRICS_SETTINGS.get().cloned()
-}

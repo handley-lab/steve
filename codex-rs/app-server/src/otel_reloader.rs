@@ -46,7 +46,6 @@ pub(crate) fn spawn<S>(
     logger_reload_handle: reload::Handle<OtelExportLayer<S>, S>,
     config_manager: ConfigManager,
     auth_manager: Arc<AuthManager>,
-    default_analytics_enabled: bool,
     shutdown_token: CancellationToken,
 ) -> JoinHandle<()>
 where
@@ -77,7 +76,6 @@ where
                         &config,
                         env!("CARGO_PKG_VERSION"),
                         Some(OTEL_SERVICE_NAME),
-                        default_analytics_enabled,
                     ) {
                         Ok(provider) => provider,
                         Err(error) => {

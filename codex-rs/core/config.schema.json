@@ -3486,7 +3486,7 @@
               "$ref": "#/definitions/OtelExporterKind"
             }
           ],
-          "description": "Metrics exporter. Defaults to `statsig`, which follows `analytics.enabled`. Custom OTLP exporters are independent of `analytics.enabled`; `none` disables metrics export."
+          "description": "Metrics exporter. Defaults to `statsig`, which parses and does not export. Custom OTLP exporters are independent of `analytics.enabled`; `none` disables metrics export."
         },
         "span_attributes": {
           "additionalProperties": {

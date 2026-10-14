@@ -1360,7 +1360,6 @@ async fn cli_main(
                         .await;
                         daemon_telemetry::record_command(
                             &root_config_overrides,
-                            analytics_default_enabled,
                             "this_cli",
                             &result,
                         )
@@ -1414,7 +1413,6 @@ async fn cli_main(
                                 .map(Some);
                             daemon_telemetry::record_command(
                                 &root_config_overrides,
-                                analytics_default_enabled,
                                 "public_stable",
                                 &result,
                             )
