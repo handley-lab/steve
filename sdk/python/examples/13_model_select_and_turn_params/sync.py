@@ -9,11 +9,11 @@ from _bootstrap import ensure_local_sdk_src, runtime_config
 
 ensure_local_sdk_src()
 
-from openai_codex import (
-    Codex,
+from steve_sdk import (
     Sandbox,
+    Steve,
 )
-from openai_codex.types import (
+from steve_sdk.types import (
     ReasoningEffort,
     ReasoningSummary,
 )
@@ -66,7 +66,7 @@ OUTPUT_SCHEMA = {
     "additionalProperties": False,
 }
 
-with Codex(config=runtime_config()) as codex:
+with Steve(config=runtime_config()) as codex:
     models = codex.models(include_hidden=True)
     selected_model = _pick_highest_model(models.data)
     selected_effort = _pick_highest_turn_effort(selected_model)

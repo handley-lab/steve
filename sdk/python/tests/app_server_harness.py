@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from openai_codex import CodexConfig
+from steve_sdk import SteveConfig
 
 Json = dict[str, Any]
 
@@ -226,19 +226,19 @@ class AppServerHarness:
         shutil.rmtree(self.codex_home, ignore_errors=True)
         shutil.rmtree(self.workspace, ignore_errors=True)
 
-    def app_server_config(self) -> CodexConfig:
+    def app_server_config(self) -> SteveConfig:
         """Prefer the CI binary, then a local debug build, then the installed runtime."""
-        binary_name = "codex.exe" if os.name == "nt" else "codex"
+        binary_name = "steve.exe" if os.name == "nt" else "steve"
         debug_binary = Path(__file__).resolve().parents[3] / "codex-rs/target/debug" / binary_name
-        codex_bin = os.environ.get("CODEX_EXEC_PATH")
-        if codex_bin is None and debug_binary.is_file():
-            codex_bin = str(debug_binary)
-        return CodexConfig(
-            codex_bin=codex_bin,
+        steve_bin = os.environ.get("STEVE_EXEC_PATH")
+        if steve_bin is None and debug_binary.is_file():
+            steve_bin = str(debug_binary)
+        return SteveConfig(
+            steve_bin=steve_bin,
             cwd=str(self.workspace),
             env={
-                "CODEX_HOME": str(self.codex_home),
-                "CODEX_APP_SERVER_DISABLE_MANAGED_CONFIG": "1",
+                "STEVE_HOME": str(self.codex_home),
+                "STEVE_APP_SERVER_DISABLE_MANAGED_CONFIG": "1",
                 "RUST_LOG": "warn",
             },
         )

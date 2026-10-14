@@ -35,7 +35,7 @@ def ensure_local_sdk_src() -> Path:
     """Add sdk/python/src to sys.path so examples run without installing the package."""
     sdk_python_dir = _SDK_PYTHON_DIR
     src_dir = sdk_python_dir / "src"
-    package_dir = src_dir / "openai_codex"
+    package_dir = src_dir / "steve_sdk"
     if not package_dir.exists():
         raise RuntimeError(f"Could not locate local SDK package at {package_dir}")
 
@@ -48,11 +48,11 @@ def ensure_local_sdk_src() -> Path:
 
 
 def runtime_config():
-    """Return an example-friendly CodexConfig for repo-source SDK usage."""
-    from openai_codex import CodexConfig
+    """Return an example-friendly SteveConfig for repo-source SDK usage."""
+    from steve_sdk import SteveConfig
 
     ensure_runtime_package_installed(sys.executable, _SDK_PYTHON_DIR)
-    return CodexConfig()
+    return SteveConfig()
 
 
 def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:

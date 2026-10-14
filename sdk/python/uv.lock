@@ -6,8 +6,8 @@ requires-python = ">=3.10"
 exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "P7D"
 
-[options.exclude-newer-package]
-openai-codex-cli-bin = "2026-09-09T06:06:45Z"
+[manifest]
+overrides = [{ name = "steve-cli-bin", directory = "../python-runtime" }]
 
 [[package]]
 name = "annotated-types"
@@ -278,66 +278,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a2/6e/371856a3fb9d31ca8dac321cda606860fa4548858c0cc45d9d1d4ca2628b/mypy_extensions-1.1.0.tar.gz", hash = "sha256:52e68efc3284861e772bbcd66823fde5ae21fd2fdb51c62a211403730b916558", size = 6343, upload-time = "2025-04-22T14:54:24.164Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/79/7b/2c79738432f5c924bef5071f933bcc9efd0473bac3b4aa584a6f7c1c8df8/mypy_extensions-1.1.0-py3-none-any.whl", hash = "sha256:1be4cccdb0f2482337c4743e60421de3a356cd97508abadd57d47403e94f5505", size = 4963, upload-time = "2025-04-22T14:54:22.983Z" },
-]
-
-[[package]]
-name = "openai-codex"
-version = "0.0.0.dev0"
-source = { editable = "." }
-dependencies = [
-    { name = "openai-codex-cli-bin" },
-    { name = "packaging" },
-    { name = "pydantic" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "datamodel-code-generator" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-format = [
-    { name = "ruff" },
-]
-test = [
-    { name = "datamodel-code-generator" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "openai-codex-cli-bin", specifier = "==0.153.4" },
-    { name = "packaging", specifier = ">=26.2" },
-    { name = "pydantic", specifier = ">=2.12" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "datamodel-code-generator", specifier = "==0.31.2" },
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "ruff", specifier = ">=0.15.8" },
-]
-format = [{ name = "ruff", specifier = ">=0.15.8" }]
-test = [
-    { name = "datamodel-code-generator", specifier = "==0.31.2" },
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "ruff", specifier = ">=0.15.8" },
-]
-
-[[package]]
-name = "openai-codex-cli-bin"
-version = "0.153.4"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/4f/16/b28109968c0912956a52f41eb022605c6eaba2d4793b5e9f4b9479c954e2/openai_codex_cli_bin-0.153.4-py3-none-macosx_10_9_x86_64.whl", hash = "sha256:637bdf17d6387e9ae12e1094af6aa22dabc2ba55c100ee0310178e79427b2e69", size = 121719355, upload-time = "2026-09-09T06:06:11.682Z" },
-    { url = "https://files.pythonhosted.org/packages/68/69/7dd4cb9135ac893985c92ecc03dc3df8408917d469fb3df6650af2fde328/openai_codex_cli_bin-0.153.4-py3-none-macosx_11_0_arm64.whl", hash = "sha256:08c80523fd3674e7d6f36bccc69557f9bac257cbd7ad937309dad0457e1a7845", size = 111925786, upload-time = "2026-09-09T06:06:16.767Z" },
-    { url = "https://files.pythonhosted.org/packages/16/e7/57e5dce0b13c0643cd20f308d9e727a44d542bca38f958f038204f959687/openai_codex_cli_bin-0.153.4-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:f92f0aff384258f5bac3519cd9ad2639be08239004452d0e4b00725e5fe62bba", size = 117599105, upload-time = "2026-09-09T06:06:22.08Z" },
-    { url = "https://files.pythonhosted.org/packages/5a/b3/938bfc0cfdaa06881d904b1c9a3151c1252e278d00fe1afcbb954cee65c4/openai_codex_cli_bin-0.153.4-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:584ecdbd81b01b3002ecbdddfa009dc8d7bfdbed9c208a0fa8c131a2e337bba6", size = 127000985, upload-time = "2026-09-09T06:06:26.535Z" },
-    { url = "https://files.pythonhosted.org/packages/59/e8/9743befc32fa292d3682075c15e056044652dae1bab9581a9e9ee0cd352b/openai_codex_cli_bin-0.153.4-py3-none-musllinux_1_1_aarch64.whl", hash = "sha256:fef1cc54d7408da08f9bfa6179c7fad4231591c29f76eb339d0a59e540b3e718", size = 117599103, upload-time = "2026-09-09T06:06:30.967Z" },
-    { url = "https://files.pythonhosted.org/packages/06/d2/ded14722031d8dda9c796ab8d39f8a29cbae27d28bf2b1a0b12c2e429c6f/openai_codex_cli_bin-0.153.4-py3-none-musllinux_1_1_x86_64.whl", hash = "sha256:0f97697f39fd9fd32fbf9caa29df8ff0a6cfe33755f4f007bc97ee4cb88a7743", size = 127000983, upload-time = "2026-09-09T06:06:35.565Z" },
-    { url = "https://files.pythonhosted.org/packages/a9/b4/afec4ffe8a3e3f2b5fa7ef6d892b830f63ee8aaa5c222b23652329bc3e4e/openai_codex_cli_bin-0.153.4-py3-none-win_amd64.whl", hash = "sha256:9b52da6531617a363a165c246aded59a1a61e82fac623ab97e095cc37a5038c5", size = 136934929, upload-time = "2026-09-09T06:06:40.046Z" },
-    { url = "https://files.pythonhosted.org/packages/8c/d3/e8de747460d8d2934dce84867ac8227d4d2d4b31f111e881076f97525a72/openai_codex_cli_bin-0.153.4-py3-none-win_arm64.whl", hash = "sha256:23240c7041a8ef5f22297c3fead21da0143dcec2a186d9b64f386f52b396da47", size = 126478600, upload-time = "2026-09-09T06:06:44.431Z" },
 ]
 
 [[package]]
@@ -660,6 +600,56 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ea/f9/0ae446942c846b8266059ad8a30702a35afae55f5cdc54c5adf8d7afdc27/ruff-0.15.12-py3-none-win32.whl", hash = "sha256:d0185894e038d7043ba8fd6aee7499ece6462dc0ea9f1e260c7451807c714c20", size = 10657277, upload-time = "2026-04-24T18:17:18.591Z" },
     { url = "https://files.pythonhosted.org/packages/33/f1/9614e03e1cdcbf9437570b5400ced8a720b5db22b28d8e0f1bda429f660d/ruff-0.15.12-py3-none-win_amd64.whl", hash = "sha256:c87a162d61ab3adca47c03f7f717c68672edec7d1b5499e652331780fe74950d", size = 11837758, upload-time = "2026-04-24T18:17:00.113Z" },
     { url = "https://files.pythonhosted.org/packages/c0/98/6beb4b351e472e5f4c4613f7c35a5290b8be2497e183825310c4c3a3984b/ruff-0.15.12-py3-none-win_arm64.whl", hash = "sha256:a538f7a82d061cee7be55542aca1d86d1393d55d81d4fcc314370f4340930d4f", size = 11120821, upload-time = "2026-04-24T18:16:57.979Z" },
+]
+
+[[package]]
+name = "steve-cli-bin"
+version = "0.0.0.dev0"
+source = { directory = "../python-runtime" }
+
+[[package]]
+name = "steve-sdk"
+version = "0.0.0.dev0"
+source = { editable = "." }
+dependencies = [
+    { name = "packaging" },
+    { name = "pydantic" },
+    { name = "steve-cli-bin" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "datamodel-code-generator" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+format = [
+    { name = "ruff" },
+]
+test = [
+    { name = "datamodel-code-generator" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "packaging", specifier = ">=26.2" },
+    { name = "pydantic", specifier = ">=2.12" },
+    { name = "steve-cli-bin", directory = "../python-runtime" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "datamodel-code-generator", specifier = "==0.31.2" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "ruff", specifier = ">=0.15.8" },
+]
+format = [{ name = "ruff", specifier = ">=0.15.8" }]
+test = [
+    { name = "datamodel-code-generator", specifier = "==0.31.2" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "ruff", specifier = ">=0.15.8" },
 ]
 
 [[package]]

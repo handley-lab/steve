@@ -3,9 +3,9 @@ requires = ["uv_build>=0.11.19,<0.12"]
 build-backend = "uv_build"
 
 [project]
-name = "openai-codex"
+name = "steve-sdk"
 version = "0.0.0-dev"
-description = "Python SDK for Codex"
+description = "Python SDK for Steve"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -16,13 +16,13 @@ classifiers = [
   "Intended Audience :: Developers",
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = ["pydantic>=2.12", "packaging>=26.2", "openai-codex-cli-bin==0.153.4"]
+dependencies = ["pydantic>=2.12", "packaging>=26.2", "steve-cli-bin==0.153.4"]
 
 [project.urls]
-Homepage = "https://github.com/openai/codex"
-Repository = "https://github.com/openai/codex"
-Issues = "https://github.com/openai/codex/issues"
-Documentation = "https://github.com/openai/codex/tree/main/sdk/python/docs"
+Homepage = "https://github.com/handley-lab/steve"
+Repository = "https://github.com/handley-lab/steve"
+Issues = "https://github.com/handley-lab/steve/issues"
+Documentation = "https://github.com/handley-lab/steve/tree/main/sdk/python/docs"
 
 [dependency-groups]
 format = ["ruff>=0.15.8"]
@@ -49,7 +49,7 @@ required-version = ">=0.15.8"
 line-length = 100
 extend-exclude = [
   "notebooks/**",
-  "src/openai_codex/generated/**",
+  "src/steve_sdk/generated/**",
 ]
 
 [tool.ruff.lint]
@@ -67,11 +67,13 @@ unfixable = ["F841"]
 combine-as-imports = true
 
 [tool.uv]
+override-dependencies = ["steve-cli-bin"]
 exclude-newer = "7 days"
-exclude-newer-package = { openai-codex-cli-bin = "2026-09-09T06:06:45Z" }
 index-strategy = "first-index"
+
+[tool.uv.sources]
+steve-cli-bin = { path = "../python-runtime" }
 
 [tool.uv.pip]
 exclude-newer = "7 days"
-exclude-newer-package = { openai-codex-cli-bin = "2026-09-09T06:06:45Z" }
 index-strategy = "first-index"

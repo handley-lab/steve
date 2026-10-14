@@ -5,7 +5,7 @@ import asyncio
 from app_server_harness import AppServerHarness
 from app_server_helpers import request_kind
 
-from openai_codex import AsyncCodex, Codex
+from steve_sdk import AsyncSteve, Steve
 
 
 def _thread_message_summary(read_response) -> list[tuple[str, str]]:
@@ -29,7 +29,7 @@ def _thread_message_summary(read_response) -> list[tuple[str, str]]:
 def test_thread_set_name_and_read(tmp_path) -> None:
     """Thread naming should round-trip through app-server JSON-RPC."""
     with AppServerHarness(tmp_path) as harness:
-        with Codex(config=harness.app_server_config()) as codex:
+        with Steve(config=harness.app_server_config()) as codex:
             thread = codex.thread_start()
             thread.set_name("sdk integration thread")
             named = thread.read(include_turns=True)
@@ -43,7 +43,7 @@ def test_sync_and_async_initialization_round_trip_metadata(tmp_path) -> None:
     """Public clients should initialize and start threads through app-server."""
 
     async def async_scenario(harness: AppServerHarness) -> dict[str, object]:
-        async with AsyncCodex(config=harness.app_server_config()) as codex:
+        async with AsyncSteve(config=harness.app_server_config()) as codex:
             thread = await codex.thread_start()
             server = codex.metadata.serverInfo
             return {
@@ -54,7 +54,7 @@ def test_sync_and_async_initialization_round_trip_metadata(tmp_path) -> None:
             }
 
     with AppServerHarness(tmp_path) as harness:
-        with Codex(config=harness.app_server_config()) as codex:
+        with Steve(config=harness.app_server_config()) as codex:
             thread = codex.thread_start()
             server = codex.metadata.serverInfo
             sync_summary = {
@@ -103,7 +103,7 @@ def test_thread_list_filters_archived_threads(tmp_path) -> None:
             response_id="list-archived",
         )
 
-        with Codex(config=harness.app_server_config()) as codex:
+        with Steve(config=harness.app_server_config()) as codex:
             active_thread = codex.thread_start()
             archived_thread = codex.thread_start()
             active_thread.run("keep this listed")
@@ -130,7 +130,7 @@ def test_read_include_turns_returns_persisted_history(tmp_path) -> None:
         harness.responses.enqueue_assistant_message("first answer", response_id="read-1")
         harness.responses.enqueue_assistant_message("second answer", response_id="read-2")
 
-        with Codex(config=harness.app_server_config()) as codex:
+        with Steve(config=harness.app_server_config()) as codex:
             thread = codex.thread_start()
             thread.run("first question")
             thread.run("second question")
@@ -155,7 +155,7 @@ def test_async_lifecycle_methods_round_trip(tmp_path) -> None:
                 response_id="async-lifecycle",
             )
 
-            async with AsyncCodex(config=harness.app_server_config()) as codex:
+            async with AsyncSteve(config=harness.app_server_config()) as codex:
                 thread = await codex.thread_start()
                 turn_result = await thread.run("materialize async thread")
                 await thread.set_name("async lifecycle")
@@ -189,7 +189,7 @@ def test_thread_fork_returns_distinct_thread(tmp_path) -> None:
     with AppServerHarness(tmp_path) as harness:
         harness.responses.enqueue_assistant_message("materialized", response_id="fork-seed")
 
-        with Codex(config=harness.app_server_config()) as codex:
+        with Steve(config=harness.app_server_config()) as codex:
             thread = codex.thread_start()
             seeded = thread.run("materialize this thread before fork")
             forked = codex.thread_fork(thread.id)
@@ -208,7 +208,7 @@ def test_archive_unarchive_round_trip_uses_materialized_rollout(tmp_path) -> Non
     with AppServerHarness(tmp_path) as harness:
         harness.responses.enqueue_assistant_message("materialized", response_id="archive-seed")
 
-        with Codex(config=harness.app_server_config()) as codex:
+        with Steve(config=harness.app_server_config()) as codex:
             thread = codex.thread_start()
             seeded = thread.run("materialize this thread before archive")
             archived = codex.thread_archive(thread.id)
@@ -231,7 +231,7 @@ def test_archive_unarchive_round_trip_uses_materialized_rollout(tmp_path) -> Non
 def test_models_rpc(tmp_path) -> None:
     """Model listing should go through the pinned app-server method."""
     with AppServerHarness(tmp_path) as harness:
-        with Codex(config=harness.app_server_config()) as codex:
+        with Steve(config=harness.app_server_config()) as codex:
             models = codex.models(include_hidden=True)
 
     assert {
@@ -251,7 +251,7 @@ def test_compact_rpc_hits_mock_responses(tmp_path) -> None:
             response_id="compact-summary",
         )
 
-        with Codex(config=harness.app_server_config()) as codex:
+        with Steve(config=harness.app_server_config()) as codex:
             thread = codex.thread_start()
             turn_result = thread.run("create history")
             compact_response = thread.compact()

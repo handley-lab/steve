@@ -1,16 +1,16 @@
 import path from "node:path";
 
-import { Codex } from "../src/codex";
-import type { CodexConfigObject } from "../src/codexOptions";
+import { Steve as Codex } from "../src/index";
+import type { SteveConfigObject } from "../src/codexOptions";
 
 export const codexExecPath =
-  process.env.CODEX_EXEC_PATH ??
-  path.join(process.cwd(), "..", "..", "codex-rs", "target", "debug", "codex");
+  process.env.STEVE_EXEC_PATH ??
+  path.join(process.cwd(), "..", "..", "codex-rs", "target", "debug", "steve");
 
 type CreateTestClientOptions = {
   apiKey?: string;
   baseUrl?: string;
-  config?: CodexConfigObject;
+  config?: SteveConfigObject;
   configOverrides?: string[];
   env?: Record<string, string>;
   inheritEnv?: boolean;
@@ -44,7 +44,7 @@ export function createTestClient(options: CreateTestClientOptions = {}): TestCli
   return {
     cleanup: () => {},
     client: new Codex({
-      codexPathOverride: codexExecPath,
+      stevePathOverride: codexExecPath,
       baseUrl: options.baseUrl,
       apiKey: options.apiKey,
       config: mergeTestConfig(options.baseUrl, options.config),
@@ -56,9 +56,9 @@ export function createTestClient(options: CreateTestClientOptions = {}): TestCli
 
 function mergeTestConfig(
   baseUrl: string | undefined,
-  config: CodexConfigObject | undefined,
-): CodexConfigObject | undefined {
-  const mergedConfig: CodexConfigObject | undefined =
+  config: SteveConfigObject | undefined,
+): SteveConfigObject | undefined {
+  const mergedConfig: SteveConfigObject | undefined =
     !baseUrl || hasExplicitProviderConfig(config)
       ? config
       : {
@@ -80,7 +80,7 @@ function mergeTestConfig(
   return {
     ...mergedConfig,
     // Disable plugins in SDK integration tests so background curated-plugin
-    // sync does not race temp CODEX_HOME cleanup.
+    // sync does not race temp STEVE_HOME cleanup.
     features:
       featureOverrides && typeof featureOverrides === "object" && !Array.isArray(featureOverrides)
         ? { ...featureOverrides, plugins: false }
@@ -88,7 +88,7 @@ function mergeTestConfig(
   };
 }
 
-function hasExplicitProviderConfig(config: CodexConfigObject | undefined): boolean {
+function hasExplicitProviderConfig(config: SteveConfigObject | undefined): boolean {
   return config?.model_provider !== undefined || config?.model_providers !== undefined;
 }
 
@@ -96,7 +96,7 @@ function getCurrentEnv(): Record<string, string> {
   const env: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(process.env)) {
-    if (key === "CODEX_INTERNAL_ORIGINATOR_OVERRIDE") {
+    if (key === "STEVE_INTERNAL_ORIGINATOR_OVERRIDE") {
       continue;
     }
     if (value !== undefined) {

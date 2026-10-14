@@ -5,8 +5,8 @@ import asyncio
 from app_server_harness import AppServerHarness
 from app_server_helpers import response_approval_policy
 
-from openai_codex import ApprovalMode, AsyncCodex, Codex
-from openai_codex.generated.v2_all import AskForApprovalValue, ThreadResumeParams
+from steve_sdk import ApprovalMode, AsyncSteve, Steve
+from steve_sdk.generated.v2_all import AskForApprovalValue, ThreadResumeParams
 
 
 def test_thread_resume_inherits_deny_all_approval_mode(tmp_path) -> None:
@@ -14,7 +14,7 @@ def test_thread_resume_inherits_deny_all_approval_mode(tmp_path) -> None:
     with AppServerHarness(tmp_path) as harness:
         harness.responses.enqueue_assistant_message("source seeded", response_id="resume-mode")
 
-        with Codex(config=harness.app_server_config()) as codex:
+        with Steve(config=harness.app_server_config()) as codex:
             source = codex.thread_start(approval_mode=ApprovalMode.deny_all)
             result = source.run("seed the source rollout")
             resumed = codex.thread_resume(source.id)
@@ -37,7 +37,7 @@ def test_thread_fork_inherits_deny_all_approval_mode(tmp_path) -> None:
     with AppServerHarness(tmp_path) as harness:
         harness.responses.enqueue_assistant_message("source seeded", response_id="fork-mode")
 
-        with Codex(config=harness.app_server_config()) as codex:
+        with Steve(config=harness.app_server_config()) as codex:
             source = codex.thread_start(approval_mode=ApprovalMode.deny_all)
             result = source.run("seed the source rollout")
             forked = codex.thread_fork(source.id)
@@ -65,7 +65,7 @@ def test_thread_fork_can_override_approval_mode(tmp_path) -> None:
             response_id="fork-override-mode",
         )
 
-        with Codex(config=harness.app_server_config()) as codex:
+        with Steve(config=harness.app_server_config()) as codex:
             source = codex.thread_start(approval_mode=ApprovalMode.deny_all)
             result = source.run("seed the source rollout")
             forked = codex.thread_fork(
@@ -92,7 +92,7 @@ def test_turn_approval_mode_persists_until_next_turn(tmp_path) -> None:
         harness.responses.enqueue_assistant_message("turn override", response_id="turn-mode-1")
         harness.responses.enqueue_assistant_message("turn inherited", response_id="turn-mode-2")
 
-        with Codex(config=harness.app_server_config()) as codex:
+        with Steve(config=harness.app_server_config()) as codex:
             thread = codex.thread_start()
             first_result = thread.run(
                 "deny this and later turns",
@@ -128,7 +128,7 @@ def test_thread_run_approval_mode_persists_until_explicit_override(tmp_path) -> 
         harness.responses.enqueue_assistant_message("locked down", response_id="approval-1")
         harness.responses.enqueue_assistant_message("reviewable", response_id="approval-2")
 
-        with Codex(config=harness.app_server_config()) as codex:
+        with Steve(config=harness.app_server_config()) as codex:
             thread = codex.thread_start(approval_mode=ApprovalMode.deny_all)
 
             first_result = thread.run("keep approvals denied")
@@ -176,7 +176,7 @@ def test_async_thread_run_approval_mode_persists_until_explicit_override(
                 response_id="async-approval-2",
             )
 
-            async with AsyncCodex(config=harness.app_server_config()) as codex:
+            async with AsyncSteve(config=harness.app_server_config()) as codex:
                 thread = await codex.thread_start(approval_mode=ApprovalMode.deny_all)
                 first_result = await thread.run("keep async approvals denied")
                 after_default_run = await codex._client.thread_resume(  # noqa: SLF001

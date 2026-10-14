@@ -24,7 +24,7 @@ from _runtime_setup import ensure_runtime_package_installed, pinned_runtime_vers
 RUN_REAL_CODEX_TESTS = os.environ.get("RUN_REAL_CODEX_TESTS") == "1"
 pytestmark = pytest.mark.skipif(
     not RUN_REAL_CODEX_TESTS,
-    reason="set RUN_REAL_CODEX_TESTS=1 to run real Codex integration coverage",
+    reason="set RUN_REAL_CODEX_TESTS=1 to run real Steve integration coverage",
 )
 
 # 11_cli_mini_app is interactive; we still run it by feeding one prompt, then '/exit'.
@@ -205,9 +205,9 @@ def test_real_initialize_and_model_list(runtime_env: PreparedRuntimeEnv) -> None
         textwrap.dedent(
             """
             import json
-            from openai_codex import Codex
+            from steve_sdk import Steve
 
-            with Codex() as codex:
+            with Steve() as codex:
                 models = codex.models(include_hidden=True)
                 server = codex.metadata.serverInfo
                 print(json.dumps({
@@ -234,9 +234,9 @@ def test_real_thread_and_turn_start_smoke(runtime_env: PreparedRuntimeEnv) -> No
         textwrap.dedent(
             """
             import json
-            from openai_codex import Codex
+            from steve_sdk import Steve
 
-            with Codex() as codex:
+            with Steve() as codex:
                 thread = codex.thread_start(
                     model="gpt-5.4",
                     config={"model_reasoning_effort": "high"},
@@ -266,9 +266,9 @@ def test_real_thread_run_convenience_smoke(runtime_env: PreparedRuntimeEnv) -> N
         textwrap.dedent(
             """
             import json
-            from openai_codex import Codex
+            from steve_sdk import Steve
 
-            with Codex() as codex:
+            with Steve() as codex:
                 thread = codex.thread_start(
                     model="gpt-5.4",
                     config={"model_reasoning_effort": "high"},
@@ -296,9 +296,9 @@ def test_real_quickstart_style_flow_smoke(runtime_env: PreparedRuntimeEnv) -> No
         textwrap.dedent(
             """
             import json
-            from openai_codex import Codex
+            from steve_sdk import Steve
 
-            with Codex() as codex:
+            with Steve() as codex:
                 thread = codex.thread_start()
                 result = thread.run("Say hello in one sentence.")
                 print(json.dumps({
@@ -331,10 +331,10 @@ def test_real_async_thread_turn_usage_and_ids_smoke(
             """
             import asyncio
             import json
-            from openai_codex import AsyncCodex
+            from steve_sdk import AsyncSteve
 
             async def main():
-                async with AsyncCodex() as codex:
+                async with AsyncSteve() as codex:
                     thread = await codex.thread_start(
                         model="gpt-5.4",
                         config={"model_reasoning_effort": "high"},
@@ -369,10 +369,10 @@ def test_real_async_thread_run_convenience_smoke(
             """
             import asyncio
             import json
-            from openai_codex import AsyncCodex
+            from steve_sdk import AsyncSteve
 
             async def main():
-                async with AsyncCodex() as codex:
+                async with AsyncSteve() as codex:
                     thread = await codex.thread_start(
                         model="gpt-5.4",
                         config={"model_reasoning_effort": "high"},
@@ -458,9 +458,9 @@ def test_real_streaming_smoke_turn_completed(runtime_env: PreparedRuntimeEnv) ->
         textwrap.dedent(
             """
             import json
-            from openai_codex import Codex
+            from steve_sdk import Steve
 
-            with Codex() as codex:
+            with Steve() as codex:
                 thread = codex.thread_start(
                     model="gpt-5.4",
                     config={"model_reasoning_effort": "high"},
@@ -491,9 +491,9 @@ def test_real_turn_interrupt_smoke(runtime_env: PreparedRuntimeEnv) -> None:
         textwrap.dedent(
             """
             import json
-            from openai_codex import Codex
+            from steve_sdk import Steve
 
-            with Codex() as codex:
+            with Steve() as codex:
                 thread = codex.thread_start(
                     model="gpt-5.4",
                     config={"model_reasoning_effort": "high"},

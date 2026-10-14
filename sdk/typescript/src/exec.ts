@@ -4,7 +4,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { createRequire } from "node:module";
 
-import type { CodexConfigObject, CodexConfigValue } from "./codexOptions";
+import type { SteveConfigObject, SteveConfigValue } from "./codexOptions";
 import { SandboxMode, ModelReasoningEffort, ApprovalMode, WebSearchMode } from "./threadOptions";
 import type { CyberAccessProgram } from "./turnOptions";
 
@@ -45,17 +45,17 @@ export type CodexExecArgs = {
   approvalPolicy?: ApprovalMode;
 };
 
-const INTERNAL_ORIGINATOR_ENV = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
-const TYPESCRIPT_SDK_ORIGINATOR = "codex_sdk_ts";
-const CODEX_NPM_NAME = "@openai/codex";
+const INTERNAL_ORIGINATOR_ENV = "STEVE_INTERNAL_ORIGINATOR_OVERRIDE";
+const TYPESCRIPT_SDK_ORIGINATOR = "steve_sdk_ts";
+const CODEX_NPM_NAME = "@handley-lab/steve";
 
 const PLATFORM_PACKAGE_BY_TARGET: Record<string, string> = {
-  "x86_64-unknown-linux-musl": "@openai/codex-linux-x64",
-  "aarch64-unknown-linux-musl": "@openai/codex-linux-arm64",
-  "x86_64-apple-darwin": "@openai/codex-darwin-x64",
-  "aarch64-apple-darwin": "@openai/codex-darwin-arm64",
-  "x86_64-pc-windows-msvc": "@openai/codex-win32-x64",
-  "aarch64-pc-windows-msvc": "@openai/codex-win32-arm64",
+  "x86_64-unknown-linux-musl": "@handley-lab/steve-linux-x64",
+  "aarch64-unknown-linux-musl": "@handley-lab/steve-linux-arm64",
+  "x86_64-apple-darwin": "@handley-lab/steve-darwin-x64",
+  "aarch64-apple-darwin": "@handley-lab/steve-darwin-arm64",
+  "x86_64-pc-windows-msvc": "@handley-lab/steve-win32-x64",
+  "aarch64-pc-windows-msvc": "@handley-lab/steve-win32-arm64",
 };
 
 const moduleRequire = createRequire(import.meta.url);
@@ -69,13 +69,13 @@ export class CodexExec {
   private executablePath: string;
   private pathDirs: string[];
   private envOverride?: Record<string, string>;
-  private configOverrides?: CodexConfigObject;
+  private configOverrides?: SteveConfigObject;
   private rawConfigOverrides?: string[];
 
   constructor(
     executablePath: string | null = null,
     env?: Record<string, string>,
-    configOverrides?: CodexConfigObject,
+    configOverrides?: SteveConfigObject,
     rawConfigOverrides?: string[],
   ) {
     if (executablePath) {
@@ -194,7 +194,7 @@ export class CodexExec {
       env[INTERNAL_ORIGINATOR_ENV] = TYPESCRIPT_SDK_ORIGINATOR;
     }
     if (args.apiKey) {
-      env.CODEX_API_KEY = args.apiKey;
+      env.STEVE_API_KEY = args.apiKey;
     }
     if (this.pathDirs.length > 0) {
       prependPathDirs(env, this.pathDirs);
@@ -265,14 +265,14 @@ export class CodexExec {
   }
 }
 
-function serializeConfigOverrides(configOverrides: CodexConfigObject): string[] {
+function serializeConfigOverrides(configOverrides: SteveConfigObject): string[] {
   const overrides: string[] = [];
   flattenConfigOverrides(configOverrides, "", overrides);
   return overrides;
 }
 
 function flattenConfigOverrides(
-  value: CodexConfigValue,
+  value: SteveConfigValue,
   prefix: string,
   overrides: string[],
 ): void {
@@ -281,7 +281,7 @@ function flattenConfigOverrides(
       overrides.push(`${prefix}=${toTomlValue(value, prefix)}`);
       return;
     } else {
-      throw new Error("Codex config overrides must be a plain object");
+      throw new Error("Steve config overrides must be a plain object");
     }
   }
 
@@ -297,7 +297,7 @@ function flattenConfigOverrides(
 
   for (const [key, child] of entries) {
     if (!key) {
-      throw new Error("Codex config override keys must be non-empty strings");
+      throw new Error("Steve config override keys must be non-empty strings");
     }
     if (child === undefined) {
       continue;
@@ -311,12 +311,12 @@ function flattenConfigOverrides(
   }
 }
 
-function toTomlValue(value: CodexConfigValue, path: string): string {
+function toTomlValue(value: SteveConfigValue, path: string): string {
   if (typeof value === "string") {
     return JSON.stringify(value);
   } else if (typeof value === "number") {
     if (!Number.isFinite(value)) {
-      throw new Error(`Codex config override at ${path} must be a finite number`);
+      throw new Error(`Steve config override at ${path} must be a finite number`);
     }
     return `${value}`;
   } else if (typeof value === "boolean") {
@@ -328,7 +328,7 @@ function toTomlValue(value: CodexConfigValue, path: string): string {
     const parts: string[] = [];
     for (const [key, child] of Object.entries(value)) {
       if (!key) {
-        throw new Error("Codex config override keys must be non-empty strings");
+        throw new Error("Steve config override keys must be non-empty strings");
       }
       if (child === undefined) {
         continue;
@@ -337,10 +337,10 @@ function toTomlValue(value: CodexConfigValue, path: string): string {
     }
     return `{${parts.join(", ")}}`;
   } else if (value === null) {
-    throw new Error(`Codex config override at ${path} cannot be null`);
+    throw new Error(`Steve config override at ${path} cannot be null`);
   } else {
     const typeName = typeof value;
-    throw new Error(`Unsupported Codex config override value at ${path}: ${typeName}`);
+    throw new Error(`Unsupported Steve config override value at ${path}: ${typeName}`);
   }
 }
 
@@ -349,7 +349,7 @@ function formatTomlKey(key: string): string {
   return TOML_BARE_KEY.test(key) ? key : JSON.stringify(key);
 }
 
-function isPlainObject(value: unknown): value is CodexConfigObject {
+function isPlainObject(value: unknown): value is SteveConfigObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -416,15 +416,15 @@ function findCodexPath(): CodexPathResolution {
     vendorRoot = path.join(path.dirname(platformPackageJsonPath), "vendor");
   } catch {
     throw new Error(
-      `Unable to locate Codex CLI binaries. Ensure ${CODEX_NPM_NAME} is installed with optional dependencies.`,
+      `Unable to locate Steve CLI binaries. Ensure ${CODEX_NPM_NAME} is installed with optional dependencies.`,
     );
   }
 
-  const codexBinaryName = process.platform === "win32" ? "codex.exe" : "codex";
+  const codexBinaryName = process.platform === "win32" ? "steve.exe" : "steve";
   const nativePackage = resolveNativePackage(vendorRoot, targetTriple, codexBinaryName);
   if (!nativePackage) {
     throw new Error(
-      `Unable to locate Codex CLI binaries for ${targetTriple}. Ensure ${CODEX_NPM_NAME} is installed with optional dependencies.`,
+      `Unable to locate Steve CLI binaries for ${targetTriple}. Ensure ${CODEX_NPM_NAME} is installed with optional dependencies.`,
     );
   }
 
@@ -438,14 +438,14 @@ export function resolveNativePackage(
 ): CodexPathResolution | null {
   const packageRoot = path.join(vendorRoot, targetTriple);
   const packageBinaryPath = path.join(packageRoot, "bin", codexBinaryName);
-  if (isFile(packageBinaryPath) && isFile(path.join(packageRoot, "codex-package.json"))) {
+  if (isFile(packageBinaryPath) && isFile(path.join(packageRoot, "steve-package.json"))) {
     return {
       executablePath: packageBinaryPath,
-      pathDirs: existingDirs(path.join(packageRoot, "codex-path")),
+      pathDirs: existingDirs(path.join(packageRoot, "steve-path")),
     };
   }
 
-  const legacyBinaryPath = path.join(packageRoot, "codex", codexBinaryName);
+  const legacyBinaryPath = path.join(packageRoot, "steve", codexBinaryName);
   if (isFile(legacyBinaryPath)) {
     return {
       executablePath: legacyBinaryPath,

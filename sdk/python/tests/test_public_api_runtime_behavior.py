@@ -8,18 +8,18 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-import openai_codex.api as public_api_module
-from openai_codex.api import (
+import steve_sdk.api as public_api_module
+from steve_sdk.api import (
     ApprovalMode,
-    AsyncCodex,
-    Codex,
+    AsyncSteve,
     ExternalMessage,
     Sandbox,
+    Steve,
     TextInput,
 )
-from openai_codex.client import _params_dict
-from openai_codex.generated.v2_all import TurnCompletedNotification, TurnStartParams
-from openai_codex.models import InitializeResponse, Notification
+from steve_sdk.client import _params_dict
+from steve_sdk.generated.v2_all import TurnCompletedNotification, TurnStartParams
+from steve_sdk.models import InitializeResponse, Notification
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -60,14 +60,14 @@ def test_codex_init_failure_closes_client(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(public_api_module, "CodexClient", FakeClient)
 
     with pytest.raises(RuntimeError, match="missing required metadata"):
-        Codex()
+        Steve()
 
     assert closed == [True]
 
 
 def test_async_codex_init_failure_closes_client() -> None:
     async def scenario() -> None:
-        codex = AsyncCodex()
+        codex = AsyncSteve()
         close_calls = 0
 
         async def fake_start() -> None:
@@ -96,7 +96,7 @@ def test_async_codex_init_failure_closes_client() -> None:
 
 def test_async_codex_initializes_only_once_under_concurrency() -> None:
     async def scenario() -> None:
-        codex = AsyncCodex()
+        codex = AsyncSteve()
         start_calls = 0
         initialize_calls = 0
         ready = asyncio.Event()
@@ -133,7 +133,7 @@ def test_async_codex_initializes_only_once_under_concurrency() -> None:
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("api_type", [Codex, AsyncCodex])
+@pytest.mark.parametrize("api_type", [Steve, AsyncSteve])
 @pytest.mark.parametrize(
     ("options", "expected"),
     [
@@ -147,7 +147,7 @@ def test_include_turns_preserves_omission_and_inverts_explicit_values(
     api_type, options, expected
 ) -> None:
     async def scenario() -> None:
-        async_api = api_type is AsyncCodex
+        async_api = api_type is AsyncSteve
         rpc = AsyncMock if async_api else Mock
         thread_response = SimpleNamespace(thread=SimpleNamespace(id="thread-2"))
         client = SimpleNamespace(
@@ -171,7 +171,7 @@ def test_include_turns_preserves_omission_and_inverts_explicit_values(
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("api_type", [Codex, AsyncCodex])
+@pytest.mark.parametrize("api_type", [Steve, AsyncSteve])
 @pytest.mark.parametrize("method", ["run", "turn"])
 @pytest.mark.parametrize(
     "content", [None, "External update", [{"type": "input_text", "text": "External update"}]]
@@ -180,7 +180,7 @@ def test_turn_inputs_and_options_reach_the_client(api_type, method, content) -> 
     """User and external inputs preserve distinct wire representations for every entry point."""
 
     async def scenario() -> None:
-        async_api = api_type is AsyncCodex
+        async_api = api_type is AsyncSteve
         rpc = AsyncMock if async_api else Mock
         completed = Notification(
             method="turn/completed",
@@ -241,12 +241,12 @@ def test_turn_inputs_and_options_reach_the_client(api_type, method, content) -> 
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("api_type", [Codex, AsyncCodex])
+@pytest.mark.parametrize("api_type", [Steve, AsyncSteve])
 def test_external_messages_cannot_be_mixed_with_user_input_or_sent_as_user_steering(
     api_type,
 ) -> None:
     async def scenario() -> None:
-        async_api = api_type is AsyncCodex
+        async_api = api_type is AsyncSteve
         rpc = AsyncMock if async_api else Mock
         client = SimpleNamespace(
             _start_turn=rpc(), turn_steer=rpc(), _subscribe_turn_notifications=Mock()

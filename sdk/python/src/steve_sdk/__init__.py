@@ -1,12 +1,12 @@
-"""Python SDK for running Codex workflows.
+"""Python SDK for running Steve workflows.
 
-Start with :class:`Codex` for synchronous applications or
-:class:`AsyncCodex` for async applications. Most programs create a thread and
+Start with :class:`Steve` for synchronous applications or
+:class:`AsyncSteve` for async applications. Most programs create a thread and
 run a turn::
 
-    from openai_codex import Codex, Sandbox
+    from steve_sdk import Steve, Sandbox
 
-    with Codex() as codex:
+    with Steve() as codex:
         thread = codex.thread_start(sandbox=Sandbox.workspace_write)
         result = thread.run("Describe this project.")
         print(result.final_response)
@@ -16,12 +16,11 @@ from ._version import __version__
 from .api import (
     ApprovalMode,
     AsyncChatgptLoginHandle,
-    AsyncCodex,
     AsyncDeviceCodeLoginHandle,
+    AsyncSteve,
     AsyncThread,
     AsyncTurnHandle,
     ChatgptLoginHandle,
-    Codex,
     DeviceCodeLoginHandle,
     ExternalMessage,
     ImageInput,
@@ -32,15 +31,14 @@ from .api import (
     RunInput,
     Sandbox,
     SkillInput,
+    Steve,
     TextInput,
     Thread,
     TurnHandle,
     TurnResult,
 )
-from .client import CodexConfig
+from .client import SteveConfig
 from .errors import (
-    CodexError,
-    CodexRpcError,
     InternalRpcError,
     InvalidParamsError,
     InvalidRequestError,
@@ -49,6 +47,8 @@ from .errors import (
     ParseError,
     RetryLimitExceededError,
     ServerBusyError,
+    SteveError,
+    SteveRpcError,
     TransportClosedError,
     is_retryable_error,
 )
@@ -56,9 +56,9 @@ from .retry import retry_on_overload
 
 __all__ = [
     "__version__",
-    "CodexConfig",
-    "Codex",
-    "AsyncCodex",
+    "SteveConfig",
+    "Steve",
+    "AsyncSteve",
     "ApprovalMode",
     "Sandbox",
     "ChatgptLoginHandle",
@@ -80,10 +80,10 @@ __all__ = [
     "SkillInput",
     "MentionInput",
     "retry_on_overload",
-    "CodexError",
+    "SteveError",
     "TransportClosedError",
     "JsonRpcError",
-    "CodexRpcError",
+    "SteveRpcError",
     "ParseError",
     "InvalidRequestError",
     "MethodNotFoundError",

@@ -17,12 +17,12 @@ from .generated.v2_all import (
 
 
 class _AsyncLoginOwner(Protocol):
-    """Subset of AsyncCodex needed by async login handles."""
+    """Subset of AsyncSteve needed by async login handles."""
 
     _client: AsyncCodexClient
 
     async def _ensure_initialized(self) -> None:
-        """Ensure the owning SDK client has a live Codex connection."""
+        """Ensure the owning SDK client has a live Steve connection."""
         ...
 
 
@@ -100,7 +100,7 @@ async def async_start_device_code_login(
 
 @dataclass(slots=True)
 class ChatgptLoginHandle:
-    """Live browser-login attempt returned by `Codex.login_chatgpt()`."""
+    """Live browser-login attempt returned by `Steve.login_chatgpt()`."""
 
     _client: CodexClient
     login_id: str
@@ -117,7 +117,7 @@ class ChatgptLoginHandle:
 
 @dataclass(slots=True)
 class DeviceCodeLoginHandle:
-    """Live device-code login attempt returned by `Codex.login_chatgpt_device_code()`."""
+    """Live device-code login attempt returned by `Steve.login_chatgpt_device_code()`."""
 
     _client: CodexClient
     login_id: str
@@ -135,7 +135,7 @@ class DeviceCodeLoginHandle:
 
 @dataclass(slots=True)
 class AsyncChatgptLoginHandle:
-    """Live browser-login attempt returned by `AsyncCodex.login_chatgpt()`."""
+    """Live browser-login attempt returned by `AsyncSteve.login_chatgpt()`."""
 
     _codex: _AsyncLoginOwner
     login_id: str
@@ -154,7 +154,7 @@ class AsyncChatgptLoginHandle:
 
 @dataclass(slots=True)
 class AsyncDeviceCodeLoginHandle:
-    """Live device-code attempt returned by `AsyncCodex.login_chatgpt_device_code()`."""
+    """Live device-code attempt returned by `AsyncSteve.login_chatgpt_device_code()`."""
 
     _codex: _AsyncLoginOwner
     login_id: str

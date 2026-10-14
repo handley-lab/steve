@@ -14,13 +14,13 @@ import random
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
-from openai_codex import (
-    AsyncCodex,
+from steve_sdk import (
+    AsyncSteve,
     JsonRpcError,
     ServerBusyError,
     is_retryable_error,
 )
-from openai_codex.types import TurnStatus
+from steve_sdk.types import TurnStatus
 
 ResultT = TypeVar("ResultT")
 
@@ -53,7 +53,7 @@ async def retry_on_overload_async(
 
 
 async def main() -> None:
-    async with AsyncCodex(config=runtime_config()) as codex:
+    async with AsyncSteve(config=runtime_config()) as codex:
         thread = await codex.thread_start(
             model="gpt-5.4", config={"model_reasoning_effort": "high"}
         )

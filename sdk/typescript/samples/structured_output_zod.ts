@@ -1,11 +1,11 @@
 #!/usr/bin/env -S NODE_NO_WARNINGS=1 pnpm ts-node-esm --files
 
-import { Codex } from "@openai/codex-sdk";
-import { codexPathOverride } from "./helpers.ts";
+import { Steve } from "@handley-lab/steve-sdk";
+import { stevePathOverride } from "./helpers.ts";
 import z from "zod";
 import zodToJsonSchema from "zod-to-json-schema";
 
-const codex = new Codex({ codexPathOverride: codexPathOverride() });
+const codex = new Steve({ stevePathOverride: stevePathOverride() });
 const thread = codex.startThread();
 
 const schema = z.object({

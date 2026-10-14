@@ -3,11 +3,11 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
-import { Codex } from "@openai/codex-sdk";
-import type { ThreadEvent, ThreadItem } from "@openai/codex-sdk";
-import { codexPathOverride } from "./helpers.ts";
+import { Steve } from "@handley-lab/steve-sdk";
+import type { ThreadEvent, ThreadItem } from "@handley-lab/steve-sdk";
+import { stevePathOverride } from "./helpers.ts";
 
-const codex = new Codex({ codexPathOverride: codexPathOverride() });
+const codex = new Steve({ stevePathOverride: stevePathOverride() });
 const thread = codex.startThread();
 const rl = createInterface({ input, output });
 

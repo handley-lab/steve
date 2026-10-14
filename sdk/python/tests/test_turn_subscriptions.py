@@ -6,12 +6,12 @@ from itertools import chain
 
 import pytest
 
-from openai_codex import AsyncCodex
-from openai_codex._run import _collect_turn_result
-from openai_codex.api import AsyncThread, AsyncTurnHandle, Thread, TurnHandle
-from openai_codex.async_client import AsyncCodexClient
-from openai_codex.client import CodexClient
-from openai_codex.errors import TransportClosedError
+from steve_sdk import AsyncSteve
+from steve_sdk._run import _collect_turn_result
+from steve_sdk.api import AsyncThread, AsyncTurnHandle, Thread, TurnHandle
+from steve_sdk.async_client import AsyncCodexClient
+from steve_sdk.client import CodexClient
+from steve_sdk.errors import TransportClosedError
 
 
 def turn_events(client, *, status="completed"):
@@ -117,7 +117,7 @@ def test_slow_subscriber_keeps_unread_deltas_until_it_consumes_them():
 @pytest.mark.parametrize("low_level", [False, True])
 @pytest.mark.parametrize("completed", [False, True])
 def test_events_or_failure_before_turn_start_returns(monkeypatch, async_api, low_level, completed):
-    codex = AsyncCodex()
+    codex = AsyncSteve()
     codex._initialized = True
     client = codex._client._sync if async_api else CodexClient()
 
@@ -233,7 +233,7 @@ def test_abandoned_handle_releases_completed_history():
 
 def test_cancelled_async_consumer_leaves_other_handle_intact():
     async def scenario():
-        codex = AsyncCodex()
+        codex = AsyncSteve()
         codex._initialized = True
         client = codex._client._sync
         original = AsyncTurnHandle(codex, "thread-1", "turn-1")
@@ -295,7 +295,7 @@ def test_cancelled_turn_start_releases_result_after_response(monkeypatch):
 
 def test_cancelled_queued_start_does_not_send_a_request(monkeypatch):
     with ThreadPoolExecutor(max_workers=1) as executor:
-        monkeypatch.setattr("openai_codex.async_client._TURN_START_EXECUTOR", executor)
+        monkeypatch.setattr("steve_sdk.async_client._TURN_START_EXECUTOR", executor)
         release_worker = threading.Event()
         worker_started = threading.Event()
         request_sent = threading.Event()

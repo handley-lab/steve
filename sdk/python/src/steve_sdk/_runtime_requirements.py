@@ -23,7 +23,7 @@ def require_runtime_version(version: str | None) -> None:
     except InvalidVersion:
         pass
     raise ValueError(
-        f"Codex CLI {MINIMUM_RUNTIME_VERSION} or newer is required; "
+        f"Steve CLI {MINIMUM_RUNTIME_VERSION} or newer is required; "
         f"reported version is {version or 'unknown'!r}"
     )
 

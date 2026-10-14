@@ -1,24 +1,23 @@
-# Codex SDK
+# Steve SDK
 
-Embed the Codex agent in your workflows and apps.
+Embed the Steve agent in your workflows and apps.
 
-The TypeScript SDK wraps the `codex` CLI from `@openai/codex`. It spawns the CLI and exchanges JSONL events over stdin/stdout.
+The TypeScript SDK wraps the `steve` CLI from `@handley-lab/steve`. It spawns the CLI and exchanges JSONL events over stdin/stdout.
 
 ## Installation
 
-```bash
-npm install @openai/codex-sdk
-```
+The package name is `@handley-lab/steve-sdk`; registry publication is pending.
+Build it from this checkout for local use.
 
 Requires Node.js 18+.
 
 ## Quickstart
 
 ```typescript
-import { Codex } from "@openai/codex-sdk";
+import { Steve } from "@handley-lab/steve-sdk";
 
-const codex = new Codex();
-const thread = codex.startThread();
+const steve = new Steve();
+const thread = steve.startThread();
 const turn = await thread.run("Diagnose the test failure and propose a fix");
 
 console.log(turn.finalResponse);
@@ -52,7 +51,7 @@ for await (const event of events) {
 
 ### Structured output
 
-The Codex agent can produce a JSON response that conforms to a specified schema. The schema can be provided for each turn as a plain JSON object.
+The Steve agent can produce a JSON response that conforms to a specified schema. The schema can be provided for each turn as a plain JSON object.
 
 ```typescript
 const schema = {
@@ -85,7 +84,7 @@ console.log(turn.finalResponse);
 
 ### Attaching images
 
-Provide structured input entries when you need to include images alongside text. Text entries are concatenated into the final prompt while image entries are passed to the Codex CLI via `--image`.
+Provide structured input entries when you need to include images alongside text. Text entries are concatenated into the final prompt while image entries are passed to the Steve CLI via `--image`.
 
 ```typescript
 const turn = await thread.run([
@@ -97,48 +96,48 @@ const turn = await thread.run([
 
 ### Resuming an existing thread
 
-Threads are persisted in `~/.codex/sessions`. If you lose the in-memory `Thread` object, reconstruct it with `resumeThread()` and keep going.
+Threads are persisted in `~/.steve/sessions`. If you lose the in-memory `Thread` object, reconstruct it with `resumeThread()` and keep going.
 
 ```typescript
-const savedThreadId = process.env.CODEX_THREAD_ID!;
-const thread = codex.resumeThread(savedThreadId);
+const savedThreadId = process.env.STEVE_THREAD_ID!;
+const thread = steve.resumeThread(savedThreadId);
 await thread.run("Implement the fix");
 ```
 
 ### Working directory controls
 
-Codex runs in the current working directory by default. To avoid unrecoverable errors, Codex requires the working directory to be a Git repository. You can skip the Git repository check by passing the `skipGitRepoCheck` option when creating a thread.
+Steve runs in the current working directory by default. To avoid unrecoverable errors, Steve requires the working directory to be a Git repository. You can skip the Git repository check by passing the `skipGitRepoCheck` option when creating a thread.
 
 ```typescript
-const thread = codex.startThread({
+const thread = steve.startThread({
   workingDirectory: "/path/to/project",
   skipGitRepoCheck: true,
 });
 ```
 
-### Controlling the Codex CLI environment
+### Controlling the Steve CLI environment
 
-By default, the Codex CLI inherits the Node.js process environment. Provide the optional `env` parameter when instantiating the
-`Codex` client to fully control which variables the CLI receives—useful for sandboxed hosts like Electron apps.
+By default, the Steve CLI inherits the Node.js process environment. Provide the optional `env` parameter when instantiating the
+`Steve` client to fully control which variables the CLI receives—useful for sandboxed hosts like Electron apps.
 
 ```typescript
-const codex = new Codex({
+const steve = new Steve({
   env: {
     PATH: "/usr/local/bin",
   },
 });
 ```
 
-The SDK still injects its required variables (such as `CODEX_API_KEY`) on top of the environment you provide. If you set
+The SDK still injects its required variables (such as `STEVE_API_KEY`) on top of the environment you provide. If you set
 `baseUrl`, the SDK passes it as a `--config openai_base_url=...` override.
 
 ### Passing `--config` overrides
 
-Use the `config` option to provide additional Codex CLI configuration overrides. The SDK accepts a JSON object, flattens it
+Use the `config` option to provide additional Steve CLI configuration overrides. The SDK accepts a JSON object, flattens it
 into dotted paths, and serializes values as TOML literals before passing them as repeated `--config key=value` flags.
 
 ```typescript
-const codex = new Codex({
+const steve = new Steve({
   config: {
     show_raw_agent_reasoning: true,
     sandbox_workspace_write: { network_access: true },
@@ -147,10 +146,10 @@ const codex = new Codex({
 ```
 
 For configuration keys that cannot be expressed as dotted paths, pass raw TOML overrides with `configOverrides`. Each entry
-is forwarded unchanged as a separate `--config` argument, without modifying `CODEX_HOME`:
+is forwarded unchanged as a separate `--config` argument, without modifying `STEVE_HOME`:
 
 ```typescript
-const codex = new Codex({
+const steve = new Steve({
   config: { default_permissions: "audit" },
   configOverrides: ['permissions.audit.filesystem={":root"="read","/path/to/project/.env"="deny"}'],
 });

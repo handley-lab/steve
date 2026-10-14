@@ -1,20 +1,20 @@
-import { CodexOptions } from "./codexOptions";
+import { SteveOptions } from "./codexOptions";
 import { CodexExec } from "./exec";
 import { Thread } from "./thread";
 import { ThreadOptions } from "./threadOptions";
 
 /**
- * Codex is the main class for interacting with the Codex agent.
+ * Steve is the main class for interacting with the Steve agent.
  *
  * Use the `startThread()` method to start a new thread or `resumeThread()` to resume a previously started thread.
  */
-export class Codex {
+export class Steve {
   private exec: CodexExec;
-  private options: CodexOptions;
+  private options: SteveOptions;
 
-  constructor(options: CodexOptions = {}) {
-    const { codexPathOverride, env, config, configOverrides } = options;
-    this.exec = new CodexExec(codexPathOverride, env, config, configOverrides);
+  constructor(options: SteveOptions = {}) {
+    const { stevePathOverride, env, config, configOverrides } = options;
+    this.exec = new CodexExec(stevePathOverride, env, config, configOverrides);
     this.options = options;
   }
 
@@ -28,7 +28,7 @@ export class Codex {
 
   /**
    * Resumes a conversation with an agent based on the thread id.
-   * Threads are persisted in ~/.codex/sessions.
+   * Threads are persisted in ~/.steve/sessions.
    *
    * @param id The id of the thread to resume.
    * @returns A new thread instance.

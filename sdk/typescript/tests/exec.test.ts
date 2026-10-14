@@ -7,7 +7,7 @@ import { PassThrough } from "node:stream";
 
 import { describe, expect, it } from "@jest/globals";
 
-import type { CodexConfigObject } from "../src/codexOptions";
+import type { SteveConfigObject } from "../src/codexOptions";
 
 jest.mock("node:child_process", () => {
   const actual = jest.requireActual<typeof import("node:child_process")>("node:child_process");
@@ -51,7 +51,7 @@ describe("CodexExec", () => {
     const child = createEarlyExitChild();
     spawnMock.mockReturnValue(child as unknown as child_process.ChildProcess);
 
-    const exec = new CodexExec("codex");
+    const exec = new CodexExec("steve");
     const runPromise = (async () => {
       for await (const _ of exec.run({ input: "hi" })) {
         // no-op
@@ -85,7 +85,7 @@ describe("CodexExec", () => {
       child.emit("exit", 0, null);
     });
 
-    const exec = new CodexExec("codex");
+    const exec = new CodexExec("steve");
     for await (const _ of exec.run({ input: "hi", images: ["img.png"], threadId: "thread-id" })) {
       // no-op
     }
@@ -101,7 +101,7 @@ describe("CodexExec", () => {
 
   const configOverrideCases: {
     name: string;
-    config?: CodexConfigObject;
+    config?: SteveConfigObject;
     configOverrides?: string[];
     expectedOverrides: string[];
   }[] = [
@@ -171,7 +171,7 @@ describe("CodexExec", () => {
         child.emit("exit", 0, null);
       });
 
-      const exec = new CodexExec("codex", undefined, config, configOverrides);
+      const exec = new CodexExec("steve", undefined, config, configOverrides);
       for await (const _ of exec.run({ input: "hi" })) {
         // no-op
       }
@@ -197,7 +197,7 @@ describe("CodexExec", () => {
       child.emit("exit", 0, null);
     });
 
-    const exec = new CodexExec("codex");
+    const exec = new CodexExec("steve");
     for await (const _ of exec.run({ input: "hi", threadSource: "automated_review" })) {
       // no-op
     }
@@ -222,7 +222,7 @@ describe("CodexExec", () => {
       child.emit("exit", 0, null);
     });
 
-    const exec = new CodexExec("codex", undefined, { approval_policy: "never" }, [
+    const exec = new CodexExec("steve", undefined, { approval_policy: "never" }, [
       'approval_policy="on-failure"',
       'openai_base_url="https://raw.example.test"',
       "sandbox_workspace_write={network_access=true}",
@@ -273,11 +273,11 @@ describe("CodexExec", () => {
       child.emit("exit", 0, null);
     });
 
-    process.env.CODEX_ENV_SHOULD_NOT_LEAK = "leak";
+    process.env.STEVE_ENV_SHOULD_NOT_LEAK = "leak";
 
     try {
-      const exec = new CodexExec("codex", {
-        CODEX_HOME: "/tmp/codex-home",
+      const exec = new CodexExec("steve", {
+        STEVE_HOME: "/tmp/steve-home",
         CUSTOM_ENV: "custom",
       });
 
@@ -298,15 +298,15 @@ describe("CodexExec", () => {
         throw new Error("Spawn args missing");
       }
 
-      expect(spawnEnv.CODEX_HOME).toBe("/tmp/codex-home");
+      expect(spawnEnv.STEVE_HOME).toBe("/tmp/steve-home");
       expect(spawnEnv.CUSTOM_ENV).toBe("custom");
-      expect(spawnEnv.CODEX_ENV_SHOULD_NOT_LEAK).toBeUndefined();
-      expect(spawnEnv.CODEX_API_KEY).toBe("test");
-      expect(spawnEnv.CODEX_INTERNAL_ORIGINATOR_OVERRIDE).toBeDefined();
+      expect(spawnEnv.STEVE_ENV_SHOULD_NOT_LEAK).toBeUndefined();
+      expect(spawnEnv.STEVE_API_KEY).toBe("test");
+      expect(spawnEnv.STEVE_INTERNAL_ORIGINATOR_OVERRIDE).toBeDefined();
       expect(commandArgs).toContain("--config");
       expect(commandArgs).toContain(`openai_base_url=${JSON.stringify("https://example.test")}`);
     } finally {
-      delete process.env.CODEX_ENV_SHOULD_NOT_LEAK;
+      delete process.env.STEVE_ENV_SHOULD_NOT_LEAK;
     }
   });
 
@@ -315,14 +315,14 @@ describe("CodexExec", () => {
     const vendorRoot = mkdtempSync(path.join(tmpdir(), "codex-sdk-vendor-"));
     const packageRoot = path.join(vendorRoot, "x86_64-unknown-linux-musl");
     const binDir = path.join(packageRoot, "bin");
-    const pathDir = path.join(packageRoot, "codex-path");
+    const pathDir = path.join(packageRoot, "steve-path");
     mkdirSync(binDir, { recursive: true });
     mkdirSync(pathDir, { recursive: true });
-    writeFileSync(path.join(packageRoot, "codex-package.json"), "{}");
-    writeFileSync(path.join(binDir, "codex"), "");
+    writeFileSync(path.join(packageRoot, "steve-package.json"), "{}");
+    writeFileSync(path.join(binDir, "steve"), "");
 
-    expect(resolveNativePackage(vendorRoot, "x86_64-unknown-linux-musl", "codex")).toEqual({
-      executablePath: path.join(binDir, "codex"),
+    expect(resolveNativePackage(vendorRoot, "x86_64-unknown-linux-musl", "steve")).toEqual({
+      executablePath: path.join(binDir, "steve"),
       pathDirs: [pathDir],
     });
   });
@@ -331,21 +331,21 @@ describe("CodexExec", () => {
     const { resolveNativePackage } = await import("../src/exec");
     const vendorRoot = mkdtempSync(path.join(tmpdir(), "codex-sdk-vendor-"));
     const packageRoot = path.join(vendorRoot, "x86_64-unknown-linux-musl");
-    const binDir = path.join(packageRoot, "codex");
+    const binDir = path.join(packageRoot, "steve");
     const pathDir = path.join(packageRoot, "path");
     mkdirSync(binDir, { recursive: true });
     mkdirSync(pathDir, { recursive: true });
-    writeFileSync(path.join(binDir, "codex"), "");
+    writeFileSync(path.join(binDir, "steve"), "");
 
-    expect(resolveNativePackage(vendorRoot, "x86_64-unknown-linux-musl", "codex")).toEqual({
-      executablePath: path.join(binDir, "codex"),
+    expect(resolveNativePackage(vendorRoot, "x86_64-unknown-linux-musl", "steve")).toEqual({
+      executablePath: path.join(binDir, "steve"),
       pathDirs: [pathDir],
     });
   });
 
   it("prepends package PATH entries without duplicating them", async () => {
     const { prependPathDirs } = await import("../src/exec");
-    const pathDir = path.join(tmpdir(), "codex-path");
+    const pathDir = path.join(tmpdir(), "steve-path");
     const env = { PATH: `/usr/bin${path.delimiter}${pathDir}` };
 
     prependPathDirs(env, [pathDir]);
@@ -355,7 +355,7 @@ describe("CodexExec", () => {
 
   it("preserves the Windows Path key when prepending package PATH entries", async () => {
     const { prependPathDirs } = await import("../src/exec");
-    const pathDir = path.join(tmpdir(), "codex-path");
+    const pathDir = path.join(tmpdir(), "steve-path");
     const env = { PATH: "/usr/bin", Path: `C\\Windows${path.delimiter}${pathDir}` };
 
     prependPathDirs(env, [pathDir], "win32");

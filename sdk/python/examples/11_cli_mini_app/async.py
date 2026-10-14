@@ -11,10 +11,10 @@ ensure_local_sdk_src()
 
 import asyncio
 
-from openai_codex import (
-    AsyncCodex,
+from steve_sdk import (
+    AsyncSteve,
 )
-from openai_codex.types import (
+from steve_sdk.types import (
     ThreadTokenUsageUpdatedNotification,
     TurnCompletedNotification,
 )
@@ -31,9 +31,9 @@ def _format_usage(usage: object) -> str:
 
 
 async def main() -> None:
-    print("Codex async mini CLI. Type /exit to quit.")
+    print("Steve async mini CLI. Type /exit to quit.")
 
-    async with AsyncCodex(config=runtime_config()) as codex:
+    async with AsyncSteve(config=runtime_config()) as codex:
         thread = await codex.thread_start(
             model="gpt-5.4", config={"model_reasoning_effort": "high"}
         )

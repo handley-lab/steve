@@ -1,15 +1,14 @@
 {
-  "name": "@openai/codex-sdk",
+  "name": "@handley-lab/steve-sdk",
   "version": "0.0.0-dev",
-  "description": "TypeScript SDK for Codex APIs.",
+  "description": "TypeScript SDK for Steve.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/openai/codex.git",
+    "url": "git+https://github.com/handley-lab/steve.git",
     "directory": "sdk/typescript"
   },
   "keywords": [
-    "openai",
-    "codex",
+    "steve",
     "sdk",
     "typescript",
     "api"

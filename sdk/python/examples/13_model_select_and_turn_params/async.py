@@ -11,11 +11,11 @@ ensure_local_sdk_src()
 
 import asyncio
 
-from openai_codex import (
-    AsyncCodex,
+from steve_sdk import (
+    AsyncSteve,
     Sandbox,
 )
-from openai_codex.types import (
+from steve_sdk.types import (
     ReasoningEffort,
     ReasoningSummary,
 )
@@ -70,7 +70,7 @@ OUTPUT_SCHEMA = {
 
 
 async def main() -> None:
-    async with AsyncCodex(config=runtime_config()) as codex:
+    async with AsyncSteve(config=runtime_config()) as codex:
         models = await codex.models(include_hidden=True)
         selected_model = _pick_highest_model(models.data)
         selected_effort = _pick_highest_turn_effort(selected_model)

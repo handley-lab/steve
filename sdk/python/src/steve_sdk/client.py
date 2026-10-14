@@ -18,7 +18,7 @@ from ._initialize_metadata import _split_user_agent
 from ._message_router import MessageRouter, _TurnSubscription
 from ._runtime_requirements import CheckoutCapabilities, require_runtime_version
 from ._version import __version__ as SDK_VERSION
-from .errors import CodexError, InvalidRequestError, TransportClosedError
+from .errors import InvalidRequestError, SteveError, TransportClosedError
 from .generated.notification_registry import NOTIFICATION_MODELS
 from .generated.v2_all import (
     AccountLoginCompletedNotification,
@@ -66,7 +66,7 @@ from .retry import retry_on_overload
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 ApprovalHandler = Callable[[str, JsonObject | None], JsonObject]
-RUNTIME_PKG_NAME = "openai-codex-cli-bin"
+RUNTIME_PKG_NAME = "steve-cli-bin"
 _GOAL_START_TIMEOUT_S = 30.0
 
 
@@ -112,20 +112,20 @@ def _params_dict(
 
 def _installed_codex_path() -> Path:
     try:
-        from codex_cli_bin import bundled_codex_path
+        from steve_cli_bin import bundled_steve_path
     except ImportError as exc:
         raise FileNotFoundError(
-            "Unable to locate the pinned Codex runtime. Install the published SDK build "
-            f"with its {RUNTIME_PKG_NAME} dependency, or set CodexConfig.codex_bin "
+            "Unable to locate the pinned Steve runtime. Install the published SDK build "
+            f"with its {RUNTIME_PKG_NAME} dependency, or set SteveConfig.steve_bin "
             "explicitly."
         ) from exc
 
-    return bundled_codex_path()
+    return bundled_steve_path()
 
 
 def _installed_codex_path_dirs() -> tuple[Path, ...]:
     try:
-        from codex_cli_bin import bundled_path_dir
+        from steve_cli_bin import bundled_path_dir
     except (ImportError, AttributeError):
         return ()
 
@@ -175,38 +175,38 @@ def _default_codex_bin_resolver_ops() -> CodexBinResolverOps:
     )
 
 
-def resolve_codex_bin(config: "CodexConfig", ops: CodexBinResolverOps) -> Path:
-    if config.codex_bin is not None:
-        codex_bin = Path(config.codex_bin)
-        if not ops.path_exists(codex_bin):
+def resolve_codex_bin(config: "SteveConfig", ops: CodexBinResolverOps) -> Path:
+    if config.steve_bin is not None:
+        steve_bin = Path(config.steve_bin)
+        if not ops.path_exists(steve_bin):
             raise FileNotFoundError(
-                f"Codex binary not found at {codex_bin}. Set CodexConfig.codex_bin "
+                f"Steve binary not found at {steve_bin}. Set SteveConfig.steve_bin "
                 "to a valid binary path."
             )
-        return codex_bin
+        return steve_bin
 
     return ops.installed_codex_path()
 
 
-def _resolve_codex_bin(config: "CodexConfig") -> Path:
+def _resolve_codex_bin(config: "SteveConfig") -> Path:
     return resolve_codex_bin(config, _default_codex_bin_resolver_ops())
 
 
 @dataclass(slots=True)
-class CodexConfig:
-    """Configuration for launching and identifying the local Codex runtime.
+class SteveConfig:
+    """Configuration for launching and identifying the local Steve runtime.
 
-    Most callers can use ``Codex()`` without configuration. Set ``codex_bin``
-    only when intentionally using a specific local Codex executable.
+    Most callers can use ``Steve()`` without configuration. Set ``steve_bin``
+    only when intentionally using a specific local Steve executable.
     """
 
-    codex_bin: str | None = None
+    steve_bin: str | None = None
     launch_args_override: tuple[str, ...] | None = None
     config_overrides: tuple[str, ...] = ()
     cwd: str | None = None
     env: dict[str, str] | None = None
-    client_name: str = "codex_python_sdk"
-    client_title: str = "Codex Python SDK"
+    client_name: str = "steve_python_sdk"
+    client_title: str = "Steve Python SDK"
     client_version: str = SDK_VERSION
     experimental_api: bool = True
 
@@ -216,10 +216,10 @@ class CodexClient:
 
     def __init__(
         self,
-        config: CodexConfig | None = None,
+        config: SteveConfig | None = None,
         approval_handler: ApprovalHandler | None = None,
     ) -> None:
-        self.config = config or CodexConfig()
+        self.config = config or SteveConfig()
         self._approval_handler = approval_handler or self._default_approval_handler
         self._proc: subprocess.Popen[str] | None = None
         self._lock = threading.Lock()
@@ -247,10 +247,10 @@ class CodexClient:
         if self.config.launch_args_override is not None:
             args = list(self.config.launch_args_override)
         else:
-            codex_bin = _resolve_codex_bin(self.config)
-            if self.config.codex_bin is None:
+            steve_bin = _resolve_codex_bin(self.config)
+            if self.config.steve_bin is None:
                 path_dirs = _installed_codex_path_dirs()
-            args = [str(codex_bin)]
+            args = [str(steve_bin)]
             for kv in self.config.config_overrides:
                 args.extend(["--config", kv])
             args.extend(["app-server", "--listen", "stdio://"])
@@ -356,13 +356,13 @@ class CodexClient:
                 else:
                     require_runtime_version(self._runtime_version)
             except ValueError as exc:
-                raise CodexError(
+                raise SteveError(
                     f"{method} with {', '.join(supplied_fields)}: {exc}. "
-                    "Configure CodexConfig.codex_bin with a supported CLI."
+                    "Configure SteveConfig.steve_bin with a supported CLI."
                 ) from exc
         result = self._request_raw(method, params)
         if not isinstance(result, dict):
-            raise CodexError(f"{method} response must be a JSON object")
+            raise SteveError(f"{method} response must be a JSON object")
         return response_model.model_validate(result)
 
     def _request_raw(self, method: str, params: JsonObject | None = None) -> JsonValue:
@@ -635,7 +635,7 @@ class CodexClient:
             activated = True
             turn_id = state.wait_for_start(_GOAL_START_TIMEOUT_S)
             if turn_id is None:
-                raise CodexError(
+                raise SteveError(
                     "timed out waiting for goal turn to start after "
                     f"{int(_GOAL_START_TIMEOUT_S)} seconds"
                 )
@@ -895,30 +895,30 @@ class CodexClient:
 
     def _write_message(self, payload: JsonObject) -> None:
         if self._proc is None or self._proc.stdin is None:
-            raise TransportClosedError("Codex process is not running")
+            raise TransportClosedError("Steve process is not running")
         with self._lock:
             self._proc.stdin.write(json.dumps(payload) + "\n")
             self._proc.stdin.flush()
 
     def _read_message(self) -> dict[str, JsonValue]:
         if self._proc is None or self._proc.stdout is None:
-            raise TransportClosedError("Codex process is not running")
+            raise TransportClosedError("Steve process is not running")
 
         line = self._proc.stdout.readline()
         if not line:
             raise TransportClosedError(
-                f"Codex process closed stdout. stderr_tail={self._stderr_tail()[:2000]}"
+                f"Steve process closed stdout. stderr_tail={self._stderr_tail()[:2000]}"
             )
 
         try:
             message = json.loads(line)
         except json.JSONDecodeError as exc:
-            raise CodexError(f"Invalid JSON-RPC line: {line!r}") from exc
+            raise SteveError(f"Invalid JSON-RPC line: {line!r}") from exc
 
         if not isinstance(message, dict):
-            raise CodexError(f"Invalid JSON-RPC payload: {message!r}")
+            raise SteveError(f"Invalid JSON-RPC payload: {message!r}")
         return message
 
 
-def default_codex_home() -> str:
-    return str(Path.home() / ".codex")
+def default_steve_home() -> str:
+    return str(Path.home() / ".steve")

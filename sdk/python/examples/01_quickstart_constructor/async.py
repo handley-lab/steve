@@ -15,11 +15,11 @@ ensure_local_sdk_src()
 
 import asyncio
 
-from openai_codex import AsyncCodex
+from steve_sdk import AsyncSteve
 
 
 async def main() -> None:
-    async with AsyncCodex(config=runtime_config()) as codex:
+    async with AsyncSteve(config=runtime_config()) as codex:
         print("Server:", server_label(codex.metadata))
 
         thread = await codex.thread_start(

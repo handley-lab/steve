@@ -460,7 +460,7 @@ describe("Codex", () => {
     }
   });
 
-  it("passes CodexOptions config overrides as TOML --config flags", async () => {
+  it("passes SteveOptions config overrides as TOML --config flags", async () => {
     const { url, close } = await startResponsesTestProxy({
       statusCode: 200,
       responseBodies: [
@@ -501,7 +501,7 @@ describe("Codex", () => {
     }
   });
 
-  it("lets thread options override CodexOptions config overrides", async () => {
+  it("lets thread options override SteveOptions config overrides", async () => {
     const { url, close } = await startResponsesTestProxy({
       statusCode: 200,
       responseBodies: [
@@ -836,9 +836,9 @@ describe("Codex", () => {
       expect(requests.length).toBeGreaterThan(0);
       const originatorHeader = requests[0]!.headers["originator"];
       if (Array.isArray(originatorHeader)) {
-        expect(originatorHeader).toContain("codex_sdk_ts");
+        expect(originatorHeader).toContain("steve_sdk_ts");
       } else {
-        expect(originatorHeader).toBe("codex_sdk_ts");
+        expect(originatorHeader).toBe("steve_sdk_ts");
       }
     } finally {
       cleanup();

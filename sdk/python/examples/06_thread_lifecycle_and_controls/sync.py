@@ -9,9 +9,9 @@ from _bootstrap import ensure_local_sdk_src, runtime_config
 
 ensure_local_sdk_src()
 
-from openai_codex import Codex
+from steve_sdk import Steve
 
-with Codex(config=runtime_config()) as codex:
+with Steve(config=runtime_config()) as codex:
     thread = codex.thread_start(model="gpt-5.4", config={"model_reasoning_effort": "high"})
     first = thread.turn("One sentence about structured planning.").run()
     second = thread.turn("Now restate it for a junior engineer.").run()

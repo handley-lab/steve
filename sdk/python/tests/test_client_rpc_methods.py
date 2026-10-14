@@ -6,11 +6,11 @@ from typing import get_type_hints
 
 import pytest
 
-from openai_codex._runtime_requirements import CheckoutCapabilities
-from openai_codex.client import CodexClient, _params_dict
-from openai_codex.errors import CodexError
-from openai_codex.generated.notification_registry import notification_turn_id
-from openai_codex.generated.v2_all import (
+from steve_sdk._runtime_requirements import CheckoutCapabilities
+from steve_sdk.client import CodexClient, _params_dict
+from steve_sdk.errors import SteveError
+from steve_sdk.generated.notification_registry import notification_turn_id
+from steve_sdk.generated.v2_all import (
     AbsolutePathBuf,
     AccountRateLimitsUpdatedNotification,
     AccountUpdatedNotification,
@@ -33,8 +33,8 @@ from openai_codex.generated.v2_all import (
     TurnStartParams,
     WarningNotification,
 )
-from openai_codex.models import InitializeResponse, JsonObject, Notification, UnknownNotification
-from openai_codex.types import ThreadSource
+from steve_sdk.models import InitializeResponse, JsonObject, Notification, UnknownNotification
+from steve_sdk.types import ThreadSource
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -97,7 +97,7 @@ def test_new_options_reject_unsupported_runtime_before_sending(
 ) -> None:
     client, requests = _initialized_client(monkeypatch, {"userAgent": f"codex-cli/{version}"})
 
-    with pytest.raises(CodexError, match=r"Codex CLI 0\.151\.0 or newer"):
+    with pytest.raises(SteveError, match=r"Steve CLI 0\.151\.0 or newer"):
         client.request(method, params, response_model=InitializeResponse)
 
     assert requests == []
@@ -151,7 +151,7 @@ def test_unversioned_checkout_probes_and_caches_its_own_schema(
                 )
             )
 
-    monkeypatch.setattr("openai_codex._runtime_requirements.subprocess.run", generate_schema)
+    monkeypatch.setattr("steve_sdk._runtime_requirements.subprocess.run", generate_schema)
     for method, params in (
         ("turn/start", {"input": [], "turnTrigger": "automation"}),
         ("thread/resume", {"threadId": "thread-1", "excludeTurns": False}),
@@ -159,7 +159,7 @@ def test_unversioned_checkout_probes_and_caches_its_own_schema(
         if supports_options:
             client.request(method, params, response_model=InitializeResponse)
         else:
-            with pytest.raises(CodexError, match="checkout does not support"):
+            with pytest.raises(SteveError, match="checkout does not support"):
                 client.request(method, params, response_model=InitializeResponse)
     assert len(requests) == (2 if supports_options else 0)
     assert probes == [
@@ -182,7 +182,7 @@ def test_unversioned_custom_launch_requires_verifiable_capabilities(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, requests = _initialized_client(monkeypatch, {"userAgent": "codex-cli/0.0.0"})
-    with pytest.raises(CodexError, match="Cannot verify an unversioned CLI"):
+    with pytest.raises(SteveError, match="Cannot verify an unversioned CLI"):
         client.request(
             "turn/start", {"turnTrigger": "automation"}, response_model=InitializeResponse
         )
@@ -213,7 +213,7 @@ def test_new_options_require_fresh_initialize_metadata_after_close(
     client, requests = _initialized_client(monkeypatch, {"userAgent": "codex-cli/0.153.0"})
     client.close()
 
-    with pytest.raises(CodexError, match="reported version is 'unknown'"):
+    with pytest.raises(SteveError, match="reported version is 'unknown'"):
         client.request("thread/resume", {"excludeTurns": True}, response_model=InitializeResponse)
 
     assert requests == []
@@ -228,12 +228,12 @@ def test_generated_params_models_are_snake_case_and_dump_by_alias() -> None:
 
 
 def test_generated_v2_bundle_has_single_shared_plan_type_definition() -> None:
-    source = (ROOT / "src" / "openai_codex" / "generated" / "v2_all.py").read_text()
+    source = (ROOT / "src" / "steve_sdk" / "generated" / "v2_all.py").read_text()
     assert source.count("class PlanType(") == 1
 
 
 def test_plan_type_accepts_business_prolite_from_newer_runtime() -> None:
-    """New runtime plan values should remain typed when using a codex_bin override."""
+    """New runtime plan values should remain typed when using a steve_bin override."""
     plan_type = "self_serve_business_prolite"
     response = GetAccountResponse.model_validate(
         {

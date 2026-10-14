@@ -12,10 +12,10 @@ ensure_local_sdk_src()
 
 import asyncio
 
-from openai_codex import (
-    AsyncCodex,
+from steve_sdk import (
+    AsyncSteve,
 )
-from openai_codex.types import (
+from steve_sdk.types import (
     ReasoningSummary,
 )
 
@@ -41,7 +41,7 @@ PROMPT = (
 
 
 async def main() -> None:
-    async with AsyncCodex(config=runtime_config()) as codex:
+    async with AsyncSteve(config=runtime_config()) as codex:
         thread = await codex.thread_start(
             model="gpt-5.4", config={"model_reasoning_effort": "high"}
         )

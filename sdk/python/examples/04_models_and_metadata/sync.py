@@ -9,9 +9,9 @@ from _bootstrap import ensure_local_sdk_src, runtime_config, server_label
 
 ensure_local_sdk_src()
 
-from openai_codex import Codex
+from steve_sdk import Steve
 
-with Codex(config=runtime_config()) as codex:
+with Steve(config=runtime_config()) as codex:
     print("server:", server_label(codex.metadata))
     models = codex.models()
     print("models.count:", len(models.data))
