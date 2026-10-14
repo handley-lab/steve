@@ -705,7 +705,7 @@ class ProtocolServer:
                 "structuredContent": structured,
             }
         elif name == "review_protocol_env":
-            structured = {"value": os.environ.get("CODEX_MCP_PROTOCOL_VERSION")}
+            structured = {"value": os.environ.get("STEVE_MCP_PROTOCOL_VERSION")}
             fields = {
                 "content": [{"type": "text", "text": json.dumps(structured)}],
                 "structuredContent": structured,
