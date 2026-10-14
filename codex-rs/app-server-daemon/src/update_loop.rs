@@ -353,7 +353,7 @@ async fn update_once(
     let codex_home = package_root
         .parent()
         .and_then(Path::parent)
-        .context("daemon package root has no Codex home")?;
+        .context("daemon package root has no Steve home")?;
     let (installer_mode, installer_guard) =
         if let UpdateTrigger::RestoreProduction(expected) = trigger {
             anyhow::ensure!(
@@ -535,7 +535,7 @@ fn selected_release(daemon: &Daemon) -> Result<(std::path::PathBuf, std::path::P
         .settings_file
         .parent()
         .and_then(Path::parent)
-        .context("daemon settings path has no Codex home")?;
+        .context("daemon settings path has no Steve home")?;
     let root = crate::managed_install::package_root(home);
     let release = std::fs::canonicalize(root.join("current"))?;
     let name = release
@@ -604,7 +604,7 @@ async fn run_installer_script(
             package_root
                 .parent()
                 .and_then(Path::parent)
-                .context("package root has no Codex home")?,
+                .context("package root has no Steve home")?,
         )
         .env("STEVE_INSTALL_DEFER_SELECTION", defer_selection)
         .env(
