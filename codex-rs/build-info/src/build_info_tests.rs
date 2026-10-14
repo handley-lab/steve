@@ -19,7 +19,7 @@ fn packaged_runtime_uses_manifest_version() {
     let executable = bin_dir.join("codex");
     fs::write(&executable, b"").expect("create runtime binary");
     fs::write(
-        package.path().join("codex-package.json"),
+        package.path().join("steve-package.json"),
         r#"{"version":"1.2.3-alpha.4"}"#,
     )
     .expect("create runtime package manifest");
@@ -67,7 +67,7 @@ fn legacy_package_without_version_uses_build_commit() {
     fs::create_dir(&bin_dir).expect("create runtime binary directory");
     let executable = bin_dir.join("codex");
     fs::write(&executable, b"").expect("create runtime binary");
-    fs::write(package.path().join("codex-package.json"), "{}")
+    fs::write(package.path().join("steve-package.json"), "{}")
         .expect("create legacy runtime package manifest");
 
     let context = InstallContext::from_exe(
@@ -95,7 +95,7 @@ fn invalid_package_version_uses_build_commit() {
     let executable = bin_dir.join("codex");
     fs::write(&executable, b"").expect("create runtime binary");
     fs::write(
-        package.path().join("codex-package.json"),
+        package.path().join("steve-package.json"),
         r#"{"version":"not-a-release-version"}"#,
     )
     .expect("create runtime package manifest");

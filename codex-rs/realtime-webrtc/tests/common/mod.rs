@@ -75,12 +75,12 @@ pub fn package(test: &str) -> Result<Option<PathBuf>> {
         Package(std::env::temp_dir().join(format!("voice-actor-{}-{nonce}", std::process::id())));
     let root = &package.0;
     fs::create_dir_all(root.join("bin"))?;
-    fs::create_dir_all(root.join("codex-resources/voice/bin"))?;
-    fs::write(root.join("codex-package.json"), "{}")?;
+    fs::create_dir_all(root.join("steve-resources/voice/bin"))?;
+    fs::write(root.join("steve-package.json"), "{}")?;
     codex_utils_cargo_bin::copy_executable(&source, &root.join("bin").join(APP))?;
     codex_utils_cargo_bin::copy_executable(
         &source,
-        &root.join("codex-resources/voice/bin").join(HELPER),
+        &root.join("steve-resources/voice/bin").join(HELPER),
     )?;
     let mut child = Command::new(root.join("bin").join(APP))
         .args(["--exact", test, "--nocapture"])

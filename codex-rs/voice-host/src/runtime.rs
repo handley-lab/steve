@@ -39,7 +39,7 @@ impl Runtime {
             || root
                 .parent()
                 .and_then(Path::file_name)
-                .is_none_or(|name| name != "codex-resources")
+                .is_none_or(|name| name != "steve-resources")
         {
             return Err(runtime_error());
         }

@@ -6,11 +6,11 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path
 
-_repo_root = os.environ.get("CODEX_REPO_ROOT")
+_repo_root = os.environ.get("STEVE_REPO_ROOT")
 if _repo_root is None:
     raise RuntimeError(
-        "CODEX_REPO_ROOT must point to the repository root; "
-        "run `just assemble-codex-package` to set it automatically"
+        "STEVE_REPO_ROOT must point to the repository root; "
+        "run `just assemble-steve-package` to set it automatically"
     )
 REPO_ROOT = Path(_repo_root)
 
@@ -52,15 +52,15 @@ class PackageInputs:
 
 
 PACKAGE_VARIANTS: dict[str, PackageVariant] = {
-    "codex": PackageVariant(
-        name="codex",
-        cargo_bin="codex",
-        executable_stem="codex",
+    "steve": PackageVariant(
+        name="steve",
+        cargo_bin="steve",
+        executable_stem="steve",
     ),
-    "codex-app-server": PackageVariant(
-        name="codex-app-server",
-        cargo_bin="codex-app-server",
-        executable_stem="codex-app-server",
+    "steve-app-server": PackageVariant(
+        name="steve-app-server",
+        cargo_bin="steve-app-server",
+        executable_stem="steve-app-server",
     ),
 }
 

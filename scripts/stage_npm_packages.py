@@ -19,7 +19,7 @@ from typing import Sequence
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BUILD_SCRIPT = REPO_ROOT / "codex-cli" / "scripts" / "build_npm_package.py"
 WORKFLOW_NAME = ".github/workflows/rust-release.yml"
-GITHUB_REPO = "openai/codex"
+GITHUB_REPO = "handley-lab/steve"
 BINARY_TARGETS = (
     "x86_64-unknown-linux-musl",
     "aarch64-unknown-linux-musl",
@@ -56,10 +56,10 @@ class WorkflowArtifact:
 
 
 BINARY_COMPONENTS = {
-    "codex-responses-api-proxy": BinaryComponent(
-        artifact_prefix="codex-responses-api-proxy",
-        dest_dir="codex-responses-api-proxy",
-        binary_basename="codex-responses-api-proxy",
+    "steve-responses-api-proxy": BinaryComponent(
+        artifact_prefix="steve-responses-api-proxy",
+        dest_dir="steve-responses-api-proxy",
+        binary_basename="steve-responses-api-proxy",
     ),
 }
 
@@ -359,7 +359,7 @@ def install_single_codex_package_archive(
     target: str,
 ) -> Path:
     artifact_subdir = artifact_dir_for_target(artifacts_dir, target)
-    archive_path = artifact_subdir / f"codex-package-{target}.tar.gz"
+    archive_path = artifact_subdir / f"steve-package-{target}.tar.gz"
     if not archive_path.exists():
         raise FileNotFoundError(f"Expected package archive not found: {archive_path}")
 
@@ -490,8 +490,8 @@ def run_command(cmd: list[str]) -> None:
 def tarball_name_for_package(package: str, version: str) -> str:
     if package in CODEX_PLATFORM_PACKAGES:
         platform = package.removeprefix("codex-")
-        return f"codex-npm-{platform}-{version}.tgz"
-    return f"{package}-npm-{version}.tgz"
+        return f"steve-npm-{platform}-{version}.tgz"
+    return f"{package.replace('codex', 'steve', 1)}-npm-{version}.tgz"
 
 
 def main() -> int:

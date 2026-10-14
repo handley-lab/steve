@@ -13,10 +13,10 @@ const CODE_MODE_HOST_EXECUTABLE_NAME: &str = if cfg!(windows) {
 } else {
     "steve-code-mode-host"
 };
-const PACKAGE_METADATA_FILENAME: &str = "codex-package.json";
-const PATH_DIRNAME: &str = "codex-path";
+const PACKAGE_METADATA_FILENAME: &str = "steve-package.json";
+const PATH_DIRNAME: &str = "steve-path";
 const RELEASES_DIRNAME: &str = "releases";
-const RESOURCES_DIRNAME: &str = "codex-resources";
+const RESOURCES_DIRNAME: &str = "steve-resources";
 const STANDALONE_PACKAGES_DIRNAME: &str = "standalone";
 static INSTALL_CONTEXT: OnceLock<InstallContext> = OnceLock::new();
 
@@ -57,7 +57,7 @@ pub enum InstallMethod {
         /// such as
         /// `~/.steve/packages/standalone/releases/0.111.0-x86_64-unknown-linux-musl`.
         /// Package-layout installs use the package root that contains `bin/`,
-        /// `codex-resources/`, and `codex-path/`.
+        /// `steve-resources/`, and `steve-path/`.
         release_dir: AbsolutePathBuf,
         /// The bundled resource directory for managed dependencies.
         resources_dir: Option<AbsolutePathBuf>,
@@ -173,7 +173,7 @@ impl InstallContext {
     }
 
     pub fn code_mode_host_program(&self) -> PathBuf {
-        // prefer the one packed under codex-resources
+        // prefer the one packed under steve-resources
         self.bundled_resource(CODE_MODE_HOST_EXECUTABLE_NAME)
             .map_or_else(
                 || self.code_mode_host_program_from_exe(std::env::current_exe().ok().as_deref()),
@@ -260,7 +260,7 @@ impl CodexPackageLayout {
                 let contents = exe_dir.parent()?;
                 let bundle = contents.parent()?;
                 if contents.file_name()? != OsStr::new("Contents")
-                    || bundle.file_name()? != OsStr::new("CodexCLI.app")
+                    || bundle.file_name()? != OsStr::new("SteveCLI.app")
                 {
                     return None;
                 }
@@ -545,8 +545,8 @@ mod tests {
   "target": "x86_64-unknown-linux-musl",
   "variant": "steve",
   "entrypoint": "bin/steve",
-  "resourcesDir": "codex-resources",
-  "pathDir": "codex-path"
+  "resourcesDir": "steve-resources",
+  "pathDir": "steve-path"
 }
 "#,
         )?;

@@ -25,7 +25,7 @@ fn bazel_build_rejects_tampered_bundled_bwrap() {
         std::fs::read(&bwrap_binary).expect("built bwrap should be readable");
 
     let package = tempfile::tempdir().expect("package directory should be created");
-    let resources = package.path().join("codex-resources");
+    let resources = package.path().join("steve-resources");
     std::fs::create_dir(&resources).expect("package resource directory should be created");
 
     let sandbox_binary = package.path().join("steve-linux-sandbox");

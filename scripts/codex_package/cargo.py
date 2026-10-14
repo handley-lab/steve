@@ -86,7 +86,7 @@ def build_source_binaries(
         code_mode_host_bin=(
             code_mode_host_bin.resolve()
             if code_mode_host_bin is not None
-            else output_dir / f"codex-code-mode-host{spec.exe_suffix}"
+            else output_dir / f"steve-code-mode-host{spec.exe_suffix}"
         ),
         bwrap_bin=resolve_output_path(
             bwrap_bin,
@@ -94,11 +94,11 @@ def build_source_binaries(
         ),
         codex_command_runner_bin=resolve_output_path(
             codex_command_runner_bin,
-            output_dir / "codex-command-runner.exe" if spec.is_windows else None,
+            output_dir / "steve-command-runner.exe" if spec.is_windows else None,
         ),
         codex_windows_sandbox_setup_bin=resolve_output_path(
             codex_windows_sandbox_setup_bin,
-            output_dir / "codex-windows-sandbox-setup.exe" if spec.is_windows else None,
+            output_dir / "steve-windows-sandbox-setup.exe" if spec.is_windows else None,
         ),
     )
     validate_source_outputs(outputs)
@@ -119,13 +119,13 @@ def source_binaries_for_target(
     if build_entrypoint:
         binaries.append(variant.cargo_bin)
     if build_code_mode_host:
-        binaries.append("codex-code-mode-host")
+        binaries.append("steve-code-mode-host")
     if build_bwrap:
         binaries.append("bwrap")
     if build_codex_command_runner:
-        binaries.append("codex-command-runner")
+        binaries.append("steve-command-runner")
     if build_codex_windows_sandbox_setup:
-        binaries.append("codex-windows-sandbox-setup")
+        binaries.append("steve-windows-sandbox-setup")
     return binaries
 
 
@@ -140,11 +140,11 @@ def validate_prebuilt_resource_inputs(
         raise RuntimeError("--bwrap-bin is only supported for Linux targets.")
     if codex_command_runner_bin is not None and not spec.is_windows:
         raise RuntimeError(
-            "--codex-command-runner-bin is only supported for Windows targets."
+            "--steve-command-runner-bin is only supported for Windows targets."
         )
     if codex_windows_sandbox_setup_bin is not None and not spec.is_windows:
         raise RuntimeError(
-            "--codex-windows-sandbox-setup-bin is only supported for Windows targets."
+            "--steve-windows-sandbox-setup-bin is only supported for Windows targets."
         )
 
 

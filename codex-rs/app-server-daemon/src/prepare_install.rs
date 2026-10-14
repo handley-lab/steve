@@ -152,7 +152,7 @@ async fn prepare_from_package(
         !root.canonicalize()?.starts_with(source.canonicalize()?),
         "STEVE_HOME must be outside the source CLI package"
     );
-    let manifest_bytes = std::fs::read(source.join("codex-package.json"))?;
+    let manifest_bytes = std::fs::read(source.join("steve-package.json"))?;
     let manifest: CodexPackageManifest = serde_json::from_slice(&manifest_bytes)?;
     let version = manifest.version.to_string();
     let target = platform_target()?;
@@ -241,7 +241,7 @@ async fn prepare_from_package(
     };
     anyhow::ensure!(
         package_tree(source, /*destination*/ None, &mut BTreeMap::new())? == digest
-            && std::fs::read(stage.path().join("codex-package.json"))? == manifest_bytes
+            && std::fs::read(stage.path().join("steve-package.json"))? == manifest_bytes
             && staged_digests.get(staged_exe).map(blake3::Hash::as_bytes)
                 == Some(&running_identity.digest),
         "the CLI package changed while preparing the daemon or differs from the running executable"
@@ -263,7 +263,7 @@ async fn prepare_from_package(
                 staged_digests.insert(to.to_path_buf(), digest);
             }
         }
-        let voice_path = stage.path().join("codex-resources/voice/manifest.json");
+        let voice_path = stage.path().join("steve-resources/voice/manifest.json");
         if voice_path.try_exists()? {
             let mut voice: serde_json::Value =
                 serde_json::from_slice(&std::fs::read(&voice_path)?)?;
@@ -277,14 +277,14 @@ async fn prepare_from_package(
             let bytes = serde_json::to_vec_pretty(&voice)?;
             std::fs::write(voice_path, &bytes)?;
             staged_digests.insert(
-                PathBuf::from("codex-resources/voice/manifest.json"),
+                PathBuf::from("steve-resources/voice/manifest.json"),
                 blake3::hash(&bytes),
             );
         }
         metadata["entrypoint"] = entrypoint.into();
         let bytes = serde_json::to_vec_pretty(&metadata)?;
-        std::fs::write(stage.path().join("codex-package.json"), &bytes)?;
-        staged_digests.insert(PathBuf::from("codex-package.json"), blake3::hash(&bytes));
+        std::fs::write(stage.path().join("steve-package.json"), &bytes)?;
+        staged_digests.insert(PathBuf::from("steve-package.json"), blake3::hash(&bytes));
         package_tree(stage.path(), /*destination*/ None, &mut staged_digests)?
     } else {
         digest
@@ -512,22 +512,22 @@ fn validate_package(root: &Path, entrypoint: &str) -> Result<()> {
     });
     let code_mode_host = code_mode_host.to_string_lossy();
     let mut names = vec![
-        "codex-package.json",
+        "steve-package.json",
         entrypoint,
         code_mode_host.as_ref(),
         if cfg!(windows) {
-            "codex-path/rg.exe"
+            "steve-path/rg.exe"
         } else {
-            "codex-path/rg"
+            "steve-path/rg"
         },
     ];
     if cfg!(windows) {
         names.extend([
-            "codex-resources/steve-command-runner.exe",
-            "codex-resources/steve-windows-sandbox-setup.exe",
+            "steve-resources/steve-command-runner.exe",
+            "steve-resources/steve-windows-sandbox-setup.exe",
         ]);
     } else if cfg!(target_os = "linux") {
-        names.push("codex-resources/bwrap");
+        names.push("steve-resources/bwrap");
     }
     for name in names {
         if !root.join(name).is_file() {
@@ -536,7 +536,7 @@ fn validate_package(root: &Path, entrypoint: &str) -> Result<()> {
             ));
         }
         #[cfg(unix)]
-        if name != "codex-package.json" {
+        if name != "steve-package.json" {
             use std::os::unix::fs::PermissionsExt;
             if std::fs::metadata(root.join(name))?.permissions().mode() & 0o111 == 0 {
                 return Err(anyhow!(

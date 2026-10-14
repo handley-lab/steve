@@ -24,7 +24,7 @@ RUNTIME_PLATFORM_TAGS = {
 def verify_release(package: str, version: str) -> None:
     version = str(Version(version))
     name = package.replace("-", "_")
-    if package == "openai-codex-cli-bin":
+    if package == "steve-cli-bin":
         expected = {
             f"{name}-{version}-py3-none-{tag}.whl" for tag in RUNTIME_PLATFORM_TAGS
         }
@@ -66,7 +66,7 @@ def verify_release(package: str, version: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("package", choices=["openai-codex-cli-bin", "openai-codex"])
+    parser.add_argument("package", choices=["steve-cli-bin", "steve-sdk"])
     parser.add_argument("version")
     args = parser.parse_args()
     verify_release(args.package, args.version)

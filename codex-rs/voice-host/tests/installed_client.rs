@@ -83,10 +83,10 @@ fn install_startup_libraries(runtime: &Path) -> Result<()> {
 
 fn install_helper(root: &Path) -> Result<CodexPackageLayout> {
     let bin = root.join("bin");
-    let helper_dir = root.join("codex-resources/voice/bin");
+    let helper_dir = root.join("steve-resources/voice/bin");
     fs::create_dir_all(&bin)?;
     fs::create_dir_all(&helper_dir)?;
-    fs::write(root.join("codex-package.json"), "{}")?;
+    fs::write(root.join("steve-package.json"), "{}")?;
     let app = bin.join(if cfg!(windows) { "steve.exe" } else { "codex" });
     fs::write(&app, [])?;
     let source = cargo_bin("steve-voice-host")?;
@@ -112,7 +112,7 @@ async fn installed_client_rejects_mixed_builds_and_missing_helper() -> Result<()
     let source = cargo_bin("steve-voice-host")?;
     let helper = directory
         .path()
-        .join("codex-resources/voice/bin")
+        .join("steve-resources/voice/bin")
         .join(source.file_name().context("helper binary file name")?);
     VoiceHost::connect(&package, &build_commit().await?)
         .await?
@@ -153,10 +153,10 @@ async fn installed_client_accepts_non_utf8_package_path() -> Result<()> {
         .path()
         .join(OsString::from_vec(b"voice-\xff".to_vec()));
     let bin = root.join("bin");
-    let helper_dir = root.join("codex-resources/voice/bin");
+    let helper_dir = root.join("steve-resources/voice/bin");
     fs::create_dir_all(&bin)?;
     fs::create_dir_all(&helper_dir)?;
-    fs::write(root.join("codex-package.json"), "{}")?;
+    fs::write(root.join("steve-package.json"), "{}")?;
     let app = bin.join("codex");
     fs::write(&app, [])?;
     let source = cargo_bin("steve-voice-host")?;

@@ -17,9 +17,9 @@ def main(configuration: bundle.ProfileConfiguration | None = None):
     package = args.package.resolve(strict=True)
     if not package.is_dir():
         parser.error("package must be an extracted CLI package directory")
-    repo_root = os.environ.get("CODEX_REPO_ROOT")
+    repo_root = os.environ.get("STEVE_REPO_ROOT")
     if not repo_root:
-        parser.error("CODEX_REPO_ROOT must be set")
+        parser.error("STEVE_REPO_ROOT must be set")
     reports = Path(repo_root) / "signing-verification"
     reports.mkdir(parents=True, exist_ok=True)
     provisioned = os.environ.get("PROVISIONED_MACOS", "false") == "true"
@@ -32,13 +32,14 @@ def main(configuration: bundle.ProfileConfiguration | None = None):
         else:
             bundle.verify(package, reports, os.environ["TARGET"], configuration)
 
-    for relative in ("bin/codex", *bundle.HELPERS):
+    for relative in ("bin/steve", *bundle.HELPERS):
         binary = package / relative
         name = binary.name
         target = binary
         identifier = name
-        entitlements = bundle.SIGNING / f"{name}.entitlements.plist"
-        if provisioned and relative == "bin/codex":
+        entitlements_name = {"steve": "codex", "steve-code-mode-host": "codex-code-mode-host"}.get(name, name)
+        entitlements = bundle.SIGNING / f"{entitlements_name}.entitlements.plist"
+        if provisioned and relative == "bin/steve":
             binary = package / bundle.EXECUTABLE
             target = package / bundle.APP
             identifier = bundle.CODE_SIGNING_ID
@@ -63,7 +64,7 @@ def main(configuration: bundle.ProfileConfiguration | None = None):
                     ["--identifier", identifier, "--entitlements", str(entitlements)]
                 )
             else:
-                command.extend(["--identifier", f"com.openai.codex.{name}"])
+                command.extend(["--identifier", f"org.handley-lab.steve.{name}"])
             subprocess.run(command, check=True)
             with (reports / f"{name}-signature.yaml").open("wb") as output:
                 subprocess.run(
@@ -95,14 +96,13 @@ def main(configuration: bundle.ProfileConfiguration | None = None):
                 ["lipo", str(binary), "-verify_arch", architectures[target_triple]],
                 check=True,
             )
-            # Preserve the CLI's existing login-keychain identity while checking
-            # its bundle/App ID and provisioning independently in bundle.verify.
+            # Check Steve's signing identity and independently verified profile.
             requirement = (
                 "=anchor apple generic"
                 " and certificate 1[field.1.2.840.113635.100.6.2.6] exists"
                 " and certificate leaf[field.1.2.840.113635.100.6.1.13] exists"
             )
-            if provisioned and relative == "bin/codex":
+            if provisioned and relative == "bin/steve":
                 requirement += (
                     f' and identifier "{bundle.CODE_SIGNING_ID}"'
                     f' and certificate leaf[subject.OU] = "{configuration.team_id}"'

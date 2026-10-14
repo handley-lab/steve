@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Unified entry point for the Codex CLI.
+// Unified entry point for the Steve CLI.
 
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "fs";
@@ -14,12 +14,12 @@ const require = createRequire(import.meta.url);
 const codexPackageRoot = realpathSync(path.join(__dirname, ".."));
 
 const PLATFORM_PACKAGE_BY_TARGET = {
-  "x86_64-unknown-linux-musl": "@openai/codex-linux-x64",
-  "aarch64-unknown-linux-musl": "@openai/codex-linux-arm64",
-  "x86_64-apple-darwin": "@openai/codex-darwin-x64",
-  "aarch64-apple-darwin": "@openai/codex-darwin-arm64",
-  "x86_64-pc-windows-msvc": "@openai/codex-win32-x64",
-  "aarch64-pc-windows-msvc": "@openai/codex-win32-arm64",
+  "x86_64-unknown-linux-musl": "@handley-lab/steve-linux-x64",
+  "aarch64-unknown-linux-musl": "@handley-lab/steve-linux-arm64",
+  "x86_64-apple-darwin": "@handley-lab/steve-darwin-x64",
+  "aarch64-apple-darwin": "@handley-lab/steve-darwin-arm64",
+  "x86_64-pc-windows-msvc": "@handley-lab/steve-win32-x64",
+  "aarch64-pc-windows-msvc": "@handley-lab/steve-win32-arm64",
 };
 
 const { platform, arch } = process;
@@ -89,7 +89,7 @@ function findCodexExecutable() {
     vendorRoot,
     targetTriple,
     "bin",
-    process.platform === "win32" ? "codex.exe" : "codex",
+    process.platform === "win32" ? "steve.exe" : "steve",
   );
   if (existsSync(codexExecutable)) {
     return codexExecutable;
@@ -98,14 +98,14 @@ function findCodexExecutable() {
   const packageManager = detectPackageManager();
   const updateCommand =
     packageManager === "bun"
-      ? "bun install -g @openai/codex@latest"
+      ? "bun install -g @handley-lab/steve@latest"
       : packageManager === "pnpm"
-        ? "pnpm add -g @openai/codex@latest"
+        ? "pnpm add -g @handley-lab/steve@latest"
         : packageManager === "vite-plus"
-          ? "vp install -g @openai/codex@latest"
-          : "npm install -g @openai/codex@latest";
+          ? "vp install -g @handley-lab/steve@latest"
+          : "npm install -g @handley-lab/steve@latest";
   throw new Error(
-    `Missing optional dependency ${platformPackage}. Reinstall Codex: ${updateCommand}`,
+    `Missing optional dependency ${platformPackage}. Reinstall Steve: ${updateCommand}`,
   );
 }
 
@@ -124,7 +124,7 @@ function isPnpmOwnedCodexInstall(nodeModulesDir) {
 
   try {
     return (
-      realpathSync(path.join(nodeModulesDir, "@openai", "codex")) ===
+      realpathSync(path.join(nodeModulesDir, "@handley-lab", "steve")) ===
       codexPackageRoot
     );
   } catch {
@@ -139,24 +139,24 @@ function isVitePlusOwnedCodexInstall(packagesDir) {
 
   try {
     const metadata = JSON.parse(
-      readFileSync(path.join(packagesDir, "@openai", "codex.json"), "utf8"),
+      readFileSync(path.join(packagesDir, "@handley-lab", "steve.json"), "utf8"),
     );
-    if (metadata.name !== "@openai/codex") {
+    if (metadata.name !== "@handley-lab/steve") {
       return false;
     }
 
-    // Vite+ records the active global installation in packages/@openai/codex.json.
+    // Vite+ records the active global installation in packages/@handley-lab/steve.json.
     // Older installs have no ID or append a #-prefixed ID to the package name;
     // newer installs put the ID in a subdirectory of the package prefix.
     const installId = metadata.installId || "";
     const installDir = installId.startsWith("#")
-      ? path.join(packagesDir, `@openai/codex${installId}`)
-      : path.join(packagesDir, "@openai/codex", installId);
+      ? path.join(packagesDir, `@handley-lab/steve${installId}`)
+      : path.join(packagesDir, "@handley-lab/steve", installId);
     for (const nodeModulesDir of [
       path.join(installDir, "lib", "node_modules"),
       path.join(installDir, "node_modules"),
     ]) {
-      const packageRoot = path.join(nodeModulesDir, "@openai", "codex");
+      const packageRoot = path.join(nodeModulesDir, "@handley-lab", "steve");
       if (
         existsSync(packageRoot) &&
         realpathSync(packageRoot) === codexPackageRoot
@@ -165,13 +165,13 @@ function isVitePlusOwnedCodexInstall(packagesDir) {
       }
     }
   } catch {
-    // Missing or unreadable ownership metadata must not prevent Codex starting.
+    // Missing or unreadable ownership metadata must not prevent Steve starting.
   }
   return false;
 }
 
 /**
- * Use heuristics to detect the package manager that was used to install Codex
+ * Use heuristics to detect the package manager that was used to install Steve
  * in order to give the user a hint about how to update it.
  */
 function detectPackageManager() {
@@ -222,20 +222,20 @@ function detectPackageManager() {
 const packageManager = detectPackageManager();
 const packageManagerEnvVar =
   packageManager === "bun"
-    ? "CODEX_MANAGED_BY_BUN"
+    ? "STEVE_MANAGED_BY_BUN"
     : packageManager === "pnpm"
-      ? "CODEX_MANAGED_BY_PNPM"
+      ? "STEVE_MANAGED_BY_PNPM"
       : packageManager === "vite-plus"
-        ? "CODEX_MANAGED_BY_VITE_PLUS"
-        : "CODEX_MANAGED_BY_NPM";
+        ? "STEVE_MANAGED_BY_VITE_PLUS"
+        : "STEVE_MANAGED_BY_NPM";
 const env = {
   ...process.env,
-  CODEX_MANAGED_PACKAGE_ROOT: codexPackageRoot,
+  STEVE_MANAGED_PACKAGE_ROOT: codexPackageRoot,
 };
-delete env.CODEX_MANAGED_BY_NPM;
-delete env.CODEX_MANAGED_BY_BUN;
-delete env.CODEX_MANAGED_BY_PNPM;
-delete env.CODEX_MANAGED_BY_VITE_PLUS;
+delete env.STEVE_MANAGED_BY_NPM;
+delete env.STEVE_MANAGED_BY_BUN;
+delete env.STEVE_MANAGED_BY_PNPM;
+delete env.STEVE_MANAGED_BY_VITE_PLUS;
 env[packageManagerEnvVar] = "1";
 
 const child = spawn(binaryPath, process.argv.slice(2), {

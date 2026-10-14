@@ -76,10 +76,10 @@ fn dependency_inventory_uses_launcher_location_and_command_path() -> io::Result<
     let root = AbsolutePathBuf::from_absolute_path(temp.path())?.canonicalize()?;
     let cwd = root.join("command");
     let tools = root.join("tools");
-    let bundled = tools.join("codex-resources/bwrap");
+    let bundled = tools.join("steve-resources/bwrap");
     fs::create_dir(&cwd)?;
     fs::create_dir(&tools)?;
-    fs::create_dir(tools.join("codex-resources"))?;
+    fs::create_dir(tools.join("steve-resources"))?;
     for path in [
         tools.join("bwrap"),
         tools.join("rg"),

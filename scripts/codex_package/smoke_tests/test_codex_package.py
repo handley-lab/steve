@@ -5,10 +5,10 @@ ROOT_OF_EXTRACTED_PACKAGE
 │   ├── codex[.exe]                       # CLI package only
 │   ├── codex-app-server[.exe]            # app-server package only
 │   └── codex-code-mode-host[.exe]
-├── codex-package.json
-├── codex-path
+├── steve-package.json
+├── steve-path
 │   └── rg[.exe]
-└── codex-resources
+└── steve-resources
     ├── bwrap                             # Linux only
     ├── codex-command-runner.exe          # Windows only
     ├── codex-windows-sandbox-setup.exe   # Windows only
@@ -31,7 +31,7 @@ from app_server_harness import (
     ev_response_created,
     sse,
 )
-from openai_codex import ApprovalMode, Codex, CodexConfig, Sandbox
+from steve_sdk import ApprovalMode, Steve, SteveConfig, Sandbox
 
 from fixtures import SmokePackage
 
@@ -41,7 +41,7 @@ from fixtures import SmokePackage
     [
         pytest.param(("--help",), "Usage:", id="help"),
         pytest.param(("features", "list"), "code_mode", id="features"),
-        pytest.param(("completion", "bash"), "codex", id="completion"),
+        pytest.param(("completion", "bash"), "steve", id="completion"),
     ],
 )
 def test_cli_public_commands(
@@ -63,10 +63,10 @@ def test_cli_version_matches_release_sources(package: SmokePackage) -> None:
     )
     manifest = tomllib.loads((root / "codex-rs/Cargo.toml").read_text())
     version = manifest["workspace"]["package"]["version"]
-    assert package.run("--version").stdout == f"codex-cli {version}\n"
+    assert package.run("--version").stdout == f"steve {version}\n"
 
 
-@pytest.mark.parametrize("entrypoint", ["codex", "codex-app-server"])
+@pytest.mark.parametrize("entrypoint", ["steve", "steve-app-server"])
 def test_app_server_runs_code_mode_through_python_sdk(
     package: SmokePackage,
     responses_server: MockResponsesServer,
@@ -75,12 +75,12 @@ def test_app_server_runs_code_mode_through_python_sdk(
     """Both packages run their own ripgrep through sandboxed SDK code mode."""
     windows = "windows" in package.target
     sandbox_config = ("--config", 'windows.sandbox="unelevated"') if windows else ()
-    if entrypoint == "codex":
+    if entrypoint == "steve":
         executable = package.cli
         package_root = package.cli_root
         package_path_dir = package.cli_path_dir
-        config = CodexConfig(
-            codex_bin=str(executable),
+        config = SteveConfig(
+            steve_bin=str(executable),
             config_overrides=sandbox_config[1:],
             cwd=str(package.directory),
             env=package.environment,
@@ -89,7 +89,7 @@ def test_app_server_runs_code_mode_through_python_sdk(
         executable = package.app_server
         package_root = package.app_server_root
         package_path_dir = package.app_server_path_dir
-        config = CodexConfig(
+        config = SteveConfig(
             launch_args_override=(str(executable), *sandbox_config),
             cwd=str(package.directory),
             env=package.environment,
@@ -125,7 +125,7 @@ def test_app_server_runs_code_mode_through_python_sdk(
         )
     )
     responses_server.enqueue_assistant_message("Done", response_id="code-mode-done")
-    with Codex(config=config) as client:
+    with Steve(config=config) as client:
         turn = client.thread_start(
             ephemeral=True,
             approval_mode=ApprovalMode.deny_all,

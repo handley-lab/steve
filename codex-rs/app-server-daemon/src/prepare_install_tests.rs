@@ -26,23 +26,23 @@ fn daemon(home: &std::path::Path) -> crate::Daemon {
 
 fn package(root: &Path, version: &str) -> PathBuf {
     let target = super::platform_target().expect("target");
-    for dir in ["bin", "codex-path", "codex-resources/nested"] {
+    for dir in ["bin", "steve-path", "steve-resources/nested"] {
         std::fs::create_dir_all(root.join(dir)).expect("package directory");
     }
     let bin = root.join("bin/steve");
     codex_utils_cargo_bin::write_executable(&bin, &format!("#!/bin/sh\necho 'codex {version}'\n"))
         .expect("codex executable");
-    for file in ["bin/steve-code-mode-host", "codex-path/rg"] {
+    for file in ["bin/steve-code-mode-host", "steve-path/rg"] {
         codex_utils_cargo_bin::write_executable(&root.join(file), "runtime")
             .expect("executable helper");
     }
-    std::fs::write(root.join("codex-resources/nested/runtime"), b"runtime").expect("package file");
+    std::fs::write(root.join("steve-resources/nested/runtime"), b"runtime").expect("package file");
     if cfg!(target_os = "linux") {
-        codex_utils_cargo_bin::write_executable(&root.join("codex-resources/bwrap"), "runtime")
+        codex_utils_cargo_bin::write_executable(&root.join("steve-resources/bwrap"), "runtime")
             .expect("executable bwrap");
     }
     std::fs::write(
-        root.join("codex-package.json"),
+        root.join("steve-package.json"),
         serde_json::json!({
             "version": version, "target": target, "entrypoint": "bin/steve"
         })
@@ -74,7 +74,7 @@ async fn seeds_full_package() {
     let standalone = home.join("packages/app-server-daemon");
     let selected = std::fs::canonicalize(standalone.join("current")).expect("selected");
     assert_eq!(
-        std::fs::read(selected.join("codex-resources/nested/runtime")).expect("runtime"),
+        std::fs::read(selected.join("steve-resources/nested/runtime")).expect("runtime"),
         b"runtime"
     );
     assert_eq!(
@@ -100,7 +100,7 @@ async fn seeds_full_package() {
     package(&outside, "0.149.0");
     let linked = releases.join(format!("0.148.0-{target}"));
     package(&linked, "0.148.0");
-    std::os::unix::fs::symlink(&outside, linked.join("codex-resources/other")).unwrap();
+    std::os::unix::fs::symlink(&outside, linked.join("steve-resources/other")).unwrap();
     let _operation_lock = daemon.acquire_operation_lock().await.unwrap();
     let _install_lock = crate::install_lock::acquire_install_lock(&root)
         .await
@@ -113,17 +113,17 @@ async fn seeds_full_package() {
     std::fs::remove_file(root.join("current")).unwrap();
     std::os::unix::fs::symlink(&selected, root.join("current")).unwrap();
     let _ = release_pruning::prune(&daemon, &root, &settings).await;
-    assert!(old.join("codex-resources/nested/runtime").is_file());
+    assert!(old.join("steve-resources/nested/runtime").is_file());
 
     release_pruning::record_selection(&root, Some(&previous)).unwrap();
     // Root can delete read-only files. Other users simulate a real partial failure.
     use std::os::unix::fs::PermissionsExt;
-    let read_only = old.join("codex-resources/nested");
+    let read_only = old.join("steve-resources/nested");
     std::fs::set_permissions(&read_only, std::fs::Permissions::from_mode(0o555)).unwrap();
     let _ = release_pruning::prune(&daemon, &root, &settings).await;
     assert!(!old.exists());
     for retained in [&selected, &previous, &outside, &linked] {
-        assert!(retained.join("codex-resources/nested/runtime").is_file());
+        assert!(retained.join("steve-resources/nested/runtime").is_file());
     }
 
     // Reinstall after a partial deletion, and verify that leftovers are not retried.
@@ -136,7 +136,7 @@ async fn seeds_full_package() {
             .find(|entry| entry.file_name().to_string_lossy().starts_with(".retired."))
             .unwrap()
             .path()
-            .join("release/codex-resources/nested");
+            .join("release/steve-resources/nested");
         std::fs::set_permissions(&leftover, std::fs::Permissions::from_mode(0o755)).unwrap();
         prepare_from_package(
             &daemon,
@@ -356,7 +356,7 @@ async fn explicit_selection_requires_unchanged_cli_and_pins_all_versions() {
             let previous_root = crate::managed_install::package_root(&home);
             package(&source, version);
             std::fs::write(
-                source.join("codex-resources/nested/runtime"),
+                source.join("steve-resources/nested/runtime"),
                 previous.to_string_lossy().as_bytes(),
             )
             .unwrap();
@@ -423,7 +423,7 @@ async fn explicit_selection_requires_unchanged_cli_and_pins_all_versions() {
         }
 
         // Reusing a release must still validate its current contents from disk.
-        std::fs::write(previous.join("codex-package.json"), b"corrupt manifest").unwrap();
+        std::fs::write(previous.join("steve-package.json"), b"corrupt manifest").unwrap();
         let error = prepare_from_package(
             &daemon(&home),
             &settings,

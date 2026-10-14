@@ -45,7 +45,7 @@ jobs:
               )
 
           pyproject = tomllib.loads(Path("sdk/python/pyproject.toml").read_text())
-          prefix = "openai-codex-cli-bin=="
+          prefix = "steve-cli-bin=="
           runtime_versions = [
               dependency.removeprefix(prefix)
               for dependency in pyproject["project"]["dependencies"]
@@ -129,7 +129,7 @@ jobs:
           PYTHON_RUNTIME_VERSION: ${{ needs.resolve-python-release.outputs.runtime_version }}
         run: |
           uv run --no-project --with packaging==26.2 python .github/scripts/verify_pypi_release.py \
-            openai-codex-cli-bin "$PYTHON_RUNTIME_VERSION"
+            steve-cli-bin "$PYTHON_RUNTIME_VERSION"
 
   publish-python-sdk:
     name: publish-python-sdk
@@ -169,4 +169,4 @@ jobs:
       - name: Verify Python SDK is available on PyPI
         env:
           SDK_VERSION: ${{ needs.resolve-python-release.outputs.sdk_version }}
-        run: uv run --no-project --with packaging==26.2 python .github/scripts/verify_pypi_release.py openai-codex "$SDK_VERSION"
+        run: uv run --no-project --with packaging==26.2 python .github/scripts/verify_pypi_release.py steve-sdk "$SDK_VERSION"

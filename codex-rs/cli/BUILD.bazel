@@ -5,7 +5,7 @@ load("//bazel/rules:runtime_package.bzl", "release_binary")
 
 codex_rust_crate(
     name = "cli",
-    binaries_with_build_commit = ["codex"],
+    binaries_with_build_commit = ["steve"],
     crate_name = "codex_cli",
     extra_binaries = [
         "//codex-rs/bwrap:bwrap",
@@ -15,14 +15,14 @@ codex_rust_crate(
 )
 
 release_binary(
-    binary = ":codex",
+    binary = ":steve",
 )
 
 multiplatform_binaries(
-    name = "codex",
+    name = "steve",
 )
 
 codex_e2e_benchmark(
     name = "codex-help",
-    binaries = [":codex"],
+    binaries = [":steve"],
 )

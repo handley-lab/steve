@@ -47,14 +47,14 @@ jobs:
           build_python="${RUNNER_TEMP}/python-sdk-build-venv/bin/python"
           "$build_python" -m pip install build twine packaging==26.2
           "$build_python" sdk/python/scripts/update_sdk_artifacts.py \
-            stage-sdk "${RUNNER_TEMP}/openai-codex" \
+            stage-sdk "${RUNNER_TEMP}/steve-sdk" \
             --sdk-version "$SDK_VERSION" \
             --codex-version "$RUNTIME_VERSION"
           "$build_python" -m build \
             --wheel \
             --sdist \
             --outdir dist/python-sdk \
-            "${RUNNER_TEMP}/openai-codex"
+            "${RUNNER_TEMP}/steve-sdk"
           "$build_python" -m twine check --strict dist/python-sdk/*
 
       - name: Upload Python SDK package

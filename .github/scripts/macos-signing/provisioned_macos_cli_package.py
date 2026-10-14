@@ -12,14 +12,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-BUNDLE_ID = "com.openai.codex.cli"
-# Existing login-keychain ACLs identify the CLI by its code-signing identifier.
-# Keep this stable independently of the bundle and provisioned App ID.
-CODE_SIGNING_ID = "codex"
-APP = Path("CodexCLI.app")
-EXECUTABLE = APP / "Contents/MacOS/codex"
+BUNDLE_ID = "org.handley-lab.steve.cli"
+# Steve has its own signing identity, independent of Codex login-keychain ACLs.
+CODE_SIGNING_ID = "steve"
+APP = Path("SteveCLI.app")
+EXECUTABLE = APP / "Contents/MacOS/steve"
 SIGNING = Path(__file__).resolve().parent
-HELPERS = ("bin/codex-code-mode-host", "codex-path/rg")
+HELPERS = ("bin/steve-code-mode-host", "steve-path/rg")
 LAUNCHER = """#!/bin/sh
 set -eu
 entry="$0"
@@ -29,7 +28,7 @@ while [ -L "$entry" ]; do
   case "$entry" in /*) ;; *) entry="$parent/$entry" ;; esac
 done
 bin_dir=$(CDPATH= cd -P -- "$(dirname -- "$entry")" && pwd)
-exec "$bin_dir/../CodexCLI.app/Contents/MacOS/codex" "$@"
+exec "$bin_dir/../SteveCLI.app/Contents/MacOS/steve" "$@"
 """
 
 
@@ -118,32 +117,32 @@ def entitlements(configuration: ProfileConfiguration):
 
 def prepare(package, reports, configuration: ProfileConfiguration):
     load_profile(configuration)
-    metadata = json.loads((package / "codex-package.json").read_text())
+    metadata = json.loads((package / "steve-package.json").read_text())
     if (
-        metadata["variant"] != "codex"
+        metadata["variant"] != "steve"
         or metadata["layoutVersion"] != 1
         or metadata["target"] not in ("aarch64-apple-darwin", "x86_64-apple-darwin")
-        or metadata["entrypoint"] != "bin/codex"
+        or metadata["entrypoint"] != "bin/steve"
     ):
         raise ValueError("Expected a canonical macOS CLI package")
-    for relative in ("bin/codex", *HELPERS):
+    for relative in ("bin/steve", *HELPERS):
         path = package / relative
         if path.is_symlink() or not path.is_file() or not os.access(path, os.X_OK):
             raise ValueError(f"Expected a regular executable: {relative}")
     # Refuse to overwrite a previously prepared or signed bundle.
     (package / EXECUTABLE).parent.mkdir(parents=True, exist_ok=False)
-    (package / "bin/codex").rename(package / EXECUTABLE)
-    (package / "bin/codex").write_text(LAUNCHER)
-    (package / "bin/codex").chmod(0o755)
+    (package / "bin/steve").rename(package / EXECUTABLE)
+    (package / "bin/steve").write_text(LAUNCHER)
+    (package / "bin/steve").chmod(0o755)
     contents = package / APP / "Contents"
     shutil.copyfile(configuration.profile, contents / "embedded.provisionprofile")
     (contents / "Info.plist").write_bytes(
         plistlib.dumps(
             {
                 "CFBundleIdentifier": BUNDLE_ID,
-                "CFBundleDisplayName": "ChatGPT",
-                "CFBundleExecutable": "codex",
-                "CFBundleName": "ChatGPT",
+                "CFBundleDisplayName": "Steve",
+                "CFBundleExecutable": "steve",
+                "CFBundleName": "Steve",
                 "CFBundlePackageType": "APPL",
                 "CFBundleVersion": "1",
             }
@@ -171,9 +170,9 @@ def verify(package, reports, expected_target, configuration: ProfileConfiguratio
         package / APP / "Contents/embedded.provisionprofile"
     ).read_bytes() != configuration.profile.read_bytes():
         raise ValueError("Embedded profile differs from the reviewed profile")
-    if (package / "bin/codex").read_text() != LAUNCHER:
+    if (package / "bin/steve").read_text() != LAUNCHER:
         raise ValueError("Unexpected CLI launcher")
-    metadata = json.loads((package / "codex-package.json").read_text())
+    metadata = json.loads((package / "steve-package.json").read_text())
     if metadata["target"] != expected_target:
         raise ValueError(
             "Package target differs from the requested verification target"

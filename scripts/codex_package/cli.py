@@ -50,7 +50,7 @@ def parse_args() -> argparse.Namespace:
 
 def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Build a canonical Codex package directory and optional archive.",
+        description="Build a canonical Steve package directory and optional archive.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -65,14 +65,14 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--variant",
         choices=sorted(PACKAGE_VARIANTS),
-        default="codex",
+        default="steve",
         help="Package variant to build.",
     )
     parser.add_argument(
         "--package-version",
         type=parse_package_version,
         default=read_workspace_version(),
-        help="Semantic version to record in codex-package.json.",
+        help="Semantic version to record in steve-package.json.",
     )
     parser.add_argument(
         "--package-dir",
@@ -136,7 +136,7 @@ def create_parser() -> argparse.ArgumentParser:
         "--code-mode-host-bin",
         type=Path,
         help=(
-            "Optional prebuilt codex-code-mode-host executable. If omitted, "
+            "Optional prebuilt steve-code-mode-host executable. If omitted, "
             "the host is built with Cargo."
         ),
     )
@@ -149,21 +149,23 @@ def create_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--codex-command-runner-bin",
+        "--steve-command-runner-bin",
+        dest="codex_command_runner_bin",
         type=Path,
         help=(
-            "Optional prebuilt Windows codex-command-runner.exe executable. "
-            "If omitted for Windows targets, codex-command-runner is built "
+            "Optional prebuilt Windows steve-command-runner.exe executable. "
+            "If omitted for Windows targets, steve-command-runner is built "
             "with Cargo."
         ),
     )
     parser.add_argument(
-        "--codex-windows-sandbox-setup-bin",
+        "--steve-windows-sandbox-setup-bin",
+        dest="codex_windows_sandbox_setup_bin",
         type=Path,
         help=(
-            "Optional prebuilt Windows codex-windows-sandbox-setup.exe "
+            "Optional prebuilt Windows steve-windows-sandbox-setup.exe "
             "executable. If omitted for Windows targets, "
-            "codex-windows-sandbox-setup is built with Cargo."
+            "steve-windows-sandbox-setup is built with Cargo."
         ),
     )
     parser.add_argument(
@@ -192,7 +194,7 @@ def assemble_package(args: argparse.Namespace) -> Path:
     package_dir = (
         package_dir_arg.resolve()
         if package_dir_arg is not None
-        else Path(tempfile.mkdtemp(prefix="codex-package-")).resolve()
+        else Path(tempfile.mkdtemp(prefix="steve-package-")).resolve()
     )
 
     source_outputs = build_source_binaries(
@@ -217,13 +219,13 @@ def assemble_package(args: argparse.Namespace) -> Path:
         ),
         codex_command_runner_bin=resolve_optional_input_path(
             args.codex_command_runner_bin,
-            "prebuilt Windows codex-command-runner.exe executable",
-            "--codex-command-runner-bin",
+            "prebuilt Windows steve-command-runner.exe executable",
+            "--steve-command-runner-bin",
         ),
         codex_windows_sandbox_setup_bin=resolve_optional_input_path(
             args.codex_windows_sandbox_setup_bin,
-            "prebuilt Windows codex-windows-sandbox-setup.exe executable",
-            "--codex-windows-sandbox-setup-bin",
+            "prebuilt Windows steve-windows-sandbox-setup.exe executable",
+            "--steve-windows-sandbox-setup-bin",
         ),
     )
     inputs = PackageInputs(
@@ -238,7 +240,7 @@ def assemble_package(args: argparse.Namespace) -> Path:
     build_package_dir(package_dir, args.package_version, variant, spec, inputs)
     for filename, prebuilt in (
         (variant.entrypoint_name(spec), args.entrypoint_bin),
-        (f"codex-code-mode-host{spec.exe_suffix}", args.code_mode_host_bin),
+        (f"steve-code-mode-host{spec.exe_suffix}", args.code_mode_host_bin),
     ):
         if args.strip == "all" or (
             args.strip == "auto"

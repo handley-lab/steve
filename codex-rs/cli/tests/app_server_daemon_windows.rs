@@ -22,15 +22,15 @@ fn winget_package_starts_and_reselects_daemon() -> Result<()> {
     let target = format!("{}-pc-windows-msvc", std::env::consts::ARCH);
     let entrypoint = format!("codex-{target}.exe");
     let codex = package.join(&entrypoint);
-    for directory in ["bin", "codex-path", "codex-resources/voice"] {
+    for directory in ["bin", "steve-path", "steve-resources/voice"] {
         std::fs::create_dir_all(package.join(directory))?;
     }
     copy_executable(&codex_utils_cargo_bin::cargo_bin("steve")?, &codex)?;
     for helper in [
         "steve-code-mode-host.exe",
-        "codex-path/rg.exe",
-        "codex-resources/steve-command-runner.exe",
-        "codex-resources/steve-windows-sandbox-setup.exe",
+        "steve-path/rg.exe",
+        "steve-resources/steve-command-runner.exe",
+        "steve-resources/steve-windows-sandbox-setup.exe",
     ] {
         std::fs::write(package.join(helper), b"runtime fixture")?;
     }
@@ -39,13 +39,13 @@ fn winget_package_starts_and_reselects_daemon() -> Result<()> {
         "target": target, "entrypoint": entrypoint
     });
     let manifest_bytes = serde_json::to_vec(&metadata)?;
-    std::fs::write(package.join("codex-package.json"), &manifest_bytes)?;
+    std::fs::write(package.join("steve-package.json"), &manifest_bytes)?;
     let checksum = format!("{:x}", Sha256::digest(std::fs::read(&codex)?));
     let voice_bytes = serde_json::to_vec(&serde_json::json!({
-        "sha256": { &entrypoint: checksum, "codex-resources/voice/runtime": "untouched" }
+        "sha256": { &entrypoint: checksum, "steve-resources/voice/runtime": "untouched" }
     }))?;
     std::fs::write(
-        package.join("codex-resources/voice/manifest.json"),
+        package.join("steve-resources/voice/manifest.json"),
         &voice_bytes,
     )?;
 
@@ -78,18 +78,18 @@ fn winget_package_starts_and_reselects_daemon() -> Result<()> {
         );
     }
     let selected_metadata: Value =
-        serde_json::from_slice(&std::fs::read(current.join("codex-package.json"))?)?;
+        serde_json::from_slice(&std::fs::read(current.join("steve-package.json"))?)?;
     metadata["entrypoint"] = "bin/steve.exe".into();
     assert_eq!(selected_metadata, metadata);
     let selected_voice: Value = serde_json::from_slice(&std::fs::read(
-        current.join("codex-resources/voice/manifest.json"),
+        current.join("steve-resources/voice/manifest.json"),
     )?)?;
     assert_eq!(
         selected_voice,
         serde_json::json!({
             "sha256": {
                 "bin/steve.exe": checksum,
-                "codex-resources/voice/runtime": "untouched"
+                "steve-resources/voice/runtime": "untouched"
             }
         })
     );
@@ -109,11 +109,11 @@ fn winget_package_starts_and_reselects_daemon() -> Result<()> {
     );
     assert_eq!(current.canonicalize()?, selected);
     assert_eq!(
-        std::fs::read(package.join("codex-package.json"))?,
+        std::fs::read(package.join("steve-package.json"))?,
         manifest_bytes
     );
     assert_eq!(
-        std::fs::read(package.join("codex-resources/voice/manifest.json"))?,
+        std::fs::read(package.join("steve-resources/voice/manifest.json"))?,
         voice_bytes
     );
     let stopped = daemon.0.output()?;

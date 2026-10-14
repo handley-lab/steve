@@ -7,5 +7,5 @@ codex_rust_crate(
 )
 
 release_binary(
-    binary = ":codex-code-mode-host",
+    binary = ":steve-code-mode-host",
 )

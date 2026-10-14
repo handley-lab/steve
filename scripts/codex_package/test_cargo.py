@@ -18,7 +18,7 @@ class SourceBinariesForTargetTest(unittest.TestCase):
         self.assertEqual(
             source_binaries_for_target(
                 TARGET_SPECS["aarch64-apple-darwin"],
-                PACKAGE_VARIANTS["codex"],
+                PACKAGE_VARIANTS["steve"],
                 build_entrypoint=False,
                 build_code_mode_host=False,
                 build_bwrap=False,
@@ -34,7 +34,7 @@ class SourceBinariesForTargetTest(unittest.TestCase):
         self.assertEqual(
             source_binaries_for_target(
                 TARGET_SPECS["x86_64-unknown-linux-musl"],
-                PACKAGE_VARIANTS["codex"],
+                PACKAGE_VARIANTS["steve"],
                 build_entrypoint=False,
                 build_code_mode_host=False,
                 build_bwrap=False,
@@ -50,7 +50,7 @@ class SourceBinariesForTargetTest(unittest.TestCase):
         self.assertEqual(
             source_binaries_for_target(
                 TARGET_SPECS["x86_64-pc-windows-msvc"],
-                PACKAGE_VARIANTS["codex"],
+                PACKAGE_VARIANTS["steve"],
                 build_entrypoint=False,
                 build_code_mode_host=False,
                 build_bwrap=False,
@@ -64,41 +64,41 @@ class SourceBinariesForTargetTest(unittest.TestCase):
         self.assertEqual(
             source_binaries_for_target(
                 TARGET_SPECS["x86_64-pc-windows-msvc"],
-                PACKAGE_VARIANTS["codex"],
+                PACKAGE_VARIANTS["steve"],
                 build_entrypoint=False,
                 build_code_mode_host=False,
                 build_bwrap=False,
                 build_codex_command_runner=True,
                 build_codex_windows_sandbox_setup=True,
             ),
-            ["codex-command-runner", "codex-windows-sandbox-setup"],
+            ["steve-command-runner", "steve-windows-sandbox-setup"],
         )
 
     def test_missing_code_mode_host_is_built_for_app_server(self) -> None:
         self.assertEqual(
             source_binaries_for_target(
                 TARGET_SPECS["aarch64-apple-darwin"],
-                PACKAGE_VARIANTS["codex-app-server"],
+                PACKAGE_VARIANTS["steve-app-server"],
                 build_entrypoint=False,
                 build_code_mode_host=True,
                 build_bwrap=False,
                 build_codex_command_runner=False,
                 build_codex_windows_sandbox_setup=False,
             ),
-            ["codex-code-mode-host"],
+            ["steve-code-mode-host"],
         )
 
     def test_build_uses_prebuilt_windows_helpers_without_running_cargo(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             entrypoint = touch_file(root / "codex.exe")
-            code_mode_host = touch_file(root / "codex-code-mode-host.exe")
-            command_runner = touch_file(root / "codex-command-runner.exe")
-            sandbox_setup = touch_file(root / "codex-windows-sandbox-setup.exe")
+            code_mode_host = touch_file(root / "steve-code-mode-host.exe")
+            command_runner = touch_file(root / "steve-command-runner.exe")
+            sandbox_setup = touch_file(root / "steve-windows-sandbox-setup.exe")
 
             outputs = build_source_binaries(
                 TARGET_SPECS["x86_64-pc-windows-msvc"],
-                PACKAGE_VARIANTS["codex"],
+                PACKAGE_VARIANTS["steve"],
                 cargo=str(root / "cargo-that-should-not-run"),
                 profile="release",
                 entrypoint_bin=entrypoint,

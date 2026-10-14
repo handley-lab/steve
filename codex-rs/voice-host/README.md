@@ -64,7 +64,7 @@ Bazel stamps the binary with `STABLE_GIT_COMMIT`. Cargo builders must provide th
 same variable; an unstamped source build reports `dev` via `--build-commit` and is
 not a distributable build identity. The client/control crate has no native audio
 dependencies. `VoiceHost` resolves only the physical package's
-`codex-resources/voice/bin/codex-voice-host[.exe]`, filters the child environment,
+`steve-resources/voice/bin/codex-voice-host[.exe]`, filters the child environment,
 and owns process cleanup through `codex-utils-pty`. Its runtime must remain alive
 to reap a dropped helper; explicit `close` waits for process exit.
 

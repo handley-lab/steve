@@ -107,13 +107,13 @@ runs:
         cargo build --target "${TARGET}" --release --timings --bin bwrap
 
         bwrap_path="${CARGO_TARGET_DIR}/${TARGET}/release/bwrap"
-        # Codex embeds this digest at build time and verifies the packaged
+        # Steve embeds this digest at build time and verifies the packaged
         # bwrap at runtime, so hash its final stripped bytes first.
         strip --strip-debug --strip-unneeded "$bwrap_path"
         digest="$(sha256sum "$bwrap_path" | awk '{print $1}')"
-        echo "CODEX_BWRAP_SHA256=${digest}" >> "$GITHUB_ENV"
+        echo "STEVE_BWRAP_SHA256=${digest}" >> "$GITHUB_ENV"
 
-    - name: Build Codex package binaries
+    - name: Build Steve package binaries
       shell: bash
       working-directory: codex-rs
       env:

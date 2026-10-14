@@ -9,6 +9,6 @@ codex_rust_crate(
 )
 
 release_binary(
-    binary = ":codex-windows-sandbox-service",
+    binary = ":steve-windows-sandbox-service",
     target_compatible_with = ["@platforms//os:windows"],
 )

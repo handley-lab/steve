@@ -1,6 +1,6 @@
 set working-directory := "codex-rs"
 set positional-arguments
-export CODEX_REPO_ROOT := justfile_directory()
+export STEVE_REPO_ROOT := justfile_directory()
 export JUST_SHELL := justfile_directory() / "scripts/just-shell.py"
 set shell := ["python3", "-c", 'import os, runpy; runpy.run_path(os.environ["JUST_SHELL"], run_name="__main__")']
 set windows-shell := ["python", "-c", 'import os, runpy; runpy.run_path(os.environ["JUST_SHELL"], run_name="__main__")']
@@ -38,7 +38,7 @@ code-mode-host *args:
 
 # Assemble a local Codex package.
 [no-cd]
-assemble-codex-package *args:
+assemble-steve-package *args:
     {{ python }} {{ justfile_directory() }}/scripts/build_codex_package.py {args}
 
 # Build the CLI and run the app-server test client

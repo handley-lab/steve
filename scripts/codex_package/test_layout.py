@@ -73,7 +73,7 @@ int main(void) {
                         # Preserved prebuilt inputs must not even need a strip tool.
                         command.extend(("--strip-tool", str(root / "absent-strip")))
                     subprocess.run(command, check=True, capture_output=True)
-                    for name in ("codex", "codex-code-mode-host"):
+                    for name in ("steve", "steve-code-mode-host"):
                         executable = package / "bin" / name
                         self.assertEqual(
                             subprocess.check_output([str(executable)]),
@@ -84,10 +84,10 @@ int main(void) {
                         else:
                             self.assertLess(executable.stat().st_size, len(original))
                     self.assertEqual(source.read_bytes(), original)
-                    self.assertEqual((package / "codex-path/rg").read_bytes(), original)
+                    self.assertEqual((package / "steve-path/rg").read_bytes(), original)
                     if "linux" in target:
                         self.assertEqual(
-                            (package / "codex-resources/bwrap").read_bytes(), original
+                            (package / "steve-resources/bwrap").read_bytes(), original
                         )
 
     def test_winget_preserves_signed_files_and_voice_hashes(self) -> None:
@@ -95,14 +95,14 @@ int main(void) {
             with self.subTest(target=target), tempfile.TemporaryDirectory() as temp:
                 package = Path(temp)
                 files = {
-                    "bin/codex.exe": b"signed CLI",
-                    "bin/codex-code-mode-host.exe": b"signed code mode host",
-                    "codex-resources/codex-command-runner.exe": b"signed runner",
-                    "codex-resources/codex-windows-sandbox-setup.exe": b"signed setup",
-                    "codex-resources/voice/bin/codex-voice-host.exe": b"signed voice host",
-                    "codex-resources/voice/bin/gstreamer-1.0-0.dll": b"signed audio DLL",
-                    "codex-resources/voice/NOTICE.md": b"license notices",
-                    "codex-path/rg.exe": b"ripgrep",
+                    "bin/steve.exe": b"signed CLI",
+                    "bin/steve-code-mode-host.exe": b"signed code mode host",
+                    "steve-resources/steve-command-runner.exe": b"signed runner",
+                    "steve-resources/steve-windows-sandbox-setup.exe": b"signed setup",
+                    "steve-resources/voice/bin/codex-voice-host.exe": b"signed voice host",
+                    "steve-resources/voice/bin/gstreamer-1.0-0.dll": b"signed audio DLL",
+                    "steve-resources/voice/NOTICE.md": b"license notices",
+                    "steve-path/rg.exe": b"ripgrep",
                 }
                 for name, contents in files.items():
                     path = package / name
@@ -111,50 +111,50 @@ int main(void) {
                 metadata = {
                     "layoutVersion": 1,
                     "target": target,
-                    "entrypoint": "bin/codex.exe",
+                    "entrypoint": "bin/steve.exe",
                 }
-                (package / "codex-package.json").write_text(json.dumps(metadata))
+                (package / "steve-package.json").write_text(json.dumps(metadata))
                 manifest = {
                     "schemaVersion": 1,
                     "sha256": {
                         name: hashlib.sha256(contents).hexdigest()
                         for name, contents in files.items()
-                        if name == "bin/codex.exe"
-                        or name.startswith("codex-resources/voice/")
+                        if name == "bin/steve.exe"
+                        or name.startswith("steve-resources/voice/")
                     },
                 }
-                manifest_path = package / "codex-resources/voice/manifest.json"
+                manifest_path = package / "steve-resources/voice/manifest.json"
                 manifest_path.write_text(json.dumps(manifest))
                 prepare_winget_package(package)
-                entrypoint = f"codex-{target}.exe"
-                files[entrypoint] = files.pop("bin/codex.exe")
-                files["codex-code-mode-host.exe"] = files.pop(
-                    "bin/codex-code-mode-host.exe"
+                entrypoint = f"steve-{target}.exe"
+                files[entrypoint] = files.pop("bin/steve.exe")
+                files["steve-code-mode-host.exe"] = files.pop(
+                    "bin/steve-code-mode-host.exe"
                 )
                 for helper in (
-                    "codex-command-runner.exe",
-                    "codex-windows-sandbox-setup.exe",
+                    "steve-command-runner.exe",
+                    "steve-windows-sandbox-setup.exe",
                 ):
-                    files[helper] = files[f"codex-resources/{helper}"]
+                    files[helper] = files[f"steve-resources/{helper}"]
                 actual = {
                     str(path.relative_to(package)).replace("\\", "/"): path.read_bytes()
                     for path in package.rglob("*")
                     if path.is_file()
                 }
-                actual_metadata = json.loads(actual.pop("codex-package.json"))
+                actual_metadata = json.loads(actual.pop("steve-package.json"))
                 actual_manifest = json.loads(
-                    actual.pop("codex-resources/voice/manifest.json")
+                    actual.pop("steve-resources/voice/manifest.json")
                 )
                 self.assertEqual(actual, files)
                 metadata["entrypoint"] = entrypoint
                 self.assertEqual(actual_metadata, metadata)
-                manifest["sha256"][entrypoint] = manifest["sha256"].pop("bin/codex.exe")
+                manifest["sha256"][entrypoint] = manifest["sha256"].pop("bin/steve.exe")
                 self.assertEqual(actual_manifest, manifest)
                 for name, digest in actual_manifest["sha256"].items():
                     self.assertEqual(hashlib.sha256(actual[name]).hexdigest(), digest)
 
     def test_macos_package_preserves_prebuilt_resource_binaries(self) -> None:
-        for variant_name in ("codex", "codex-app-server"):
+        for variant_name in ("steve", "steve-app-server"):
             for target in ("aarch64-apple-darwin", "x86_64-apple-darwin"):
                 with self.subTest(variant=variant_name, target=target):
                     with tempfile.TemporaryDirectory() as temp_dir:
@@ -170,7 +170,7 @@ int main(void) {
                                 root / variant.executable_stem
                             ),
                             code_mode_host_bin=touch_executable(
-                                root / "codex-code-mode-host"
+                                root / "steve-code-mode-host"
                             ),
                             rg_bin=rg_bin,
                             bwrap_bin=None,
@@ -183,7 +183,7 @@ int main(void) {
 
                         self.assertEqual(
                             {
-                                "rg": (package_dir / "codex-path" / "rg").read_bytes(),
+                                "rg": (package_dir / "steve-path" / "rg").read_bytes(),
                             },
                             {
                                 "rg": b"signed ripgrep binary",
@@ -196,8 +196,8 @@ int main(void) {
             package_dir = root / "package"
             package_dir.mkdir()
             inputs = PackageInputs(
-                entrypoint_bin=touch_executable(root / "codex-app-server"),
-                code_mode_host_bin=touch_executable(root / "codex-code-mode-host"),
+                entrypoint_bin=touch_executable(root / "steve-app-server"),
+                code_mode_host_bin=touch_executable(root / "steve-code-mode-host"),
                 rg_bin=touch_executable(root / "rg"),
                 bwrap_bin=touch_executable(root / "bwrap"),
                 codex_command_runner_bin=None,
@@ -207,17 +207,17 @@ int main(void) {
             build_package_dir(
                 package_dir,
                 "1.2.3",
-                PACKAGE_VARIANTS["codex-app-server"],
+                PACKAGE_VARIANTS["steve-app-server"],
                 TARGET_SPECS["x86_64-unknown-linux-musl"],
                 inputs,
             )
             validate_package_dir(
                 package_dir,
-                PACKAGE_VARIANTS["codex-app-server"],
+                PACKAGE_VARIANTS["steve-app-server"],
                 TARGET_SPECS["x86_64-unknown-linux-musl"],
             )
 
-            self.assertTrue((package_dir / "bin" / "codex-code-mode-host").is_file())
+            self.assertTrue((package_dir / "bin" / "steve-code-mode-host").is_file())
 
 
 def touch_executable(path: Path) -> Path:

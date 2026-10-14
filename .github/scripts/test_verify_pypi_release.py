@@ -10,8 +10,8 @@ from verify_pypi_release import verify_release
 
 class VerifyPyPIReleaseTest(unittest.TestCase):
     def test_waits_for_complete_release_after_registry_error(self) -> None:
-        wheel = "openai_codex-1.2.3-py3-none-any.whl"
-        sdist = "openai_codex-1.2.3.tar.gz"
+        wheel = "steve_sdk-1.2.3-py3-none-any.whl"
+        sdist = "steve_sdk-1.2.3.tar.gz"
         reset_response = MagicMock()
         reset_response.__enter__.return_value.read.side_effect = ConnectionResetError(
             "connection reset while reading response"
@@ -46,12 +46,12 @@ class VerifyPyPIReleaseTest(unittest.TestCase):
             ) as urlopen,
             patch("verify_pypi_release.time.sleep") as sleep,
         ):
-            verify_release("openai-codex", "1.2.3")
+            verify_release("steve-sdk", "1.2.3")
 
         self.assertEqual(urlopen.call_count, 15)
         self.assertEqual(sleep.call_count, 14)
         urlopen.assert_called_with(
-            "https://pypi.org/pypi/openai-codex/1.2.3/json", timeout=30
+            "https://pypi.org/pypi/steve-sdk/1.2.3/json", timeout=30
         )
 
     def test_uses_canonical_version_for_lookup_and_artifact_names(self) -> None:
@@ -59,8 +59,8 @@ class VerifyPyPIReleaseTest(unittest.TestCase):
             "urls": [
                 {"filename": name}
                 for name in (
-                    "openai_codex-1.2.3b1-py3-none-any.whl",
-                    "openai_codex-1.2.3b1.tar.gz",
+                    "steve_sdk-1.2.3b1-py3-none-any.whl",
+                    "steve_sdk-1.2.3b1.tar.gz",
                 )
             ]
         }
@@ -71,9 +71,9 @@ class VerifyPyPIReleaseTest(unittest.TestCase):
             ) as urlopen,
             patch("verify_pypi_release.time.sleep") as sleep,
         ):
-            verify_release("openai-codex", "1.2.3b01")
+            verify_release("steve-sdk", "1.2.3b01")
         urlopen.assert_called_once_with(
-            "https://pypi.org/pypi/openai-codex/1.2.3b1/json", timeout=30
+            "https://pypi.org/pypi/steve-sdk/1.2.3b1/json", timeout=30
         )
         sleep.assert_not_called()
 
@@ -86,7 +86,7 @@ class VerifyPyPIReleaseTest(unittest.TestCase):
             patch("verify_pypi_release.time.sleep") as sleep,
             self.assertRaisesRegex(SystemExit, "did not become available on PyPI"),
         ):
-            verify_release("openai-codex-cli-bin", "1.2.3a4.post5")
+            verify_release("steve-cli-bin", "1.2.3a4.post5")
 
         self.assertEqual(urlopen.call_count, 30)
         self.assertEqual(sleep.call_count, 29)

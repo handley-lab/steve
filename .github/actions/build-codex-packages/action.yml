@@ -1,5 +1,5 @@
 name: build-codex-packages
-description: Build and smoke-test unsigned Codex CLI and app-server release packages.
+description: Build and smoke-test unsigned Steve CLI and app-server release packages.
 inputs:
   target:
     description: Rust release target triple to build and test.
@@ -23,8 +23,8 @@ runs:
       shell: bash
       working-directory: codex-rs
       env:
-        BASE_BINARIES: "codex codex-app-server codex-code-mode-host"
-        WINDOWS_ONLY_BINARIES: "codex-command-runner codex-windows-sandbox-setup"
+        BASE_BINARIES: "steve steve-app-server steve-code-mode-host"
+        WINDOWS_ONLY_BINARIES: "steve-command-runner steve-windows-sandbox-setup"
         BUILD_MODE: ${{ inputs.build-mode }}
         BUILD_SYSTEM: ${{ inputs.build-system }}
         PACKAGE_ACTION_PATH: ${{ github.action_path }}
@@ -118,7 +118,7 @@ runs:
           --archive-dir "../symbols-dist/${TARGET}" \
           --binaries "$NEEDED_BINARIES"
 
-    - name: Build Codex package archives
+    - name: Build Steve package archives
       shell: bash
       working-directory: codex-rs
       env:
@@ -137,7 +137,7 @@ runs:
 
         package_args=(
           --target "$target"
-          --code-mode-host-bin "${release_dir}/codex-code-mode-host${exe_suffix}"
+          --code-mode-host-bin "${release_dir}/steve-code-mode-host${exe_suffix}"
           --cargo-profile release
           --package-version "$CODEX_PACKAGE_VERSION"
           --force
@@ -147,26 +147,26 @@ runs:
         fi
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           package_args+=(
-            --codex-command-runner-bin "${release_dir}/codex-command-runner.exe"
-            --codex-windows-sandbox-setup-bin "${release_dir}/codex-windows-sandbox-setup.exe"
+            --steve-command-runner-bin "${release_dir}/steve-command-runner.exe"
+            --steve-windows-sandbox-setup-bin "${release_dir}/steve-windows-sandbox-setup.exe"
           )
         fi
 
         python3 "${PACKAGE_SOURCE_ROOT}/scripts/build_codex_package.py" \
           "${package_args[@]}" \
-          --variant codex \
-          --entrypoint-bin "${release_dir}/codex${exe_suffix}" \
-          --package-dir "${RUNNER_TEMP}/codex-package-${target}" \
-          --archive-output "${archive_dir}/codex-package-${target}.tar.gz" \
-          --archive-output "${archive_dir}/codex-package-${target}.tar.zst"
+          --variant steve \
+          --entrypoint-bin "${release_dir}/steve${exe_suffix}" \
+          --package-dir "${RUNNER_TEMP}/steve-package-${target}" \
+          --archive-output "${archive_dir}/steve-package-${target}.tar.gz" \
+          --archive-output "${archive_dir}/steve-package-${target}.tar.zst"
 
         python3 "${PACKAGE_SOURCE_ROOT}/scripts/build_codex_package.py" \
           "${package_args[@]}" \
-          --variant codex-app-server \
-          --entrypoint-bin "${release_dir}/codex-app-server${exe_suffix}" \
-          --package-dir "${RUNNER_TEMP}/codex-app-server-package-${target}" \
-          --archive-output "${archive_dir}/codex-app-server-package-${target}.tar.gz" \
-          --archive-output "${archive_dir}/codex-app-server-package-${target}.tar.zst"
+          --variant steve-app-server \
+          --entrypoint-bin "${release_dir}/steve-app-server${exe_suffix}" \
+          --package-dir "${RUNNER_TEMP}/steve-app-server-package-${target}" \
+          --archive-output "${archive_dir}/steve-app-server-package-${target}.tar.gz" \
+          --archive-output "${archive_dir}/steve-app-server-package-${target}.tar.zst"
 
     - name: Smoke-test assembled packages
       shell: bash
@@ -196,12 +196,12 @@ runs:
 
         uv run --frozen pytest "${pytest_args[@]}" \
           --compression gzip \
-          --cli-archive "${archive_dir}/codex-package-${target}.tar.gz" \
-          --app-server-archive "${archive_dir}/codex-app-server-package-${target}.tar.gz" \
+          --cli-archive "${archive_dir}/steve-package-${target}.tar.gz" \
+          --app-server-archive "${archive_dir}/steve-app-server-package-${target}.tar.gz" \
           test_codex_package.py
 
         uv run --frozen pytest "${pytest_args[@]}" \
           --compression zstd \
-          --cli-archive "${archive_dir}/codex-package-${target}.tar.zst" \
-          --app-server-archive "${archive_dir}/codex-app-server-package-${target}.tar.zst" \
+          --cli-archive "${archive_dir}/steve-package-${target}.tar.zst" \
+          --app-server-archive "${archive_dir}/steve-app-server-package-${target}.tar.zst" \
           test_codex_package.py

@@ -70,7 +70,7 @@ async fn daemon_menu_is_read_only_and_confirmation_can_cancel_or_handoff() {
     let package = tempfile::tempdir().unwrap();
     std::fs::create_dir(package.path().join("bin")).unwrap();
     std::fs::write(package.path().join("bin/codex"), "CLI").unwrap();
-    std::fs::write(package.path().join("codex-package.json"), "{}").unwrap();
+    std::fs::write(package.path().join("steve-package.json"), "{}").unwrap();
     app.daemon_cli_executable =
         Some(AbsolutePathBuf::from_absolute_path(package.path().join("bin/codex")).unwrap());
     app.app_server_target = AppServerTarget::LocalDaemon {
@@ -268,7 +268,7 @@ async fn daemon_menu_is_read_only_and_confirmation_can_cancel_or_handoff() {
         );
     }
 
-    std::fs::remove_file(package.path().join("codex-package.json")).unwrap();
+    std::fs::remove_file(package.path().join("steve-package.json")).unwrap();
     // The full CLI can have any filename; capability comes from its entry point.
     app.daemon_cli_executable =
         Some(AbsolutePathBuf::from_absolute_path(package.path().join("bin/steve-tui")).unwrap());

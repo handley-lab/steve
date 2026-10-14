@@ -37,14 +37,14 @@ genrule(
 codex_rust_crate(
     name = "windows-sandbox-rs",
     binary_compile_data_extra = {
-        "codex-windows-sandbox-setup": select({
+        "steve-windows-sandbox-setup": select({
             "@llvm//constraints/windows/abi:gnullvm": [":codex-windows-sandbox-setup-manifest-resource"],
             "@llvm//constraints/windows/abi:msvc": ["codex-windows-sandbox-setup.manifest"],
             "//conditions:default": [],
         }),
     },
     binary_rustc_flags_extra = {
-        "codex-windows-sandbox-setup": WINDOWS_SETUP_MANIFEST_RUSTC_FLAGS,
+        "steve-windows-sandbox-setup": WINDOWS_SETUP_MANIFEST_RUSTC_FLAGS,
     },
     binary_test_target_compatible_with = ["@platforms//os:windows"],
     # Do not run build.rs under Bazel: rules_rust cannot translate its
@@ -53,19 +53,19 @@ codex_rust_crate(
     build_script_enabled = False,
     crate_name = "codex_windows_sandbox",
     test_data_extra = [
-        ":codex-command-runner",
-        ":codex-windows-sandbox-setup",
+        ":steve-command-runner",
+        ":steve-windows-sandbox-setup",
     ],
 )
 
 release_binary(
     name = "command-runner-release",
-    binary = ":codex-command-runner",
+    binary = ":steve-command-runner",
     target_compatible_with = ["@platforms//os:windows"],
 )
 
 release_binary(
     name = "sandbox-setup-release",
-    binary = ":codex-windows-sandbox-setup",
+    binary = ":steve-windows-sandbox-setup",
     target_compatible_with = ["@platforms//os:windows"],
 )

@@ -730,7 +730,7 @@ async fn scheduled_no_op_preserves_daemon_and_hands_off_stale_updater() {
     std::fs::create_dir_all(stale.join("bin")).unwrap();
     std::fs::copy(&daemon.managed_codex_bin, stale.join("bin/steve")).unwrap();
     std::fs::write(
-        stale.join("codex-package.json"),
+        stale.join("steve-package.json"),
         serde_json::json!({
             "version": "0.8.0",
             "target": release.strip_prefix("1.0.0-").unwrap(),

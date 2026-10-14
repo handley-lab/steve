@@ -32,9 +32,10 @@ if name == "codesign":
         sys.exit(1)
     if "--entitlements" in args:
         target = Path(args[-1]).name
-        if target == "CodexCLI.app":
-            source = Path(os.environ["CODEX_REPO_ROOT"]) / "signing-verification/codex-provisioned-entitlements.plist"
-        elif target in ("codex", "codex-code-mode-host"):
+        if target == "SteveCLI.app":
+            source = Path(os.environ["STEVE_REPO_ROOT"]) / "signing-verification/codex-provisioned-entitlements.plist"
+        elif target in ("steve", "steve-code-mode-host"):
+            target = {"steve": "codex", "steve-code-mode-host": "codex-code-mode-host"}[target]
             source = Path(os.environ["MOCK_SIGNING_SCRIPTS"]) / (target + ".entitlements.plist")
         else:
             sys.exit(0)
@@ -72,12 +73,12 @@ class MacosSigningTests(ProvisioningTestCase):
         )
         for name in ("sign_macos_code.sh", "notarize_macos_binary_with_akv.sh"):
             (scripts / name).write_text(
-                'python3 "$CODEX_REPO_ROOT/record.py" "$(basename "$0")" "$@"\n'
+                'python3 "$STEVE_REPO_ROOT/record.py" "$(basename "$0")" "$@"\n'
             )
         (scripts / "notarize_with_akv.py").write_text(
             "import os, runpy, sys\n"
             "sys.argv.insert(1, 'notarize_with_akv.py')\n"
-            "runpy.run_path(os.environ['CODEX_REPO_ROOT'] + '/record.py')\n"
+            "runpy.run_path(os.environ['STEVE_REPO_ROOT'] + '/record.py')\n"
         )
         for name in ("rcodesign", "codesign", "lipo", "plutil"):
             path = root / name
@@ -88,18 +89,18 @@ class MacosSigningTests(ProvisioningTestCase):
         certificate.write_text(ssl.DER_cert_to_PEM_cert(certificate_der))
         (root / "certificate.der").write_bytes(certificate_der)
         package = root / "package with spaces"
-        for relative in ("bin/codex", *bundle.HELPERS):
+        for relative in ("bin/steve", *bundle.HELPERS):
             path = package / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("#!/bin/sh\nexit 0\n")
             path.chmod(0o755)
-        (package / "codex-package.json").write_text(
+        (package / "steve-package.json").write_text(
             json.dumps(
                 {
-                    "variant": "codex",
+                    "variant": "steve",
                     "layoutVersion": 1,
                     "target": target,
-                    "entrypoint": "bin/codex",
+                    "entrypoint": "bin/steve",
                 }
             )
         )
@@ -109,7 +110,7 @@ class MacosSigningTests(ProvisioningTestCase):
             if key not in ("GITHUB_WORKSPACE", "CODEX_PROVISIONING_HELPER")
         }
         env.update(
-            CODEX_REPO_ROOT=str(root),
+            STEVE_REPO_ROOT=str(root),
             RUNNER_TEMP=str(root),
             TARGET=target,
             PATH=f"{root}{os.pathsep}{os.environ['PATH']}",
@@ -168,13 +169,13 @@ class MacosSigningTests(ProvisioningTestCase):
                     [
                         str(package / relative)
                         for relative in (
-                            bundle.APP if provisioned else "bin/codex",
+                            bundle.APP if provisioned else "bin/steve",
                             *bundle.HELPERS,
                         )
                     ],
                 )
                 self.assertEqual(
-                    signing[0][signing[0].index("--identifier") + 1], "codex"
+                    signing[0][signing[0].index("--identifier") + 1], "steve"
                 )
                 self.assertEqual(
                     signing[0][signing[0].index("--entitlements") + 1],
@@ -206,7 +207,7 @@ class MacosSigningTests(ProvisioningTestCase):
                             "arm64" if target.startswith("aarch64") else "x86_64",
                         ]
                         for relative in (
-                            bundle.EXECUTABLE if provisioned else "bin/codex",
+                            bundle.EXECUTABLE if provisioned else "bin/steve",
                             *bundle.HELPERS,
                         )
                     ],
@@ -222,18 +223,18 @@ class MacosSigningTests(ProvisioningTestCase):
                     requirement = cli_verification[
                         cli_verification.index("--test-requirement") + 1
                     ]
-                    self.assertIn(' and identifier "codex"', requirement)
+                    self.assertIn(' and identifier "steve"', requirement)
                     self.assertIn(
                         ' and certificate leaf[subject.OU] = "TESTTEAM01"', requirement
                     )
                     with zipfile.ZipFile(root / "provisioned-cli.zip") as archive:
                         info = plistlib.loads(
-                            archive.read("CodexCLI.app/Contents/Info.plist")
+                            archive.read("SteveCLI.app/Contents/Info.plist")
                         )
                         self.assertEqual(
-                            info["CFBundleIdentifier"], "com.openai.codex.cli"
+                            info["CFBundleIdentifier"], "org.handley-lab.steve.cli"
                         )
-                        self.assertEqual(info["CFBundleExecutable"], "codex")
+                        self.assertEqual(info["CFBundleExecutable"], "steve")
                         self.assertEqual(
                             plistlib.loads(
                                 (
@@ -248,21 +249,21 @@ class MacosSigningTests(ProvisioningTestCase):
                                         / "codex.entitlements.plist"
                                     ).read_bytes()
                                 ),
-                                "com.apple.application-identifier": "TESTTEAM01.com.openai.codex.cli",
+                                "com.apple.application-identifier": "TESTTEAM01.org.handley-lab.steve.cli",
                                 "com.apple.developer.team-identifier": "TESTTEAM01",
                                 "keychain-access-groups": [
-                                    "TESTTEAM01.com.openai.codex.cli"
+                                    "TESTTEAM01.org.handley-lab.steve.cli"
                                 ],
                             },
                         )
                         self.assertEqual(
                             archive.read(
-                                "CodexCLI.app/Contents/embedded.provisionprofile"
+                                "SteveCLI.app/Contents/embedded.provisionprofile"
                             ),
                             self.configuration.profile.read_bytes(),
                         )
                         self.assertEqual(
-                            archive.read("bin/codex").decode(), bundle.LAUNCHER
+                            archive.read("bin/steve").decode(), bundle.LAUNCHER
                         )
                         self.assertTrue(
                             all(

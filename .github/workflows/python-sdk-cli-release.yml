@@ -112,7 +112,7 @@ jobs:
           PYTHON_RUNTIME_VERSION: ${{ needs.resolve-cli-release.outputs.version }}
         run: |
           uv run --no-project --with packaging==26.2 python .github/scripts/verify_pypi_release.py \
-            openai-codex-cli-bin "$PYTHON_RUNTIME_VERSION"
+            steve-cli-bin "$PYTHON_RUNTIME_VERSION"
 
   publish-python-sdk:
     name: publish-python-sdk
@@ -153,4 +153,4 @@ jobs:
       - name: Verify Python SDK is available on PyPI
         env:
           SDK_VERSION: ${{ needs.resolve-cli-release.outputs.version }}
-        run: uv run --no-project --with packaging==26.2 python .github/scripts/verify_pypi_release.py openai-codex "$SDK_VERSION"
+        run: uv run --no-project --with packaging==26.2 python .github/scripts/verify_pypi_release.py steve-sdk "$SDK_VERSION"

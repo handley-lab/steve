@@ -16,15 +16,15 @@ The builder creates a canonical Codex package directory:
 
 ```text
 .
-├── codex-package.json
+├── steve-package.json
 ├── bin
 │   ├── <entrypoint>[.exe]
 │   └── codex-code-mode-host[.exe]
-├── codex-resources
+├── steve-resources
 │   ├── bwrap                             # Linux only
 │   ├── codex-command-runner.exe          # Windows only
 │   └── codex-windows-sandbox-setup.exe   # Windows only
-└── codex-path
+└── steve-path
     └── rg[.exe]
 ```
 
@@ -39,7 +39,7 @@ prints its path after the package is built.
 
 The `--variant` flag selects the package entrypoint. Supported variants are
 `codex` and `codex-app-server`. The `--package-version` flag sets the version in
-`codex-package.json`; it defaults to `[workspace.package].version` in
+`steve-package.json`; it defaults to `[workspace.package].version` in
 `codex-rs/Cargo.toml`.
 
 ## Source-built artifacts

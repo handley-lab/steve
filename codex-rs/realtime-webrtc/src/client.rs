@@ -177,7 +177,7 @@ impl VoiceHost {
         } else {
             "steve-voice-host"
         };
-        let path = root.join("codex-resources/voice/bin").join(name);
+        let path = root.join("steve-resources/voice/bin").join(name);
         ensure!(
             path.canonicalize()? == path,
             "voice helper must be inside the physical package"

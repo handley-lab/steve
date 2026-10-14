@@ -28,7 +28,7 @@ async fn relocated_runtime_initializes_closes_and_rejects_duplicate_initializati
         .prefix("voice native package ")
         .tempdir()?;
     let root = directory.path().join("staging");
-    let runtime = root.join("codex-resources/voice");
+    let runtime = root.join("steve-resources/voice");
     fs::create_dir_all(&runtime)?;
     let mut pending = vec![(source, runtime.clone())];
     while let Some((source, destination)) = pending.pop() {
@@ -52,7 +52,7 @@ async fn relocated_runtime_initializes_closes_and_rejects_duplicate_initializati
     fs::create_dir(root.join("bin"))?;
     let app_name = if cfg!(windows) { "steve.exe" } else { "codex" };
     fs::write(root.join("bin").join(app_name), [])?;
-    fs::write(root.join("codex-package.json"), "{}")?;
+    fs::write(root.join("steve-package.json"), "{}")?;
     let moved = directory.path().join("relocated package");
     fs::rename(root, &moved)?;
     let package = InstallContext::from_exe(

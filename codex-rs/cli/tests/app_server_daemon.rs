@@ -686,15 +686,15 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
     } else {
         daemon.home.path().join("cli-package")
     };
-    for directory in ["bin", "codex-path", "codex-resources"] {
+    for directory in ["bin", "steve-path", "steve-resources"] {
         std::fs::create_dir_all(package.join(directory))?;
     }
     copy_executable(&daemon.codex, &package.join("bin/codex"))?;
     daemon.codex = package.join("bin/codex");
     for helper in [
         "bin/steve-code-mode-host",
-        "codex-path/rg",
-        "codex-resources/bwrap",
+        "steve-path/rg",
+        "steve-resources/bwrap",
     ] {
         codex_utils_cargo_bin::write_executable(&package.join(helper), "runtime fixture")?;
     }
@@ -710,7 +710,7 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
         }
     );
     std::fs::write(
-        package.join("codex-package.json"),
+        package.join("steve-package.json"),
         serde_json::to_vec(&serde_json::json!({
             "version": env!("CARGO_PKG_VERSION"), "target": target, "entrypoint": "bin/codex"
         }))?,

@@ -20,7 +20,7 @@ fn startup_controls_meters_and_helper_loss() -> Result<()> {
     #[cfg(target_os = "linux")]
     {
         assert!(!RealtimeWebrtcSession::is_supported());
-        let libraries = root.join("codex-resources/voice/lib");
+        let libraries = root.join("steve-resources/voice/lib");
         fs::create_dir_all(&libraries)?;
         fs::write(libraries.join("libgstreamer-1.0.so.0"), b"fixture runtime")?;
         assert!(RealtimeWebrtcSession::is_supported());

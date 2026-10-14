@@ -4,7 +4,7 @@ on:
   workflow_call:
 
 env:
-  WINDOWS_BINARIES: "codex codex-code-mode-host codex-responses-api-proxy codex-windows-sandbox-setup codex-windows-sandbox-service codex-command-runner codex-app-server"
+  WINDOWS_BINARIES: "steve steve-code-mode-host steve-responses-api-proxy steve-windows-sandbox-setup steve-windows-sandbox-service steve-command-runner steve-app-server"
 
 jobs:
   build-windows-binaries:
@@ -39,42 +39,42 @@ jobs:
           - runner: windows-x64
             target: x86_64-pc-windows-msvc
             bundle: primary
-            binaries: "codex codex-code-mode-host codex-responses-api-proxy"
+            binaries: "steve steve-code-mode-host steve-responses-api-proxy"
             runs_on:
               group: ${{ github.event.repository.name }}-runners
               labels: ${{ github.event.repository.name }}-windows-x64
           - runner: windows-arm64
             target: aarch64-pc-windows-msvc
             bundle: primary
-            binaries: "codex codex-code-mode-host codex-responses-api-proxy"
+            binaries: "steve steve-code-mode-host steve-responses-api-proxy"
             runs_on:
               group: ${{ github.event.repository.name }}-runners
               labels: ${{ github.event.repository.name }}-windows-arm64
           - runner: windows-x64
             target: x86_64-pc-windows-msvc
             bundle: helpers
-            binaries: "codex-windows-sandbox-setup codex-windows-sandbox-service codex-command-runner"
+            binaries: "steve-windows-sandbox-setup steve-windows-sandbox-service steve-command-runner"
             runs_on:
               group: ${{ github.event.repository.name }}-runners
               labels: ${{ github.event.repository.name }}-windows-x64
           - runner: windows-arm64
             target: aarch64-pc-windows-msvc
             bundle: helpers
-            binaries: "codex-windows-sandbox-setup codex-windows-sandbox-service codex-command-runner"
+            binaries: "steve-windows-sandbox-setup steve-windows-sandbox-service steve-command-runner"
             runs_on:
               group: ${{ github.event.repository.name }}-runners
               labels: ${{ github.event.repository.name }}-windows-arm64
           - runner: windows-x64
             target: x86_64-pc-windows-msvc
             bundle: app-server
-            binaries: "codex-app-server codex-code-mode-host"
+            binaries: "steve-app-server steve-code-mode-host"
             runs_on:
               group: ${{ github.event.repository.name }}-runners
               labels: ${{ github.event.repository.name }}-windows-x64
           - runner: windows-arm64
             target: aarch64-pc-windows-msvc
             bundle: app-server
-            binaries: "codex-app-server codex-code-mode-host"
+            binaries: "steve-app-server steve-code-mode-host"
             runs_on:
               group: ${{ github.event.repository.name }}-runners
               labels: ${{ github.event.repository.name }}-windows-arm64
@@ -275,7 +275,7 @@ jobs:
             -- \
             "//third_party/voice:native_runtime_windows_$ARCH" \
             @rules_rust//cargo/private/cargo_build_script_runner:test \
-            //codex-rs/voice-host:codex-voice-host
+            //codex-rs/voice-host:steve-voice-host
       - name: Stage verified voice build output
         shell: bash
         env:
@@ -293,9 +293,9 @@ jobs:
           output="voice-unsigned/${TARGET}"
           mkdir -p "$output"
           cp -R "$runtime" "$output/runtime"
-          cp bazel-bin/codex-rs/voice-host/codex-voice-host.exe "$output/codex-voice-host.exe"
+          cp bazel-bin/codex-rs/voice-host/steve-voice-host.exe "$output/steve-voice-host.exe"
           chmod -R u+w "$output"
-          tar -C "$output" -czf "voice-unsigned-${TARGET}.tar.gz" runtime codex-voice-host.exe
+          tar -C "$output" -czf "voice-unsigned-${TARGET}.tar.gz" runtime steve-voice-host.exe
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: voice-${{ matrix.target }}-unsigned
@@ -466,11 +466,11 @@ jobs:
           tar -xzf "$(cygpath -u "${RUNNER_TEMP}/unsigned-voice/voice-unsigned-${target}.tar.gz")" -C "$(cygpath -u "$unsigned")"
           python "${GITHUB_WORKSPACE}/third_party/voice/release_runtime.py" stage \
             --source "$unsigned/runtime" --target "$target" --output "$signed/runtime"
-          cp "$unsigned/codex-voice-host.exe" "$signed/codex-voice-host.exe"
+          cp "$unsigned/steve-voice-host.exe" "$signed/steve-voice-host.exe"
           chmod -R u+w "$signed"
           {
             echo 'files<<EOF'
-            echo "$signed/codex-voice-host.exe"
+            echo "$signed/steve-voice-host.exe"
             find "$signed/runtime/bin" -name '*.dll' -type f -print
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
@@ -503,9 +503,9 @@ jobs:
         run: |
           $target = "${{ matrix.target }}"
           $signed = Join-Path $env:GITHUB_WORKSPACE "signed-voice/$target"
-          python (Join-Path $env:GITHUB_WORKSPACE 'third_party/voice/windows_crt.py') --root (Join-Path $signed 'runtime') --target $target --helper (Join-Path $signed 'codex-voice-host.exe')
+          python (Join-Path $env:GITHUB_WORKSPACE 'third_party/voice/windows_crt.py') --root (Join-Path $signed 'runtime') --target $target --helper (Join-Path $signed 'steve-voice-host.exe')
           if ($LASTEXITCODE -ne 0) { throw 'Cannot stage verified Microsoft CRT' }
-          $files = @(Join-Path $signed "codex-voice-host.exe") + @(
+          $files = @(Join-Path $signed "steve-voice-host.exe") + @(
             Get-ChildItem (Join-Path $signed "runtime/bin") -Filter *.dll -File |
               ForEach-Object FullName
           )
@@ -552,10 +552,10 @@ jobs:
           $target = "${{ matrix.target }}"
           $package = Join-Path $env:RUNNER_TEMP "verify-voice-archive-$target"
           New-Item -ItemType Directory -Path $package | Out-Null
-          tar -xzf "dist/$target/codex-package-$target.tar.gz" -C $package
+          tar -xzf "dist/$target/steve-package-$target.tar.gz" -C $package
           if ($LASTEXITCODE -ne 0) { throw "Cannot extract the final Windows package" }
-          $voice = Join-Path $package 'codex-resources/voice'
-          $helper = Join-Path $voice 'bin/codex-voice-host.exe'
+          $voice = Join-Path $package 'steve-resources/voice'
+          $helper = Join-Path $voice 'bin/steve-voice-host.exe'
           if (-not (Test-Path $helper) -or -not (Test-Path (Join-Path $voice 'bin/gstreamer-1.0-0.dll'))) {
             throw 'Signed Windows voice files are missing from the canonical package'
           }
@@ -588,13 +588,13 @@ jobs:
 
           # The wheel's Windows support floor predates the native voice
           # runtime's verified device/VC++ prerequisites. Keep it voice-free.
-          wheel_package="${RUNNER_TEMP}/codex-package-${{ matrix.target }}"
+          wheel_package="${RUNNER_TEMP}/steve-package-${{ matrix.target }}"
           python - "$wheel_package" <<'PY'
           import sys
           from pathlib import Path
-          assert not (Path(sys.argv[1]) / "codex-resources" / "voice").exists()
+          assert not (Path(sys.argv[1]) / "steve-resources" / "voice").exists()
           PY
-          stage_dir="${RUNNER_TEMP}/openai-codex-cli-bin-${{ matrix.target }}"
+          stage_dir="${RUNNER_TEMP}/steve-cli-bin-${{ matrix.target }}"
           wheel_dir="${GITHUB_WORKSPACE}/python-runtime-dist/${{ matrix.target }}"
           python "${GITHUB_WORKSPACE}/sdk/python/scripts/update_sdk_artifacts.py" \
             stage-runtime \
@@ -655,11 +655,11 @@ jobs:
             # Create zip archive for Windows binaries.
             # Must run from inside the dest dir so 7z does not embed the
             # directory path inside the zip.
-            if [[ "$base" == "codex-${target}.exe" ]]; then
+            if [[ "$base" == "steve-${target}.exe" ]]; then
               # Preserve WinGet executable paths while including the signed
               # runtime, resources, and package metadata from the canonical tar.
               bundle_dir="$(mktemp -d)"
-              tar -xzf "$dest/codex-package-${target}.tar.gz" -C "$bundle_dir"
+              tar -xzf "$dest/steve-package-${target}.tar.gz" -C "$bundle_dir"
               python "${GITHUB_WORKSPACE}/scripts/build_winget_package.py" "$(cygpath -w "$bundle_dir")"
               (cd "$bundle_dir" && 7z a "$repo_root/$dest/${base}.zip" .)
               rm -rf "$bundle_dir"

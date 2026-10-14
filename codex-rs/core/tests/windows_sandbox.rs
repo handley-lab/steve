@@ -124,7 +124,7 @@ fn stage_windows_sandbox_helpers() -> anyhow::Result<()> {
     let test_exe_dir = test_exe
         .parent()
         .context("Windows test executable should have a parent directory")?;
-    let resources_dir = test_exe_dir.join("codex-resources");
+    let resources_dir = test_exe_dir.join("steve-resources");
     match std::fs::create_dir_all(&resources_dir) {
         Ok(()) => {}
         Err(err)
@@ -163,7 +163,7 @@ fn escape_toml_path(path: &Path) -> String {
 
 fn stage_windows_sandbox_cli(fixture_bin: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
     std::fs::create_dir_all(fixture_bin)?;
-    let resources_dir = fixture_bin.join("codex-resources");
+    let resources_dir = fixture_bin.join("steve-resources");
     std::fs::create_dir_all(&resources_dir)?;
 
     let codex_source = codex_utils_cargo_bin::cargo_bin("steve")?;

@@ -197,7 +197,7 @@ pub(crate) async fn prune(daemon: &Daemon, root: &Path, settings: &DaemonSetting
         {
             continue;
         }
-        let Some(manifest) = std::fs::File::open(path.join("codex-package.json"))
+        let Some(manifest) = std::fs::File::open(path.join("steve-package.json"))
             .ok()
             .and_then(|file| serde_json::from_reader::<_, Manifest>(file).ok())
         else {

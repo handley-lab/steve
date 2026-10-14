@@ -166,7 +166,7 @@ fn codex_path_setup_preserves_shell_script_line_numbers() -> anyhow::Result<()> 
             use_login_shell: true,
         };
         for directory in [
-            "codex-path",
+            "steve-path",
             "codex '\\c[*]$(printf bad)`printf bad`\npath\n",
         ] {
             let directory = temp_dir.path().join(directory);

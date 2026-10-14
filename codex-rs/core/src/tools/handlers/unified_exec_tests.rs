@@ -174,7 +174,7 @@ fn test_get_command_runs_login_shell_when_path_is_readonly() -> anyhow::Result<(
         &startup,
         "if shopt -q login_shell; then\n    export HOME=\"$STEVE_TEST_LOGIN_HOME\"\n    export PATH=/usr/bin:/bin\n    readonly PATH\n    set -e\nfi\n",
     )?;
-    let path_dir = PathUri::from_host_native_path(temp_dir.path().join("codex-path"))?;
+    let path_dir = PathUri::from_host_native_path(temp_dir.path().join("steve-path"))?;
     let args: ExecCommandArgs = parse_arguments(
         r#"{"cmd":"shopt -q login_shell || exit 90; case $- in *e*) ;; *) exit 91 ;; esac; /bin/sh -c 'printf \"%s\\n\" \"$PATH\"'; exit 23","login":true}"#,
     )?;
@@ -213,21 +213,21 @@ fn test_get_command_does_not_change_nested_login_or_powershell() -> anyhow::Resu
             "/bin/bash",
             r#"{"cmd":"bash -lc 'command -v rg'","login":false}"#,
             false,
-            "file:///executor/codex-path",
+            "file:///executor/steve-path",
         ),
         (
             ShellType::PowerShell,
             "pwsh",
             r#"{"cmd":"Get-Command rg"}"#,
             true,
-            "file:///executor/codex-path",
+            "file:///executor/steve-path",
         ),
         (
             ShellType::Bash,
             "/bin/bash",
             r#"{"cmd":"command -v rg"}"#,
             true,
-            "file:///C:/executor/codex-path",
+            "file:///C:/executor/steve-path",
         ),
     ] {
         let args: ExecCommandArgs = parse_arguments(arguments)?;

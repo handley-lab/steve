@@ -7,5 +7,5 @@ codex_rust_crate(
 )
 
 release_binary(
-    binary = ":codex-responses-api-proxy",
+    binary = ":steve-responses-api-proxy",
 )

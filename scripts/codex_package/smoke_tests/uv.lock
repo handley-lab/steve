@@ -12,7 +12,7 @@ wheels = [
 ]
 
 [[package]]
-name = "codex-package-smoke-tests"
+name = "steve-package-smoke-tests"
 version = "0.0.0"
 source = { virtual = "." }
 dependencies = [

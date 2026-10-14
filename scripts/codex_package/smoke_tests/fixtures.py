@@ -51,7 +51,7 @@ class SmokePackage:
         )
 
         # Isolate package configuration and state from the user's Codex setup.
-        environment["CODEX_HOME"] = str(config_dir)
+        environment["STEVE_HOME"] = str(config_dir)
         # Shell startup files can replace PATH and hide the packaged ripgrep.
         environment.pop("BASH_ENV", None)
         environment["ZDOTDIR"] = str(directory)
@@ -66,7 +66,7 @@ class SmokePackage:
                 tarfile.open(fileobj=source, mode="r|") as archive,
             ):
                 archive.extractall(extracted, filter="data")
-            manifest = json.loads((extracted / "codex-package.json").read_text())
+            manifest = json.loads((extracted / "steve-package.json").read_text())
             extracted_packages.append(
                 (
                     extracted,
@@ -139,7 +139,7 @@ def package(
 ) -> SmokePackage:
     compression = request.config.getoption("compression")
     target = request.config.getoption("package_target")
-    directory = tmp_path_factory.mktemp(f"codex-package-smoke-{compression}")
+    directory = tmp_path_factory.mktemp(f"steve-package-smoke-{compression}")
     if "windows" in target:
         # pytest's 0700 directories have protected ACLs, so restricted-token
         # sandboxes need read/execute access to reach the packaged binaries.
@@ -161,7 +161,7 @@ def package(
 
 @pytest.fixture
 def responses_server(package: SmokePackage) -> Iterator[MockResponsesServer]:
-    config_path = Path(package.environment["CODEX_HOME"]) / "config.toml"
+    config_path = Path(package.environment["STEVE_HOME"]) / "config.toml"
     original_config = config_path.read_text()
     with MockResponsesServer() as server:
         # Direct CLI commands and SDK-launched servers must share a provider;
@@ -192,7 +192,7 @@ def code_mode_host_debug_symbols(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Path:
     target = pytestconfig.getoption("package_target")
-    binaries = {"codex", "codex-app-server", "codex-code-mode-host"}
+    binaries = {"steve", "steve-app-server", "steve-code-mode-host"}
     if "windows" in target:
         binaries.update({"codex-command-runner", "codex-windows-sandbox-setup"})
 
@@ -222,7 +222,7 @@ def code_mode_host_debug_symbols(
                 if not matches:
                     continue
                 found.add(binary)
-                if binary == "codex-code-mode-host":
+                if binary == "steve-code-mode-host":
                     archive.extract(member, destination, filter="data")
                     symbol_path = destination / member.name
                 break

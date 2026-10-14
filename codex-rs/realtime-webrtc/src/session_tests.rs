@@ -146,7 +146,7 @@ fn package_availability_requires_helper_and_native_runtime() {
         .unwrap()
         .as_nanos();
     let root = std::env::temp_dir().join(format!("voice-package-{}-{unique}", std::process::id()));
-    let voice = root.join("codex-resources/voice");
+    let voice = root.join("steve-resources/voice");
     std::fs::create_dir_all(voice.join("bin")).unwrap();
     std::fs::create_dir_all(voice.join("lib")).unwrap();
     assert!(!package_has_runtime(&root));

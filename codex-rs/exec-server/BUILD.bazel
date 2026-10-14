@@ -20,8 +20,8 @@ codex_rust_crate(
     ],
     extra_binaries = [
         "//codex-rs/bwrap:bwrap",
-        "//codex-rs/windows-sandbox-rs:codex-command-runner",
-        "//codex-rs/windows-sandbox-rs:codex-windows-sandbox-setup",
+        "//codex-rs/windows-sandbox-rs:steve-command-runner",
+        "//codex-rs/windows-sandbox-rs:steve-windows-sandbox-setup",
     ],
     integration_compile_data_extra = [
         "src/proto/codex.exec_server.relay.v1.rs",
@@ -36,8 +36,8 @@ codex_rust_crate(
 
 exec_server_compat_test(
     name = "exec-server-current-version-test",
-    comparison_binary = "//codex-rs/cli:codex",
-    current_binary = "//codex-rs/cli:codex",
+    comparison_binary = "//codex-rs/cli:steve",
+    current_binary = "//codex-rs/cli:steve",
 )
 
 exec_server_compat_test(

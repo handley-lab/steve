@@ -25,20 +25,20 @@ class AssembleTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.package = self.root / "app"
         (self.package / "bin").mkdir(parents=True)
-        (self.package / "codex-resources").mkdir()
-        (self.package / "codex-path").mkdir()
+        (self.package / "steve-resources").mkdir()
+        (self.package / "steve-path").mkdir()
         self.commit = "a" * 40
         self.metadata = {
             "layoutVersion": 1,
             "version": f"0.0.0+{self.commit}",
             "target": "aarch64-unknown-linux-musl",
-            "variant": "codex",
-            "entrypoint": "bin/codex",
-            "resourcesDir": "codex-resources",
-            "pathDir": "codex-path",
+            "variant": "steve",
+            "entrypoint": "bin/steve",
+            "resourcesDir": "steve-resources",
+            "pathDir": "steve-path",
         }
-        (self.package / "codex-package.json").write_text(json.dumps(self.metadata))
-        (self.package / "bin/codex").write_bytes(b"unchanged app")
+        (self.package / "steve-package.json").write_text(json.dumps(self.metadata))
+        (self.package / "bin/steve").write_bytes(b"unchanged app")
         self.helper = self.root / "helper.exe"
         self.helper.write_bytes(b"private helper")
         self.helper.chmod(0o755)
@@ -85,10 +85,10 @@ class AssembleTests(unittest.TestCase):
                 runtime, receipt = self.make_runtime(target, plugin)
                 (runtime / "unlisted-file").write_bytes(b"must not ship")
                 windows = target.endswith("windows-msvc")
-                entrypoint = "bin/codex.exe" if windows else "bin/codex"
+                entrypoint = "bin/steve.exe" if windows else "bin/steve"
                 self.metadata.update(target=target, entrypoint=entrypoint)
                 (self.package / entrypoint).write_bytes(b"unchanged app")
-                (self.package / "codex-package.json").write_text(
+                (self.package / "steve-package.json").write_text(
                     json.dumps(self.metadata)
                 )
                 output = self.root / (target + " packaged")
@@ -114,7 +114,7 @@ class AssembleTests(unittest.TestCase):
                     cwd=self.root,
                     env={**os.environ, "PYTHONSAFEPATH": "1"},
                 )
-                voice = output / "codex-resources/voice"
+                voice = output / "steve-resources/voice"
                 self.assertFalse((voice / "unlisted-file").exists())
                 expected = {r["path"]: r["sha256"] for r in receipt["libraries"]}
                 expected["runtime.json"] = digest(runtime / "runtime.json")
@@ -125,14 +125,14 @@ class AssembleTests(unittest.TestCase):
                     {name: digest(runtime / name) for name in expected}, expected
                 )
                 manifest = json.loads((voice / "manifest.json").read_text())
-                helper_name = "codex-voice-host.exe" if windows else "codex-voice-host"
+                helper_name = "steve-voice-host.exe" if windows else "steve-voice-host"
                 self.assertEqual(
                     manifest["sha256"],
                     {
                         entrypoint: digest(self.package / entrypoint),
-                        f"codex-resources/voice/bin/{helper_name}": digest(self.helper),
+                        f"steve-resources/voice/bin/{helper_name}": digest(self.helper),
                         **{
-                            f"codex-resources/voice/{name}": value
+                            f"steve-resources/voice/{name}": value
                             for name, value in expected.items()
                         },
                     },
@@ -173,7 +173,7 @@ class AssembleTests(unittest.TestCase):
         seal(staged, target)
         self.metadata["version"] = "0.154.0-alpha.8"
         self.metadata["target"] = target
-        (self.package / "codex-package.json").write_text(json.dumps(self.metadata))
+        (self.package / "steve-package.json").write_text(json.dumps(self.metadata))
         assemble(
             self.package,
             self.helper,
@@ -184,20 +184,20 @@ class AssembleTests(unittest.TestCase):
             release_version="0.154.0-alpha.8",
         )
         manifest = json.loads(
-            (self.output / "codex-resources/voice/manifest.json").read_text()
+            (self.output / "steve-resources/voice/manifest.json").read_text()
         )
         self.assertEqual(manifest["appVersion"], "0.154.0-alpha.8")
         self.assertEqual(manifest["buildCommit"], self.commit)
-        notice_root = self.output / "codex-resources/voice"
+        notice_root = self.output / "steve-resources/voice"
         for source in (Path(__file__).with_name("licenses")).iterdir():
-            relative = f"codex-resources/voice/licenses/{source.name}"
+            relative = f"steve-resources/voice/licenses/{source.name}"
             self.assertEqual(
                 (notice_root / "licenses" / source.name).read_bytes(),
                 source.read_bytes(),
             )
             self.assertEqual(manifest["sha256"][relative], digest(source))
         self.assertEqual(
-            (self.output / "codex-resources/voice/lib/libgio-2.0.0.dylib").read_bytes(),
+            (self.output / "steve-resources/voice/lib/libgio-2.0.0.dylib").read_bytes(),
             signed_library.read_bytes(),
         )
 
@@ -258,7 +258,7 @@ class AssembleTests(unittest.TestCase):
         for version in ("0.154.0-beta.2", "0.154.0"):
             with self.subTest(version=version):
                 self.metadata["version"] = version
-                (self.package / "codex-package.json").write_text(
+                (self.package / "steve-package.json").write_text(
                     json.dumps(self.metadata)
                 )
                 output = self.root / f"package-{version}"
@@ -272,7 +272,7 @@ class AssembleTests(unittest.TestCase):
                     release_version=version,
                 )
                 manifest = json.loads(
-                    (output / "codex-resources/voice/manifest.json").read_text()
+                    (output / "steve-resources/voice/manifest.json").read_text()
                 )
                 self.assertEqual(manifest["appVersion"], version)
 
@@ -286,7 +286,7 @@ class AssembleTests(unittest.TestCase):
         for version in ("0.154.0-alpha.8", "0.154.0-beta.2", "0.154.0"):
             with self.subTest(version=version):
                 self.metadata["version"] = version
-                (self.package / "codex-package.json").write_text(
+                (self.package / "steve-package.json").write_text(
                     json.dumps(self.metadata)
                 )
                 output = self.root / f"linux-{version}"
@@ -299,12 +299,12 @@ class AssembleTests(unittest.TestCase):
                     runtime=staged,
                     release_version=version,
                 )
-                voice = output / "codex-resources/voice"
+                voice = output / "steve-resources/voice"
                 manifest = json.loads((voice / "manifest.json").read_text())
                 self.assertEqual(manifest["appTarget"], "aarch64-unknown-linux-musl")
                 self.assertEqual(manifest["voiceTarget"], target)
                 self.assertEqual(
-                    manifest["sha256"]["codex-resources/voice/runtime.json"],
+                    manifest["sha256"]["steve-resources/voice/runtime.json"],
                     digest(staged / "runtime.json"),
                 )
 
@@ -320,11 +320,11 @@ class AssembleTests(unittest.TestCase):
                 seal(staged, target)
                 self.metadata.update(
                     target=target,
-                    entrypoint="bin/codex.exe",
+                    entrypoint="bin/steve.exe",
                     version="0.154.0-beta.2",
                 )
-                (self.package / "bin/codex.exe").write_bytes(b"unchanged app")
-                (self.package / "codex-package.json").write_text(
+                (self.package / "bin/steve.exe").write_bytes(b"unchanged app")
+                (self.package / "steve-package.json").write_text(
                     json.dumps(self.metadata)
                 )
                 output = self.root / f"windows-{target}"
@@ -337,9 +337,9 @@ class AssembleTests(unittest.TestCase):
                     runtime=staged,
                     release_version="0.154.0-beta.2",
                 )
-                voice = output / "codex-resources/voice"
+                voice = output / "steve-resources/voice"
                 self.assertEqual(
-                    (voice / "bin/codex-voice-host.exe").read_bytes(),
+                    (voice / "bin/steve-voice-host.exe").read_bytes(),
                     self.helper.read_bytes(),
                 )
                 self.assertEqual(
@@ -364,7 +364,7 @@ class AssembleTests(unittest.TestCase):
         for name in (
             "../outside.so",
             "lib/../outside.so",
-            "bin/codex-voice-host",
+            "bin/steve-voice-host",
             "lib/evil:stream.so",
         ):
             changes.append({"libraries": [{**original["libraries"][0], "path": name}]})
@@ -482,7 +482,7 @@ class AssembleTests(unittest.TestCase):
                 json.loads((runtime / "runtime.json").read_text()), receipt
             )
             self.assertEqual(
-                (self.package / "bin/codex").read_bytes(), b"unchanged app"
+                (self.package / "bin/steve").read_bytes(), b"unchanged app"
             )
 
     def test_copies_app_unchanged_and_records_distinct_linux_targets(self):
@@ -495,16 +495,16 @@ class AssembleTests(unittest.TestCase):
             self.output,
             runtime=runtime,
         )
-        self.assertEqual((self.output / "bin/codex").read_bytes(), b"unchanged app")
-        self.assertEqual((self.package / "bin/codex").read_bytes(), b"unchanged app")
-        self.assertFalse((self.package / "codex-resources/voice").exists())
+        self.assertEqual((self.output / "bin/steve").read_bytes(), b"unchanged app")
+        self.assertEqual((self.package / "bin/steve").read_bytes(), b"unchanged app")
+        self.assertFalse((self.package / "steve-resources/voice").exists())
         self.assertEqual(
-            (self.output / "codex-package.json").read_bytes(),
-            (self.package / "codex-package.json").read_bytes(),
+            (self.output / "steve-package.json").read_bytes(),
+            (self.package / "steve-package.json").read_bytes(),
         )
         self.assertEqual(
             json.loads(
-                (self.output / "codex-resources/voice/manifest.json").read_text()
+                (self.output / "steve-resources/voice/manifest.json").read_text()
             ),
             {
                 "schemaVersion": 1,
@@ -513,15 +513,15 @@ class AssembleTests(unittest.TestCase):
                 "voiceTarget": "aarch64-unknown-linux-gnu",
                 "appVersion": self.metadata["version"],
                 "sha256": {
-                    "bin/codex": hashlib.sha256(b"unchanged app").hexdigest(),
-                    "codex-resources/voice/bin/codex-voice-host": hashlib.sha256(
+                    "bin/steve": hashlib.sha256(b"unchanged app").hexdigest(),
+                    "steve-resources/voice/bin/steve-voice-host": hashlib.sha256(
                         b"private helper"
                     ).hexdigest(),
                     **{
-                        f"codex-resources/voice/{r['path']}": r["sha256"]
+                        f"steve-resources/voice/{r['path']}": r["sha256"]
                         for r in receipt["libraries"]
                     },
-                    "codex-resources/voice/runtime.json": digest(
+                    "steve-resources/voice/runtime.json": digest(
                         runtime / "runtime.json"
                     ),
                 },
@@ -555,7 +555,7 @@ class AssembleTests(unittest.TestCase):
             target = f"{architecture}-unknown-linux-gnu"
             with self.subTest(target=target):
                 self.metadata["target"] = target
-                (self.package / "codex-package.json").write_text(
+                (self.package / "steve-package.json").write_text(
                     json.dumps(self.metadata)
                 )
                 runtime, receipt = self.make_runtime(target)
@@ -569,7 +569,7 @@ class AssembleTests(unittest.TestCase):
                     runtime=runtime,
                 )
                 manifest = json.loads(
-                    (output / "codex-resources/voice/manifest.json").read_text()
+                    (output / "steve-resources/voice/manifest.json").read_text()
                 )
                 self.assertEqual(
                     manifest,
@@ -580,24 +580,24 @@ class AssembleTests(unittest.TestCase):
                         "voiceTarget": target,
                         "appVersion": self.metadata["version"],
                         "sha256": {
-                            "bin/codex": hashlib.sha256(b"unchanged app").hexdigest(),
-                            "codex-resources/voice/bin/codex-voice-host": hashlib.sha256(
+                            "bin/steve": hashlib.sha256(b"unchanged app").hexdigest(),
+                            "steve-resources/voice/bin/steve-voice-host": hashlib.sha256(
                                 b"private helper"
                             ).hexdigest(),
                             **{
-                                f"codex-resources/voice/{r['path']}": r["sha256"]
+                                f"steve-resources/voice/{r['path']}": r["sha256"]
                                 for r in receipt["libraries"]
                             },
-                            "codex-resources/voice/runtime.json": digest(
+                            "steve-resources/voice/runtime.json": digest(
                                 runtime / "runtime.json"
                             ),
                         },
                     },
                 )
-                self.assertEqual((output / "bin/codex").read_bytes(), b"unchanged app")
+                self.assertEqual((output / "bin/steve").read_bytes(), b"unchanged app")
                 self.assertEqual(
                     (
-                        output / "codex-resources/voice/bin/codex-voice-host"
+                        output / "steve-resources/voice/bin/steve-voice-host"
                     ).read_bytes(),
                     self.helper.read_bytes(),
                 )
@@ -630,7 +630,7 @@ class AssembleTests(unittest.TestCase):
                     runtime=runtime,
                 )
         self.assertFalse(self.output.exists())
-        self.assertEqual((self.package / "bin/codex").read_bytes(), b"unchanged app")
+        self.assertEqual((self.package / "bin/steve").read_bytes(), b"unchanged app")
 
 
 if __name__ == "__main__":

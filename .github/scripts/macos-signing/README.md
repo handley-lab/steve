@@ -4,25 +4,19 @@ The provisioned CLI has two deliberately separate identifiers:
 
 | Purpose                               | Identifier                      |
 | ------------------------------------- | ------------------------------- |
-| Code-signing identifier               | `codex`                         |
-| Bundle identifier                     | `com.openai.codex.cli`          |
-| Provisioned App ID and keychain group | `<TeamID>.com.openai.codex.cli` |
+| Code-signing identifier               | `steve`                         |
+| Bundle identifier                     | `org.handley-lab.steve.cli`      |
+| Provisioned App ID and keychain group | `<TeamID>.org.handley-lab.steve.cli` |
 
-The code-signing identifier preserves access to existing login-keychain items
-whose access rules require the original CLI identity. Giving the CLI an app
-bundle must not change that identifier. The bundle identifier, App ID,
+Steve uses its own signing identity and does not inherit Codex login-keychain
+access rules. The bundle identifier, App ID,
 entitlements, profile, and approved certificate remain independently validated.
 The native-verification keys use the provisioned keychain group; they do not
 replace existing login-keychain credential access rules.
 
-Changing the new binary's designated requirement to accept both identifiers
-would not make it satisfy an existing item's requirement for `codex`. Items
-created by a binary signed as `com.openai.codex.cli` are a separate compatibility
-case: restoring `codex` does not silently authorize access to those items.
-
 The signing backend must honor an explicit `--binary-identifier` when signing
 an app bundle. The wrapper signs the bundle once; rcodesign seals its metadata
-and resources while retaining `codex` as the main executable's identity.
+and resources while retaining `steve` as the main executable's identity.
 Release tool artifact URIs and SHA-256 digests are pinned in the signing
 environment configuration.
 

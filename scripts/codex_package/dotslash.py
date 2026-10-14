@@ -113,7 +113,7 @@ def load_manifest(manifest_path: Path) -> dict:
 
 
 def default_cache_root() -> Path:
-    return Path(tempfile.gettempdir()) / "codex-package"
+    return Path(tempfile.gettempdir()) / "steve-package"
 
 
 def archive_filename(url: str) -> str:
@@ -168,7 +168,7 @@ def download_archive(url: str, archive_path: Path) -> None:
     temp_path = archive_path.with_suffix(f"{archive_path.suffix}.tmp")
     temp_path.unlink(missing_ok=True)
     try:
-        request = Request(url, headers={"User-Agent": "codex-package"})
+        request = Request(url, headers={"User-Agent": "steve-package"})
         with urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECS) as response:
             with open(temp_path, "wb") as out:
                 shutil.copyfileobj(response, out)

@@ -51,7 +51,7 @@ class ProvisioningTestCase(unittest.TestCase):
             "TeamIdentifier": ["TESTTEAM01"],
             "ApplicationIdentifierPrefix": ["TESTTEAM01"],
             "Entitlements": {
-                "com.apple.application-identifier": "TESTTEAM01.com.openai.codex.cli",
+                "com.apple.application-identifier": "TESTTEAM01.org.handley-lab.steve.cli",
                 "com.apple.developer.team-identifier": "TESTTEAM01",
                 "keychain-access-groups": ["TESTTEAM01.*"],
             },
@@ -145,18 +145,18 @@ class ProvisionedCliTests(ProvisioningTestCase):
             root = Path(directory)
             package = root / "original package"
             metadata = {
-                "variant": "codex",
+                "variant": "steve",
                 "layoutVersion": 1,
                 "target": "aarch64-apple-darwin",
-                "entrypoint": "bin/codex",
+                "entrypoint": "bin/steve",
             }
-            for relative in ("bin/codex", *bundle.HELPERS):
+            for relative in ("bin/steve", *bundle.HELPERS):
                 path = package / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\nexit 23\n')
                 path.chmod(0o755)
-            (package / "codex-package.json").write_text(json.dumps(metadata))
-            original_binary = (package / "bin/codex").read_bytes()
+            (package / "steve-package.json").write_text(json.dumps(metadata))
+            original_binary = (package / "bin/steve").read_bytes()
             bundle.prepare(package, root / "reports", self.configuration)
             with self.assertRaises(FileExistsError):
                 bundle.prepare(package, root / "reports", self.configuration)
@@ -168,7 +168,7 @@ class ProvisionedCliTests(ProvisioningTestCase):
                 (package / bundle.EXECUTABLE).read_bytes(), original_binary
             )
             self.assertEqual(
-                json.loads((package / "codex-package.json").read_text()), metadata
+                json.loads((package / "steve-package.json").read_text()), metadata
             )
 
             archive_path = root / "package.tar.gz"
@@ -183,12 +183,12 @@ class ProvisionedCliTests(ProvisioningTestCase):
             copied = root / "copied package"
             shutil.copytree(relocated, copied)
             link = root / "installed codex"
-            link.symlink_to(Path("copied package/bin/codex"))
+            link.symlink_to(Path("copied package/bin/steve"))
             absolute_link = root / "absolute codex"
             absolute_link.symlink_to(link)
             for entry in (
-                relocated / "bin/codex",
-                copied / "bin/codex",
+                relocated / "bin/steve",
+                copied / "bin/steve",
                 link,
                 absolute_link,
             ):

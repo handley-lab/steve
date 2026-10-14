@@ -37,14 +37,14 @@ class ResolvePythonCliReleaseTest(unittest.TestCase):
         self.assets = [
             {"name": name, "state": "uploaded", "size": 100}
             for name in [
-                "openai_codex_cli_bin-1.2.3-py3-none-macosx_10_9_x86_64.whl",
-                "openai_codex_cli_bin-1.2.3-py3-none-macosx_11_0_arm64.whl",
-                "openai_codex_cli_bin-1.2.3-py3-none-manylinux_2_17_aarch64.whl",
-                "openai_codex_cli_bin-1.2.3-py3-none-manylinux_2_17_x86_64.whl",
-                "openai_codex_cli_bin-1.2.3-py3-none-win_amd64.whl",
-                "openai_codex_cli_bin-1.2.3-py3-none-win_arm64.whl",
-                "codex-package-aarch64-unknown-linux-musl.tar.gz",
-                "codex-package-x86_64-unknown-linux-musl.tar.gz",
+                "steve_cli_bin-1.2.3-py3-none-macosx_10_9_x86_64.whl",
+                "steve_cli_bin-1.2.3-py3-none-macosx_11_0_arm64.whl",
+                "steve_cli_bin-1.2.3-py3-none-manylinux_2_17_aarch64.whl",
+                "steve_cli_bin-1.2.3-py3-none-manylinux_2_17_x86_64.whl",
+                "steve_cli_bin-1.2.3-py3-none-win_amd64.whl",
+                "steve_cli_bin-1.2.3-py3-none-win_arm64.whl",
+                "steve-package-aarch64-unknown-linux-musl.tar.gz",
+                "steve-package-x86_64-unknown-linux-musl.tar.gz",
             ]
         ]
         self.expected = {

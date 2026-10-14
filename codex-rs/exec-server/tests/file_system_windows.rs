@@ -465,7 +465,7 @@ async fn file_system_elevated_relative_read_denial_uses_policy_cwd(
     let resources = test_exe
         .parent()
         .context("Windows test executable should have a parent directory")?
-        .join("codex-resources");
+        .join("steve-resources");
     if let Err(error) = std::fs::create_dir_all(&resources)
         && !(error.kind() == std::io::ErrorKind::PermissionDenied && resources.is_dir())
     {

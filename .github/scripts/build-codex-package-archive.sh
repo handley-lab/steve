@@ -11,8 +11,8 @@ Usage: build-codex-package-archive.sh \
   [--bwrap-bin <path>] \
   [--code-mode-host-bin <path>] \
   [--rg-bin <path>] \
-  [--codex-command-runner-bin <path>] \
-  [--codex-windows-sandbox-setup-bin <path>] \
+  [--steve-command-runner-bin <path>] \
+  [--steve-windows-sandbox-setup-bin <path>] \
   [--voice-release-dir <path> --release-version <release-version>] \
   [--target-suffixed-entrypoint]
 EOF
@@ -63,18 +63,18 @@ while [[ $# -gt 0 ]]; do
       resource_args+=(--rg-bin "${2:?--rg-bin requires a value}")
       shift 2
       ;;
-    --codex-command-runner-bin)
+    --steve-command-runner-bin)
       resource_args+=(
-        --codex-command-runner-bin
-        "${2:?--codex-command-runner-bin requires a value}"
+        --steve-command-runner-bin
+        "${2:?--steve-command-runner-bin requires a value}"
       )
       command_runner_bin_provided="true"
       shift 2
       ;;
-    --codex-windows-sandbox-setup-bin)
+    --steve-windows-sandbox-setup-bin)
       resource_args+=(
-        --codex-windows-sandbox-setup-bin
-        "${2:?--codex-windows-sandbox-setup-bin requires a value}"
+        --steve-windows-sandbox-setup-bin
+        "${2:?--steve-windows-sandbox-setup-bin requires a value}"
       )
       sandbox_setup_bin_provided="true"
       shift 2
@@ -114,17 +114,17 @@ fi
 
 case "$bundle" in
   primary)
-    variant="codex"
-    entrypoint="codex"
-    archive_stem="codex-package"
+    variant="steve"
+    entrypoint="steve"
+    archive_stem="steve-package"
     ;;
   app-server)
-    variant="codex-app-server"
-    entrypoint="codex-app-server"
-    archive_stem="codex-app-server-package"
+    variant="steve-app-server"
+    entrypoint="steve-app-server"
+    archive_stem="steve-app-server-package"
     ;;
   *)
-    echo "No Codex package variant for bundle: $bundle" >&2
+    echo "No Steve package variant for bundle: $bundle" >&2
     exit 1
     ;;
 esac
@@ -136,7 +136,7 @@ case "$target" in
     ;;
 esac
 
-code_mode_host_bin="${entrypoint_dir%/}/codex-code-mode-host${exe_suffix}"
+code_mode_host_bin="${entrypoint_dir%/}/steve-code-mode-host${exe_suffix}"
 if [[ "$code_mode_host_bin_provided" == "false" && -f "$code_mode_host_bin" ]]; then
   resource_args+=(--code-mode-host-bin "$code_mode_host_bin")
 fi
@@ -154,13 +154,13 @@ case "$target" in
     fi
     ;;
   *windows*)
-    command_runner_bin="${entrypoint_dir%/}/codex-command-runner.exe"
-    sandbox_setup_bin="${entrypoint_dir%/}/codex-windows-sandbox-setup.exe"
+    command_runner_bin="${entrypoint_dir%/}/steve-command-runner.exe"
+    sandbox_setup_bin="${entrypoint_dir%/}/steve-windows-sandbox-setup.exe"
     if [[ "$command_runner_bin_provided" == "false" && -f "$command_runner_bin" ]]; then
-      resource_args+=(--codex-command-runner-bin "$command_runner_bin")
+      resource_args+=(--steve-command-runner-bin "$command_runner_bin")
     fi
     if [[ "$sandbox_setup_bin_provided" == "false" && -f "$sandbox_setup_bin" ]]; then
-      resource_args+=(--codex-windows-sandbox-setup-bin "$sandbox_setup_bin")
+      resource_args+=(--steve-windows-sandbox-setup-bin "$sandbox_setup_bin")
     fi
     ;;
 esac
@@ -211,7 +211,7 @@ if [[ -n "$voice_release_dir" ]]; then
   fi
   voice_package="${RUNNER_TEMP:-/tmp}/${archive_stem}-voice-${target}"
   rm -rf "$voice_package"
-  voice_helper="${voice_release_dir%/}/codex-voice-host${exe_suffix}"
+  voice_helper="${voice_release_dir%/}/steve-voice-host${exe_suffix}"
   "$python_bin" "${repo_root}/third_party/voice/assemble_package.py" \
     --package "$package_dir" \
     --helper "$voice_helper" \

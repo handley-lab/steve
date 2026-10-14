@@ -15,7 +15,7 @@ on:
       - "rust-v*.*.*"
 
 env:
-  CODEX_REPO_ROOT: ${{ github.workspace }}
+  STEVE_REPO_ROOT: ${{ github.workspace }}
 
 # The launcher uses this per-tag group as the migration boundary. Keep shared
 # publication jobs on the original queued group below when changing this.
@@ -96,50 +96,50 @@ jobs:
             target: aarch64-apple-darwin
             bundle: primary
             artifact_name: aarch64-apple-darwin
-            binaries: "codex codex-code-mode-host codex-responses-api-proxy"
+            binaries: "steve steve-code-mode-host steve-responses-api-proxy"
             build_dmg: "true"
           - runner: macos-15-xlarge
             target: aarch64-apple-darwin
             bundle: app-server
             artifact_name: aarch64-apple-darwin-app-server
-            binaries: "codex-app-server codex-code-mode-host"
+            binaries: "steve-app-server steve-code-mode-host"
             build_dmg: "false"
           - runner: macos-15-xlarge
             target: x86_64-apple-darwin
             bundle: primary
             artifact_name: x86_64-apple-darwin
-            binaries: "codex codex-code-mode-host codex-responses-api-proxy"
+            binaries: "steve steve-code-mode-host steve-responses-api-proxy"
             build_dmg: "true"
           - runner: macos-15-xlarge
             target: x86_64-apple-darwin
             bundle: app-server
             artifact_name: x86_64-apple-darwin-app-server
-            binaries: "codex-app-server codex-code-mode-host"
+            binaries: "steve-app-server steve-code-mode-host"
             build_dmg: "false"
           # Release artifacts intentionally ship MUSL-linked Linux binaries.
           - runner: ${{ github.event.repository.name }}-linux-x64-xl
             target: x86_64-unknown-linux-musl
             bundle: primary
             artifact_name: x86_64-unknown-linux-musl
-            binaries: "codex codex-code-mode-host codex-responses-api-proxy bwrap"
+            binaries: "steve steve-code-mode-host steve-responses-api-proxy bwrap"
             build_dmg: "false"
           - runner: ${{ github.event.repository.name }}-linux-x64-xl
             target: x86_64-unknown-linux-musl
             bundle: app-server
             artifact_name: x86_64-unknown-linux-musl-app-server
-            binaries: "codex-app-server codex-code-mode-host"
+            binaries: "steve-app-server steve-code-mode-host"
             build_dmg: "false"
           - runner: ${{ github.event.repository.name }}-linux-arm64
             target: aarch64-unknown-linux-musl
             bundle: primary
             artifact_name: aarch64-unknown-linux-musl
-            binaries: "codex codex-code-mode-host codex-responses-api-proxy bwrap"
+            binaries: "steve steve-code-mode-host steve-responses-api-proxy bwrap"
             build_dmg: "false"
           - runner: ${{ github.event.repository.name }}-linux-arm64
             target: aarch64-unknown-linux-musl
             bundle: app-server
             artifact_name: aarch64-unknown-linux-musl-app-server
-            binaries: "codex-app-server codex-code-mode-host"
+            binaries: "steve-app-server steve-code-mode-host"
             build_dmg: "false"
 
     steps:
@@ -247,7 +247,7 @@ jobs:
           # covers the exact bytes that the release packages.
           strip --strip-debug --strip-unneeded "$bwrap_path"
           digest="$(sha256sum "$bwrap_path" | awk '{print $1}')"
-          echo "CODEX_BWRAP_SHA256=${digest}" >> "$GITHUB_ENV"
+          echo "STEVE_BWRAP_SHA256=${digest}" >> "$GITHUB_ENV"
           echo "Built bwrap ${bwrap_path} with sha256:${digest}"
 
       - name: Cargo build
@@ -342,14 +342,14 @@ jobs:
             x86_64-unknown-linux-gnu) prefix=linux_x86_64 ;;
             *) exit 1 ;;
           esac
-          bazel build --config=release //codex-rs/voice-host:codex-voice-host //third_party/voice:native_runtime
+          bazel build --config=release //codex-rs/voice-host:steve-voice-host //third_party/voice:native_runtime
           source="bazel-bin/third_party/voice/native_runtime_${prefix}"
           output="${RUNNER_TEMP}/signed-voice/${APP_TARGET}"
           mkdir -p "$output"
           python3 third_party/voice/release_runtime.py stage \
             --target "$voice_target" --source "$source" --output "$output/runtime"
-          cp bazel-bin/codex-rs/voice-host/codex-voice-host "$output/codex-voice-host"
-          chmod 0755 "$output/codex-voice-host"
+          cp bazel-bin/codex-rs/voice-host/steve-voice-host "$output/steve-voice-host"
+          chmod 0755 "$output/steve-voice-host"
           python3 third_party/voice/release_runtime.py seal \
             --target "$voice_target" --output "$output/runtime"
 
@@ -404,7 +404,7 @@ jobs:
           for binary in ${{ matrix.binaries }}; do
             # Both variants package the host, but only the primary bundle publishes
             # standalone binary archives to avoid duplicate release asset names.
-            if [[ "${{ matrix.bundle }}" == "app-server" && "$binary" == "codex-code-mode-host" ]]; then
+            if [[ "${{ matrix.bundle }}" == "app-server" && "$binary" == "steve-code-mode-host" ]]; then
               continue
             fi
             cp "target/${{ matrix.target }}/release/${binary}" "$dest/${binary}-${{ matrix.target }}"
@@ -444,7 +444,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           artifacts-dir: ${{ github.workspace }}/codex-rs/dist/${{ matrix.target }}
-          binaries: codex-package-${{ matrix.target }}.tar.gz codex-package-${{ matrix.target }}.tar.zst
+          binaries: steve-package-${{ matrix.target }}.tar.gz steve-package-${{ matrix.target }}.tar.zst
 
       - name: Build Python runtime wheel
         if: ${{ matrix.build-system == 'cargo' && matrix.bundle == 'primary' && runner.os != 'macOS' }}
@@ -485,15 +485,15 @@ jobs:
             --bundle primary \
             --entrypoint-dir "target/${{ matrix.target }}/release" \
             --archive-dir "$wheel_archives"
-          wheel_archive="${wheel_archives}/codex-package-${{ matrix.target }}.tar.gz"
+          wheel_archive="${wheel_archives}/steve-package-${{ matrix.target }}.tar.gz"
           python3 - "$wheel_archive" <<'PY'
           import sys
           import tarfile
           with tarfile.open(sys.argv[1]) as archive:
-              assert not any("codex-resources/voice/" in item.name for item in archive)
+              assert not any("steve-resources/voice/" in item.name for item in archive)
           PY
 
-          stage_dir="${RUNNER_TEMP}/openai-codex-cli-bin-${{ matrix.target }}"
+          stage_dir="${RUNNER_TEMP}/steve-cli-bin-${{ matrix.target }}"
           wheel_dir="${GITHUB_WORKSPACE}/python-runtime-dist/${{ matrix.target }}"
           stage_runtime_args=(
             "${GITHUB_WORKSPACE}/sdk/python/scripts/update_sdk_artifacts.py"
@@ -608,7 +608,7 @@ jobs:
           # Release tags bump Cargo.toml without rewriting the workspace lockfile.
           # Refresh workspace versions before Bazel reads the Cargo dependency graph.
           (cd codex-rs && cargo update --workspace)
-          bazel build --config=release --macos_minimum_os=14.0 //codex-rs/voice-host:codex-voice-host //third_party/voice:native_runtime
+          bazel build --config=release --macos_minimum_os=14.0 //codex-rs/voice-host:steve-voice-host //third_party/voice:native_runtime
           runtime="bazel-bin/third_party/voice/native_runtime_${PREFIX}"
           PYTHONPATH=third_party/voice python3 - "$runtime" "$TARGET" <<'PY'
           from pathlib import Path
@@ -620,8 +620,8 @@ jobs:
           cp -R "$runtime" "voice-unsigned/${TARGET}/runtime"
           # GNU tar extraction and signing need writable copies of Bazel outputs.
           chmod -R u+w "voice-unsigned/${TARGET}/runtime"
-          cp bazel-bin/codex-rs/voice-host/codex-voice-host "voice-unsigned/${TARGET}/codex-voice-host"
-          tar -C "voice-unsigned/${TARGET}" -czf "voice-unsigned-${TARGET}.tar.gz" runtime codex-voice-host
+          cp bazel-bin/codex-rs/voice-host/steve-voice-host "voice-unsigned/${TARGET}/steve-voice-host"
+          tar -C "voice-unsigned/${TARGET}" -czf "voice-unsigned-${TARGET}.tar.gz" runtime steve-voice-host
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: voice-${{ matrix.target }}-unsigned
@@ -657,19 +657,19 @@ jobs:
           - target: aarch64-apple-darwin
             bundle: primary
             artifact_name: aarch64-apple-darwin
-            binaries: "codex codex-code-mode-host codex-responses-api-proxy"
+            binaries: "steve steve-code-mode-host steve-responses-api-proxy"
           - target: aarch64-apple-darwin
             bundle: app-server
             artifact_name: aarch64-apple-darwin-app-server
-            binaries: "codex-app-server codex-code-mode-host"
+            binaries: "steve-app-server steve-code-mode-host"
           - target: x86_64-apple-darwin
             bundle: primary
             artifact_name: x86_64-apple-darwin
-            binaries: "codex codex-code-mode-host codex-responses-api-proxy"
+            binaries: "steve steve-code-mode-host steve-responses-api-proxy"
           - target: x86_64-apple-darwin
             bundle: app-server
             artifact_name: x86_64-apple-darwin-app-server
-            binaries: "codex-app-server codex-code-mode-host"
+            binaries: "steve-app-server steve-code-mode-host"
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -730,7 +730,7 @@ jobs:
             zstd -d --stdout "$unsigned_path" >"$signed_path"
             chmod 0755 "$signed_path"
 
-            entitlements="${GITHUB_WORKSPACE}/.github/scripts/macos-signing/${binary}.entitlements.plist"
+            entitlements="${GITHUB_WORKSPACE}/.github/scripts/macos-signing/${binary/steve/codex}.entitlements.plist"
             if [[ ! -f "$entitlements" ]]; then
               echo "Entitlements file $entitlements not found"
               exit 1
@@ -816,8 +816,8 @@ jobs:
           tar -xzf "${RUNNER_TEMP}/unsigned-voice/voice-unsigned-${TARGET}.tar.gz" -C "$unsigned"
           python3 third_party/voice/release_runtime.py stage \
             --target "$TARGET" --source "$unsigned/runtime" --output "$signed/runtime"
-          cp "$unsigned/codex-voice-host" "$signed/codex-voice-host"
-          chmod 0755 "$signed/codex-voice-host"
+          cp "$unsigned/steve-voice-host" "$signed/steve-voice-host"
+          chmod 0755 "$signed/steve-voice-host"
 
           while IFS= read -r -d '' library; do
             name="$(basename "$library")"
@@ -827,12 +827,12 @@ jobs:
               --options runtime --timestamp true
           done < <(find "$signed/runtime" -name '*.dylib' -type f -print0)
           .github/scripts/macos-signing/sign_macos_code.sh \
-            --target "$signed/codex-voice-host" --identity unused --deep false \
+            --target "$signed/steve-voice-host" --identity unused --deep false \
             --identifier com.openai.codex.voice-host --options runtime --timestamp true \
             --entitlements .github/scripts/macos-signing/codex-voice-host.entitlements.plist
 
           # Notarize the actual signed closure together, then hash those bytes.
-          (cd "$signed" && zip -qr "${RUNNER_TEMP}/voice-${TARGET}.zip" runtime codex-voice-host)
+          (cd "$signed" && zip -qr "${RUNNER_TEMP}/voice-${TARGET}.zip" runtime steve-voice-host)
           report_dir="${GITHUB_WORKSPACE}/macos-binary-signing-verification/${TARGET}/voice"
           mkdir -p "$report_dir"
           python3 .github/scripts/macos-signing/notarize_with_akv.py \
@@ -842,7 +842,7 @@ jobs:
           python3 third_party/voice/release_runtime.py seal \
             --target "$TARGET" --output "$signed/runtime"
           tar -C "$signed" -czf "${GITHUB_WORKSPACE}/signed-voice-${TARGET}.tar.gz" \
-            runtime codex-voice-host
+            runtime steve-voice-host
 
       - name: Upload signed voice runtime
         if: ${{ matrix.bundle == 'primary' }}
@@ -902,22 +902,22 @@ jobs:
           - target: aarch64-apple-darwin
             bundle: primary
             artifact_name: aarch64-apple-darwin
-            binaries: "codex codex-code-mode-host codex-responses-api-proxy"
+            binaries: "steve steve-code-mode-host steve-responses-api-proxy"
             build_dmg: "true"
           - target: aarch64-apple-darwin
             bundle: app-server
             artifact_name: aarch64-apple-darwin-app-server
-            binaries: "codex-app-server codex-code-mode-host"
+            binaries: "steve-app-server steve-code-mode-host"
             build_dmg: "false"
           - target: x86_64-apple-darwin
             bundle: primary
             artifact_name: x86_64-apple-darwin
-            binaries: "codex codex-code-mode-host codex-responses-api-proxy"
+            binaries: "steve steve-code-mode-host steve-responses-api-proxy"
             build_dmg: "true"
           - target: x86_64-apple-darwin
             bundle: app-server
             artifact_name: x86_64-apple-darwin-app-server
-            binaries: "codex-app-server codex-code-mode-host"
+            binaries: "steve-app-server steve-code-mode-host"
             build_dmg: "false"
 
     steps:
@@ -969,8 +969,8 @@ jobs:
             lipo "$binary" -verify_arch "$arch"
             codesign --verify --strict --verbose=2 "$binary"
           done < <(find "$root/runtime" -name '*.dylib' -type f -print0)
-          lipo "$root/codex-voice-host" -verify_arch "$arch"
-          codesign --verify --strict --verbose=2 "$root/codex-voice-host"
+          lipo "$root/steve-voice-host" -verify_arch "$arch"
+          codesign --verify --strict --verbose=2 "$root/steve-voice-host"
 
       - name: Verify signed macOS binaries
         shell: bash
@@ -998,7 +998,7 @@ jobs:
           for binary in ${{ matrix.binaries }}; do
             # Both variants package the host, but only the primary bundle publishes
             # standalone binary archives to avoid duplicate release asset names.
-            if [[ "${{ matrix.bundle }}" == "app-server" && "$binary" == "codex-code-mode-host" ]]; then
+            if [[ "${{ matrix.bundle }}" == "app-server" && "$binary" == "steve-code-mode-host" ]]; then
               continue
             fi
             cp "target/${{ matrix.target }}/release/${binary}" "$dest/${binary}-${{ matrix.target }}"
@@ -1034,7 +1034,7 @@ jobs:
           release_dir="target/${target}/release"
           dmg_root="${RUNNER_TEMP}/codex-dmg-root-${target}"
           volname="Codex (${target})"
-          dmg_path="${release_dir}/codex-${target}.dmg"
+          dmg_path="${release_dir}/steve-${target}.dmg"
 
           rm -rf "$dmg_root"
           mkdir -p "$dmg_root"
@@ -1051,10 +1051,10 @@ jobs:
           if [[ "${{ matrix.bundle }}" == "primary" ]]; then
             # Keep the root-level invocation, but resolve it into the canonical
             # package layout so InstallContext finds its adjacent voice runtime.
-            package="${RUNNER_TEMP}/codex-package-voice-${target}"
+            package="${RUNNER_TEMP}/steve-package-voice-${target}"
             ditto "$package" "$dmg_root"
-            rm "${dmg_root}/codex"
-            ln -s bin/codex "${dmg_root}/codex"
+            rm "${dmg_root}/steve"
+            ln -s bin/steve "${dmg_root}/steve"
           fi
 
           rm -f "$dmg_path"
@@ -1110,15 +1110,15 @@ jobs:
             --entrypoint-dir "target/${{ matrix.target }}/release" \
             --archive-dir "$wheel_archives" \
             --rg-bin "signed-resources/${{ matrix.target }}/rg"
-          wheel_archive="${wheel_archives}/codex-package-${{ matrix.target }}.tar.gz"
+          wheel_archive="${wheel_archives}/steve-package-${{ matrix.target }}.tar.gz"
           python3 - "$wheel_archive" <<'PY'
           import sys
           import tarfile
           with tarfile.open(sys.argv[1]) as archive:
-              assert not any("codex-resources/voice/" in item.name for item in archive)
+              assert not any("steve-resources/voice/" in item.name for item in archive)
           PY
 
-          stage_dir="${RUNNER_TEMP}/openai-codex-cli-bin-${{ matrix.target }}"
+          stage_dir="${RUNNER_TEMP}/steve-cli-bin-${{ matrix.target }}"
           wheel_dir="${GITHUB_WORKSPACE}/python-runtime-dist/${{ matrix.target }}"
           python3 \
             "${GITHUB_WORKSPACE}/sdk/python/scripts/update_sdk_artifacts.py" \
@@ -1291,22 +1291,22 @@ jobs:
           - target: aarch64-apple-darwin
             bundle: primary
             artifact_name: aarch64-apple-darwin
-            binaries: "codex codex-code-mode-host codex-responses-api-proxy"
+            binaries: "steve steve-code-mode-host steve-responses-api-proxy"
             verify_dmg: "true"
           - target: aarch64-apple-darwin
             bundle: app-server
             artifact_name: aarch64-apple-darwin-app-server
-            binaries: "codex-app-server codex-code-mode-host"
+            binaries: "steve-app-server steve-code-mode-host"
             verify_dmg: "false"
           - target: x86_64-apple-darwin
             bundle: primary
             artifact_name: x86_64-apple-darwin
-            binaries: "codex codex-code-mode-host codex-responses-api-proxy"
+            binaries: "steve steve-code-mode-host steve-responses-api-proxy"
             verify_dmg: "true"
           - target: x86_64-apple-darwin
             bundle: app-server
             artifact_name: x86_64-apple-darwin-app-server
-            binaries: "codex-app-server codex-code-mode-host"
+            binaries: "steve-app-server steve-code-mode-host"
             verify_dmg: "false"
 
     steps:
@@ -1358,7 +1358,7 @@ jobs:
             lipo "$path" -verify_arch "$expected_arch"
             codesign --verify --strict --verbose=2 "$path"
 
-            expected_entitlements="${GITHUB_WORKSPACE}/.github/scripts/macos-signing/${binary}.entitlements.plist"
+            expected_entitlements="${GITHUB_WORKSPACE}/.github/scripts/macos-signing/${binary/steve/codex}.entitlements.plist"
             if [[ ! -f "$expected_entitlements" ]]; then
               echo "Expected entitlements file $expected_entitlements not found"
               exit 1
@@ -1379,7 +1379,7 @@ jobs:
 
             # The app-server package contains the host, but its standalone archives
             # are omitted above to avoid duplicate release asset names.
-            if [[ "${{ matrix.bundle }}" == "app-server" && "$binary" == "codex-code-mode-host" ]]; then
+            if [[ "${{ matrix.bundle }}" == "app-server" && "$binary" == "steve-code-mode-host" ]]; then
               continue
             fi
 
@@ -1396,12 +1396,12 @@ jobs:
 
           case "${{ matrix.bundle }}" in
             primary)
-              package_stem="codex-package"
-              package_entrypoint="codex"
+              package_stem="steve-package"
+              package_entrypoint="steve"
               ;;
             app-server)
-              package_stem="codex-app-server-package"
-              package_entrypoint="codex-app-server"
+              package_stem="steve-app-server-package"
+              package_entrypoint="steve-app-server"
               ;;
             *)
               echo "Unexpected macOS bundle: ${{ matrix.bundle }}"
@@ -1414,10 +1414,10 @@ jobs:
           mkdir -p "$package_dir"
           tar -xzf "${packaged_dir}/${package_stem}-${target}.tar.gz" -C "$package_dir"
           verify_signed_binary "${package_dir}/bin/${package_entrypoint}" "$package_entrypoint"
-          verify_signed_binary "${package_dir}/bin/codex-code-mode-host" "codex-code-mode-host"
+          verify_signed_binary "${package_dir}/bin/steve-code-mode-host" "steve-code-mode-host"
 
           for resource in \
-            "${package_dir}/codex-path/rg"
+            "${package_dir}/steve-path/rg"
           do
             chmod 0755 "$resource"
             lipo "$resource" -verify_arch "$expected_arch"
@@ -1433,7 +1433,7 @@ jobs:
           done
 
           if [[ "${{ matrix.bundle }}" == "primary" ]]; then
-            voice="${package_dir}/codex-resources/voice"
+            voice="${package_dir}/steve-resources/voice"
             [[ -f "${voice}/lib/libgstreamer-1.0.0.dylib" ]]
             export VOICE_BUILD_COMMIT="$(git rev-parse HEAD)"
             PYTHONPATH="${GITHUB_WORKSPACE}/third_party/voice" python3 - "$voice" "$target" "$package_dir" <<'PY'
@@ -1450,20 +1450,20 @@ jobs:
           for relative, expected in manifest["sha256"].items():
               assert digest(package / relative) == expected, relative
           PY
-            helper="${voice}/bin/codex-voice-host"
+            helper="${voice}/bin/steve-voice-host"
             [[ "$("$helper" --build-commit)" == "$VOICE_BUILD_COMMIT" ]]
             while IFS= read -r -d '' library; do
               lipo "$library" -verify_arch "$expected_arch"
               codesign --verify --strict --verbose=2 "$library"
             done < <(find "$voice" -name '*.dylib' -type f -print0)
-            verify_signed_binary "$helper" "codex-voice-host"
+            verify_signed_binary "$helper" "steve-voice-host"
           fi
 
           if [[ "${{ matrix.verify_dmg }}" != "true" ]]; then
             exit 0
           fi
 
-          dmg_path="${RUNNER_TEMP}/signed-dmg/codex-${target}.dmg"
+          dmg_path="${RUNNER_TEMP}/signed-dmg/steve-${target}.dmg"
           mount_dir="${RUNNER_TEMP}/codex-dmg-mount-${target}"
           if [[ ! -f "$dmg_path" ]]; then
             echo "Signed DMG $dmg_path not found"
@@ -1487,17 +1487,17 @@ jobs:
           done
 
           if [[ "${{ matrix.bundle }}" == "primary" ]]; then
-            [[ "$(readlink "${mount_dir}/codex")" == "bin/codex" ]]
-            cmp "${mount_dir}/codex-package.json" "${package_dir}/codex-package.json"
-            cmp "${mount_dir}/codex-resources/voice/manifest.json" \
-              "${package_dir}/codex-resources/voice/manifest.json"
-            cmp "${mount_dir}/codex-resources/voice/bin/codex-voice-host" \
-              "${package_dir}/codex-resources/voice/bin/codex-voice-host"
+            [[ "$(readlink "${mount_dir}/steve")" == "bin/steve" ]]
+            cmp "${mount_dir}/steve-package.json" "${package_dir}/steve-package.json"
+            cmp "${mount_dir}/steve-resources/voice/manifest.json" \
+              "${package_dir}/steve-resources/voice/manifest.json"
+            cmp "${mount_dir}/steve-resources/voice/bin/steve-voice-host" \
+              "${package_dir}/steve-resources/voice/bin/steve-voice-host"
           fi
 
           cleanup_mount
           trap - EXIT
-          cp "$dmg_path" "dist/${target}/codex-${target}.dmg"
+          cp "$dmg_path" "dist/${target}/steve-${target}.dmg"
 
       - name: Suffix Bazel artifact filenames
         if: ${{ matrix.build-system == 'bazel' }}
@@ -1678,14 +1678,14 @@ jobs:
       - name: List
         run: ls -R dist/
 
-      - name: Add Codex package checksum manifest
+      - name: Add Steve package checksum manifest
         run: |
           set -euo pipefail
 
-          manifest="dist/codex-package_SHA256SUMS"
+          manifest="dist/steve-package_SHA256SUMS"
           tmp_manifest="$(mktemp)"
           find dist -type f \
-            \( -name 'codex-package-*.tar.gz' -o -name 'codex-app-server-package-*.tar.gz' -o -name 'codex-provisioned-package-*.tar.gz' \) \
+            \( -name 'steve-package-*.tar.gz' -o -name 'steve-app-server-package-*.tar.gz' -o -name 'steve-provisioned-package-*.tar.gz' \) \
             -print |
             sort |
             while IFS= read -r archive; do
@@ -1694,7 +1694,7 @@ jobs:
             done > "$tmp_manifest"
 
           if [[ ! -s "$tmp_manifest" ]]; then
-            echo "No Codex package archives found for checksum manifest"
+            echo "No Steve package archives found for checksum manifest"
             exit 1
           fi
 
@@ -1900,12 +1900,12 @@ jobs:
           tag="$RELEASE_TAG"
           mkdir -p dist/npm
           patterns=(
-            "codex-npm-${version}.tgz"
-            "codex-npm-linux-*-${version}.tgz"
-            "codex-npm-darwin-*-${version}.tgz"
-            "codex-npm-win32-*-${version}.tgz"
-            "codex-responses-api-proxy-npm-${version}.tgz"
-            "codex-sdk-npm-${version}.tgz"
+            "steve-npm-${version}.tgz"
+            "steve-npm-linux-*-${version}.tgz"
+            "steve-npm-darwin-*-${version}.tgz"
+            "steve-npm-win32-*-${version}.tgz"
+            "steve-responses-api-proxy-npm-${version}.tgz"
+            "steve-sdk-npm-${version}.tgz"
           )
           for pattern in "${patterns[@]}"; do
             gh release download "$tag" \
@@ -1926,19 +1926,19 @@ jobs:
             prefix="${NPM_TAG}-"
           fi
 
-          root_tarball="dist/npm/codex-npm-${VERSION}.tgz"
-          sdk_tarball="dist/npm/codex-sdk-npm-${VERSION}.tgz"
+          root_tarball="dist/npm/steve-npm-${VERSION}.tgz"
+          sdk_tarball="dist/npm/steve-sdk-npm-${VERSION}.tgz"
           # Keep this list in sync with CODEX_PLATFORM_PACKAGES in
           # codex-cli/scripts/build_npm_package.py. The root wrapper advances
           # @openai/codex@latest as soon as it publishes, so every platform
           # package it aliases must already exist in the registry first.
           platform_tarballs=(
-            "dist/npm/codex-npm-linux-x64-${VERSION}.tgz"
-            "dist/npm/codex-npm-linux-arm64-${VERSION}.tgz"
-            "dist/npm/codex-npm-darwin-x64-${VERSION}.tgz"
-            "dist/npm/codex-npm-darwin-arm64-${VERSION}.tgz"
-            "dist/npm/codex-npm-win32-x64-${VERSION}.tgz"
-            "dist/npm/codex-npm-win32-arm64-${VERSION}.tgz"
+            "dist/npm/steve-npm-linux-x64-${VERSION}.tgz"
+            "dist/npm/steve-npm-linux-arm64-${VERSION}.tgz"
+            "dist/npm/steve-npm-darwin-x64-${VERSION}.tgz"
+            "dist/npm/steve-npm-darwin-arm64-${VERSION}.tgz"
+            "dist/npm/steve-npm-win32-x64-${VERSION}.tgz"
+            "dist/npm/steve-npm-win32-arm64-${VERSION}.tgz"
           )
 
           for required_tarball in "${platform_tarballs[@]}" "${root_tarball}"; do
@@ -1987,12 +1987,12 @@ jobs:
             tag=""
 
             case "${filename}" in
-              codex-npm-linux-*-"${VERSION}".tgz|codex-npm-darwin-*-"${VERSION}".tgz|codex-npm-win32-*-"${VERSION}".tgz)
-                platform="${filename#codex-npm-}"
+              steve-npm-linux-*-"${VERSION}".tgz|steve-npm-darwin-*-"${VERSION}".tgz|steve-npm-win32-*-"${VERSION}".tgz)
+                platform="${filename#steve-npm-}"
                 platform="${platform%-${VERSION}.tgz}"
                 tag="${prefix}${platform}"
                 ;;
-              codex-npm-"${VERSION}".tgz|codex-responses-api-proxy-npm-"${VERSION}".tgz|codex-sdk-npm-"${VERSION}".tgz)
+              steve-npm-"${VERSION}".tgz|steve-responses-api-proxy-npm-"${VERSION}".tgz|steve-sdk-npm-"${VERSION}".tgz)
                 tag="${NPM_TAG}"
                 ;;
               *)
@@ -2062,10 +2062,10 @@ jobs:
     concurrency: *release-publication
     name: winget
     needs: release
-    # Only publish stable/mainline releases to WinGet; pre-releases include a
-    # '-' in the semver string (e.g., 1.2.3-alpha.1).
+    # This inherited job updates OpenAI.Codex. Steve publication is deferred.
     if: >-
       ${{
+        github.repository == 'openai/codex' &&
         !cancelled() &&
         needs.release.result == 'success' &&
         !contains(needs.release.outputs.version, '-')

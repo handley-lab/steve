@@ -99,7 +99,7 @@ async fn tmpdir_uses_command_environment_over_rpc(
         let resources = executable
             .parent()
             .context("Windows test executable should have a parent directory")?
-            .join("codex-resources");
+            .join("steve-resources");
         if let Err(error) = std::fs::create_dir_all(&resources)
             && !(error.kind() == std::io::ErrorKind::PermissionDenied && resources.is_dir())
         {
