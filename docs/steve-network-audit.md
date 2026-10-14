@@ -319,9 +319,8 @@ Device login POSTs client ID to `/api/accounts/deviceauth/usercode`, then polls
 `/api/accounts/deviceauth/token` with the device-auth ID and user code before
 the token exchange. Avoid invoking first-party browser/device login when using
 Cambridge-only authentication. Sources: `codex-rs/login/src/server.rs` and
-`codex-rs/login/src/device_code_auth.rs`. This section does not yet cover
-automatic token refresh, logout revocation or agent-identity exchange, and
-no credential exchange was performed during this source audit.
+`codex-rs/login/src/device_code_auth.rs`. No credential exchange was performed
+during this source audit.
 
 ## Managed token refresh and revocation
 
