@@ -81,7 +81,7 @@ struct SnapshotRun {
 
 const POLICY_PATH_FOR_TEST: &str = "/codex/policy/path";
 const SNAPSHOT_PATH_FOR_TEST: &str = "/codex/snapshot/path";
-const SNAPSHOT_MARKER_VAR: &str = "CODEX_SNAPSHOT_POLICY_MARKER";
+const SNAPSHOT_MARKER_VAR: &str = "STEVE_SNAPSHOT_POLICY_MARKER";
 const SNAPSHOT_MARKER_VALUE: &str = "from_snapshot";
 const POLICY_SUCCESS_OUTPUT: &str = "policy-after-snapshot";
 
@@ -706,7 +706,7 @@ async fn shell_snapshot_v2_guardian_uses_its_resolved_permissions_and_tools(
     // Appending detects any successful reviewer write, even with the wrong thread ID.
     fs::write(
         profile_home.path().join(".bashrc"),
-        "printf '%s\\n' \"$CODEX_THREAD_ID\" >> \"$HOME/captures\"\n",
+        "printf '%s\\n' \"$STEVE_THREAD_ID\" >> \"$HOME/captures\"\n",
     )
     .await?;
     let builder =

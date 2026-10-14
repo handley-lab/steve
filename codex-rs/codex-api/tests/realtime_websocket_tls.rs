@@ -21,8 +21,8 @@ use codex_protocol::protocol::RealtimeVoice;
 use http::HeaderMap;
 use pretty_assertions::assert_eq;
 
-const ADDRESS_ENV: &str = "CODEX_TEST_REALTIME_TLS_ADDRESS";
-const TRUST_ENV: &str = "CODEX_TEST_REALTIME_TLS_TRUST";
+const ADDRESS_ENV: &str = "STEVE_TEST_REALTIME_TLS_ADDRESS";
+const TRUST_ENV: &str = "STEVE_TEST_REALTIME_TLS_TRUST";
 
 #[test]
 fn realtime_tls_selects_system_and_custom_trust() {
@@ -96,10 +96,10 @@ fn realtime_tls_selects_system_and_custom_trust() {
             ])
             .env(ADDRESS_ENV, format!("localhost:{}", address.port()))
             .env(TRUST_ENV, trust)
-            .env_remove("CODEX_CA_CERTIFICATE")
+            .env_remove("STEVE_CA_CERTIFICATE")
             .env_remove("SSL_CERT_FILE");
         if trust == "custom" {
-            child.env("CODEX_CA_CERTIFICATE", &ca).env(
+            child.env("STEVE_CA_CERTIFICATE", &ca).env(
                 "SSL_CERT_FILE",
                 temp.path().join("missing-lower-priority-ca.pem"),
             );

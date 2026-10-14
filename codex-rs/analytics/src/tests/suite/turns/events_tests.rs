@@ -196,8 +196,8 @@ fn turn_event_serializes_expected_shape() {
                 "codex_turn_source": "composer",
                 "submission_type": null,
                 "app_server_client": {
-                    "product_client_id": "codex_cli_rs",
-                    "client_name": "codex-tui",
+                    "product_client_id": "steve_cli_rs",
+                    "client_name": "steve-tui",
                     "client_version": "1.0.0",
                     "rpc_transport": "stdio",
                     "experimental_api_enabled": true
@@ -383,8 +383,8 @@ async fn turn_lifecycle_emits_turn_event() {
     assert_eq!(
         payload["event_params"]["app_server_client"],
         json!({
-            "product_client_id": "codex-tui",
-            "client_name": "codex-tui",
+            "product_client_id": "steve-tui",
+            "client_name": "steve-tui",
             "client_version": "1.0.0",
             "rpc_transport": "stdio",
             "experimental_api_enabled": null,

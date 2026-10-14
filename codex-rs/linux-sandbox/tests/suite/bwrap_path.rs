@@ -42,7 +42,7 @@ fn child_workdir_does_not_probe_or_launch_writable_parent_bwrap() {
     let profile_json = serde_json::to_string(&profile).expect("serialize profile");
     let trusted_path = std::env::var_os("PATH").expect("PATH is set");
     let run = |search_path: &std::ffi::OsStr, script: &str| {
-        Command::new(cargo_bin("codex-linux-sandbox").expect("resolve sandbox binary"))
+        Command::new(cargo_bin("steve-linux-sandbox").expect("resolve sandbox binary"))
             .arg("--sandbox-policy-cwd")
             .arg(&workspace)
             .arg("--command-cwd")
@@ -102,7 +102,7 @@ fn full_disk_write_with_managed_network_does_not_probe_writable_bwrap() {
     let bwrap = bin.join("bwrap");
     write_executable(&bwrap, "#!/bin/sh\n: > \"$BWRAP_PROBE_MARKER\"\nexit 1\n").unwrap();
     let run = |profile: &PermissionProfile, marker: &std::path::Path| {
-        Command::new(cargo_bin("codex-linux-sandbox").expect("resolve sandbox binary"))
+        Command::new(cargo_bin("steve-linux-sandbox").expect("resolve sandbox binary"))
             .arg("--sandbox-policy-cwd")
             .arg(&cwd)
             .arg("--permission-profile")

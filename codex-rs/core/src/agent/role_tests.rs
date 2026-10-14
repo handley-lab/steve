@@ -188,7 +188,7 @@ async fn apply_role_preserves_unspecified_keys() {
         TomlValue::String("base-model".to_string()),
     )])
     .await;
-    config.codex_linux_sandbox_exe = Some(PathBuf::from("/tmp/codex-linux-sandbox"));
+    config.codex_linux_sandbox_exe = Some(PathBuf::from("/tmp/steve-linux-sandbox"));
     let role_path = write_role_config(
         &home,
         "instructions-only.toml",
@@ -223,7 +223,7 @@ async fn apply_role_preserves_unspecified_keys() {
     );
     assert_eq!(
         config.codex_linux_sandbox_exe,
-        Some(PathBuf::from("/tmp/codex-linux-sandbox"))
+        Some(PathBuf::from("/tmp/steve-linux-sandbox"))
     );
     assert_eq!(config.base_instructions, base_instructions);
     assert_eq!(config.base_instructions_provenance, provenance);

@@ -1,4 +1,4 @@
-//! Match transcript hover to the links Codex opens while terminal mouse input is captured.
+//! Match transcript hover to the links Steve opens while terminal mouse input is captured.
 //! Recheck after painting so scrolling and live output cannot leave a hand over stale content.
 
 use crossterm::event::KeyModifiers;

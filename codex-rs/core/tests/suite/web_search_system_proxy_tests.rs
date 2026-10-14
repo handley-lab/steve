@@ -28,7 +28,7 @@ use wiremock::matchers::path;
 
 const TEST_NAME: &str =
     "suite::web_search_system_proxy::standalone_web_search_resolves_redirect_routes";
-const TEST_SUBPROCESS_ENV_VAR: &str = "CODEX_WEB_SEARCH_SYSTEM_PROXY_TEST_SUBPROCESS";
+const TEST_SUBPROCESS_ENV_VAR: &str = "STEVE_WEB_SEARCH_SYSTEM_PROXY_TEST_SUBPROCESS";
 const API_BASE_URL: &str = "http://web-search-proxy.invalid/v1";
 const REDIRECT_URL: &str = "http://web-search-redirect.invalid/v1/alpha/search";
 

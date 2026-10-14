@@ -198,7 +198,7 @@ impl ChatWidget {
             .rate_limit_snapshots_by_limit_id
             .iter()
             .filter(|(limit_id, snapshot)| {
-                limit_id.as_str() == "codex" || snapshot.limit_name == self.current_model()
+                limit_id.as_str() == "steve" || snapshot.limit_name == self.current_model()
             })
             .flat_map(|(_, snapshot)| snapshot.primary.iter().chain(snapshot.secondary.iter()))
             .map(|window| window.used_percent)
@@ -260,8 +260,8 @@ impl ChatWidget {
             let limit_id = snapshot
                 .limit_id
                 .clone()
-                .unwrap_or_else(|| "codex".to_string());
-            let is_codex_limit = limit_id.eq_ignore_ascii_case("codex");
+                .unwrap_or_else(|| "steve".to_string());
+            let is_codex_limit = limit_id.eq_ignore_ascii_case("steve");
             if is_codex_limit
                 && self
                     .usage_notice_state
@@ -551,7 +551,7 @@ impl ChatWidget {
             ),
             AddCreditsNudgeCreditType::UsageLimit => (
                 "Usage limit reached",
-                "Request a limit increase from your owner to continue using codex. Request increase?",
+                "Request a limit increase from your owner to continue using steve. Request increase?",
             ),
         };
         let send_actions: Vec<SelectionAction> = vec![Box::new(move |tx| {

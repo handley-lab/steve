@@ -5,11 +5,11 @@ edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "codex-app-server"
+name = "steve-app-server"
 path = "src/main.rs"
 
 [[bin]]
-name = "codex-app-server-test-notify-capture"
+name = "steve-app-server-test-notify-capture"
 path = "src/bin/notify_capture.rs"
 
 [[bin]]

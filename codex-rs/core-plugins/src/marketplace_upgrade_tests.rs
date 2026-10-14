@@ -96,8 +96,8 @@ source = {good_url:?}
 
 #[test]
 fn automatic_marketplace_git_ignores_inherited_repository_configuration() {
-    const CHILD_HOME: &str = "CODEX_MARKETPLACE_GIT_ISOLATION_CHILD_HOME";
-    const CHILD_SOURCE: &str = "CODEX_MARKETPLACE_GIT_ISOLATION_CHILD_SOURCE";
+    const CHILD_HOME: &str = "STEVE_MARKETPLACE_GIT_ISOLATION_CHILD_HOME";
+    const CHILD_SOURCE: &str = "STEVE_MARKETPLACE_GIT_ISOLATION_CHILD_SOURCE";
 
     if let Some(codex_home) = std::env::var_os(CHILD_HOME) {
         let codex_home = PathBuf::from(codex_home);
@@ -500,7 +500,7 @@ fn changed_config_rolls_back_marketplace_activation() {
     );
     assert!(initial.all_succeeded());
     let root = &initial.upgraded_roots[0];
-    let original_metadata = std::fs::read(root.join(".codex-marketplace-install.json")).unwrap();
+    let original_metadata = std::fs::read(root.join(".steve-marketplace-install.json")).unwrap();
     std::fs::write(remote.path().join("new-file"), "new revision").unwrap();
     run_git(remote.path(), &["add", "."]);
     run_git(remote.path(), &["commit", "-m", "update"]);
@@ -525,7 +525,7 @@ fn changed_config_rolls_back_marketplace_activation() {
         assert_eq!(outcome.errors.len(), 1);
         assert!(!root.join("new-file").exists());
         assert_eq!(
-            std::fs::read(root.join(".codex-marketplace-install.json")).unwrap(),
+            std::fs::read(root.join(".steve-marketplace-install.json")).unwrap(),
             original_metadata
         );
     }

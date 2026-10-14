@@ -83,7 +83,7 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 const REMOTE_PLUGIN_ID: &str = "plugins~Plugin_00000000000000000000000000000000";
 const INSTALL_ATTEMPT_ID: &str = "94c79f7b-cceb-4415-9a3e-b51b2f718d43";
 const TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS: &str =
-    "CODEX_TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS";
+    "STEVE_TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS";
 
 #[tokio::test]
 async fn plugin_install_rejects_relative_marketplace_paths() -> Result<()> {

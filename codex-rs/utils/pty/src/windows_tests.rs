@@ -29,14 +29,14 @@ const VALUE_MARKER: &str = "__CODEX_CHILD_VALUE__";
 async fn piped_child_has_no_console_with_or_without_job_containment() -> anyhow::Result<()> {
     // Nextest itself can run without a visible console. Re-execute this test
     // detached, like app-server-daemon, so children cannot inherit its console.
-    if std::env::var_os("CODEX_PTY_DETACHED_CONSOLE_PROBE").is_none() {
+    if std::env::var_os("STEVE_PTY_DETACHED_CONSOLE_PROBE").is_none() {
         let output = std::process::Command::new(std::env::current_exe()?)
             .args([
                 "--exact",
                 "tests::windows_tests::piped_child_has_no_console_with_or_without_job_containment",
                 "--nocapture",
             ])
-            .env("CODEX_PTY_DETACHED_CONSOLE_PROBE", "1")
+            .env("STEVE_PTY_DETACHED_CONSOLE_PROBE", "1")
             .creation_flags(winapi::um::winbase::DETACHED_PROCESS)
             .output()?;
         anyhow::ensure!(

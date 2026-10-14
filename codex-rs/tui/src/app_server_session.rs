@@ -257,7 +257,7 @@ pub(crate) async fn request_thread_start_with_history_fallback(
                     || params
                         .config
                         .as_ref()
-                        .is_some_and(|config| config.contains_key("mcp_servers.codex_tui"));
+                        .is_some_and(|config| config.contains_key("mcp_servers.steve_tui"));
                 return Ok((response, history_support, task_tools_available));
             }
             Err(TypedRequestError::Server { source, .. })
@@ -2885,9 +2885,9 @@ mod tests {
             ordinary_usage_allowed: None,
             account_id: None,
             rate_limit_upsell: None,
-            rate_limits: rate_limit_snapshot("codex"),
+            rate_limits: rate_limit_snapshot("steve"),
             rate_limits_by_limit_id: Some(HashMap::from([
-                ("codex".to_string(), rate_limit_snapshot("codex")),
+                ("steve".to_string(), rate_limit_snapshot("steve")),
                 ("other".to_string(), rate_limit_snapshot("other")),
             ])),
             rate_limit_reset_credits: None,
@@ -2900,7 +2900,7 @@ mod tests {
                 .iter()
                 .map(|snapshot| snapshot.limit_id.as_deref())
                 .collect::<Vec<_>>(),
-            vec![Some("codex"), Some("other")]
+            vec![Some("steve"), Some("other")]
         );
     }
 
@@ -3589,7 +3589,7 @@ mod tests {
     async fn config_overrides_forward_explicit_summary_verbosity_and_web_search() -> Result<()> {
         let home = tempfile::tempdir()?;
         let workspace = home.path().join("workspace");
-        std::fs::create_dir_all(workspace.join(".codex"))?;
+        std::fs::create_dir_all(workspace.join(".steve"))?;
         std::fs::write(
             home.path().join("config.toml"),
             format!(
@@ -3631,7 +3631,7 @@ mod tests {
             ),
         ] {
             std::fs::write(
-                workspace.join(".codex/config.toml"),
+                workspace.join(".steve/config.toml"),
                 if project {
                     "model_reasoning_summary = \"concise\"\nmodel_verbosity = \"low\"\nweb_search = \"disabled\"\n"
                 } else {

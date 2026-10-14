@@ -14,7 +14,7 @@ use tokio::net::TcpListener;
 use tokio::process::Command;
 use wiremock::MockServer;
 
-const SYSTEM_PROXY_TEST_SUBPROCESS_ENV_VAR: &str = "CODEX_SYSTEM_PROXY_TEST_SUBPROCESS";
+const SYSTEM_PROXY_TEST_SUBPROCESS_ENV_VAR: &str = "STEVE_SYSTEM_PROXY_TEST_SUBPROCESS";
 const TEST_NAME: &str =
     "suite::responses_system_proxy::regular_responses_turn_honors_respect_system_proxy";
 

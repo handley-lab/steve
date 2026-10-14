@@ -312,7 +312,7 @@ fn elevated_non_tty_cmd_forwards_env_output_and_exit() {
         let codex_home = sandbox_home("elevated-non-tty-cmd");
         let permission_profile = PermissionProfile::workspace_write();
         let env_map = HashMap::from([(
-            "CODEX_ELEVATED_TEST".to_string(),
+            "STEVE_ELEVATED_TEST".to_string(),
             "ELEVATED-ENV-OK".to_string(),
         )]);
         let spawned = spawn_windows_sandbox_session_elevated_for_permission_profile(
@@ -323,7 +323,7 @@ fn elevated_non_tty_cmd_forwards_env_output_and_exit() {
                 "C:\\Windows\\System32\\cmd.exe".to_string(),
                 "/d".to_string(),
                 "/c".to_string(),
-                "echo %CODEX_ELEVATED_TEST% & exit /b 23".to_string(),
+                "echo %STEVE_ELEVATED_TEST% & exit /b 23".to_string(),
             ],
             cwd.as_path(),
             env_map,
@@ -354,13 +354,13 @@ fn elevated_non_tty_cmd_forwards_env_output_and_exit() {
 }
 
 #[test]
-#[ignore = "requires this test binary in an installed test MSIX, launched with package identity, CODEX_WINDOWS_REGISTERED_CORE=1, and CODEX_HOME provisioned by that package's service in a disposable Windows VM"]
+#[ignore = "requires this test binary in an installed test MSIX, launched with package identity, STEVE_WINDOWS_REGISTERED_CORE=1, and STEVE_HOME provisioned by that package's service in a disposable Windows VM"]
 fn registered_non_tty_cmd_forwards_env_output_and_exit() {
     assert!(
         crate::registered_core_requested(),
         "registered Core opt-in is required"
     );
-    let codex_home = PathBuf::from(std::env::var_os("CODEX_HOME").expect("fixture CODEX_HOME"));
+    let codex_home = PathBuf::from(std::env::var_os("STEVE_HOME").expect("fixture STEVE_HOME"));
     assert!(
         crate::app_package::registered_setup_is_ready(&codex_home)
             .expect("validate the installed package and service receipt"),
@@ -369,7 +369,7 @@ fn registered_non_tty_cmd_forwards_env_output_and_exit() {
     let cwd = tempfile::tempdir().expect("isolated command workspace");
     current_thread_runtime().block_on(async {
         let mut env_map: HashMap<String, String> = std::env::vars().collect();
-        env_map.insert("CODEX_REGISTERED_TEST".into(), "REGISTERED-ENV-OK".into());
+        env_map.insert("STEVE_REGISTERED_TEST".into(), "REGISTERED-ENV-OK".into());
         let spawned = spawn_windows_sandbox_session_elevated_for_permission_profile(
             &PermissionProfile::workspace_write(),
             workspace_roots_for(cwd.path()).as_slice(),
@@ -378,7 +378,7 @@ fn registered_non_tty_cmd_forwards_env_output_and_exit() {
                 "C:\\Windows\\System32\\cmd.exe".into(),
                 "/d".into(),
                 "/c".into(),
-                "echo %CODEX_REGISTERED_TEST%& exit /b 23".into(),
+                "echo %STEVE_REGISTERED_TEST%& exit /b 23".into(),
             ],
             cwd.path(),
             env_map,

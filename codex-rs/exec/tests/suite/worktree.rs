@@ -114,8 +114,8 @@ async fn worktree_start_and_fork_use_host_pool_and_preserve_legacy_resume() -> a
     seed_mock.single_request();
     legacy_manager.bind_thread(&legacy.root, &legacy_id)?;
     fs::write(source.join("AGENTS.md"), "uncommitted source instructions")?;
-    fs::create_dir(source.join(".codex"))?;
-    fs::write(source.join(".codex/config.toml"), "[invalid source config")?;
+    fs::create_dir(source.join(".steve"))?;
+    fs::write(source.join(".steve/config.toml"), "[invalid source config")?;
 
     let launcher = tempfile::tempdir()?;
     fs::create_dir(launcher.path().join("extra"))?;
@@ -295,13 +295,13 @@ async fn worktree_start_and_fork_use_host_pool_and_preserve_legacy_resume() -> a
     for args in [vec!["prompt"], vec!["fork", legacy_id.as_str(), "prompt"]] {
         let request_count = if args.first() == Some(&"fork") {
             // The saved checkout can choose file auth even when the launcher does not.
-            fs::remove_file(source.join(".codex/config.toml"))?;
-            fs::create_dir_all(legacy.cwd.join(".codex"))?;
+            fs::remove_file(source.join(".steve/config.toml"))?;
+            fs::create_dir_all(legacy.cwd.join(".steve"))?;
             fs::write(
-                legacy.cwd.join(".codex/config.toml"),
+                legacy.cwd.join(".steve/config.toml"),
                 "cli_auth_credentials_store=\"file\"\n",
             )?;
-            git(&legacy.cwd, &["add", ".codex/config.toml"])?;
+            git(&legacy.cwd, &["add", ".steve/config.toml"])?;
             git(
                 &legacy.cwd,
                 &["commit", "--quiet", "--no-gpg-sign", "-m", "file auth"],
@@ -329,9 +329,9 @@ async fn worktree_start_and_fork_use_host_pool_and_preserve_legacy_resume() -> a
             } else {
                 &source
             })
-            .env_remove("CODEX_API_KEY")
+            .env_remove("STEVE_API_KEY")
             .env_remove("OPENAI_API_KEY")
-            .env_remove("CODEX_ACCESS_TOKEN")
+            .env_remove("STEVE_ACCESS_TOKEN")
             .args(["--json", "--worktree", "--strict-config"])
             .args(args)
             .output()?;
@@ -385,7 +385,7 @@ fn worktree_rejects_remote_defaults_before_allocation() -> anyhow::Result<()> {
         let test = test_codex_exec();
         let mut command = test.cmd();
         if route == "environment" {
-            command.env("CODEX_EXEC_SERVER_URL", "ws://127.0.0.1:9");
+            command.env("STEVE_EXEC_SERVER_URL", "ws://127.0.0.1:9");
         } else {
             fs::write(
                 test.home_path().join("environments.toml"),

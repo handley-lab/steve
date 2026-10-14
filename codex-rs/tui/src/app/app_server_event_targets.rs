@@ -376,7 +376,7 @@ mod tests {
             ServerNotification::ThreadAttachmentUpdated(ThreadAttachmentUpdatedNotification {
                 thread_id: thread_id.to_string(),
                 attachment_type: "pull_request".to_string(),
-                identity_key: r#"["github.com","openai","codex",123]"#.to_string(),
+                identity_key: r#"["github.com","openai","steve",123]"#.to_string(),
                 attachment_id: "attachment-1".to_string(),
                 operation: ThreadAttachmentOperation::Deleted,
             });

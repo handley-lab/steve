@@ -18,8 +18,8 @@ use std::path::Path;
 use std::process::Command;
 
 const F_MAKECOMPRESSED: libc::c_int = 80;
-const FIXTURE_ENV: &str = "CODEX_SEATBELT_FCNTL_FIXTURE";
-const EXPECTATION_ENV: &str = "CODEX_SEATBELT_FCNTL_EXPECTATION";
+const FIXTURE_ENV: &str = "STEVE_SEATBELT_FCNTL_FIXTURE";
+const EXPECTATION_ENV: &str = "STEVE_SEATBELT_FCNTL_EXPECTATION";
 const TRANSFER_UNSUPPORTED: &str = "F_TRANSFEREXTENTS positive control unsupported";
 const FILES: [&str; 3] = ["canary", "workspace/donor", "receiver"];
 

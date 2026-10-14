@@ -16,7 +16,7 @@ use std::process::Command;
 use tempfile::tempdir;
 
 /// While we may add an `apply-patch` subcommand to the `codex` CLI multitool
-/// at some point, we must ensure that the smaller `codex-exec` CLI can still
+/// at some point, we must ensure that the smaller `steve-exec` CLI can still
 /// emulate the `apply_patch` CLI.
 #[test]
 fn test_standalone_exec_cli_can_use_apply_patch() -> anyhow::Result<()> {
@@ -25,7 +25,7 @@ fn test_standalone_exec_cli_can_use_apply_patch() -> anyhow::Result<()> {
     let absolute_path = tmp.path().join(relative_path);
     fs::write(&absolute_path, "original content\n")?;
 
-    Command::new(codex_utils_cargo_bin::cargo_bin("codex-exec")?)
+    Command::new(codex_utils_cargo_bin::cargo_bin("steve-exec")?)
         .arg(CODEX_CORE_APPLY_PATCH_ARG1)
         .arg(
             r#"*** Begin Patch
@@ -215,7 +215,7 @@ async fn nested_apply_patch_alias_works_with_restricted_reads() -> anyhow::Resul
         return Ok(());
     }
     let test = test_codex_exec();
-    let binary = codex_utils_cargo_bin::cargo_bin("codex-exec")?.canonicalize()?;
+    let binary = codex_utils_cargo_bin::cargo_bin("steve-exec")?.canonicalize()?;
     let binary_dir = serde_json::to_string(binary.parent().expect("binary directory"))?;
     let codex_home = serde_json::to_string(test.home_path())?;
     fs::write(
@@ -264,7 +264,7 @@ shell_snapshot_v2 = false
     .await;
     let run = test.cmd_with_server(&server)
         .env("HOME", test.home_path())
-        .env_remove("CODEX_API_KEY")
+        .env_remove("STEVE_API_KEY")
         .env_remove("OPENAI_API_KEY")
         .arg("--skip-git-repo-check")
         .arg("-c")
@@ -448,8 +448,8 @@ async fn shutdown_flushes_completed_turn_and_file_diff() -> anyhow::Result<()> {
     .await;
 
     test.cmd_with_server(&server)
-        .env_remove("CODEX_API_KEY")
-        .env_remove("CODEX_ANALYTICS_EVENTS_CAPTURE_FILE")
+        .env_remove("STEVE_API_KEY")
+        .env_remove("STEVE_ANALYTICS_EVENTS_CAPTURE_FILE")
         .arg("--skip-git-repo-check")
         .arg("-s")
         .arg("danger-full-access")

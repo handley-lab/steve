@@ -48,10 +48,10 @@ struct BackendContext {
 async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext> {
     #[cfg(debug_assertions)]
     let use_mock = matches!(
-        std::env::var("CODEX_CLOUD_TASKS_MODE").ok().as_deref(),
+        std::env::var("STEVE_CLOUD_TASKS_MODE").ok().as_deref(),
         Some("mock") | Some("MOCK")
     );
-    let base_url = std::env::var("CODEX_CLOUD_TASKS_BASE_URL")
+    let base_url = std::env::var("STEVE_CLOUD_TASKS_BASE_URL")
         .unwrap_or_else(|_| "https://chatgpt.com/backend-api".to_string());
     let base_url = util::validate_chatgpt_base_url(&base_url)?;
 
@@ -816,7 +816,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
     let mut app = app::App::new();
     // Initial load
     let force_internal = matches!(
-        std::env::var("CODEX_CLOUD_TASKS_FORCE_INTERNAL")
+        std::env::var("STEVE_CLOUD_TASKS_FORCE_INTERNAL")
             .ok()
             .as_deref(),
         Some("1") | Some("true") | Some("TRUE")

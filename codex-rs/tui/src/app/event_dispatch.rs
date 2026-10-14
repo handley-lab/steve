@@ -565,7 +565,7 @@ impl App {
                     "slash_command"
                 };
                 self.session_telemetry.counter(
-                    "codex.thread.fork",
+                    "steve.thread.fork",
                     /*inc*/ 1,
                     &[("source", source)],
                 );
@@ -2382,14 +2382,14 @@ impl App {
                 profile_selection,
             } => {
                 self.session_telemetry.counter(
-                    "codex.windows_sandbox.fallback_prompt_shown",
+                    "steve.windows_sandbox.fallback_prompt_shown",
                     /*inc*/ 1,
                     &[],
                 );
                 self.chat_widget.clear_windows_sandbox_setup_status();
                 if let Some(started_at) = self.windows_sandbox.setup_started_at.take() {
                     self.session_telemetry.record_duration(
-                        "codex.windows_sandbox.elevated_setup_duration_ms",
+                        "steve.windows_sandbox.elevated_setup_duration_ms",
                         started_at.elapsed(),
                         &[("result", "failure")],
                     );
@@ -2439,7 +2439,7 @@ impl App {
                         && mode == WindowsSandboxEnableMode::Elevated
                     {
                         self.session_telemetry.record_duration(
-                            "codex.windows_sandbox.elevated_setup_duration_ms",
+                            "steve.windows_sandbox.elevated_setup_duration_ms",
                             started_at.elapsed(),
                             &[("result", "success")],
                         );
@@ -2484,7 +2484,7 @@ impl App {
                                     Line::from(vec!["• ".dim(), "Sandbox ready".into()]),
                                     Line::from(vec![
                                         "  ".into(),
-                                        "Codex can now safely edit files and execute commands in your computer"
+                                        "Steve can now safely edit files and execute commands in your computer"
                                             .dark_gray(),
                                     ]),
                                 ]);
@@ -3004,7 +3004,7 @@ impl App {
             #[cfg(any(unix, windows))]
             AppEvent::AgentsDaemonStarted { result } => match result {
                 Ok(()) => self.chat_widget.add_info_message(
-                    "Background server started. Run `codex agents` in another terminal; this session remains unchanged."
+                    "Background server started. Run `steve agents` in another terminal; this session remains unchanged."
                         .to_string(),
                     /*hint*/ None,
                 ),

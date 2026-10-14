@@ -2,7 +2,7 @@
 //!
 //! Providers can be defined in two places:
 //!   1. Built-in defaults compiled into the binary so Codex works out-of-the-box.
-//!   2. User-defined entries inside `~/.codex/config.toml` under the `model_providers`
+//!   2. User-defined entries inside `~/.steve/config.toml` under the `model_providers`
 //!      key. These override or extend the defaults at runtime.
 //!
 //! API provider construction applies the process-wide managed residency policy also
@@ -734,18 +734,18 @@ pub fn merge_configured_model_providers(
 }
 
 pub fn create_oss_provider(default_provider_port: u16, wire_api: WireApi) -> ModelProviderInfo {
-    // These CODEX_OSS_ environment variables are experimental: we may
+    // These STEVE_OSS_ environment variables are experimental: we may
     // switch to reading values from config.toml instead.
     let default_codex_oss_base_url = format!(
         "http://localhost:{codex_oss_port}/v1",
-        codex_oss_port = std::env::var("CODEX_OSS_PORT")
+        codex_oss_port = std::env::var("STEVE_OSS_PORT")
             .ok()
             .filter(|value| !value.trim().is_empty())
             .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or(default_provider_port)
     );
 
-    let codex_oss_base_url = std::env::var("CODEX_OSS_BASE_URL")
+    let codex_oss_base_url = std::env::var("STEVE_OSS_BASE_URL")
         .ok()
         .filter(|v| !v.trim().is_empty())
         .unwrap_or(default_codex_oss_base_url);

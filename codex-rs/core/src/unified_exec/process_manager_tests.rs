@@ -23,7 +23,7 @@ fn unified_exec_env_injects_defaults() {
         ("PAGER".to_string(), "cat".to_string()),
         ("GIT_PAGER".to_string(), "cat".to_string()),
         ("GH_PAGER".to_string(), "cat".to_string()),
-        ("CODEX_CI".to_string(), "1".to_string()),
+        ("STEVE_CI".to_string(), "1".to_string()),
     ]);
 
     assert_eq!(env, expected);
@@ -85,7 +85,7 @@ fn env_overlay_for_exec_server_keeps_runtime_changes_only() {
         ("PATH".to_string(), "/sandbox-path".to_string()),
         ("OpenAI_Federation_Rule_Id".to_string(), "rule".to_string()),
         ("SHELL_SET".to_string(), "policy".to_string()),
-        ("CODEX_THREAD_ID".to_string(), "thread-1".to_string()),
+        ("STEVE_THREAD_ID".to_string(), "thread-1".to_string()),
         (
             CODEX_VERSION_ENV_VAR.to_string(),
             "client-version".to_string(),
@@ -99,7 +99,7 @@ fn env_overlay_for_exec_server_keeps_runtime_changes_only() {
             "1".to_string(),
         ),
         (
-            "CODEX_SANDBOX_NETWORK_DISABLED".to_string(),
+            "STEVE_SANDBOX_NETWORK_DISABLED".to_string(),
             "1".to_string(),
         ),
     ]);
@@ -108,7 +108,7 @@ fn env_overlay_for_exec_server_keeps_runtime_changes_only() {
         env_overlay_for_exec_server(&request_env, &local_policy_env),
         HashMap::from([
             ("PATH".to_string(), "/sandbox-path".to_string()),
-            ("CODEX_THREAD_ID".to_string(), "thread-1".to_string()),
+            ("STEVE_THREAD_ID".to_string(), "thread-1".to_string()),
             (
                 CODEX_VERSION_ENV_VAR.to_string(),
                 "client-version".to_string()
@@ -122,7 +122,7 @@ fn env_overlay_for_exec_server_keeps_runtime_changes_only() {
                 "1".to_string(),
             ),
             (
-                "CODEX_SANDBOX_NETWORK_DISABLED".to_string(),
+                "STEVE_SANDBOX_NETWORK_DISABLED".to_string(),
                 "1".to_string()
             ),
         ])
@@ -190,12 +190,12 @@ fn exec_server_params_use_path_uri_and_env_policy_overlay_contract() {
         env: HashMap::from([
             ("HOME".to_string(), "/client-home".to_string()),
             ("PATH".to_string(), "/sandbox-path".to_string()),
-            ("CODEX_THREAD_ID".to_string(), "thread-1".to_string()),
+            ("STEVE_THREAD_ID".to_string(), "thread-1".to_string()),
             (
                 "HTTP_PROXY".to_string(),
                 "http://127.0.0.1:43123".to_string(),
             ),
-            ("CODEX_NETWORK_PROXY_ACTIVE".to_string(), "1".to_string()),
+            ("STEVE_NETWORK_PROXY_ACTIVE".to_string(), "1".to_string()),
             (
                 "SSL_CERT_FILE".to_string(),
                 "/client/custom-ca.pem".to_string(),
@@ -216,7 +216,7 @@ fn exec_server_params_use_path_uri_and_env_policy_overlay_contract() {
                     "HTTP_PROXY".to_string(),
                     "http://127.0.0.1:43123".to_string(),
                 ),
-                ("CODEX_NETWORK_PROXY_ACTIVE".to_string(), "1".to_string()),
+                ("STEVE_NETWORK_PROXY_ACTIVE".to_string(), "1".to_string()),
                 (
                     "SSL_CERT_FILE".to_string(),
                     "/client/custom-ca.pem".to_string(),
@@ -267,12 +267,12 @@ fn exec_server_params_use_path_uri_and_env_policy_overlay_contract() {
         params.env,
         HashMap::from([
             ("PATH".to_string(), "/sandbox-path".to_string()),
-            ("CODEX_THREAD_ID".to_string(), "thread-1".to_string()),
+            ("STEVE_THREAD_ID".to_string(), "thread-1".to_string()),
             (
                 "HTTP_PROXY".to_string(),
                 "http://127.0.0.1:43123".to_string(),
             ),
-            ("CODEX_NETWORK_PROXY_ACTIVE".to_string(), "1".to_string(),),
+            ("STEVE_NETWORK_PROXY_ACTIVE".to_string(), "1".to_string(),),
         ])
     );
     request.exec_server_shell_snapshot = Some(codex_exec_server::ShellSnapshotRequest {

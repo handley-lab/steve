@@ -122,15 +122,15 @@ impl CloudManagedConfigFixture {
     }
 
     fn command(&self, args: &[&str]) -> Result<Command> {
-        let mut command = Command::new(codex_utils_cargo_bin::cargo_bin("codex")?);
+        let mut command = Command::new(codex_utils_cargo_bin::cargo_bin("steve")?);
         command
             .kill_on_drop(true)
             .current_dir(self.codex_home.path())
-            .env("CODEX_HOME", self.codex_home.path())
+            .env("STEVE_HOME", self.codex_home.path())
             .env("NO_PROXY", "127.0.0.1,localhost")
             .env("no_proxy", "127.0.0.1,localhost")
-            .env_remove("CODEX_ACCESS_TOKEN")
-            .env_remove("CODEX_API_KEY")
+            .env_remove("STEVE_ACCESS_TOKEN")
+            .env_remove("STEVE_API_KEY")
             .env_remove("OPENAI_API_KEY")
             .args(args);
         Ok(command)
@@ -140,7 +140,7 @@ impl CloudManagedConfigFixture {
         let output = self.command(args)?.output().await?;
         ensure!(
             output.status.success(),
-            "codex {} failed with status {}: stdout={}; stderr={}",
+            "steve {} failed with status {}: stdout={}; stderr={}",
             args.join(" "),
             output.status,
             String::from_utf8_lossy(&output.stdout),

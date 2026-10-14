@@ -1,4 +1,4 @@
-//! Deterministic surface projection and Braille rasterization of the Codex logo morph.
+//! Deterministic surface projection and Braille rasterization of the Steve logo morph.
 //!
 //! Fields and depth use Float32 sampling; all other math uses Float64.
 

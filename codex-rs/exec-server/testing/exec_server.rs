@@ -9,7 +9,7 @@ use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
 use std::ffi::OsStr;
 
-const CODEX_LINUX_SANDBOX_EXE_ENV_VAR: &str = "CODEX_TEST_LINUX_SANDBOX_EXE";
+const CODEX_LINUX_SANDBOX_EXE_ENV_VAR: &str = "STEVE_TEST_LINUX_SANDBOX_EXE";
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     #[cfg(target_os = "linux")]

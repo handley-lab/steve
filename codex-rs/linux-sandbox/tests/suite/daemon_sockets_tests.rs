@@ -40,7 +40,7 @@ async fn private_tmp_mount_preserves_daemon_socket_isolation() {
             "--nocapture",
             "--test-threads=1",
         ])
-        .env("CODEX_TEST_PRIVATE_TMP", private.path())
+        .env("STEVE_TEST_PRIVATE_TMP", private.path())
         .kill_on_drop(true)
         .output()
         .await
@@ -58,7 +58,7 @@ async fn private_tmp_mount_preserves_daemon_socket_isolation() {
 #[test]
 #[ignore = "invoked inside a disposable mount namespace"]
 fn private_tmp_fixture() {
-    let Some(private) = std::env::var_os("CODEX_TEST_PRIVATE_TMP") else {
+    let Some(private) = std::env::var_os("STEVE_TEST_PRIVATE_TMP") else {
         return;
     };
     let mount = std::process::Command::new("mount")
@@ -107,7 +107,7 @@ fn private_tmp_fixture() {
             "--nocapture",
             "--test-threads=1",
         ])
-        .env("CODEX_TEST_DAEMON_SOCKET", &endpoint)
+        .env("STEVE_TEST_DAEMON_SOCKET", &endpoint)
         .env("TMPDIR", "/tmp");
     let output = command.output().unwrap();
     assert_eq!(output.status.code(), Some(0), "{output:?}");
@@ -126,8 +126,8 @@ fn private_tmp_fixture() {
         .join("rpc.sock");
     UnixStream::connect(&alias_endpoint).expect("host can reach ancestor alias");
     command
-        .env("CODEX_TEST_DAEMON_ALIAS_SOCKET", &alias_endpoint)
-        .env("CODEX_TEST_OTHER_ALIAS_SOCKET", "/tmp/build/other.sock");
+        .env("STEVE_TEST_DAEMON_ALIAS_SOCKET", &alias_endpoint)
+        .env("STEVE_TEST_OTHER_ALIAS_SOCKET", "/tmp/build/other.sock");
     let output = command.output().unwrap();
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).contains("private-tmp-isolated"));
@@ -150,9 +150,9 @@ fn private_tmp_fixture() {
         .join("rpc.sock");
     UnixStream::connect(&alias_endpoint).expect("host can reach registry alias");
     command
-        .env("CODEX_TEST_DAEMON_ALIAS_SOCKET", &alias_endpoint)
+        .env("STEVE_TEST_DAEMON_ALIAS_SOCKET", &alias_endpoint)
         .env(
-            "CODEX_TEST_OTHER_ALIAS_SOCKET",
+            "STEVE_TEST_OTHER_ALIAS_SOCKET",
             registry_alias.join("other.sock"),
         );
     let output = command.output().unwrap();
@@ -179,18 +179,18 @@ fn private_tmp_fixture() {
 #[test]
 #[ignore = "invoked inside the private tmp sandbox"]
 fn private_tmp_client() {
-    let Some(endpoint) = std::env::var_os("CODEX_TEST_DAEMON_SOCKET") else {
+    let Some(endpoint) = std::env::var_os("STEVE_TEST_DAEMON_SOCKET") else {
         return;
     };
     println!("private-tmp-client-started");
     assert!(UnixStream::connect(endpoint).is_err(), "daemon reachable");
     UnixStream::connect("/tmp/other.sock").expect("unrelated socket reachable");
-    if let Some(alias) = std::env::var_os("CODEX_TEST_DAEMON_ALIAS_SOCKET") {
+    if let Some(alias) = std::env::var_os("STEVE_TEST_DAEMON_ALIAS_SOCKET") {
         assert!(
             UnixStream::connect(alias).is_err(),
             "daemon alias reachable"
         );
-        UnixStream::connect(std::env::var_os("CODEX_TEST_OTHER_ALIAS_SOCKET").unwrap())
+        UnixStream::connect(std::env::var_os("STEVE_TEST_OTHER_ALIAS_SOCKET").unwrap())
             .expect("unrelated alias socket reachable");
     }
     println!("private-tmp-isolated");
@@ -318,7 +318,7 @@ if sys.argv[6] == 'host-proc' and not os.path.isdir('/run/WSL'):
     );
     let mut env = create_env_from_core_vars();
     env.insert(
-        "CODEX_HOME".to_string(),
+        "STEVE_HOME".to_string(),
         workspace.path().display().to_string(),
     );
     env.insert("TMPDIR".to_string(), workspace.path().display().to_string());

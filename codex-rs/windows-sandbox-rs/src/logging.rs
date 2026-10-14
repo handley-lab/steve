@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn setup_log_releases_handles_without_path_fallback() {
-        const CHILD_ENV: &str = "CODEX_TEST_SETUP_LOG_RELEASE_CHILD";
+        const CHILD_ENV: &str = "STEVE_TEST_SETUP_LOG_RELEASE_CHILD";
         if std::env::var(CHILD_ENV).ok().as_deref() != Some("1") {
             // SETUP_LOG is process-global; isolate this test from ordinary daily logging.
             let output = std::process::Command::new(std::env::current_exe().expect("test binary"))

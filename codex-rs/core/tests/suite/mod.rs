@@ -10,7 +10,7 @@ use codex_test_binary_support::configure_test_binary_dispatch;
 use ctor::ctor;
 
 // This code runs before any other tests are run.
-// It allows the test binary to behave like codex and dispatch to apply_patch and codex-linux-sandbox
+// It allows the test binary to behave like codex and dispatch to apply_patch and steve-linux-sandbox
 // based on the arg0.
 // NOTE: this doesn't work on ARM
 #[ctor]

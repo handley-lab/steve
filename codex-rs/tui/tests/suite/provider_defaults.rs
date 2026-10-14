@@ -10,7 +10,7 @@ use std::time::Duration;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn history_lookup_uses_server_provider_with_local_and_embedded_servers() -> Result<()> {
-    let codex = codex_utils_cargo_bin::cargo_bin("codex")?;
+    let codex = codex_utils_cargo_bin::cargo_bin("steve")?;
     let cwd = codex_utils_cargo_bin::repo_root()?;
     for action in ["resume", "fork"] {
         for (embedded, last, explicit) in [
@@ -52,7 +52,7 @@ async fn history_lookup_uses_server_provider_with_local_and_embedded_servers() -
                     "-c",
                     "model_provider=\"server-provider\"",
                 ])
-                .env("CODEX_HOME", home.path())
+                .env("STEVE_HOME", home.path())
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::inherit())

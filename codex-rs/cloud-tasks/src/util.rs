@@ -46,7 +46,7 @@ pub fn normalize_base_url(input: &str) -> String {
 pub(crate) fn validate_chatgpt_base_url(input: &str) -> anyhow::Result<String> {
     let invalid_url = || {
         anyhow::anyhow!(
-            "CODEX_CLOUD_TASKS_BASE_URL must use a trusted HTTPS origin on port 443, without user information, a query, or a fragment; custom backends cannot use saved ChatGPT credentials"
+            "STEVE_CLOUD_TASKS_BASE_URL must use a trusted HTTPS origin on port 443, without user information, a query, or a fragment; custom backends cannot use saved ChatGPT credentials"
         )
     };
     let uri = input.parse::<http::Uri>().map_err(|_| invalid_url())?;

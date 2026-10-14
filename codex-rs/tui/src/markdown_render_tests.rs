@@ -931,12 +931,12 @@ fn file_link_preserves_label_and_decodes_fallback_destination() {
 #[test]
 fn file_link_keeps_descriptive_label_and_target() {
     let text = render_markdown_text_for_cwd(
-        "Your `codex` launcher [automatically adds those overrides](/home/dev-user/code/openai/project/dotslash-gen/bin/codex:1105), even though you did not specify any.",
+        "Your `steve` launcher [automatically adds those overrides](/home/dev-user/code/openai/project/dotslash-gen/bin/codex:1105), even though you did not specify any.",
         Path::new("/home/dev-user/code/openai"),
     );
     let expected = Text::from(Line::from_iter([
         "Your ".into(),
-        Span::styled("codex", MarkdownStyles::default().code),
+        Span::styled("steve", MarkdownStyles::default().code),
         " launcher ".into(),
         "automatically adds those overrides".into(),
         " (".into(),
@@ -1988,9 +1988,9 @@ fn table_wraps_file_paths_before_collapsing_narrative_columns_snapshot() {
 fn table_renders_stacked_key_value_records_when_path_column_becomes_too_narrow_snapshot() {
     let md = r#"| Session | Why useful | Detected table blocks |
 | --- | --- | --- |
-| [2026-05-25 current gallery](/Users/felipe.coury/.codex/sessions/2026/05/25/rollout-2026-05-25T18-13-09-019e60fc-0518-7c21-9596-980fe97225ba.jsonl) | The large gallery from this thread: emojis, links, emphasis, code, alignment, paragraphs, and a 30+ row table | 7 |
-| [2026-05-14 renderer testing](/Users/felipe.coury/.codex/sessions/2026/05/14/rollout-2026-05-14T12-57-18-019e2734-e500-7011-8278-975c94d06000.jsonl) | Explicit "markdown tables for testing" session with several successive assistant samples | 16 |
-| [2026-05-14 five-table test](/Users/felipe.coury/.codex/sessions/2026/05/14/rollout-2026-05-14T12-27-57-019e271a-064c-78c3-a5cd-a6f20a0c1ad5.jsonl) | Explicit request for five tables containing emojis, code, italics, and varied cell content | 10 |
+| [2026-05-25 current gallery](/Users/felipe.coury/.steve/sessions/2026/05/25/rollout-2026-05-25T18-13-09-019e60fc-0518-7c21-9596-980fe97225ba.jsonl) | The large gallery from this thread: emojis, links, emphasis, code, alignment, paragraphs, and a 30+ row table | 7 |
+| [2026-05-14 renderer testing](/Users/felipe.coury/.steve/sessions/2026/05/14/rollout-2026-05-14T12-57-18-019e2734-e500-7011-8278-975c94d06000.jsonl) | Explicit "markdown tables for testing" session with several successive assistant samples | 16 |
+| [2026-05-14 five-table test](/Users/felipe.coury/.steve/sessions/2026/05/14/rollout-2026-05-14T12-27-57-019e271a-064c-78c3-a5cd-a6f20a0c1ad5.jsonl) | Explicit request for five tables containing emojis, code, italics, and varied cell content | 10 |
 "#;
     let text = render_markdown_text_with_width(md, Some(/*width*/ 42));
 
@@ -2003,7 +2003,7 @@ fn table_renders_records_when_multiple_prose_columns_are_starved_snapshot() {
 | --- | ---: | ---: | --- |
 | [#24485: newline shortcut fails in PyCharm terminal on Windows](https://github.com/openai/codex/issues/24485) | `+1` 0, substantive comments 0 | Low | New, deterministic regression range; localized composer/keymap path. |
 | [#23926: Vim composer `e` stalls at word end](https://github.com/openai/codex/issues/23926) | `+1` 0, comments 0 | Low | Standing best quick win; deterministic motion bug. |
-| [#23651: Zellij scrollback misses Codex transcript over SSH](https://github.com/openai/codex/issues/23651) | `+1` 3, human comments 2 | Medium | Clear regression and strong scrollback evidence. |
+| [#23651: Zellij scrollback misses Steve transcript over SSH](https://github.com/openai/codex/issues/23651) | `+1` 3, human comments 2 | Medium | Clear regression and strong scrollback evidence. |
 | [#23740: raw ANSI/control sequences in Windows Terminal](https://github.com/openai/codex/issues/23740) | `+1` 7, human comments 7 | Medium | Highest activity; established Windows rendering regression family. |
 | [#24527: typing lag increases with session length](https://github.com/openai/codex/issues/24527) | `+1` 0, substantive comments 0 | Medium | New TUI-visible performance report; needs profiling before implementation. |
 "#;

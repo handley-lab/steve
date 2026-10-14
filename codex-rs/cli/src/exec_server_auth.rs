@@ -1,4 +1,4 @@
-//! CLI-only glue between Codex authentication and generic AWS signing.
+//! CLI-only glue between Steve authentication and generic AWS signing.
 //!
 //! Keeping this adapter here leaves `codex-api` and `codex-aws-auth` independent.
 

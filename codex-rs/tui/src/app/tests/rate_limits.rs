@@ -18,7 +18,7 @@ fn rate_limit_snapshot(
     spend_control_reached: Option<bool>,
 ) -> RateLimitSnapshot {
     RateLimitSnapshot {
-        limit_id: Some("codex".to_string()),
+        limit_id: Some("steve".to_string()),
         limit_name: None,
         normal_model_slug: None,
         primary: Some(RateLimitWindow {

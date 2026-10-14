@@ -76,7 +76,7 @@ async fn completed_voice_duration_uses_terminal_success_or_failure_outcome() {
         let duration = metrics
             .scope_metrics()
             .flat_map(opentelemetry_sdk::metrics::data::ScopeMetrics::metrics)
-            .find(|metric| metric.name() == "codex.voice.session.duration")
+            .find(|metric| metric.name() == "steve.voice.session.duration")
             .expect("voice duration metric should be recorded");
         let duration_attributes = match duration.data() {
             AggregatedMetrics::F64(MetricData::Histogram(histogram)) => histogram
@@ -101,7 +101,7 @@ async fn completed_voice_duration_uses_terminal_success_or_failure_outcome() {
         let failure = metrics
             .scope_metrics()
             .flat_map(opentelemetry_sdk::metrics::data::ScopeMetrics::metrics)
-            .find(|metric| metric.name() == "codex.voice.session.failure");
+            .find(|metric| metric.name() == "steve.voice.session.failure");
         if failed {
             let failure_attributes = match failure
                 .expect("failed voice session should record a failure")

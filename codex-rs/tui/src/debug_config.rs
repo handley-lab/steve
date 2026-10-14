@@ -764,14 +764,14 @@ interrupt_message = false
     #[test]
     fn debug_config_output_lists_all_layers_including_disabled() {
         let system_file = if cfg!(windows) {
-            absolute_path("C:\\etc\\codex\\config.toml")
+            absolute_path("C:\\etc\\steve\\config.toml")
         } else {
             absolute_path("/etc/codex/config.toml")
         };
         let project_folder = if cfg!(windows) {
-            absolute_path("C:\\repo\\.codex")
+            absolute_path("C:\\repo\\.steve")
         } else {
-            absolute_path("/repo/.codex")
+            absolute_path("/repo/.steve")
         };
 
         let layers = vec![
@@ -805,7 +805,7 @@ interrupt_message = false
     #[test]
     fn debug_config_output_lists_requirement_sources() {
         let requirements_file = if cfg!(windows) {
-            absolute_path("C:\\ProgramData\\OpenAI\\Codex\\requirements.toml")
+            absolute_path("C:\\ProgramData\\OpenAI\\Steve\\requirements.toml")
         } else {
             absolute_path("/etc/codex/requirements.toml")
         };
@@ -815,19 +815,19 @@ interrupt_message = false
             absolute_path("/home/alice/.gitconfig")
         };
         let sqlite_home = if cfg!(windows) {
-            absolute_path("C:\\Users\\alice\\.codex\\state")
+            absolute_path("C:\\Users\\alice\\.steve\\state")
         } else {
-            absolute_path("/home/alice/.codex/state")
+            absolute_path("/home/alice/.steve/state")
         };
         let log_dir = if cfg!(windows) {
-            absolute_path("C:\\Users\\alice\\.codex\\logs")
+            absolute_path("C:\\Users\\alice\\.steve\\logs")
         } else {
-            absolute_path("/home/alice/.codex/logs")
+            absolute_path("/home/alice/.steve/logs")
         };
         let model_catalog_json = if cfg!(windows) {
-            absolute_path("C:\\Users\\alice\\.codex\\models.json")
+            absolute_path("C:\\Users\\alice\\.steve\\models.json")
         } else {
-            absolute_path("/home/alice/.codex/models.json")
+            absolute_path("/home/alice/.steve/models.json")
         };
 
         let requirements = ConfigRequirements {
@@ -1004,9 +1004,9 @@ interrupt_message = false
         };
 
         let user_file = if cfg!(windows) {
-            absolute_path("C:\\users\\alice\\.codex\\config.toml")
+            absolute_path("C:\\users\\alice\\.steve\\config.toml")
         } else {
-            absolute_path("/home/alice/.codex/config.toml")
+            absolute_path("/home/alice/.steve/config.toml")
         };
         let stack = ConfigLayerStack::new(
             vec![ConfigLayerEntry::new(
@@ -1082,7 +1082,7 @@ interrupt_message = false
     #[test]
     fn debug_config_output_filters_sandbox_modes_blocked_by_deny_read_requirements() {
         let requirements_file = if cfg!(windows) {
-            absolute_path("C:\\ProgramData\\OpenAI\\Codex\\requirements.toml")
+            absolute_path("C:\\ProgramData\\OpenAI\\Steve\\requirements.toml")
         } else {
             absolute_path("/etc/codex/requirements.toml")
         };
@@ -1263,7 +1263,7 @@ approval_policy = "never"
 "#;
         let mdm_value = toml::from_str::<TomlValue>(raw_mdm_toml).expect("MDM value");
         let mdm_base_dir = if cfg!(windows) {
-            absolute_path("C:\\codex")
+            absolute_path("C:\\steve")
         } else {
             absolute_path("/var/lib/codex")
         };
@@ -1297,7 +1297,7 @@ approval_policy = "never"
 "#;
         let cloud_value = toml::from_str::<TomlValue>(raw_cloud_toml).expect("cloud value");
         let cloud_base_dir = if cfg!(windows) {
-            absolute_path("C:\\codex")
+            absolute_path("C:\\steve")
         } else {
             absolute_path("/var/lib/codex")
         };

@@ -28,9 +28,9 @@ fn bazel_build_rejects_tampered_bundled_bwrap() {
     let resources = package.path().join("codex-resources");
     std::fs::create_dir(&resources).expect("package resource directory should be created");
 
-    let sandbox_binary = package.path().join("codex-linux-sandbox");
+    let sandbox_binary = package.path().join("steve-linux-sandbox");
     copy_executable(
-        Path::new(env!("CARGO_BIN_EXE_codex-linux-sandbox")),
+        Path::new(env!("CARGO_BIN_EXE_steve-linux-sandbox")),
         &sandbox_binary,
     )
     .expect("sandbox binary should be copied into the package");

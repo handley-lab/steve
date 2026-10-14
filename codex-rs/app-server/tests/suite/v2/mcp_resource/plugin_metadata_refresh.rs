@@ -104,7 +104,7 @@ async fn signed_image_renewal_preserves_live_mcp_and_plugin_skills() -> Result<(
         .with_codex_home(codex_home.path())
         .without_managed_config()
         .with_env_overrides(&[(
-            "CODEX_TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS",
+            "STEVE_TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS",
             Some("1"),
         )])
         .build_initialized()

@@ -125,7 +125,7 @@ metrics_exporter = {{ otlp-http = {{ endpoint = "{}/metrics", protocol = "json" 
     let provider = codex_core::otel_init::build_provider(
         &config,
         "test",
-        Some("codex-app-server"),
+        Some("steve-app-server"),
         /*default_analytics_enabled*/ false,
     )
     .map_err(|error| anyhow::anyhow!(error.to_string()))?

@@ -1128,7 +1128,7 @@ async fn sqlite_recovery_warning_shows_backup_and_metadata_limitations() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.handle_server_notification(
         ServerNotification::ConfigWarning(ConfigWarningNotification {
-            summary: "Codex rebuilt its local database".into(),
+            summary: "Steve rebuilt its local database".into(),
             details: Some("Damaged local databases were rebuilt. Saved conversations remain in rollout files and can restore the thread list and history. Some database-only metadata may be unavailable. The original database files were preserved at the backup locations below.\n\nDatabase path: /codex/state_5.sqlite\nBackup folder: /codex/db-backups/recovery".into()),
             path: None,
             range: None,
@@ -1159,7 +1159,7 @@ async fn startup_config_warning_is_not_repeated_by_thread() {
                     is_managed_daemon: managed_daemon,
                 });
         }
-        let message = "Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.";
+        let message = "Steve is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.";
         for notification in [
             ServerNotification::ConfigWarning(ConfigWarningNotification {
                 summary: message.to_string(),
@@ -2174,7 +2174,7 @@ async fn sqlite_log_write_warning_is_visible_in_warnings() {
     chat.handle_server_notification(
         ServerNotification::Warning(WarningNotification {
             thread_id: None,
-            message: "Codex couldn't save diagnostic logs to its local database. Use /feedback with logs included before closing Codex, or run `codex doctor` for diagnostics.".to_string(),
+            message: "Steve couldn't save diagnostic logs to its local database. Use /feedback with logs included before closing Steve, or run `steve doctor` for diagnostics.".to_string(),
         }),
         /*replay_kind*/ None,
     );

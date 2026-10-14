@@ -25,9 +25,9 @@ use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
-const CHILD_CASE: &str = "CODEX_TOKEN_PROXY_FALLBACK_TEST_CASE";
-const CHILD_PROXY: &str = "CODEX_TOKEN_PROXY_FALLBACK_TEST_PROXY";
-const CHILD_ISSUER: &str = "CODEX_TOKEN_PROXY_FALLBACK_TEST_ISSUER";
+const CHILD_CASE: &str = "STEVE_TOKEN_PROXY_FALLBACK_TEST_CASE";
+const CHILD_PROXY: &str = "STEVE_TOKEN_PROXY_FALLBACK_TEST_PROXY";
+const CHILD_ISSUER: &str = "STEVE_TOKEN_PROXY_FALLBACK_TEST_ISSUER";
 const BLOCKED_ORIGIN: &str = "http://127.0.0.1:0";
 const PROXY_ENV_KEYS: [&str; 8] = [
     "HTTP_PROXY",

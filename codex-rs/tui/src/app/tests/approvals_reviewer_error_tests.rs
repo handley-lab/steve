@@ -30,7 +30,7 @@ async fn approvals_reviewer_error_retains_config_cause() -> Result<()> {
     };
     let rendered = lines_to_single_string(&cell.display_lines(/*width*/ 120)).replace(
         &config_path.to_string_lossy().to_string(),
-        "<CODEX_HOME>/config.toml",
+        "<STEVE_HOME>/config.toml",
     );
     assert!(rendered.contains("unclosed array"), "{rendered}");
     insta::assert_snapshot!("approvals_reviewer_config_error", rendered);

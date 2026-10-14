@@ -172,14 +172,14 @@ fn prepare_path_env_var_with_aliases(
 /// Linux (but not Windows).
 ///
 /// When the current executable is invoked through the hard-link or alias named
-/// `codex-linux-sandbox` we *directly* execute
+/// `steve-linux-sandbox` we *directly* execute
 /// [`codex_linux_sandbox::run_main`] (which never returns). Otherwise we:
 ///
-/// 1.  Load `.env` values from `~/.codex/.env` before creating any threads.
+/// 1.  Load `.env` values from `~/.steve/.env` before creating any threads.
 /// 2.  Spawn a main runtime thread with a controlled stack size.
 /// 3.  Construct a Tokio multi-thread runtime.
 /// 4.  Capture the current executable path and derive the
-///     `codex-linux-sandbox` helper path (falling back to the current
+///     `steve-linux-sandbox` helper path (falling back to the current
 ///     executable if needed) so children can re-invoke the sandbox when running
 ///     on Linux.
 /// 5.  Execute the provided async `main_fn` inside that runtime, forwarding any
@@ -250,7 +250,7 @@ fn linux_sandbox_exe_path(
     path_entry_guard: Option<&Arg0PathEntryGuard>,
     current_exe: Option<PathBuf>,
 ) -> Option<PathBuf> {
-    // Prefer the `codex-linux-sandbox` alias when available so callers can
+    // Prefer the `steve-linux-sandbox` alias when available so callers can
     // re-exec through a path whose basename still triggers arg0 dispatch on
     // bubblewrap builds that do not support `--argv0`.
     path_entry_guard
@@ -265,12 +265,12 @@ fn build_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
     Ok(builder.build()?)
 }
 
-const ILLEGAL_ENV_VAR_PREFIX: &str = "CODEX_";
+const ILLEGAL_ENV_VAR_PREFIX: &str = "STEVE_";
 
-/// Load env vars from ~/.codex/.env.
+/// Load env vars from ~/.steve/.env.
 ///
 /// Security: Do not allow `.env` files to create or modify any variables
-/// with names starting with `CODEX_`.
+/// with names starting with `STEVE_`.
 fn load_dotenv() {
     if let Ok(codex_home) = find_codex_home()
         && let Ok(iter) = dotenvy::from_path_iter(codex_home.join(".env"))
@@ -279,7 +279,7 @@ fn load_dotenv() {
     }
 }
 
-/// Helper to set vars from a dotenvy iterator while filtering out `CODEX_` keys.
+/// Helper to set vars from a dotenvy iterator while filtering out `STEVE_` keys.
 fn set_filtered<I>(iter: I)
 where
     I: IntoIterator<Item = Result<(String, String), dotenvy::Error>>,
@@ -333,7 +333,7 @@ fn prepare_aliases_in_home(
     existing_path: Option<OsString>,
 ) -> std::io::Result<(Arg0PathEntryGuard, OsString)> {
     std::fs::create_dir_all(codex_home)?;
-    // Windows and WSL can share CODEX_HOME without sharing a lock namespace.
+    // Windows and WSL can share STEVE_HOME without sharing a lock namespace.
     // Keep each OS outside the legacy `tmp/arg0` root so older clients cannot
     // delete these helpers while their owning process is still running.
     let temp_root = codex_home
@@ -580,7 +580,7 @@ mod tests {
     fn windows_batch_alias_preserves_unicode_executable_paths() -> anyhow::Result<()> {
         let root = TempDir::new()?;
         let profile = root.path().join("用户");
-        let alias_directory = profile.join(".codex").join("tmp").join("arg0");
+        let alias_directory = profile.join(".steve").join("tmp").join("arg0");
         let executable_directory = profile.join("bin");
         fs::create_dir_all(&alias_directory)?;
         fs::create_dir_all(&executable_directory)?;
@@ -612,10 +612,10 @@ mod tests {
     fn windows_batch_alias_preserves_cross_volume_executable_paths() {
         assert_eq!(
             super::windows_batch_executable_path(
-                Path::new(r"D:\Tools\codex.exe"),
-                Path::new(r"C:\Users\person\.codex\tmp\arg0"),
+                Path::new(r"D:\Tools\steve.exe"),
+                Path::new(r"C:\Users\person\.steve\tmp\arg0"),
             ),
-            r"D:\Tools\codex.exe",
+            r"D:\Tools\steve.exe",
         );
     }
 
@@ -623,7 +623,7 @@ mod tests {
     fn linux_sandbox_exe_path_prefers_codex_linux_sandbox_alias() -> std::io::Result<()> {
         let temp_dir = TempDir::new()?;
         let lock_file = create_lock(temp_dir.path())?;
-        let alias_path = temp_dir.path().join("codex-linux-sandbox");
+        let alias_path = temp_dir.path().join("steve-linux-sandbox");
         let path_entry = Arg0PathEntryGuard::new(
             temp_dir,
             lock_file,

@@ -149,7 +149,7 @@ async fn prepare_from_package(
     )?;
     anyhow::ensure!(
         !root.canonicalize()?.starts_with(source.canonicalize()?),
-        "CODEX_HOME must be outside the source CLI package"
+        "STEVE_HOME must be outside the source CLI package"
     );
     let manifest_bytes = std::fs::read(source.join("codex-package.json"))?;
     let manifest: CodexPackageManifest = serde_json::from_slice(&manifest_bytes)?;
@@ -157,9 +157,9 @@ async fn prepare_from_package(
     let target = platform_target()?;
     let mut metadata: serde_json::Value = serde_json::from_slice(&manifest_bytes)?;
     let entrypoint = if cfg!(windows) {
-        "bin/codex.exe"
+        "bin/steve.exe"
     } else {
-        "bin/codex"
+        "bin/steve"
     };
     let source_entrypoint = metadata["entrypoint"].as_str().unwrap_or_default();
     let winget = cfg!(windows)
@@ -253,8 +253,8 @@ async fn prepare_from_package(
         {
             windows::publish_release(&staged_exe, &stage.path().join(entrypoint)).await?;
             windows::publish_release(
-                &stage.path().join("codex-code-mode-host.exe"),
-                &stage.path().join("bin/codex-code-mode-host.exe"),
+                &stage.path().join("steve-code-mode-host.exe"),
+                &stage.path().join("bin/steve-code-mode-host.exe"),
             )
             .await?;
         }
@@ -301,8 +301,8 @@ async fn prepare_from_package(
         );
     } else {
         #[cfg(unix)]
-        if !stage.path().join("codex").exists() {
-            std::os::unix::fs::symlink("bin/codex", stage.path().join("codex"))?;
+        if !stage.path().join("steve").exists() {
+            std::os::unix::fs::symlink("bin/steve", stage.path().join("steve"))?;
         }
         #[cfg(windows)]
         windows::publish_release(stage.path(), &release).await?;
@@ -424,8 +424,8 @@ fn package_tree(root: &Path, destination: Option<&Path>) -> Result<String> {
         let relative = path.strip_prefix(root)?;
         // The Unix installer adds this alias outside the package layout.
         if cfg!(unix)
-            && relative == Path::new("codex")
-            && std::fs::read_link(&path).ok().as_deref() == Some(Path::new("bin/codex"))
+            && relative == Path::new("steve")
+            && std::fs::read_link(&path).ok().as_deref() == Some(Path::new("bin/steve"))
         {
             continue;
         }
@@ -482,9 +482,9 @@ fn stable_version(value: &str) -> Option<semver::Version> {
 
 fn validate_package(root: &Path, entrypoint: &str) -> Result<()> {
     let code_mode_host = Path::new(entrypoint).with_file_name(if cfg!(windows) {
-        "codex-code-mode-host.exe"
+        "steve-code-mode-host.exe"
     } else {
-        "codex-code-mode-host"
+        "steve-code-mode-host"
     });
     let code_mode_host = code_mode_host.to_string_lossy();
     let mut names = vec![
@@ -499,8 +499,8 @@ fn validate_package(root: &Path, entrypoint: &str) -> Result<()> {
     ];
     if cfg!(windows) {
         names.extend([
-            "codex-resources/codex-command-runner.exe",
-            "codex-resources/codex-windows-sandbox-setup.exe",
+            "codex-resources/steve-command-runner.exe",
+            "codex-resources/steve-windows-sandbox-setup.exe",
         ]);
     } else if cfg!(target_os = "linux") {
         names.push("codex-resources/bwrap");

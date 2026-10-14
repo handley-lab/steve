@@ -37,7 +37,7 @@ use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
-const SUBPROCESS_ENV_VAR: &str = "CODEX_REALTIME_SYSTEM_PROXY_TEST_SUBPROCESS";
+const SUBPROCESS_ENV_VAR: &str = "STEVE_REALTIME_SYSTEM_PROXY_TEST_SUBPROCESS";
 const TEST_NAME: &str =
     "suite::realtime_system_proxy::webrtc_sideband_honors_configured_system_proxy";
 

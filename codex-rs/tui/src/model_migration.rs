@@ -89,7 +89,7 @@ pub(crate) fn migration_copy_for_models(
     }
 
     let heading_text = Span::from(format!(
-        "Codex just got an upgrade. Introducing {target_display_name}."
+        "Steve just got an upgrade. Introducing {target_display_name}."
     ))
     .bold();
     let description_line: Line<'static>;
@@ -442,7 +442,7 @@ mod tests {
                 ),
                 /*migration_markdown*/ None,
                 "gpt-5.1-codex-max".to_string(),
-                Some("Codex-optimized flagship for deep and fast reasoning.".to_string()),
+                Some("Steve-optimized flagship for deep and fast reasoning.".to_string()),
                 /*can_opt_out*/ true,
             ),
         );
@@ -467,7 +467,7 @@ mod tests {
             migration_copy_for_models(
                 "gpt-5",
                 "gpt-5.1",
-                Some("https://www.codex.com/models/gpt-5.1".to_string()),
+                Some("https://www.steve.com/models/gpt-5.1".to_string()),
                 /*migration_copy*/ None,
                 /*migration_markdown*/ None,
                 "gpt-5.1".to_string(),
@@ -490,7 +490,7 @@ mod tests {
             migration_copy_for_models(
                 "gpt-old",
                 "gpt-new",
-                Some("https://www.codex.com/models/gpt-new".to_string()),
+                Some("https://www.steve.com/models/gpt-new".to_string()),
                 /*migration_copy*/ None,
                 /*migration_markdown*/ None,
                 "gpt-new".to_string(),
@@ -519,7 +519,7 @@ mod tests {
             migration_copy_for_models(
                 "gpt-old",
                 "gpt-new",
-                Some("https://www.codex.com/models/gpt-new".to_string()),
+                Some("https://www.steve.com/models/gpt-new".to_string()),
                 /*migration_copy*/ None,
                 /*migration_markdown*/ None,
                 "gpt-new".to_string(),

@@ -4,7 +4,7 @@ use std::path::Path;
 
 /// Basename used when the Codex executable self-invokes as the Linux sandbox
 /// helper.
-pub const CODEX_LINUX_SANDBOX_ARG0: &str = "codex-linux-sandbox";
+pub const CODEX_LINUX_SANDBOX_ARG0: &str = "steve-linux-sandbox";
 
 pub fn allow_network_for_proxy(enforce_managed_network: bool) -> bool {
     // When managed network requirements are active, request proxy-only
@@ -14,7 +14,7 @@ pub fn allow_network_for_proxy(enforce_managed_network: bool) -> bool {
 }
 
 /// Converts the permission profile into the CLI invocation for
-/// `codex-linux-sandbox`.
+/// `steve-linux-sandbox`.
 ///
 /// A managed context selects proxy isolation; a default context keeps its
 /// restrictive policy when an older caller supplies no additional details.
@@ -67,7 +67,7 @@ pub fn create_linux_sandbox_command_args_for_permission_profile(
 }
 
 /// Converts the sandbox cwd and execution options into the CLI invocation for
-/// `codex-linux-sandbox`.
+/// `steve-linux-sandbox`.
 #[cfg_attr(not(test), allow(dead_code))]
 fn create_linux_sandbox_command_args(
     command: Vec<String>,

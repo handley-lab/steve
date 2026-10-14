@@ -39,7 +39,7 @@ use super::keyring_service;
 
 const SECRETS_VERSION: u8 = 1;
 const LOCAL_SECRETS_FILENAME: &str = "local.age";
-const CODEX_AUTH_SECRETS_FILENAME: &str = "codex_auth.age";
+const CODEX_AUTH_SECRETS_FILENAME: &str = "steve_auth.age";
 const MCP_OAUTH_SECRETS_FILENAME: &str = "mcp_oauth.age";
 const GATEWAY_OAUTH_SECRETS_FILENAME: &str = "gateway_oauth.age";
 static MCP_OAUTH_CACHE: Mutex<Option<CachedSecrets>> = Mutex::new(None);
@@ -574,7 +574,7 @@ mod tests {
             codex_home
                 .path()
                 .join("secrets")
-                .join("codex_auth.age")
+                .join("steve_auth.age")
                 .exists()
         );
         assert!(

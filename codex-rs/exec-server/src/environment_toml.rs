@@ -437,7 +437,7 @@ mod tests {
                         "codex exec-server --listen stdio".to_string(),
                     ]),
                     env: Some(HashMap::from([(
-                        "CODEX_LOG".to_string(),
+                        "STEVE_LOG".to_string(),
                         "debug".to_string(),
                     )])),
                     ..Default::default()
@@ -874,7 +874,7 @@ program = "ssh"
 args = ["dev", "codex exec-server --listen stdio"]
 cwd = "/tmp"
 [environments.env]
-CODEX_LOG = "debug"
+STEVE_LOG = "debug"
 "#,
         )
         .expect("write environments.toml");
@@ -906,7 +906,7 @@ CODEX_LOG = "debug"
                     "codex exec-server --listen stdio".to_string(),
                 ]),
                 env: Some(HashMap::from([(
-                    "CODEX_LOG".to_string(),
+                    "STEVE_LOG".to_string(),
                     "debug".to_string(),
                 )])),
                 cwd: Some(PathBuf::from("/tmp")),

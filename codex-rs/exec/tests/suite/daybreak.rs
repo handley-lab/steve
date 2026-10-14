@@ -41,7 +41,7 @@ async fn exec_resolves_daybreak_for_api_keys_and_allows_an_off_override() -> any
         let response =
             responses::mount_sse_once(&server, responses::sse_completed("response")).await;
         test.cmd_with_server(&server)
-            .env_remove("CODEX_ACCESS_TOKEN")
+            .env_remove("STEVE_ACCESS_TOKEN")
             .arg("--skip-git-repo-check")
             .args(args)
             .arg("hello")
@@ -54,7 +54,7 @@ async fn exec_resolves_daybreak_for_api_keys_and_allows_an_off_override() -> any
     }
     let response = responses::mount_sse_once(&server, responses::sse_completed("unexpected")).await;
     test.cmd_with_server(&server)
-        .env_remove("CODEX_ACCESS_TOKEN")
+        .env_remove("STEVE_ACCESS_TOKEN")
         .args([
             "--skip-git-repo-check",
             "-c",
@@ -81,7 +81,7 @@ async fn exec_rejects_daybreak_for_non_openai_provider() -> anyhow::Result<()> {
     let response = responses::mount_sse_once(&server, responses::sse_completed("response")).await;
 
     test.cmd_with_server(&server)
-        .env_remove("CODEX_ACCESS_TOKEN")
+        .env_remove("STEVE_ACCESS_TOKEN")
         .args([
             "--oss",
             "--local-provider",
@@ -160,8 +160,8 @@ async fn exec_resumes_and_forks_the_saved_daybreak_choice() -> anyhow::Result<()
     let response = responses::mount_sse_once(&server, responses::sse_completed("started")).await;
     let output = test
         .cmd_with_server(&server)
-        .env_remove("CODEX_ACCESS_TOKEN")
-        .env_remove("CODEX_API_KEY")
+        .env_remove("STEVE_ACCESS_TOKEN")
+        .env_remove("STEVE_API_KEY")
         .env_remove("OPENAI_API_KEY")
         .args(["--skip-git-repo-check", "--json", "hello"])
         .output()?;
@@ -225,8 +225,8 @@ async fn exec_resumes_and_forks_the_saved_daybreak_choice() -> anyhow::Result<()
         let response =
             responses::mount_sse_once(&server, responses::sse_completed("continued")).await;
         test.cmd_with_server(&server)
-            .env_remove("CODEX_ACCESS_TOKEN")
-            .env_remove("CODEX_API_KEY")
+            .env_remove("STEVE_ACCESS_TOKEN")
+            .env_remove("STEVE_API_KEY")
             .env_remove("OPENAI_API_KEY")
             .arg("--skip-git-repo-check")
             .args(args)
@@ -247,8 +247,8 @@ async fn exec_explicit_cyber_program_overrides_daybreak_for_one_turn() -> anyhow
         responses::mount_sse_once(&server, responses::sse_completed("explicit-program")).await;
     let output = test
         .cmd_with_server(&server)
-        .env_remove("CODEX_ACCESS_TOKEN")
-        .env_remove("CODEX_API_KEY")
+        .env_remove("STEVE_ACCESS_TOKEN")
+        .env_remove("STEVE_API_KEY")
         .env_remove("OPENAI_API_KEY")
         .args([
             "--skip-git-repo-check",
@@ -269,8 +269,8 @@ async fn exec_explicit_cyber_program_overrides_daybreak_for_one_turn() -> anyhow
     let response =
         responses::mount_sse_once(&server, responses::sse_completed("saved-daybreak")).await;
     test.cmd_with_server(&server)
-        .env_remove("CODEX_ACCESS_TOKEN")
-        .env_remove("CODEX_API_KEY")
+        .env_remove("STEVE_ACCESS_TOKEN")
+        .env_remove("STEVE_API_KEY")
         .env_remove("OPENAI_API_KEY")
         .args(["--skip-git-repo-check", "resume", &thread_id, "continue"])
         .assert()
@@ -289,8 +289,8 @@ async fn exec_resume_override_does_not_change_a_standard_thread() -> anyhow::Res
         responses::mount_sse_once(&server, responses::sse_completed("started-standard")).await;
     let output = test
         .cmd_with_server(&server)
-        .env_remove("CODEX_ACCESS_TOKEN")
-        .env_remove("CODEX_API_KEY")
+        .env_remove("STEVE_ACCESS_TOKEN")
+        .env_remove("STEVE_API_KEY")
         .env_remove("OPENAI_API_KEY")
         .args([
             "--skip-git-repo-check",
@@ -324,8 +324,8 @@ async fn exec_resume_override_does_not_change_a_standard_thread() -> anyhow::Res
             responses::mount_sse_once(&server, responses::sse_completed("continued-standard"))
                 .await;
         test.cmd_with_server(&server)
-            .env_remove("CODEX_ACCESS_TOKEN")
-            .env_remove("CODEX_API_KEY")
+            .env_remove("STEVE_ACCESS_TOKEN")
+            .env_remove("STEVE_API_KEY")
             .env_remove("OPENAI_API_KEY")
             .arg("--skip-git-repo-check")
             .args(args)

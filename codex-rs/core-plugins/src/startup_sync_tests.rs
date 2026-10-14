@@ -27,7 +27,7 @@ const TEST_CURATED_PLUGIN_SHA: &str = "0123456789abcdef0123456789abcdef01234567"
 #[cfg(unix)]
 #[test]
 fn pretrust_startup_sync_uses_installed_git_with_hostile_path() {
-    const CHILD_HOME: &str = "CODEX_TEST_CURATED_SYNC_HOME";
+    const CHILD_HOME: &str = "STEVE_TEST_CURATED_SYNC_HOME";
     if let Some(home) = std::env::var_os(CHILD_HOME) {
         // Call the public entry point, synchronously. The parent joins this
         // process before checking the marker, so no detached work can escape it.

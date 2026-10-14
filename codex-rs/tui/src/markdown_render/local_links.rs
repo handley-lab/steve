@@ -42,7 +42,7 @@ pub(super) fn is_local_path_like_link(dest_url: &str) -> bool {
 
 /// Parse a local link target into normalized path text plus an optional location suffix.
 ///
-/// This accepts the path shapes Codex emits today: `file://` URLs, absolute and relative paths,
+/// This accepts the path shapes Steve emits today: `file://` URLs, absolute and relative paths,
 /// `~/...`, Windows paths, and `#L..C..` or `:line:col` suffixes.
 pub(super) fn render_local_link_target(dest_url: &str, cwd: Option<&Path>) -> Option<String> {
     let (path_text, location_suffix) = parse_local_link_target(dest_url)?;

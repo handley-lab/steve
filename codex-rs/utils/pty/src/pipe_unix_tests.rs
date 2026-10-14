@@ -12,14 +12,14 @@ use pretty_assertions::assert_eq;
 
 #[tokio::test]
 async fn descriptor_capture_pressure_falls_back_to_direct_spawn() -> anyhow::Result<()> {
-    if std::env::var_os("CODEX_TEST_PIPE_FD_PRESSURE").is_none() {
+    if std::env::var_os("STEVE_TEST_PIPE_FD_PRESSURE").is_none() {
         let output = std::process::Command::new(std::env::current_exe()?)
             .args([
                 "--exact",
                 "pipe::unix_tests::descriptor_capture_pressure_falls_back_to_direct_spawn",
                 "--nocapture",
             ])
-            .env("CODEX_TEST_PIPE_FD_PRESSURE", "1")
+            .env("STEVE_TEST_PIPE_FD_PRESSURE", "1")
             .output()?;
         assert!(output.status.success(), "{output:?}");
         return Ok(());

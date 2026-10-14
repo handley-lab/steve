@@ -7,7 +7,7 @@ use serde_json::Value;
 use serde_json::json;
 
 fn main() -> Result<()> {
-    assert!(std::env::var_os("CODEX_MCP_PROTOCOL_VERSION").is_none());
+    assert!(std::env::var_os("STEVE_MCP_PROTOCOL_VERSION").is_none());
     let mut stdout = io::stdout().lock();
 
     for line in io::stdin().lock().lines() {

@@ -312,14 +312,14 @@ fn snapshot_filters_profile_exports_after_capture() {
         exclude: vec!["PROFILE_DENIED".to_string()],
         r#set: HashMap::from([
             ("PROFILE_ALLOWED".to_string(), "override".to_string()),
-            ("CODEX_THREAD_ID".to_string(), "policy-thread".to_string()),
-            ("CODEX_TOOL_CALL_ID".to_string(), "policy-call".to_string()),
+            ("STEVE_THREAD_ID".to_string(), "policy-thread".to_string()),
+            ("STEVE_TOOL_CALL_ID".to_string(), "policy-call".to_string()),
         ]),
         // Metadata must survive policy filtering so the cache owns its removal.
         include_only: vec![
             "PROFILE_*".to_string(),
-            "CODEX_THREAD_ID".to_string(),
-            "CODEX_TOOL_CALL_ID".to_string(),
+            "STEVE_THREAD_ID".to_string(),
+            "STEVE_TOOL_CALL_ID".to_string(),
         ],
     };
     let snapshot = parse_snapshot(
@@ -390,7 +390,7 @@ fn snapshot_caches_only_unmanaged_proxy_state() {
         ),
     ] {
         let output = format!(
-            "# Snapshot file\n\0\0\0{exports}CODEX_THREAD_ID=capture-thread\0CODEX_TOOL_CALL_ID=profile-call\0"
+            "# Snapshot file\n\0\0\0{exports}STEVE_THREAD_ID=capture-thread\0CODEX_TOOL_CALL_ID=profile-call\0"
         );
         let snapshot = parse_snapshot(
             ShellType::Bash,

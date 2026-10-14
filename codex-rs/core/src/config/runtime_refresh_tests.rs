@@ -87,7 +87,7 @@ async fn plugin_refresh_resolves_only_the_final_layer_combination() {
                 ),
                 codex_config::ConfigLayerEntry::new(
                     ConfigLayerSource::Project {
-                        dot_codex_folder: base.codex_home.join(".codex"),
+                        dot_codex_folder: base.codex_home.join(".steve"),
                     },
                     toml::from_str(project).unwrap(),
                 ),

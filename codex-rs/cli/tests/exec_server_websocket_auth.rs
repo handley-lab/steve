@@ -30,7 +30,7 @@ enum AuthMode {
 #[tokio::test]
 async fn exec_server_websocket_auth_gates_rpc_connections() -> Result<()> {
     tokio::time::timeout(Duration::from_secs(/*secs*/ 60), async {
-        let codex = codex_utils_cargo_bin::cargo_bin("codex")?;
+        let codex = codex_utils_cargo_bin::cargo_bin("steve")?;
         for mode in [
             AuthMode::TokenHash,
             AuthMode::TokenFile,
@@ -43,7 +43,7 @@ async fn exec_server_websocket_auth_gates_rpc_connections() -> Result<()> {
             let mut command = Command::new(&codex);
             command
                 .args(["exec-server", "--listen", "ws://127.0.0.1:0", "--ws-auth"])
-                .env("CODEX_HOME", home.path())
+                .env("STEVE_HOME", home.path())
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit())
@@ -151,7 +151,7 @@ async fn exec_server_websocket_auth_gates_rpc_connections() -> Result<()> {
 #[test]
 fn exec_server_websocket_auth_rejects_inapplicable_transports() -> Result<()> {
     let home = TempDir::new()?;
-    let codex = codex_utils_cargo_bin::cargo_bin("codex")?;
+    let codex = codex_utils_cargo_bin::cargo_bin("steve")?;
     for (transport, expected) in [
         (vec!["--listen", "stdio"], "not stdio"),
         (vec!["--listen", "stdio://"], "not stdio"),
@@ -178,7 +178,7 @@ fn exec_server_websocket_auth_rejects_inapplicable_transports() -> Result<()> {
         ),
     ] {
         assert_cmd::Command::new(&codex)
-            .env("CODEX_HOME", home.path())
+            .env("STEVE_HOME", home.path())
             .args([
                 "exec-server",
                 "--ws-auth",
@@ -197,7 +197,7 @@ fn exec_server_websocket_auth_rejects_inapplicable_transports() -> Result<()> {
 #[test]
 fn exec_server_websocket_auth_rejects_invalid_configuration() -> Result<()> {
     let home = TempDir::new()?;
-    let codex = codex_utils_cargo_bin::cargo_bin("codex")?;
+    let codex = codex_utils_cargo_bin::cargo_bin("steve")?;
     for (args, expected) in [
         (vec!["--ws-token-sha256", "invalid"], "require `--ws-auth"),
         (
@@ -212,7 +212,7 @@ fn exec_server_websocket_auth_rejects_invalid_configuration() -> Result<()> {
         (vec!["--ws-auth", "capability-token"], "is required"),
     ] {
         assert_cmd::Command::new(&codex)
-            .env("CODEX_HOME", home.path())
+            .env("STEVE_HOME", home.path())
             .args(["exec-server"])
             .args(args)
             .assert()
@@ -236,7 +236,7 @@ async fn app_server_executor_auth_supports_tokens_and_legacy_configuration() -> 
     }
 
     tokio::time::timeout(Duration::from_secs(/*secs*/ 90), async {
-        let codex = codex_utils_cargo_bin::cargo_bin("codex")?;
+        let codex = codex_utils_cargo_bin::cargo_bin("steve")?;
         for token in [None, Some("executor-capability-for-app-server")] {
             let executor_home = TempDir::new()?;
             let mut command = Command::new(&codex);
@@ -250,7 +250,7 @@ async fn app_server_executor_auth_supports_tokens_and_legacy_configuration() -> 
                 ]);
             }
             let mut executor = command
-                .env("CODEX_HOME", executor_home.path())
+                .env("STEVE_HOME", executor_home.path())
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit())
@@ -274,8 +274,8 @@ async fn app_server_executor_auth_supports_tokens_and_legacy_configuration() -> 
                     .with_codex_home(home.path())
                     .without_auto_env()
                     .with_env_overrides(&[
-                        ("CODEX_EXEC_SERVER_URL", None),
-                        ("CODEX_EXEC_SERVER_NOISE_REGISTRY_URL", None),
+                        ("STEVE_EXEC_SERVER_URL", None),
+                        ("STEVE_EXEC_SERVER_NOISE_REGISTRY_URL", None),
                     ]);
                 match source {
                     Source::Toml => {

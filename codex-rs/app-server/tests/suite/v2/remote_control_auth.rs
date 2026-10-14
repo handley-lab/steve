@@ -399,7 +399,7 @@ async fn logout_login_enable_recovers_first_unauthorized_enrollment() -> Result<
     let revoke_url = format!("{}/oauth/revoke", oauth.uri());
     let mut app = TestAppServer::builder()
         .with_codex_home(home.path())
-        .with_env_overrides(&[("CODEX_REVOKE_TOKEN_URL_OVERRIDE", Some(revoke_url.as_str()))])
+        .with_env_overrides(&[("STEVE_REVOKE_TOKEN_URL_OVERRIDE", Some(revoke_url.as_str()))])
         .without_auto_env()
         .build_initialized()
         .await?;

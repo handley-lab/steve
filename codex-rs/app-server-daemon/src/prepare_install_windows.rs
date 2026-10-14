@@ -104,10 +104,10 @@ fn install_junction(root: &Path, release: &Path) -> Result<()> {
         "SystemRoot must be an absolute path"
     );
     let output = Command::new(command_shell)
-        .env("CODEX_DAEMON_JUNCTION_LINK", &junction)
-        .env("CODEX_DAEMON_JUNCTION_TARGET", release)
+        .env("STEVE_DAEMON_JUNCTION_LINK", &junction)
+        .env("STEVE_DAEMON_JUNCTION_TARGET", release)
         .args(["/d", "/s", "/e:on", "/v:off", "/c"])
-        .raw_arg(r#""mklink /J "%CODEX_DAEMON_JUNCTION_LINK%" "%CODEX_DAEMON_JUNCTION_TARGET%"""#)
+        .raw_arg(r#""mklink /J "%STEVE_DAEMON_JUNCTION_LINK%" "%STEVE_DAEMON_JUNCTION_TARGET%"""#)
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .context("failed to run cmd.exe to create managed daemon junction")?;

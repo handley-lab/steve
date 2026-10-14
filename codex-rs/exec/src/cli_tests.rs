@@ -5,7 +5,7 @@ use pretty_assertions::assert_eq;
 fn resume_parses_prompt_after_global_flags() {
     const PROMPT: &str = "echo resume-with-global-flags-after-subcommand";
     let cli = Cli::parse_from([
-        "codex-exec",
+        "steve-exec",
         "resume",
         "--last",
         "--json",
@@ -45,7 +45,7 @@ fn resume_parses_prompt_after_global_flags() {
 fn resume_accepts_output_flags_after_subcommand() {
     const PROMPT: &str = "echo resume-with-output-file";
     let cli = Cli::parse_from([
-        "codex-exec",
+        "steve-exec",
         "resume",
         "session-123",
         "-o",
@@ -71,7 +71,7 @@ fn resume_accepts_output_flags_after_subcommand() {
 fn fork_parses_prompt_after_global_flags() {
     const PROMPT: &str = "continue on the fork";
     let cli = Cli::parse_from([
-        "codex-exec",
+        "steve-exec",
         "fork",
         "session-123",
         "--json",
@@ -100,7 +100,7 @@ fn fork_parses_prompt_after_global_flags() {
 #[test]
 fn parses_config_isolation_flags() {
     let cli = Cli::parse_from([
-        "codex-exec",
+        "steve-exec",
         "--ignore-user-config",
         "--ignore-rules",
         "summarize",
@@ -113,7 +113,7 @@ fn parses_config_isolation_flags() {
 #[test]
 fn approve_for_me_flag_applies_to_resume_when_passed_at_exec_root() {
     for flag in ["--approve-for-me", "--not-so-yolo"] {
-        let cli = Cli::parse_from(["codex-exec", flag, "resume", "--last"]);
+        let cli = Cli::parse_from(["steve-exec", flag, "resume", "--last"]);
 
         assert!(cli.auto_review);
     }
@@ -125,7 +125,7 @@ fn approve_for_me_flag_conflicts_with_other_sandbox_modes() {
         vec!["--sandbox", "read-only"],
         vec!["--dangerously-bypass-approvals-and-sandbox"],
     ] {
-        let mut args = vec!["codex-exec", "--approve-for-me"];
+        let mut args = vec!["steve-exec", "--approve-for-me"];
         args.extend(conflicting_args);
         args.push("summarize");
 
@@ -136,7 +136,7 @@ fn approve_for_me_flag_conflicts_with_other_sandbox_modes() {
 
 #[test]
 fn worktree_flag_is_accepted_after_fork_subcommand() {
-    let cli = Cli::try_parse_from(["codex-exec", "fork", "session-id", "--worktree"])
+    let cli = Cli::try_parse_from(["steve-exec", "fork", "session-id", "--worktree"])
         .expect("worktree should be a global exec argument");
 
     assert!(cli.worktree);
@@ -145,7 +145,7 @@ fn worktree_flag_is_accepted_after_fork_subcommand() {
 
 #[test]
 fn worktree_flag_is_accepted_before_fork_subcommand() {
-    let cli = Cli::try_parse_from(["codex-exec", "--worktree", "fork", "session-id"])
+    let cli = Cli::try_parse_from(["steve-exec", "--worktree", "fork", "session-id"])
         .expect("worktree should be accepted before the fork subcommand");
 
     assert!(cli.worktree);

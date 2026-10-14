@@ -13,13 +13,13 @@ pub const SESSION_SOURCE_TAG: &str = "session_source";
 const OTHER_ORIGINATOR_TAG_VALUE: &str = "other";
 const KNOWN_ORIGINATOR_TAG_VALUES: &[&str] = &[
     "codex_desktop",
-    "codex-app-server",
+    "steve-app-server",
     "codex_mcp_server",
-    "codex_cli_rs",
-    "codex-tui",
+    "steve_cli_rs",
+    "steve-tui",
     "codex_vscode",
     "none",
-    "codex_exec",
+    "steve_exec",
     "codex-cli",
     "codex_sdk_ts",
     "codex-app-server-sdk",
@@ -113,7 +113,7 @@ mod tests {
         let tags = SessionMetricTagValues {
             auth_mode: None,
             session_source: "exec",
-            originator: "codex_exec",
+            originator: "steve_exec",
             service_name: None,
             model: "gpt-5.1",
             app_version: "1.2.3",
@@ -125,7 +125,7 @@ mod tests {
             tags,
             vec![
                 (SESSION_SOURCE_TAG, "exec"),
-                (ORIGINATOR_TAG, "codex_exec"),
+                (ORIGINATOR_TAG, "steve_exec"),
                 (MODEL_TAG, "gpt-5.1"),
                 (APP_VERSION_TAG, "1.2.3"),
             ]

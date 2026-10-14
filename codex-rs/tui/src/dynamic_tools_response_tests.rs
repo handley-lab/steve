@@ -42,7 +42,7 @@ fn oversized_list_preserves_entries_and_pagination() {
     let entries = (0..50)
         .map(|i| {
             json!({
-                "id": format!("thread-{i}"), "kind": "codex", "title": "Title".repeat(400),
+                "id": format!("thread-{i}"), "kind": "steve", "title": "Title".repeat(400),
                 "summary": "Summary".repeat(100), "status": "idle", "cwd": "/large/path".repeat(100)
             })
         })

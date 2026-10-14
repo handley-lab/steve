@@ -81,11 +81,11 @@ exec "${0%/*}/real-bwrap" "$@"
             // Neither a config key nor executor/request environment variables may opt in.
             std::fs::write(codex_home.path().join("config.toml"),
                 "linux_sandbox_pid_namespace = 'inherit'\n")?;
-            let mut command = tokio::process::Command::new(codex_utils_cargo_bin::cargo_bin("codex")?);
+            let mut command = tokio::process::Command::new(codex_utils_cargo_bin::cargo_bin("steve")?);
             command.args(["exec-server", "--listen", "stdio"])
-                .env("CODEX_HOME", codex_home.path())
+                .env("STEVE_HOME", codex_home.path())
                 .env("PATH", &path)
-                .env("CODEX_LINUX_SANDBOX_PID_NAMESPACE", "inherit")
+                .env("STEVE_LINUX_SANDBOX_PID_NAMESPACE", "inherit")
                 .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
                 .kill_on_drop(true);
             if inherit {
@@ -112,7 +112,7 @@ if [ "$MINIMAL" = true ]; then
     ! cat /proc/version
 fi
 "#],
-                    "env": {"PATH": path, "MINIMAL": minimal.to_string(), "CODEX_LINUX_SANDBOX_PID_NAMESPACE": "inherit"},
+                    "env": {"PATH": path, "MINIMAL": minimal.to_string(), "STEVE_LINUX_SANDBOX_PID_NAMESPACE": "inherit"},
                     "tty": false, "pipeStdin": false, "arg0": null
                 }
             })).await?;

@@ -470,7 +470,7 @@ fn print_dirty_recovery(
 fn print_recovery_command(codex_bin: &Path, config_overrides: &[String], remote_plugin_id: &str) {
     let test_client = std::env::current_exe()
         .map(|path| path.display().to_string())
-        .unwrap_or_else(|_| "codex-app-server-test-client".to_string());
+        .unwrap_or_else(|_| "steve-app-server-test-client".to_string());
     let mut command = format!(
         "{} --codex-bin {}",
         shell_quote(&test_client),

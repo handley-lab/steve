@@ -88,7 +88,7 @@ pub(super) fn clean_up(
                     // Preserve CLI data without leaving inherited permissions for the deleted group.
                     record_result(
                         "remove codex home sandbox permissions",
-                        resolve_sid("CodexSandboxUsers")
+                        resolve_sid("SteveSandboxUsers")
                             .and_then(|mut sid| unsafe {
                                 revoke_ace(home, sid.as_mut_ptr().cast())
                             })

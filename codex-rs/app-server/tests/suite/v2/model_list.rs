@@ -99,7 +99,7 @@ requires_openai_auth = true
     )?;
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
-        .with_env_overrides(&[("OPENAI_API_KEY", None), ("CODEX_API_KEY", None)])
+        .with_env_overrides(&[("OPENAI_API_KEY", None), ("STEVE_API_KEY", None)])
         .build_initialized()
         .await?;
     let mut bundled = codex_models_manager::bundled_models_response()?.models;
@@ -393,7 +393,7 @@ model_catalog_url = "{server_uri}/v1/models"
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .without_auto_env()
-        .with_env_overrides(&[("OPENAI_API_KEY", None), ("CODEX_API_KEY", None)])
+        .with_env_overrides(&[("OPENAI_API_KEY", None), ("STEVE_API_KEY", None)])
         .build_initialized()
         .await?;
     let request_id = mcp

@@ -7,14 +7,14 @@ use pretty_assertions::assert_eq;
 
 #[test]
 fn storage_metrics_distinguish_explicit_file_from_secure_failure_fallback() -> anyhow::Result<()> {
-    if std::env::var_os("CODEX_AUTH_STORAGE_TEST_CHILD").is_none() {
+    if std::env::var_os("STEVE_AUTH_STORAGE_TEST_CHILD").is_none() {
         let output = std::process::Command::new(std::env::current_exe()?)
             .args([
                 "--exact",
                 std::thread::current().name().unwrap(),
                 "--nocapture",
             ])
-            .env("CODEX_AUTH_STORAGE_TEST_CHILD", "1")
+            .env("STEVE_AUTH_STORAGE_TEST_CHILD", "1")
             .output()?;
         assert!(
             output.status.success(),

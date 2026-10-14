@@ -207,7 +207,7 @@ fn legacy_consumer_history_keeps_daily_products_and_models() {
     for (grouping, expected) in [
         (
             Grouping::Surface,
-            vec![("codex", "Codex", 80.0), ("work", "Work", 20.0)],
+            vec![("steve", "Steve", 80.0), ("work", "Work", 20.0)],
         ),
         (
             Grouping::Model,

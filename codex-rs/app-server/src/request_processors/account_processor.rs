@@ -33,10 +33,10 @@ const THREAD_USAGE_FETCH_TIMEOUT: Duration = Duration::from_secs(/*secs*/ 60);
 const ACCOUNT_WORKSPACE_MESSAGES_FETCH_TIMEOUT: Duration =
     Duration::from_millis(/*millis*/ 1000);
 // Packaged clients use this together with the OAuth client ID override for staging login.
-const LOGIN_ISSUER_OVERRIDE_ENV_VAR: &str = "CODEX_APP_SERVER_LOGIN_ISSUER";
+const LOGIN_ISSUER_OVERRIDE_ENV_VAR: &str = "STEVE_APP_SERVER_LOGIN_ISSUER";
 // The development success-page redirect remains debug-only.
 #[cfg(debug_assertions)]
-const LOGIN_OPEN_APP_URL_OVERRIDE_ENV_VAR: &str = "CODEX_APP_SERVER_DEV_OPEN_APP_URL";
+const LOGIN_OPEN_APP_URL_OVERRIDE_ENV_VAR: &str = "STEVE_APP_SERVER_DEV_OPEN_APP_URL";
 
 enum ActiveLogin {
     Browser {

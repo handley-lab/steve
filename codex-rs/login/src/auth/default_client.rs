@@ -39,8 +39,8 @@ use crate::outbound_proxy::AuthRouteConfig;
 /// The full user agent string is returned from the mcp initialize response.
 /// Parenthesis will be added by Codex. This should only specify what goes inside of the parenthesis.
 pub static USER_AGENT_SUFFIX: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
-pub const DEFAULT_ORIGINATOR: &str = "codex_cli_rs";
-pub const CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
+pub const DEFAULT_ORIGINATOR: &str = "steve_cli_rs";
+pub const CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR: &str = "STEVE_INTERNAL_ORIGINATOR_OVERRIDE";
 pub use codex_model_provider_info::RESIDENCY_HEADER_NAME;
 pub use codex_model_provider_info::ResidencyRequirement;
 pub use codex_model_provider_info::read_managed_residency_requirement as read_default_client_residency_requirement;
@@ -140,7 +140,7 @@ pub fn add_originator_header(headers: &mut HeaderMap, originator_value: &str) {
 
 pub fn is_first_party_originator(originator_value: &str) -> bool {
     originator_value == DEFAULT_ORIGINATOR
-        || originator_value == "codex-tui"
+        || originator_value == "steve-tui"
         || originator_value == "codex_vscode"
         || originator_value.starts_with("Codex ")
 }
@@ -469,7 +469,7 @@ pub fn default_headers() -> HeaderMap {
 }
 
 fn is_sandboxed() -> bool {
-    std::env::var("CODEX_SANDBOX").as_deref() == Ok("seatbelt")
+    std::env::var("STEVE_SANDBOX").as_deref() == Ok("seatbelt")
 }
 
 #[cfg(test)]

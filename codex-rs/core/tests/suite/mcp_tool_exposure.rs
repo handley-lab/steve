@@ -1546,7 +1546,7 @@ async fn code_mode_discovered_apps_tool_survives_startup_failure_and_recovers() 
         root_resolved: None,
     }));
     let extensions = Arc::new(extensions.build());
-    let code_mode_host = codex_utils_cargo_bin::cargo_bin("codex-code-mode-host")?;
+    let code_mode_host = codex_utils_cargo_bin::cargo_bin("steve-code-mode-host")?;
     let builder = || {
         search_capable_apps_builder(apps.chatgpt_base_url.clone())
             .with_extensions(Arc::clone(&extensions))

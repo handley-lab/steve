@@ -165,7 +165,7 @@ client_id = "enterprise-client""#
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn enterprise_login_attempt_lifecycle() -> Result<()> {
     skip_if_no_network!(Ok(()));
-    const CHILD: &str = "CODEX_ENTERPRISE_ATTEMPT_TEST_CHILD";
+    const CHILD: &str = "STEVE_ENTERPRISE_ATTEMPT_TEST_CHILD";
     if std::env::var_os(CHILD).is_none() {
         // The app server and callback worker share only this child's mock keyring.
         let home = TempDir::new()?;
@@ -183,13 +183,13 @@ async fn enterprise_login_attempt_lifecycle() -> Result<()> {
                 "--nocapture",
             ])
             .env(CHILD, "1")
-            .env("CODEX_HOME", home.path())
+            .env("STEVE_HOME", home.path())
             .env(
                 REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR,
                 format!("{}/oauth/token", oauth_server.uri()),
             )
             .env_remove("OPENAI_API_KEY")
-            .env_remove("CODEX_API_KEY")
+            .env_remove("STEVE_API_KEY")
             .env_remove(CODEX_ACCESS_TOKEN_ENV_VAR)
             .current_dir(home.path())
             .output()
@@ -604,7 +604,7 @@ impl CredentialBuilderApi for TestKeyring {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn enterprise_login_setup_is_cancelled_by_account_changes() -> Result<()> {
     skip_if_no_network!(Ok(()));
-    const CHILD: &str = "CODEX_ENTERPRISE_SETUP_TEST_CHILD";
+    const CHILD: &str = "STEVE_ENTERPRISE_SETUP_TEST_CHILD";
     if std::env::var_os(CHILD).is_none() {
         // The app server and callback worker share only this child's mock keyring.
         let home = TempDir::new()?;
@@ -622,13 +622,13 @@ async fn enterprise_login_setup_is_cancelled_by_account_changes() -> Result<()> 
                 "--nocapture",
             ])
             .env(CHILD, "1")
-            .env("CODEX_HOME", home.path())
+            .env("STEVE_HOME", home.path())
             .env(
                 REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR,
                 format!("{}/oauth/token", oauth_server.uri()),
             )
             .env_remove("OPENAI_API_KEY")
-            .env_remove("CODEX_API_KEY")
+            .env_remove("STEVE_API_KEY")
             .env_remove(CODEX_ACCESS_TOKEN_ENV_VAR)
             .current_dir(home.path())
             .output()

@@ -130,7 +130,7 @@ async fn saved_workspace_is_discovered_once_and_not_the_default_account(
             .plan_type(plan_type),
         AuthCredentialsStoreMode::File,
     )?;
-    let mut env_overrides = vec![("OPENAI_API_KEY", None), ("CODEX_API_KEY", None)];
+    let mut env_overrides = vec![("OPENAI_API_KEY", None), ("STEVE_API_KEY", None)];
     env_overrides.extend(
         codex_network_proxy::PROXY_ENV_KEYS
             .iter()

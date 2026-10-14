@@ -25,7 +25,7 @@ use std::collections::BTreeMap;
 
 #[tokio::test]
 async fn recovery_retains_originator_without_initial_credentials() -> anyhow::Result<()> {
-    if std::env::var_os("CODEX_MCP_RECOVERY_TELEMETRY_TEST_CHILD").is_none() {
+    if std::env::var_os("STEVE_MCP_RECOVERY_TELEMETRY_TEST_CHILD").is_none() {
         let home = tempfile::tempdir()?;
         let output = tokio::process::Command::new(std::env::current_exe()?)
             .args([
@@ -33,8 +33,8 @@ async fn recovery_retains_originator_without_initial_credentials() -> anyhow::Re
                 "telemetry_tests::recovery_retains_originator_without_initial_credentials",
                 "--nocapture",
             ])
-            .env("CODEX_MCP_RECOVERY_TELEMETRY_TEST_CHILD", "1")
-            .env("CODEX_HOME", home.path())
+            .env("STEVE_MCP_RECOVERY_TELEMETRY_TEST_CHILD", "1")
+            .env("STEVE_HOME", home.path())
             .output()
             .await?;
         assert!(

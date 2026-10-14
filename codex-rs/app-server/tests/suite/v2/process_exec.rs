@@ -38,8 +38,8 @@ async fn process_spawn_returns_before_exit_and_emits_exit_notification() -> Resu
             "-NonInteractive".to_string(),
             "-Command".to_string(),
             concat!(
-                "[IO.File]::WriteAllText($env:CODEX_PROCESS_EXEC_PROBE_FILE, 'process'); ",
-                "while (!(Test-Path -LiteralPath $env:CODEX_PROCESS_EXEC_RELEASE_FILE)) { ",
+                "[IO.File]::WriteAllText($env:STEVE_PROCESS_EXEC_PROBE_FILE, 'process'); ",
+                "while (!(Test-Path -LiteralPath $env:STEVE_PROCESS_EXEC_RELEASE_FILE)) { ",
                 "Start-Sleep -Milliseconds 20 ",
                 "}; ",
                 "[Console]::Out.Write(('process-out|{0}|{1}' -f $env:OpenAI_Federation_Rule_Id, $env:OPENAI_IDENTITY_TOKEN_FILE)); ",
@@ -52,8 +52,8 @@ async fn process_spawn_returns_before_exit_and_emits_exit_notification() -> Resu
             "sh".to_string(),
             "-c".to_string(),
             concat!(
-                "printf process > \"$CODEX_PROCESS_EXEC_PROBE_FILE\"; ",
-                "while [ ! -e \"$CODEX_PROCESS_EXEC_RELEASE_FILE\" ]; do sleep 0.05; done; ",
+                "printf process > \"$STEVE_PROCESS_EXEC_PROBE_FILE\"; ",
+                "while [ ! -e \"$STEVE_PROCESS_EXEC_RELEASE_FILE\" ]; do sleep 0.05; done; ",
                 "printf 'process-out|%s|%s' \"$OpenAI_Federation_Rule_Id\" \"$OPENAI_IDENTITY_TOKEN_FILE\"; ",
                 "printf process-err >&2",
             )
@@ -62,11 +62,11 @@ async fn process_spawn_returns_before_exit_and_emits_exit_notification() -> Resu
     };
     let env = HashMap::from([
         (
-            "CODEX_PROCESS_EXEC_PROBE_FILE".to_string(),
+            "STEVE_PROCESS_EXEC_PROBE_FILE".to_string(),
             Some(probe_file.display().to_string()),
         ),
         (
-            "CODEX_PROCESS_EXEC_RELEASE_FILE".to_string(),
+            "STEVE_PROCESS_EXEC_RELEASE_FILE".to_string(),
             Some(release_file.display().to_string()),
         ),
         (

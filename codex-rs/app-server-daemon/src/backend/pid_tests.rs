@@ -49,7 +49,7 @@ async fn locked_empty_pid_file_is_treated_as_active_reservation() {
         .await
         .expect("write pid file");
     let backend = PidBackend::new(
-        temp_dir.path().join("codex"),
+        temp_dir.path().join("steve"),
         pid_file.clone(),
         /*remote_control_enabled*/ false,
     );
@@ -77,7 +77,7 @@ async fn unlocked_empty_pid_file_is_treated_as_stale_reservation() {
         .await
         .expect("write pid file");
     let backend = PidBackend::new(
-        temp_dir.path().join("codex"),
+        temp_dir.path().join("steve"),
         pid_file.clone(),
         /*remote_control_enabled*/ false,
     );
@@ -97,7 +97,7 @@ async fn stop_waits_for_live_reservation_to_resolve() {
         .await
         .expect("write pid file");
     let backend = PidBackend::new(
-        temp_dir.path().join("codex"),
+        temp_dir.path().join("steve"),
         pid_file.clone(),
         /*remote_control_enabled*/ false,
     );
@@ -190,7 +190,7 @@ async fn stale_record_cleanup_preserves_replacement_record() {
     let temp_dir = TempDir::new().expect("temp dir");
     let pid_file = temp_dir.path().join("app-server.pid");
     let backend = PidBackend::new(
-        temp_dir.path().join("codex"),
+        temp_dir.path().join("steve"),
         pid_file.clone(),
         /*remote_control_enabled*/ false,
     );
@@ -277,7 +277,7 @@ async fn pid_record_captures_the_resolved_launch_binary() {
 async fn legacy_start_time_mismatch_preserves_record_and_process() {
     let temp = TempDir::new().unwrap();
     let backend = PidBackend::new(
-        temp.path().join("codex"),
+        temp.path().join("steve"),
         temp.path().join("app-server.pid"),
         /*remote_control_enabled*/ false,
     );
@@ -330,7 +330,7 @@ async fn stop_reaps_untracked_app_server_child() {
     .await
     .expect("write pid file");
     let backend = PidBackend::new(
-        temp_dir.path().join("codex"),
+        temp_dir.path().join("steve"),
         pid_file.clone(),
         /*remote_control_enabled*/ false,
     );
@@ -349,7 +349,7 @@ async fn stop_reaps_untracked_app_server_child() {
 #[cfg(any(unix, windows))]
 #[tokio::test]
 async fn shutdown_grace_child() {
-    let Some(ready) = std::env::var_os("CODEX_TEST_SHUTDOWN_GRACE_READY") else {
+    let Some(ready) = std::env::var_os("STEVE_TEST_SHUTDOWN_GRACE_READY") else {
         return;
     };
     let ready = std::path::PathBuf::from(ready);
@@ -367,7 +367,7 @@ async fn shutdown_grace_child() {
             }
             sleep(Duration::from_millis(10)).await;
         }
-        if std::env::var_os("CODEX_TEST_SHUTDOWN_GRACE_EXIT").is_some() {
+        if std::env::var_os("STEVE_TEST_SHUTDOWN_GRACE_EXIT").is_some() {
             sleep(Duration::from_millis(150)).await;
             tokio::fs::write(ready.with_extension("exited"), "")
                 .await
@@ -391,8 +391,8 @@ async fn shutdown_grace_handles_process_exit() {
         let ready = temp.path().join(format!("{name}.ready"));
         let mut child = std::process::Command::new(std::env::current_exe().expect("test binary"))
             .args(["--exact", "backend::pid::tests::shutdown_grace_child"])
-            .env("CODEX_TEST_SHUTDOWN_GRACE_READY", &ready)
-            .envs(exits.then_some(("CODEX_TEST_SHUTDOWN_GRACE_EXIT", "1")))
+            .env("STEVE_TEST_SHUTDOWN_GRACE_READY", &ready)
+            .envs(exits.then_some(("STEVE_TEST_SHUTDOWN_GRACE_EXIT", "1")))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -423,13 +423,13 @@ async fn shutdown_grace_handles_process_exit() {
         .expect("write pid file");
         #[cfg(unix)]
         let backend = PidBackend::new(
-            temp.path().join("codex"),
+            temp.path().join("steve"),
             pid_file,
             /*remote_control_enabled*/ false,
         );
         #[cfg(windows)]
         let backend = PidBackend::new_update_loop(
-            temp.path().join("codex"),
+            temp.path().join("steve"),
             pid_file,
             /*restore_release*/ None,
         );
@@ -502,7 +502,7 @@ async fn stopping_updater_signals_its_installer_process_group() {
     .await
     .expect("write pid file");
     let backend = PidBackend::new_update_loop(
-        temp.path().join("codex"),
+        temp.path().join("steve"),
         pid_file,
         /*restore_release*/ None,
     );
@@ -545,7 +545,7 @@ async fn exited_unreaped_updater_is_reaped() {
         executable_identity: None,
     };
     let backend = PidBackend::new_update_loop(
-        temp.path().join("codex"),
+        temp.path().join("steve"),
         temp.path().join("updater.pid"),
         /*restore_release*/ None,
     );
@@ -572,7 +572,7 @@ async fn exited_unreaped_updater_is_reaped() {
 fn update_loop_uses_hidden_app_server_subcommand() {
     let backend = PidBackend {
         feature_overrides: Default::default(),
-        codex_bin: "codex".into(),
+        codex_bin: "steve".into(),
         pid_file: "updater.pid".into(),
         lock_file: "updater.pid.lock".into(),
         command_kind: PidCommandKind::UpdateLoop {
@@ -589,7 +589,7 @@ fn update_loop_uses_hidden_app_server_subcommand() {
 #[test]
 fn app_server_remote_control_uses_runtime_flag() {
     let backend = PidBackend::new(
-        "codex".into(),
+        "steve".into(),
         "app-server.pid".into(),
         /*remote_control_enabled*/ true,
     );
@@ -609,7 +609,7 @@ fn app_server_remote_control_uses_runtime_flag() {
 #[test]
 fn app_server_disabled_remote_control_uses_compatible_args_and_runtime_env() {
     let backend = PidBackend::new(
-        "codex".into(),
+        "steve".into(),
         "app-server.pid".into(),
         /*remote_control_enabled*/ false,
     );
@@ -654,7 +654,7 @@ async fn read_stderr_log_tail_returns_recent_complete_lines() {
 async fn stale_creation_time_never_stops_reused_pid() {
     let temp = TempDir::new().expect("temp");
     let backend = PidBackend::new(
-        temp.path().join("codex.exe"),
+        temp.path().join("steve.exe"),
         temp.path().join("server.pid"),
         /*remote_control_enabled*/ false,
     );
@@ -713,7 +713,7 @@ async fn managed_children_launch_in_workdir_without_changing_private_state_direc
         "@echo off\r\n\
          if \"%3\"==\"--help\" exit /b 1\r\n\
          echo ready > launched.cwd\r\n\
-         if defined CODEX_DAEMON_SHUTDOWN_FILE (for %%F in (\"%CODEX_DAEMON_SHUTDOWN_FILE%\") do type nul > \"%%~dpnF.ready\")\r\n\
+         if defined STEVE_DAEMON_SHUTDOWN_FILE (for %%F in (\"%STEVE_DAEMON_SHUTDOWN_FILE%\") do type nul > \"%%~dpnF.ready\")\r\n\
          for /l %%i in (1,1,10000000) do @rem\r\n",
     )
     .await
@@ -764,7 +764,7 @@ async fn failed_updater_handoff_preserves_predecessor_record() {
         .await
         .expect("private state directory");
     let backend = PidBackend::new_update_loop(
-        temp.path().join("missing-codex.exe"),
+        temp.path().join("missing-steve.exe"),
         state_dir.join("updater.pid"),
         /*restore_release*/ None,
     );
@@ -812,7 +812,7 @@ async fn updater_readiness_and_post_publication_failure_preserve_ownership() {
 
     let temp = TempDir::new().expect("temp");
     let backend = PidBackend::new_update_loop(
-        temp.path().join("codex.exe"),
+        temp.path().join("steve.exe"),
         temp.path().join("updater.pid"),
         /*restore_release*/ None,
     );
@@ -833,9 +833,9 @@ async fn updater_readiness_and_post_publication_failure_preserve_ownership() {
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            "[Console]::Error.WriteLine('successor startup'); [IO.File]::WriteAllText($env:CODEX_TEST_UPDATER_READY, ''); Start-Sleep 60",
+            "[Console]::Error.WriteLine('successor startup'); [IO.File]::WriteAllText($env:STEVE_TEST_UPDATER_READY, ''); Start-Sleep 60",
         ])
-        .env("CODEX_TEST_UPDATER_READY", &ready)
+        .env("STEVE_TEST_UPDATER_READY", &ready)
         .stderr(Stdio::from(successor_stderr.into_std().await))
         .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
         .kill_on_drop(true)
@@ -1010,7 +1010,7 @@ async fn stderr_preservation_failure_does_not_prevent_opening_new_log() -> anyho
     let pid_file = home.path().join("daemon.pid");
     let path = stderr_log_file_for_pid_file(&pid_file);
     let backend = PidBackend::new(
-        home.path().join("codex"),
+        home.path().join("steve"),
         pid_file,
         /*remote_control_enabled*/ false,
     );
@@ -1027,7 +1027,7 @@ async fn stderr_handoff_appends_after_truncation_without_gaps() -> anyhow::Resul
 
     let home = TempDir::new()?;
     let backend = PidBackend::new_update_loop(
-        home.path().join("codex"),
+        home.path().join("steve"),
         home.path().join("updater.pid"),
         /*restore_release*/ None,
     );

@@ -23,7 +23,7 @@ use std::sync::Arc;
 use tempfile::NamedTempFile;
 use uuid::Uuid;
 
-pub const PLUGIN_METRICS_OUTPUT_ENV_VAR: &str = "CODEX_PLUGIN_METRICS_OUTPUT";
+pub const PLUGIN_METRICS_OUTPUT_ENV_VAR: &str = "STEVE_PLUGIN_METRICS_OUTPUT";
 const MAX_OUTPUT_BYTES: u64 = 64 * 1024;
 const MAX_OUTPUT_ROWS: usize = 100;
 

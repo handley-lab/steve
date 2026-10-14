@@ -53,7 +53,7 @@ fn encodes_generic_program_status() {
     .write_ansi(&mut encoded)
     .expect("encode generic terminal program status");
 
-    assert_eq!(encoded, "\x1b]7501;state=working:app=codex\x1b\\");
+    assert_eq!(encoded, "\x1b]7501;state=working:app=steve\x1b\\");
 }
 
 #[test]

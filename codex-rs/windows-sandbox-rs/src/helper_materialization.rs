@@ -21,7 +21,7 @@ use crate::sandbox_bin_dir;
 use crate::setup::SetupRuntime;
 
 const DEV_BUILD_VERSION_SENTINEL: &str = "0.0.0";
-const COMMAND_RUNNER_EXE: &str = "codex-command-runner.exe";
+const COMMAND_RUNNER_EXE: &str = "steve-command-runner.exe";
 pub(crate) const BIN_DIRNAME: &str = "bin";
 pub(crate) const RESOURCES_DIRNAME: &str = "codex-resources";
 
@@ -235,10 +235,10 @@ mod tests {
 
     #[test]
     fn helper_bin_dir_is_under_sandbox_bin() {
-        let codex_home = Path::new(r"C:\Users\example\.codex");
+        let codex_home = Path::new(r"C:\Users\example\.steve");
 
         assert_eq!(
-            PathBuf::from(r"C:\Users\example\.codex\.sandbox-bin"),
+            PathBuf::from(r"C:\Users\example\.steve\.sandbox-bin"),
             helper_bin_dir(codex_home)
         );
     }
@@ -246,7 +246,7 @@ mod tests {
     #[test]
     fn registered_request_does_not_materialize_or_replace_a_missing_source() {
         let tmp = TempDir::new().expect("tempdir");
-        let executable = tmp.path().join("codex.exe");
+        let executable = tmp.path().join("steve.exe");
         let home = tmp.path().join("home");
         for content in [None, Some(b"fixture".as_slice())] {
             if let Some(content) = content {
@@ -263,10 +263,10 @@ mod tests {
     #[test]
     fn legacy_request_materializes_the_same_source() {
         let tmp = TempDir::new().expect("tempdir");
-        let executable = tmp.path().join("codex.exe");
+        let executable = tmp.path().join("steve.exe");
         let home = tmp.path().join("home");
         fs::write(&executable, b"fixture").expect("write source");
-        let destination = helper_bin_dir(&home).join("codex.exe");
+        let destination = helper_bin_dir(&home).join("steve.exe");
         assert_eq!(
             resolve_exe_for_runtime(&executable, &home, SetupRuntime::Legacy),
             destination
@@ -280,7 +280,7 @@ mod tests {
         let codex_home = tmp.path().join("codex-home");
         let source_dir = tmp.path().join("sibling-source");
         fs::create_dir_all(&source_dir).expect("create source dir");
-        let runner_source = source_dir.join("codex-command-runner.exe");
+        let runner_source = source_dir.join("steve-command-runner.exe");
         fs::write(&runner_source, b"runner").expect("runner");
         let runner_suffix = helper_version_suffix(&runner_source).expect("runner suffix");
         let runner_destination =
@@ -302,13 +302,13 @@ mod tests {
         let release_dir = tmp.path().join("release");
         let resources_dir = release_dir.join(RESOURCES_DIRNAME);
         fs::create_dir_all(&resources_dir).expect("create resources dir");
-        let exe = release_dir.join("codex.exe");
-        let helper = resources_dir.join("codex-command-runner.exe");
+        let exe = release_dir.join("steve.exe");
+        let helper = resources_dir.join("steve-command-runner.exe");
         fs::write(&exe, b"codex").expect("write exe");
         fs::write(&helper, b"runner").expect("write helper");
 
         let resolved =
-            bundled_executable_path_for_exe(&exe, /*file_name*/ "codex-command-runner.exe")
+            bundled_executable_path_for_exe(&exe, /*file_name*/ "steve-command-runner.exe")
                 .expect("helper path");
 
         assert_eq!(resolved, helper);
@@ -322,13 +322,13 @@ mod tests {
         let resources_dir = package_dir.join(RESOURCES_DIRNAME);
         fs::create_dir_all(&bin_dir).expect("create bin dir");
         fs::create_dir_all(&resources_dir).expect("create resources dir");
-        let exe = bin_dir.join("codex.exe");
-        let helper = resources_dir.join("codex-command-runner.exe");
+        let exe = bin_dir.join("steve.exe");
+        let helper = resources_dir.join("steve-command-runner.exe");
         fs::write(&exe, b"codex").expect("write exe");
         fs::write(&helper, b"runner").expect("write helper");
 
         let resolved =
-            bundled_executable_path_for_exe(&exe, /*file_name*/ "codex-command-runner.exe")
+            bundled_executable_path_for_exe(&exe, /*file_name*/ "steve-command-runner.exe")
                 .expect("helper path");
 
         assert_eq!(resolved, helper);
@@ -344,8 +344,8 @@ mod tests {
         fs::create_dir_all(&bin_dir).expect("create bin dir");
         fs::create_dir_all(&resources_dir).expect("create resources dir");
         fs::create_dir_all(&install_dir).expect("create install dir");
-        fs::write(bin_dir.join("codex.exe"), b"codex").expect("write exe");
-        let helper = resources_dir.join("codex-windows-sandbox-setup.exe");
+        fs::write(bin_dir.join("steve.exe"), b"codex").expect("write exe");
+        let helper = resources_dir.join("steve-windows-sandbox-setup.exe");
         fs::write(&helper, b"setup").expect("write helper");
 
         let junction = install_dir.join(BIN_DIRNAME);
@@ -359,8 +359,8 @@ mod tests {
 
         assert_eq!(
             bundled_executable_path_for_exe(
-                &junction.join("codex.exe"),
-                /*file_name*/ "codex-windows-sandbox-setup.exe"
+                &junction.join("steve.exe"),
+                /*file_name*/ "steve-windows-sandbox-setup.exe"
             ),
             Some(dunce::canonicalize(&helper).expect("canonical helper"))
         );
@@ -375,15 +375,15 @@ mod tests {
         let bin_resources_dir = bin_dir.join(RESOURCES_DIRNAME);
         fs::create_dir_all(&package_resources_dir).expect("create package resources dir");
         fs::create_dir_all(&bin_resources_dir).expect("create bin resources dir");
-        let exe = bin_dir.join("codex.exe");
-        let package_helper = package_resources_dir.join("codex-command-runner.exe");
-        let bin_helper = bin_resources_dir.join("codex-command-runner.exe");
+        let exe = bin_dir.join("steve.exe");
+        let package_helper = package_resources_dir.join("steve-command-runner.exe");
+        let bin_helper = bin_resources_dir.join("steve-command-runner.exe");
         fs::write(&exe, b"codex").expect("write exe");
         fs::write(&package_helper, b"package runner").expect("write package helper");
         fs::write(&bin_helper, b"bin runner").expect("write bin helper");
 
         let resolved =
-            bundled_executable_path_for_exe(&exe, /*file_name*/ "codex-command-runner.exe")
+            bundled_executable_path_for_exe(&exe, /*file_name*/ "steve-command-runner.exe")
                 .expect("helper path");
 
         assert_eq!(resolved, package_helper);
@@ -395,15 +395,15 @@ mod tests {
         let release_dir = tmp.path().join("release");
         let resources_dir = release_dir.join(RESOURCES_DIRNAME);
         fs::create_dir_all(&resources_dir).expect("create resources dir");
-        let exe = release_dir.join("codex.exe");
-        let sibling_helper = release_dir.join("codex-command-runner.exe");
-        let resource_helper = resources_dir.join("codex-command-runner.exe");
+        let exe = release_dir.join("steve.exe");
+        let sibling_helper = release_dir.join("steve-command-runner.exe");
+        let resource_helper = resources_dir.join("steve-command-runner.exe");
         fs::write(&exe, b"codex").expect("write exe");
         fs::write(&sibling_helper, b"sibling runner").expect("write sibling helper");
         fs::write(&resource_helper, b"resource runner").expect("write resource helper");
 
         let resolved =
-            bundled_executable_path_for_exe(&exe, /*file_name*/ "codex-command-runner.exe")
+            bundled_executable_path_for_exe(&exe, /*file_name*/ "steve-command-runner.exe")
                 .expect("helper path");
 
         assert_eq!(resolved, sibling_helper);

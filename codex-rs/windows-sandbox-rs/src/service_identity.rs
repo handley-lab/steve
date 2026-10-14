@@ -12,10 +12,10 @@ use crate::package_identity::process_package_family;
 /// the legacy service lookup and may use ordinary elevated setup when it is absent.
 pub fn windows_sandbox_service_name() -> Result<String> {
     let Some(family) = service_package_family()? else {
-        return Ok("CodexSandboxService".into());
+        return Ok("SteveSandboxService".into());
     };
     let (name, _) = family.rsplit_once('_').context("invalid package family")?;
-    Ok(format!("CodexSandboxService.{name}"))
+    Ok(format!("SteveSandboxService.{name}"))
 }
 
 /// The full family, including publisher identity, qualifies the authenticated pipe.
@@ -34,7 +34,7 @@ fn service_package_family() -> Result<Option<String>> {
     if let Some(family) = current_family()? {
         return Ok(Some(family));
     }
-    let Some(hint) = std::env::var_os("CODEX_WINDOWS_SANDBOX_PACKAGE_FAMILY") else {
+    let Some(hint) = std::env::var_os("STEVE_WINDOWS_SANDBOX_PACKAGE_FAMILY") else {
         return Ok(None);
     };
     let family = hint

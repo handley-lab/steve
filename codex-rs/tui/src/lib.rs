@@ -1,5 +1,5 @@
 // Forbid accidental stdout/stderr writes in the *library* portion of the TUI.
-// The standalone `codex-tui` binary prints a short help message before the
+// The standalone `steve-tui` binary prints a short help message before the
 // alternate‑screen mode starts; that file opts‑out locally via `allow`.
 #![recursion_limit = "256"]
 #![deny(clippy::print_stdout, clippy::print_stderr)]
@@ -287,7 +287,7 @@ pub use public_widgets::composer_input::ComposerAction;
 pub use public_widgets::composer_input::ComposerInput;
 // (tests access modules directly within the crate)
 
-const TUI_LOG_FILE_NAME: &str = "codex-tui.log";
+const TUI_LOG_FILE_NAME: &str = "steve-tui.log";
 const INTERACTIVE_OTEL_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(/*millis*/ 500);
 
 const AUTO_CONNECT_DAEMON_CONNECT_TIMEOUT: std::time::Duration =
@@ -458,7 +458,7 @@ fn websocket_url_supports_auth_token(parsed: &Url) -> bool {
 pub fn resolve_remote_addr(addr: &str) -> color_eyre::Result<RemoteAppServerEndpoint> {
     if let Some(socket_path) = addr.strip_prefix("unix://") {
         let socket_path = if socket_path.is_empty() {
-            let codex_home = find_codex_home().wrap_err("failed to resolve CODEX_HOME")?;
+            let codex_home = find_codex_home().wrap_err("failed to resolve STEVE_HOME")?;
             codex_app_server_client::app_server_control_socket_path(&codex_home)
                 .map_err(color_eyre::Report::new)?
         } else {
@@ -508,7 +508,7 @@ async fn connect_remote_app_server(
 ) -> color_eyre::Result<AppServerClient> {
     let app_server = RemoteAppServerClient::connect(RemoteAppServerConnectArgs {
         endpoint,
-        client_name: "codex-tui".to_string(),
+        client_name: "steve-tui".to_string(),
         client_version: env!("CARGO_PKG_VERSION").to_string(),
         experimental_api: true,
         mcp_server_openai_form_elicitation: false,
@@ -724,7 +724,7 @@ where
         session_source: serde_json::from_value(serde_json::json!("cli"))
             .unwrap_or_else(|err| panic!("cli session source should deserialize: {err}")),
         enable_codex_api_key_env: false,
-        client_name: "codex-tui".to_string(),
+        client_name: "steve-tui".to_string(),
         client_version: env!("CARGO_PKG_VERSION").to_string(),
         experimental_api: true,
         mcp_server_openai_form_elicitation: false,
@@ -1441,7 +1441,7 @@ async fn run_ratatui_app(
                 disconnect_info: None,
                 update_action: None,
                 exit_reason: ExitReason::Fatal(format!(
-                    "No saved session found with ID {id_str}. Run `codex {action}` without an ID to choose from existing sessions."
+                    "No saved session found with ID {id_str}. Run `steve {action}` without an ID to choose from existing sessions."
                 )),
             })
         };
@@ -1959,7 +1959,7 @@ async fn run_ratatui_app(
         && let Some(metrics) = codex_otel::global()
     {
         let _ = metrics.counter(
-            "codex.tui.fullscreen_transcript",
+            "steve.tui.fullscreen_transcript",
             /*inc*/ 1,
             &[("enabled", &config.tui_fullscreen_transcript.to_string())],
         );
@@ -2423,7 +2423,7 @@ pub(crate) mod tests {
     #[test]
     fn tui_startup_future_stays_bounded() {
         let future = run_main(
-            Cli::parse_from(["codex"]),
+            Cli::parse_from(["steve"]),
             Arg0DispatchPaths::default(),
             LoaderOverrides::default(),
             /*explicit_remote_endpoint*/ None,
@@ -2591,7 +2591,7 @@ requires_openai_auth = {requires_openai_auth}
             id: thread_id,
             timestamp: meta_rfc3339.to_string(),
             cwd: cwd.to_path_buf(),
-            originator: "codex".to_string(),
+            originator: "steve".to_string(),
             cli_version: "0.0.0".to_string(),
             source: codex_protocol::protocol::SessionSource::Cli,
             model_provider: Some(model_provider.to_string()),
@@ -2787,7 +2787,7 @@ requires_openai_auth = {requires_openai_auth}
             .expect_err("Guardian resume should be rejected");
         insta::assert_snapshot!(error.to_string(), @"
         Cannot resume a Guardian review thread.
-        Resume its parent session instead: codex resume 00000000-0000-0000-0000-000000000001
+        Resume its parent session instead: steve resume 00000000-0000-0000-0000-000000000001
         ");
         app_server.shutdown().await?;
         Ok(())
@@ -3081,7 +3081,7 @@ requires_openai_auth = {requires_openai_auth}
 
     #[test]
     fn resolve_remote_addr_accepts_default_socket() -> color_eyre::Result<()> {
-        let codex_home = find_codex_home().wrap_err("failed to resolve CODEX_HOME")?;
+        let codex_home = find_codex_home().wrap_err("failed to resolve STEVE_HOME")?;
         assert_eq!(
             resolve_remote_addr("unix://")?,
             RemoteAppServerEndpoint::UnixSocket {
@@ -3096,7 +3096,7 @@ requires_openai_auth = {requires_openai_auth}
         assert_eq!(
             resolve_remote_addr("unix://codex.sock")?,
             RemoteAppServerEndpoint::UnixSocket {
-                socket_path: AbsolutePathBuf::relative_to_current_dir("codex.sock")?,
+                socket_path: AbsolutePathBuf::relative_to_current_dir("steve.sock")?,
             }
         );
         Ok(())
@@ -3105,7 +3105,7 @@ requires_openai_auth = {requires_openai_auth}
     #[test]
     fn resolve_remote_addr_accepts_absolute_socket_path() -> color_eyre::Result<()> {
         let temp_dir = TempDir::new()?;
-        let socket_path = temp_dir.path().join("codex.sock");
+        let socket_path = temp_dir.path().join("steve.sock");
         assert_eq!(
             resolve_remote_addr(&format!("unix://{}", socket_path.display()))?,
             RemoteAppServerEndpoint::UnixSocket {
@@ -3190,7 +3190,7 @@ requires_openai_auth = {requires_openai_auth}
     #[test]
     fn app_server_target_for_launch_uses_local_daemon_for_default_socket() -> color_eyre::Result<()>
     {
-        let socket_path = AbsolutePathBuf::relative_to_current_dir("codex.sock")?;
+        let socket_path = AbsolutePathBuf::relative_to_current_dir("steve.sock")?;
         let target = app_server_target_for_launch(
             /*explicit_remote_endpoint*/ None,
             Some(socket_path.clone()),
@@ -3213,7 +3213,7 @@ requires_openai_auth = {requires_openai_auth}
 
     #[test]
     fn app_server_target_for_launch_preserves_executor_selection() -> color_eyre::Result<()> {
-        let socket_path = AbsolutePathBuf::relative_to_current_dir("codex.sock")?;
+        let socket_path = AbsolutePathBuf::relative_to_current_dir("steve.sock")?;
         for executor in ["none", "ws://127.0.0.1:4501"] {
             assert_eq!(
                 app_server_target_for_launch(
@@ -3256,7 +3256,7 @@ requires_openai_auth = {requires_openai_auth}
     #[test]
     fn app_server_target_for_launch_skips_local_daemon_when_launch_config_is_not_replayable()
     -> color_eyre::Result<()> {
-        let socket_path = AbsolutePathBuf::relative_to_current_dir("codex.sock")?;
+        let socket_path = AbsolutePathBuf::relative_to_current_dir("steve.sock")?;
         let target = app_server_target_for_launch(
             /*explicit_remote_endpoint*/ None,
             Some(socket_path),
@@ -3306,7 +3306,7 @@ requires_openai_auth = {requires_openai_auth}
         let target = AppServerTarget::LocalDaemon {
             allow_embedded_fallback: true,
             endpoint: RemoteAppServerEndpoint::UnixSocket {
-                socket_path: AbsolutePathBuf::relative_to_current_dir("codex.sock")?,
+                socket_path: AbsolutePathBuf::relative_to_current_dir("steve.sock")?,
             },
         };
 
@@ -3645,7 +3645,7 @@ requires_openai_auth = {requires_openai_auth}
         };
         let target = AppServerTarget::Remote {
             endpoint: RemoteAppServerEndpoint::UnixSocket {
-                socket_path: AbsolutePathBuf::relative_to_current_dir("codex.sock")?,
+                socket_path: AbsolutePathBuf::relative_to_current_dir("steve.sock")?,
             },
         };
         let environment_manager = EnvironmentManager::default_for_tests();
@@ -3693,7 +3693,7 @@ requires_openai_auth = {requires_openai_auth}
         let target = AppServerTarget::LocalDaemon {
             allow_embedded_fallback: true,
             endpoint: RemoteAppServerEndpoint::UnixSocket {
-                socket_path: AbsolutePathBuf::relative_to_current_dir("codex.sock")?,
+                socket_path: AbsolutePathBuf::relative_to_current_dir("steve.sock")?,
             },
         };
         let environment_manager = EnvironmentManager::default_for_tests();
@@ -3776,7 +3776,7 @@ requires_openai_auth = {requires_openai_auth}
         let local_daemon = AppServerTarget::LocalDaemon {
             allow_embedded_fallback: true,
             endpoint: RemoteAppServerEndpoint::UnixSocket {
-                socket_path: AbsolutePathBuf::relative_to_current_dir("codex.sock")?,
+                socket_path: AbsolutePathBuf::relative_to_current_dir("steve.sock")?,
             },
         };
         assert!(uses_remote_workspace_or_environment(

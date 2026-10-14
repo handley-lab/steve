@@ -35,7 +35,7 @@ fn packaged_runtime_uses_manifest_version() {
         BuildInfo {
             version: Version::parse("1.2.3-alpha.4").expect("valid release version"),
             build_commit: BUILD_COMMIT.to_string(),
-            target: Some(env!("CODEX_BUILD_TARGET").to_string()),
+            target: Some(env!("STEVE_BUILD_TARGET").to_string()),
         },
     );
 }
@@ -54,7 +54,7 @@ fn unpackaged_runtime_uses_build_commit() {
         BuildInfo {
             version: Version::new(0, 0, 0),
             build_commit: BUILD_COMMIT.to_string(),
-            target: Some(env!("CODEX_BUILD_TARGET").to_string()),
+            target: Some(env!("STEVE_BUILD_TARGET").to_string()),
         },
     );
 }
@@ -81,7 +81,7 @@ fn legacy_package_without_version_uses_build_commit() {
         BuildInfo {
             version: Version::new(0, 0, 0),
             build_commit: BUILD_COMMIT.to_string(),
-            target: Some(env!("CODEX_BUILD_TARGET").to_string()),
+            target: Some(env!("STEVE_BUILD_TARGET").to_string()),
         },
     );
 }
@@ -111,7 +111,7 @@ fn invalid_package_version_uses_build_commit() {
         BuildInfo {
             version: Version::new(0, 0, 0),
             build_commit: BUILD_COMMIT.to_string(),
-            target: Some(env!("CODEX_BUILD_TARGET").to_string()),
+            target: Some(env!("STEVE_BUILD_TARGET").to_string()),
         },
     );
 }

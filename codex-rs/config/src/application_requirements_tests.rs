@@ -43,7 +43,7 @@ fn cloud_source() -> RequirementSource {
 
 fn managed_source() -> RequirementSource {
     RequirementSource::MdmManagedPreferences {
-        domain: "com.openai.codex".to_string(),
+        domain: "org.handley-lab.steve".to_string(),
         key: "requirements".to_string(),
     }
 }

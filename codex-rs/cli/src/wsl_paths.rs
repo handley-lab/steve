@@ -42,7 +42,7 @@ mod tests {
     #[test]
     fn win_to_wsl_basic() {
         assert_eq!(
-            win_path_to_wsl(r"C:\Temp\codex.zip").as_deref(),
+            win_path_to_wsl(r"C:\Temp\steve.zip").as_deref(),
             Some("/mnt/c/Temp/codex.zip")
         );
         assert_eq!(

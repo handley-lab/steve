@@ -3009,7 +3009,7 @@ async fn code_mode_late_result_metadata_with_large_arguments_survives_waits() ->
     extensions.tool_lifecycle_contributor(control);
     let builder = result_metadata_apps_builder(apps_server.chatgpt_base_url, "user@example.com")
         .with_extensions(Arc::new(extensions.build()))
-        .with_code_mode_host_program(codex_utils_cargo_bin::cargo_bin("codex-code-mode-host")?)
+        .with_code_mode_host_program(codex_utils_cargo_bin::cargo_bin("steve-code-mode-host")?)
         .with_config(|config| {
             config.features.enable(Feature::CodeModeHost).unwrap();
             config.code_mode.disable_in_process_fallback = true;
@@ -9110,7 +9110,7 @@ async fn code_mode_can_store_and_load_values_across_turns_after_rejection() -> R
 
     let server = responses::start_mock_server().await;
     let mut builder = test_codex()
-        .with_code_mode_host_program(codex_utils_cargo_bin::cargo_bin("codex-code-mode-host")?)
+        .with_code_mode_host_program(codex_utils_cargo_bin::cargo_bin("steve-code-mode-host")?)
         .with_config(|config| {
             let _ = config.features.enable(Feature::CodeMode);
             let _ = config.features.enable(Feature::CodeModeHost);

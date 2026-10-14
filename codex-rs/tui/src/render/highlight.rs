@@ -10,7 +10,7 @@
 //! | `THEME` | `OnceLock<RwLock<Theme>>` | Active color theme, swappable at runtime |
 //! | `THEME_REVISION` | `AtomicU64` | Invalidates rendered-content caches after theme swaps |
 //! | `THEME_OVERRIDE` | `OnceLock<Option<String>>` | Persisted user preference (write-once) |
-//! | `CODEX_HOME` | `OnceLock<Option<PathBuf>>` | Root for custom `.tmTheme` discovery |
+//! | `STEVE_HOME` | `OnceLock<Option<PathBuf>>` | Root for custom `.tmTheme` discovery |
 //!
 //! **Lifecycle:** call [`set_theme_override`] once at startup (after the final
 //! config is resolved) to persist the user preference and seed the `THEME`
@@ -92,7 +92,7 @@ fn syntax_set() -> &'static SyntaxSet {
 // time — long before it reaches users.  A runtime warning would be
 // unactionable noise since users can't fix upstream themes.
 
-/// Set the user-configured syntax theme override and codex home path.
+/// Set the user-configured syntax theme override and steve home path.
 ///
 /// Call this with the **final resolved config** (after onboarding, resume, and
 /// fork reloads complete). The first call persists `name` and `codex_home` in
@@ -135,7 +135,7 @@ pub(crate) fn validate_theme_name(name: Option<&str>, codex_home: Option<&Path>)
     let name = name?;
     let custom_theme_path_display = codex_home
         .map(|home| custom_theme_path(name, home).display().to_string())
-        .unwrap_or_else(|| format!("$CODEX_HOME/themes/{name}.tmTheme"));
+        .unwrap_or_else(|| format!("$STEVE_HOME/themes/{name}.tmTheme"));
     if resolve_theme_by_name(name, codex_home).is_some() {
         return None;
     }

@@ -72,7 +72,7 @@ async fn wait_with_output_keeps_eof_pipes_open_until_exit() -> anyhow::Result<()
 fn non_killing_drop_reaps_after_runtime_shutdown() -> anyhow::Result<()> {
     use crate::child_command::ChildDropPolicy;
     use std::time::Duration;
-    if std::env::var_os("CODEX_TEST_ISOLATED_REAPER").is_none() {
+    if std::env::var_os("STEVE_TEST_ISOLATED_REAPER").is_none() {
         // Other Tokio tests must not drain this process's global orphan queue.
         let output = std::process::Command::new(std::env::current_exe()?)
             .args([
@@ -80,7 +80,7 @@ fn non_killing_drop_reaps_after_runtime_shutdown() -> anyhow::Result<()> {
                 "child::tests::non_killing_drop_reaps_after_runtime_shutdown",
                 "--nocapture",
             ])
-            .env("CODEX_TEST_ISOLATED_REAPER", "1")
+            .env("STEVE_TEST_ISOLATED_REAPER", "1")
             .output()?;
         assert!(
             output.status.success(),
@@ -167,14 +167,14 @@ fn wait_until_reaped(pid: u32) -> anyhow::Result<()> {
 async fn preserved_descriptor_can_use_the_last_slot_below_the_limit() -> anyhow::Result<()> {
     use std::os::fd::AsRawFd;
     use std::os::fd::FromRawFd;
-    if std::env::var_os("CODEX_TEST_ISOLATED_FD_LIMIT").is_none() {
+    if std::env::var_os("STEVE_TEST_ISOLATED_FD_LIMIT").is_none() {
         let output = std::process::Command::new(std::env::current_exe()?)
             .args([
                 "--exact",
                 "child::tests::preserved_descriptor_can_use_the_last_slot_below_the_limit",
                 "--nocapture",
             ])
-            .env("CODEX_TEST_ISOLATED_FD_LIMIT", "1")
+            .env("STEVE_TEST_ISOLATED_FD_LIMIT", "1")
             .output()?;
         assert!(output.status.success(), "{output:?}");
         return Ok(());
@@ -276,7 +276,7 @@ async fn process_mode_is_preserved_by_both_backends() -> anyhow::Result<()> {
 #[tokio::test]
 async fn preserving_descriptors_keeps_parent_record_locks() -> anyhow::Result<()> {
     use std::io::Read;
-    if let Some(path) = std::env::var_os("CODEX_TEST_RECORD_LOCK") {
+    if let Some(path) = std::env::var_os("STEVE_TEST_RECORD_LOCK") {
         // Wait until spawn has returned and dropped the parent's command.
         std::io::stdin().read_exact(&mut [0])?;
         let file = std::fs::OpenOptions::new().write(true).open(path)?;
@@ -314,7 +314,7 @@ async fn preserving_descriptors_keeps_parent_record_locks() -> anyhow::Result<()
             "child::tests::preserving_descriptors_keeps_parent_record_locks",
             "--nocapture",
         ])
-        .env("CODEX_TEST_RECORD_LOCK", file.path())
+        .env("STEVE_TEST_RECORD_LOCK", file.path())
         .descriptor_policy(crate::DescriptorPolicy::Explicit)
         .preserve_fds(&[file.as_raw_fd()]);
     let mut child = command.spawn()?;

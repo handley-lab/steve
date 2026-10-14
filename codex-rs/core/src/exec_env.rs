@@ -13,11 +13,11 @@ pub use codex_protocol::shell_environment::CODEX_THREAD_ID_ENV_VAR;
 pub use codex_protocol::shell_environment::CODEX_TOOL_CALL_ID_ENV_VAR;
 pub(crate) use codex_protocol::shell_environment::set_tool_call_id_env_var;
 
-pub(crate) const CODEX_VERSION_ENV_VAR: &str = "CODEX_VERSION";
+pub(crate) const CODEX_VERSION_ENV_VAR: &str = "STEVE_VERSION";
 
 /// Informational name of the active permission profile. Child processes can
 /// overwrite this value, so it must not be treated as proof of enforcement.
-pub const CODEX_PERMISSION_PROFILE_ENV_VAR: &str = "CODEX_PERMISSION_PROFILE";
+pub const CODEX_PERMISSION_PROFILE_ENV_VAR: &str = "STEVE_PERMISSION_PROFILE";
 
 /// Construct an environment map based on the rules in the specified policy. The
 /// resulting map can be passed directly to `Command::envs()` after calling
@@ -27,7 +27,7 @@ pub const CODEX_PERMISSION_PROFILE_ENV_VAR: &str = "CODEX_PERMISSION_PROFILE";
 /// The derivation follows the algorithm documented in the struct-level comment
 /// for [`ShellEnvironmentPolicy`].
 ///
-/// `CODEX_THREAD_ID` is injected when a thread id is provided, even when
+/// `STEVE_THREAD_ID` is injected when a thread id is provided, even when
 /// `include_only` is set.
 pub fn create_env(
     policy: &ShellEnvironmentPolicy,

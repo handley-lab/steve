@@ -825,7 +825,7 @@ mod tests {
         use std::os::unix::ffi::OsStringExt;
         use std::process::Command;
 
-        const CHILD_ENV: &str = "CODEX_TEST_NON_UNICODE_BROKER_CONTEXT";
+        const CHILD_ENV: &str = "STEVE_TEST_NON_UNICODE_BROKER_CONTEXT";
         if std::env::var_os(CHILD_ENV).is_none() {
             let output = Command::new(std::env::current_exe().unwrap())
                 .args([

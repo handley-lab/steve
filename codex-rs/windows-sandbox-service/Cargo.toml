@@ -10,7 +10,7 @@ path = "src/lib.rs"
 doctest = false
 
 [[bin]]
-name = "codex-windows-sandbox-service"
+name = "steve-windows-sandbox-service"
 path = "src/main.rs"
 
 [lints]

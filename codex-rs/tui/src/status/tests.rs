@@ -64,7 +64,7 @@ use tempfile::TempDir;
 fn stale_monthly_limit_marks_fresh_rolling_snapshot_stale() {
     let now = Local::now();
     let snapshot = RateLimitSnapshotDisplay {
-        limit_name: "codex".to_string(),
+        limit_name: "steve".to_string(),
         normal_model_slug: None,
         captured_at: now,
         primary: Some(RateLimitWindowDisplay {
@@ -314,7 +314,7 @@ async fn status_snapshot_includes_reasoning_details() {
     };
     let rate_display = super::rate_limits::rate_limit_snapshot_display_for_limit(
         &snapshot,
-        "codex".to_string(),
+        "steve".to_string(),
         captured_at,
         ClockFormat::TwelveHour,
     );

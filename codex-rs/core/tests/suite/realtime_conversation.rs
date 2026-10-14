@@ -93,7 +93,7 @@ const USER_FIRST_NAME_PLACEHOLDER: &str = "{{ user_first_name }}";
 const MEMORY_PROMPT_PHRASE: &str =
     "You have access to a memory folder with guidance from prior runs.";
 const REALTIME_CONVERSATION_TEST_SUBPROCESS_ENV_VAR: &str =
-    "CODEX_REALTIME_CONVERSATION_TEST_SUBPROCESS";
+    "STEVE_REALTIME_CONVERSATION_TEST_SUBPROCESS";
 
 #[derive(Debug, Clone)]
 struct RealtimeCallRequestCapture {

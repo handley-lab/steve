@@ -88,15 +88,15 @@ async fn failed_persistence_fences_old_snapshots_but_allows_fresh_pins() -> Resu
 
 const TEST: &str =
     "enterprise_oauth_login::tests::logout::logout_invalidates_pending_login_across_processes";
-const LOGOUT_ISSUER: &str = "CODEX_ENTERPRISE_LOGOUT_TEST_ISSUER";
-const REPLACE_CREDENTIAL: &str = "CODEX_ENTERPRISE_LOGOUT_TEST_REPLACE";
+const LOGOUT_ISSUER: &str = "STEVE_ENTERPRISE_LOGOUT_TEST_ISSUER";
+const REPLACE_CREDENTIAL: &str = "STEVE_ENTERPRISE_LOGOUT_TEST_REPLACE";
 
 #[tokio::test]
 async fn logout_invalidates_pending_login_across_processes() -> Result<()> {
     if isolated_process(TEST).await? {
         return Ok(());
     }
-    let home = PathBuf::from(std::env::var("CODEX_HOME")?);
+    let home = PathBuf::from(std::env::var("STEVE_HOME")?);
     let keyring = FileKeyring(home.join("test-keyring"));
     fs::create_dir_all(&keyring.0)?;
     keyring::set_default_credential_builder(Box::new(keyring));

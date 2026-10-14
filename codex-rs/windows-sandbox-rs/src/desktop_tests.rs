@@ -30,10 +30,10 @@ fn private_desktop_rejects_interactive_and_injected_names() {
     for name in [
         "Default",
         r"Winsta0\Default",
-        "CodexSandboxDesktop-",
-        r"CodexSandboxDesktop-abcd\Default",
-        "CodexSandboxDesktop-abcd\0Default",
-        "CodexSandboxDesktop-0123456789abcdef0123456789abcdef0",
+        "SteveSandboxDesktop-",
+        r"SteveSandboxDesktop-abcd\Default",
+        "SteveSandboxDesktop-abcd\0Default",
+        "SteveSandboxDesktop-0123456789abcdef0123456789abcdef0",
     ] {
         assert!(LaunchDesktop::open_private(name).is_err(), "{name:?}");
     }

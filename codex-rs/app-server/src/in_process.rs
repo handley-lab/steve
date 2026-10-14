@@ -163,7 +163,7 @@ pub struct InProcessStartArgs {
     pub config_warnings: Vec<ConfigWarningNotification>,
     /// Session source stamped into thread/session metadata.
     pub session_source: SessionSource,
-    /// Whether serving auth should honor `CODEX_API_KEY`; workspace policy still uses stored auth.
+    /// Whether serving auth should honor `STEVE_API_KEY`; workspace policy still uses stored auth.
     pub enable_codex_api_key_env: bool,
     /// Initialize params used for initial handshake.
     pub initialize: InitializeParams,

@@ -422,8 +422,8 @@ async fn amazon_bedrock_aws_auth_refresh_resigns() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
     const TEST_NAME: &str = "suite::external_auth::amazon_bedrock_aws_auth_refresh_resigns";
-    const SUBPROCESS_ENV: &str = "CODEX_BEDROCK_AWS_REFRESH_TEST";
-    const HELPER_ARG: &str = "CODEX_BEDROCK_AWS_REFRESH_COMMAND";
+    const SUBPROCESS_ENV: &str = "STEVE_BEDROCK_AWS_REFRESH_TEST";
+    const HELPER_ARG: &str = "STEVE_BEDROCK_AWS_REFRESH_COMMAND";
     const OLD: &str = "[default]\naws_access_key_id=OLD\naws_secret_access_key=s\n";
     const NEW: &str = "[default]\naws_access_key_id=NEW\naws_secret_access_key=s\n";
 

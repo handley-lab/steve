@@ -298,7 +298,7 @@ async fn sdk_credentials_preserve_profile_processes_and_environment_precedence()
                 "--exact",
                 "network_policy_tests::sdk_profile_probe",
             ])
-            .env("CODEX_AWS_PROFILE_PROBE_CASE", case)
+            .env("STEVE_AWS_PROFILE_PROBE_CASE", case)
             .env("AWS_CONFIG_FILE", config)
             .env("AWS_SHARED_CREDENTIALS_FILE", credentials)
             .env("AWS_EC2_METADATA_DISABLED", "true")
@@ -365,7 +365,7 @@ async fn sdk_default_credentials_keep_endpoint_modes_from_environment_and_profil
                 "--exact",
                 "network_policy_tests::sdk_profile_probe",
             ])
-            .env("CODEX_AWS_PROFILE_PROBE_CASE", case)
+            .env("STEVE_AWS_PROFILE_PROBE_CASE", case)
             .env("AWS_CONFIG_FILE", config)
             .env("AWS_SHARED_CREDENTIALS_FILE", credentials)
             .env("AWS_EC2_METADATA_DISABLED", "true")
@@ -407,7 +407,7 @@ async fn sdk_default_credentials_keep_endpoint_modes_from_environment_and_profil
 #[test]
 #[ignore = "isolated AWS environment fixture"]
 fn sdk_profile_probe() -> Result<(), Box<dyn Error>> {
-    let case = std::env::var("CODEX_AWS_PROFILE_PROBE_CASE")?;
+    let case = std::env::var("STEVE_AWS_PROFILE_PROBE_CASE")?;
     tokio::runtime::Runtime::new()?.block_on(async {
         let controller = codex_http_client::NetworkPolicyController::default();
         let policy = controller.policy();

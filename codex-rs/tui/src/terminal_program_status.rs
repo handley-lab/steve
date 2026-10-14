@@ -1,4 +1,4 @@
-//! Emits coarse Codex lifecycle state through terminal status protocols.
+//! Emits coarse Steve lifecycle state through terminal status protocols.
 //!
 //! OSC 7501 is safe to send to any terminal and reports only the lifecycle
 //! state and app name. Direct iTerm2 sessions also receive the existing OSC
@@ -167,7 +167,7 @@ pub(crate) fn clear_terminal_program_status() -> io::Result<()> {
 
 /// Forgets the cached state after another process has owned the terminal.
 ///
-/// The next active draw will re-emit Codex's current status even if its
+/// The next active draw will re-emit Steve's current status even if its
 /// lifecycle state did not change during the handoff.
 pub(crate) fn invalidate_terminal_program_status() {
     SESSION_STATUS_STATE.invalidate();
@@ -233,7 +233,7 @@ impl Command for SetTerminalProgramStatus<'_> {
         }
         write!(
             f,
-            "\x1b]7501;state={}:app=codex\x1b\\",
+            "\x1b]7501;state={}:app=steve\x1b\\",
             self.status.protocol_state(),
         )
     }

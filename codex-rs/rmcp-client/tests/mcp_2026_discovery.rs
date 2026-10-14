@@ -1533,7 +1533,7 @@ async fn modern_discovery_rejection_does_not_downgrade_to_legacy() -> anyhow::Re
 #[tokio::test]
 async fn stdio_protocol_marker_rejects_unknown_versions_before_launch() -> anyhow::Result<()> {
     let env = HashMap::from([(
-        OsString::from("CODEX_MCP_PROTOCOL_VERSION"),
+        OsString::from("STEVE_MCP_PROTOCOL_VERSION"),
         OsString::from("1999-01-01"),
     )]);
     let error = RmcpClient::new_stdio_client_with_protocol_mode(

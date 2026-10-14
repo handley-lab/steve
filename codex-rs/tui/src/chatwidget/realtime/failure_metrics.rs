@@ -82,7 +82,7 @@ impl ChatWidget {
             RealtimeConversationPhase::Stopping => "stopping",
         };
         self.session_telemetry.counter(
-            "codex.voice.session.failure",
+            "steve.voice.session.failure",
             /*inc*/ 1,
             &[("cause", cause.as_str()), ("phase", phase)],
         );

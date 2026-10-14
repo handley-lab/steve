@@ -191,7 +191,7 @@ async fn user_verification_websocket_blocks_native_operations_before_validation(
         "initialize",
         /*id*/ 0,
         Some(json!({
-            "clientInfo": {"name": "codex-tui", "version": "1"},
+            "clientInfo": {"name": "steve-tui", "version": "1"},
             "capabilities": {"experimentalApi": true},
         })),
     )

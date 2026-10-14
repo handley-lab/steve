@@ -52,11 +52,11 @@ async fn stdio_sigterm_exits_with_open_pipes() -> Result<()> {
 async fn stdio_sigterm_times_out_with_blocked_stderr() -> Result<()> {
     // TestAppServer drains stderr, so keep this subprocess's stderr pipe unread.
     let codex_home = TempDir::new()?;
-    let mut process = tokio::process::Command::new(cargo_bin("codex-app-server")?)
+    let mut process = tokio::process::Command::new(cargo_bin("steve-app-server")?)
         .arg(DISABLE_PLUGIN_STARTUP_TASKS_ARG)
-        .env("CODEX_HOME", codex_home.path())
+        .env("STEVE_HOME", codex_home.path())
         .env(
-            "CODEX_APP_SERVER_MANAGED_CONFIG_PATH",
+            "STEVE_APP_SERVER_MANAGED_CONFIG_PATH",
             codex_home.path().join("managed_config.toml"),
         )
         .env("RUST_LOG", "codex_app_server_transport=error")

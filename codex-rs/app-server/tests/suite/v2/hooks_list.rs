@@ -1121,9 +1121,9 @@ hooks = false
 "#,
     )?;
     std::fs::create_dir_all(workspace.path().join(".git"))?;
-    std::fs::create_dir_all(workspace.path().join(".codex"))?;
+    std::fs::create_dir_all(workspace.path().join(".steve"))?;
     std::fs::write(
-        workspace.path().join(".codex/config.toml"),
+        workspace.path().join(".steve/config.toml"),
         r#"[features]
 hooks = true
 
@@ -1157,7 +1157,7 @@ timeout = 5
     let HooksListResponse { data } =
         timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
     let project_config_path =
-        AbsolutePathBuf::try_from(workspace.path().join(".codex/config.toml"))?;
+        AbsolutePathBuf::try_from(workspace.path().join(".steve/config.toml"))?;
     assert_eq!(
         data,
         vec![
@@ -1227,8 +1227,8 @@ async fn hooks_list_uses_root_repo_hooks_for_linked_worktrees() -> Result<()> {
         format!("{}\n", worktree_root.join(".git").display()),
     )?;
     std::fs::write(worktree_git_dir.join("commondir"), "../..\n")?;
-    write_project_hook_config(&repo_root.join(".codex"), "echo root hook")?;
-    write_project_hook_config(&worktree_root.join(".codex"), "echo worktree hook")?;
+    write_project_hook_config(&repo_root.join(".steve"), "echo root hook")?;
+    write_project_hook_config(&worktree_root.join(".steve"), "echo worktree hook")?;
     set_project_trust_level(codex_home.path(), &repo_root, TrustLevel::Trusted)?;
 
     let mut mcp = TestAppServer::builder()
@@ -1246,7 +1246,7 @@ async fn hooks_list_uses_root_repo_hooks_for_linked_worktrees() -> Result<()> {
     let repo_hook = data[0].hooks[0].clone();
     let worktree_hook = data[1].hooks[0].clone();
     let repo_config_path =
-        AbsolutePathBuf::from_absolute_path(repo_root.join(".codex/config.toml"))?;
+        AbsolutePathBuf::from_absolute_path(repo_root.join(".steve/config.toml"))?;
 
     assert_eq!(
         repo_hook.handler,

@@ -32,7 +32,7 @@ const SCRIPT: &str = "console.log('installed');\n";
 const ANALYTICS: &str = "version: 1\noperations:\n  install:\n    path: scripts/install.mjs\n    measurements:\n      duration_ms:\n        dimensions:\n          outcome: [success, error]\n";
 
 fn isolated_bundle_test(name: &str) -> Result<bool> {
-    const CHILD: &str = "CODEX_MEASUREMENT_REFERENCE_TEST";
+    const CHILD: &str = "STEVE_MEASUREMENT_REFERENCE_TEST";
     if std::env::var(CHILD).as_deref() == Ok(name) {
         return Ok(true);
     }
@@ -43,7 +43,7 @@ fn isolated_bundle_test(name: &str) -> Result<bool> {
             "--nocapture",
         ])
         .env(CHILD, name)
-        .env("CODEX_TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS", "1")
+        .env("STEVE_TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS", "1")
         .output()?;
     assert!(
         output.status.success(),

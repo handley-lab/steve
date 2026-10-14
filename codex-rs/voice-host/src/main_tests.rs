@@ -10,7 +10,7 @@ use tokio::process::Command;
 use tokio::time::timeout;
 
 const STARTUP_BLOCKED: &[u8] = b"voice startup blocked\n";
-const CHILD_ENV: &str = "CODEX_VOICE_WATCHDOG_TEST_CHILD";
+const CHILD_ENV: &str = "STEVE_VOICE_WATCHDOG_TEST_CHILD";
 
 #[test]
 fn queued_privacy_controls_and_close_precede_capture_service() {

@@ -504,7 +504,7 @@ mod tests {
     #[tokio::test]
     #[serial(auth_status_env)]
     async fn determine_auth_status_uses_bearer_token_when_env_authorization_header_present() {
-        let _guard = EnvVarGuard::set("CODEX_RMCP_CLIENT_AUTH_STATUS_TEST_TOKEN", "Bearer token");
+        let _guard = EnvVarGuard::set("STEVE_RMCP_CLIENT_AUTH_STATUS_TEST_TOKEN", "Bearer token");
         let status = determine_streamable_http_auth_status(
             "server",
             "not-a-url",
@@ -512,7 +512,7 @@ mod tests {
             /*http_headers*/ None,
             Some(HashMap::from([(
                 "Authorization".to_string(),
-                "CODEX_RMCP_CLIENT_AUTH_STATUS_TEST_TOKEN".to_string(),
+                "STEVE_RMCP_CLIENT_AUTH_STATUS_TEST_TOKEN".to_string(),
             )])),
             OAuthCredentialsStoreMode::Keyring,
             AuthKeyringBackendKind::default(),

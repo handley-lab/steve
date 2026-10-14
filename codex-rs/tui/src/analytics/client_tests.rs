@@ -264,7 +264,7 @@ async fn analytics_matches_app_account_routes_and_parameters() {
             vec![
                 ("group_by", "day"),
                 ("breakdown_by", "model"),
-                ("modes", "codex"),
+                ("modes", "steve"),
                 ("modes", "work"),
             ],
         ),

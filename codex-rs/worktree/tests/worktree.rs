@@ -427,7 +427,7 @@ fn creation_rejects_a_working_directory_that_escapes_through_a_base_symlink() {
 
 #[test]
 fn creation_ignores_inherited_git_environment() {
-    const CHILD_ROOT: &str = "CODEX_WORKTREE_ENV_TEST_ROOT";
+    const CHILD_ROOT: &str = "STEVE_WORKTREE_ENV_TEST_ROOT";
     if let Some(root) = std::env::var_os(CHILD_ROOT) {
         let root = PathBuf::from(root);
         let source = root.join("project");
@@ -443,7 +443,7 @@ fn creation_ignores_inherited_git_environment() {
         assert_eq!(worktree.source_cwd, source_cwd);
         assert_eq!(
             worktree.head_sha,
-            std::env::var("CODEX_WORKTREE_ENV_TEST_HEAD").expect("fixture operation succeeds")
+            std::env::var("STEVE_WORKTREE_ENV_TEST_HEAD").expect("fixture operation succeeds")
         );
         return;
     }
@@ -476,7 +476,7 @@ fn creation_ignores_inherited_git_environment() {
     child
         .args(["--exact", "creation_ignores_inherited_git_environment", "--nocapture"])
         .env(CHILD_ROOT, fixture.repository.parent().expect("fixture parent"))
-        .env("CODEX_WORKTREE_ENV_TEST_HEAD", run_git(&fixture.repository, &["rev-parse", "HEAD"]))
+        .env("STEVE_WORKTREE_ENV_TEST_HEAD", run_git(&fixture.repository, &["rev-parse", "HEAD"]))
         .env("GIT_DIR", other.join(".git"))
         .env("GIT_COMMON_DIR", other.join(".git"))
         .env("GIT_CEILING_DIRECTORIES", &fixture.repository)

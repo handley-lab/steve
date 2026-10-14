@@ -26,7 +26,7 @@ use windows_sys::Win32::System::Diagnostics::Debug::FORMAT_MESSAGE_FROM_SYSTEM;
 use windows_sys::Win32::System::Diagnostics::Debug::FORMAT_MESSAGE_IGNORE_INSERTS;
 use windows_sys::Win32::System::Diagnostics::Debug::FormatMessageW;
 
-pub const SANDBOX_USERS_GROUP: &str = "CodexSandboxUsers";
+pub const SANDBOX_USERS_GROUP: &str = "SteveSandboxUsers";
 const SANDBOX_USERS_GROUP_COMMENT: &str = "Codex sandbox internal group (managed)";
 
 pub fn to_wide<S: AsRef<OsStr>>(s: S) -> Vec<u16> {

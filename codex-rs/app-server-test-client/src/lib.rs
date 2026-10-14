@@ -106,9 +106,9 @@ const NOTIFICATIONS_TO_OPT_OUT: &[&str] = &[
 const APP_SERVER_GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const APP_SERVER_GRACEFUL_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const DEFAULT_ANALYTICS_ENABLED: bool = true;
-const OTEL_SERVICE_NAME: &str = "codex-app-server-test-client";
+const OTEL_SERVICE_NAME: &str = "steve-app-server-test-client";
 const TRACE_DISABLED_MESSAGE: &str =
-    "Not enabled - enable tracing in $CODEX_HOME/config.toml to get a trace URL!";
+    "Not enabled - enable tracing in $STEVE_HOME/config.toml to get a trace URL!";
 
 /// Minimal launcher that initializes the Codex app-server and logs the handshake.
 #[derive(Parser)]
@@ -116,14 +116,14 @@ const TRACE_DISABLED_MESSAGE: &str =
 struct Cli {
     /// Path to the `codex` CLI binary. When set, requests use stdio by
     /// spawning `codex app-server` as a child process.
-    #[arg(long, env = "CODEX_BIN", global = true)]
+    #[arg(long, env = "STEVE_BIN", global = true)]
     codex_bin: Option<PathBuf>,
 
     /// Existing websocket server URL to connect to.
     ///
     /// If neither `--codex-bin` nor `--url` is provided, defaults to
     /// `ws://127.0.0.1:4222`.
-    #[arg(long, env = "CODEX_APP_SERVER_URL", global = true)]
+    #[arg(long, env = "STEVE_APP_SERVER_URL", global = true)]
     url: Option<String>,
 
     /// Forwarded to the `codex` CLI as `--config key=value`. Repeatable.
@@ -157,7 +157,7 @@ enum CliCommand {
     /// Start `codex app-server` on a websocket endpoint in the background.
     ///
     /// Logs are written to:
-    ///   `/tmp/codex-app-server-test-client/`
+    ///   `/tmp/steve-app-server-test-client/`
     Serve {
         /// WebSocket listen URL passed to `codex app-server --listen`.
         #[arg(long, default_value = "ws://127.0.0.1:4222")]
@@ -265,7 +265,7 @@ enum CliCommand {
     #[command(name = "live-elicitation-timeout-pause")]
     LiveElicitationTimeoutPause {
         /// Model passed to `thread/start`.
-        #[arg(long, env = "CODEX_E2E_MODEL", default_value = "gpt-5")]
+        #[arg(long, env = "STEVE_E2E_MODEL", default_value = "gpt-5")]
         model: String,
         /// Existing workspace path used as the turn cwd.
         #[arg(long, value_name = "path", default_value = ".")]
@@ -610,7 +610,7 @@ impl Drop for BackgroundAppServer {
 }
 
 fn serve(codex_bin: &Path, config_overrides: &[String], listen: &str, kill: bool) -> Result<()> {
-    let runtime_dir = PathBuf::from("/tmp/codex-app-server-test-client");
+    let runtime_dir = PathBuf::from("/tmp/steve-app-server-test-client");
     fs::create_dir_all(&runtime_dir)
         .with_context(|| format!("failed to create runtime dir {}", runtime_dir.display()))?;
     let log_path = runtime_dir.join("app-server.log");
@@ -1283,7 +1283,7 @@ fn live_elicitation_timeout_pause(
         .canonicalize()
         .with_context(|| format!("failed to resolve workspace `{}`", workspace.display()))?;
     let app_server_test_client_bin = std::env::current_exe()
-        .context("failed to resolve codex-app-server-test-client binary path")?;
+        .context("failed to resolve steve-app-server-test-client binary path")?;
     let endpoint = Endpoint::ConnectWs(websocket_url.clone());
     let mut client = CodexClient::connect(&endpoint, &[])?;
 
@@ -1552,7 +1552,7 @@ impl CodexClient {
                     if Instant::now() >= deadline {
                         return Err(err).with_context(|| {
                             format!(
-                                "failed to connect to websocket app-server at `{url}`; if no server is running, start one with `codex-app-server-test-client serve --listen {url}`"
+                                "failed to connect to websocket app-server at `{url}`; if no server is running, start one with `steve-app-server-test-client serve --listen {url}`"
                             )
                         });
                     }

@@ -249,7 +249,7 @@ fn recognizes_windows_executor_plugin_cache_root() {
     };
     let relative_path = "skills/presentations/container_tools/mark_artifact_operation_started.mjs";
     let script = PathUri::parse(
-        "file:///C:/Users/user/.codex/plugins/cache/openai-primary-runtime/presentations/0.1.29/skills/presentations/container_tools/mark_artifact_operation_started.mjs",
+        "file:///C:/Users/user/.steve/plugins/cache/openai-primary-runtime/presentations/0.1.29/skills/presentations/container_tools/mark_artifact_operation_started.mjs",
     )
     .expect("Windows script URI");
 
@@ -260,7 +260,7 @@ fn recognizes_windows_executor_plugin_cache_root() {
         PluginVersionMatch::Exact,
     ));
     let wrong_version = PathUri::parse(
-        "file:///C:/Users/user/.codex/plugins/cache/openai-primary-runtime/presentations/0.1.28/skills/presentations/container_tools/mark_artifact_operation_started.mjs",
+        "file:///C:/Users/user/.steve/plugins/cache/openai-primary-runtime/presentations/0.1.28/skills/presentations/container_tools/mark_artifact_operation_started.mjs",
     )
     .expect("other-version Windows script URI");
     assert!(!executor_plugin_root_matches(
@@ -643,7 +643,7 @@ fn only_emits_safe_normalized_relative_script_paths() {
     );
     assert_eq!(
         normalized_relative_script_path(Path::new(
-            "/home/user/.codex/plugins/cache/openai-curated/sample/scripts/run.py"
+            "/home/user/.steve/plugins/cache/openai-curated/sample/scripts/run.py"
         )),
         None
     );
@@ -821,7 +821,7 @@ fn executor_cache_identity_obeys_windows_and_posix_case_conventions() {
     let (_reference, roots) =
         reference_fixture(&[("sites", "2.0.0-RC1", "selected", "printf shared\\n\n")]);
     let plugin_id = PluginId::parse("sites@openai-curated-remote").expect("plugin id");
-    for prefix in ["file:///C:/Users/user/.codex", "file://server/share/.codex"] {
+    for prefix in ["file:///C:/Users/user/.steve", "file://server/share/.steve"] {
         let script = PathUri::parse(&format!(
             "{prefix}/PLUGINS/CACHE/OPENAI-CURATED-REMOTE/SITES/2.0.0-rc1/{REFERENCE_HELPER}"
         ))
@@ -859,16 +859,16 @@ fn executor_cache_identity_obeys_windows_and_posix_case_conventions() {
     }
     for script in [
         format!(
-            "file:///home/user/.codex/PLUGINS/CACHE/OPENAI-CURATED-REMOTE/SITES/2.0.0-rc1/{REFERENCE_HELPER}"
+            "file:///home/user/.steve/PLUGINS/CACHE/OPENAI-CURATED-REMOTE/SITES/2.0.0-rc1/{REFERENCE_HELPER}"
         ),
         format!(
-            "file:///home/user/.codex/plugins/cache/openai-curated-remote/SITES/2.0.0-RC1/{REFERENCE_HELPER}"
+            "file:///home/user/.steve/plugins/cache/openai-curated-remote/SITES/2.0.0-RC1/{REFERENCE_HELPER}"
         ),
         format!(
-            "file:///C:/Users/user/.codex/PLUGINS/CACHE/OPENAI-CURATED-REMOTE/SITES/2.0.0-rc2/{REFERENCE_HELPER}"
+            "file:///C:/Users/user/.steve/PLUGINS/CACHE/OPENAI-CURATED-REMOTE/SITES/2.0.0-rc2/{REFERENCE_HELPER}"
         ),
         format!(
-            "file:///C:/Users/user/.codex/PLUGINS/CACHE/OPENAI-CURATED-REMOTE/OTHER/2.0.0-rc1/{REFERENCE_HELPER}"
+            "file:///C:/Users/user/.steve/PLUGINS/CACHE/OPENAI-CURATED-REMOTE/OTHER/2.0.0-rc1/{REFERENCE_HELPER}"
         ),
     ] {
         let script = PathUri::parse(&script).expect("script");
@@ -896,7 +896,7 @@ fn executor_cache_identity_obeys_windows_and_posix_case_conventions() {
     }
     for version in ["2.0.0-RC1", "2.0.0-rc1"] {
         let script = PathUri::parse(&format!(
-            "file:///home/user/.codex/plugins/cache/openai-curated-remote/sites/{version}/{REFERENCE_HELPER}"
+            "file:///home/user/.steve/plugins/cache/openai-curated-remote/sites/{version}/{REFERENCE_HELPER}"
         ))
         .expect("POSIX script");
         let target =

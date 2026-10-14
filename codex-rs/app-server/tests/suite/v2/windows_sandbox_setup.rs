@@ -161,11 +161,11 @@ async fn setup_validates_permissions_before_provisioning(
         .without_managed_config()
         .with_env_overrides(&[
             (
-                "CODEX_WINDOWS_REGISTERED_CORE",
+                "STEVE_WINDOWS_REGISTERED_CORE",
                 Some(if registered_core { "1" } else { "0" }),
             ),
             (
-                "CODEX_WINDOWS_SANDBOX_PACKAGE_FAMILY",
+                "STEVE_WINDOWS_SANDBOX_PACKAGE_FAMILY",
                 Some(&service_family),
             ),
             (

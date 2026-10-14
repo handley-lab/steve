@@ -32,7 +32,7 @@ pub(super) async fn fetch_feedback_upload(
     if params.include_logs {
         let staged = async {
             let directory = staging_dir.as_ref().ok_or_else(|| {
-                eyre!("App server did not report $CODEX_HOME; cannot stage feedback logs")
+                eyre!("App server did not report $STEVE_HOME; cannot stage feedback logs")
             })?;
             // These RPCs use the app-server's local filesystem, where feedback/upload
             // reads extraLogFiles, independently of the thread's executor environment.

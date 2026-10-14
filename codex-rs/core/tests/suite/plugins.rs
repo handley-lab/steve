@@ -478,7 +478,7 @@ async fn persisted_remote_plugin_command_attribution_flows_through_turn_context(
     let script_path = write_remote_plugin_script_and_config(codex_home.as_ref());
     std::fs::write(
         &script_path,
-        r#"printf '%s' '{"version":1,"measurements":[{"name":"files_scanned","value":7}]}' > "$CODEX_PLUGIN_METRICS_OUTPUT"
+        r#"printf '%s' '{"version":1,"measurements":[{"name":"files_scanned","value":7}]}' > "$STEVE_PLUGIN_METRICS_OUTPUT"
 "#,
     )?;
     let plugin_root = script_path
@@ -607,10 +607,10 @@ async fn plugin_metrics_stdin_works_with_sandbox_approval_disabled(
     let script = write_remote_plugin_script_and_config(home.as_ref());
     std::fs::write(
         &script,
-        r#"test -n "${CODEX_PLUGIN_METRICS_OUTPUT:-}" || exit 2
+        r#"test -n "${STEVE_PLUGIN_METRICS_OUTPUT:-}" || exit 2
 IFS= read -r input
 test "$input" = continue || exit 3
-printf '%s' '{"version":1,"measurements":[{"name":"files_scanned","value":7}]}' > "$CODEX_PLUGIN_METRICS_OUTPUT" || exit 4
+printf '%s' '{"version":1,"measurements":[{"name":"files_scanned","value":7}]}' > "$STEVE_PLUGIN_METRICS_OUTPUT" || exit 4
 printf 'STDIN_OK\n'
 "#,
     )?;
@@ -736,8 +736,8 @@ async fn remote_plugin_measurements_require_the_frontend_version() -> Result<()>
     let server = start_mock_server().await;
     let home = Arc::new(TempDir::new()?);
     let frontend_script = write_remote_plugin_script_and_config(home.as_ref());
-    let script = r#"if [ -n "${CODEX_PLUGIN_METRICS_OUTPUT:-}" ]; then
-  printf '%s' '{"version":1,"measurements":[{"name":"duration_ms","value":7,"dimensions":{"release":"v1"}}]}' > "$CODEX_PLUGIN_METRICS_OUTPUT"
+    let script = r#"if [ -n "${STEVE_PLUGIN_METRICS_OUTPUT:-}" ]; then
+  printf '%s' '{"version":1,"measurements":[{"name":"duration_ms","value":7,"dimensions":{"release":"v1"}}]}' > "$STEVE_PLUGIN_METRICS_OUTPUT"
 else
   printf 'no metrics sidecar\n'
 fi
@@ -1966,9 +1966,9 @@ async fn system_marketplace_plugin_honors_layered_activation_and_mcp_policy(
         ),
     )?;
     std::fs::create_dir_all(project.path().join(".git"))?;
-    std::fs::create_dir_all(project.path().join(".codex"))?;
+    std::fs::create_dir_all(project.path().join(".steve"))?;
     std::fs::write(
-        project.path().join(".codex/config.toml"),
+        project.path().join(".steve/config.toml"),
         format!(
             "[plugins.\"{SAMPLE_PLUGIN_CONFIG_NAME}\"]\nenabled = {plugin_enabled}\n[plugins.\"{SAMPLE_PLUGIN_CONFIG_NAME}\".mcp_servers.sample]\nenabled = {project_enabled}\ndisabled_tools = [\"echo-tool\"]\n"
         ),

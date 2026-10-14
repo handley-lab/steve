@@ -26,7 +26,7 @@ pub(super) async fn server() -> wiremock::MockServer {
                         "groups":[{"dimensions":{"model":"GPT-5.5"},"credits":10.0,"uncached_text_input_tokens":10,"cached_text_input_tokens":20,"text_output_tokens":30}]
                     }),
                     "credit-usage-events" => json!({"date":date,"product_surface":"cli","credit_amount":10.0}),
-                    "daily-workspace-user-credit-usage" => json!({"date":date,"values":{"codex":10.0}}),
+                    "daily-workspace-user-credit-usage" => json!({"date":date,"values":{"steve":10.0}}),
                     "daily-workspace-usage-counts" => json!({
                         "date":date,"totals":{"users":1,"threads":1,"turns":10,"credits":10.0},"clients":[],
                         "models":[{"model":"GPT-5.5","credits":10.0,"turns":10}]
@@ -41,7 +41,7 @@ pub(super) async fn server() -> wiremock::MockServer {
                 }
             }).collect::<Vec<_>>();
             let response = if route == "daily-workspace-user-credit-usage" {
-                json!({"breakdown":params["breakdown"],"series":[{"key":"codex","label":"Codex","total":data.len() as f64 * 10.0}],"data":data})
+                json!({"breakdown":params["breakdown"],"series":[{"key":"steve","label":"Steve","total":data.len() as f64 * 10.0}],"data":data})
             } else {
                 json!({"data":data})
             };

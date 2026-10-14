@@ -12,7 +12,7 @@ async fn daemon_version_notice_preserves_manual_update_guidance() {
     app.app_server_target = AppServerTarget::LocalDaemon {
         allow_embedded_fallback: true,
         endpoint: crate::RemoteAppServerEndpoint::UnixSocket {
-            socket_path: AbsolutePathBuf::relative_to_current_dir("codex.sock").unwrap(),
+            socket_path: AbsolutePathBuf::relative_to_current_dir("steve.sock").unwrap(),
         },
     };
     let view = app.agents_overview_view(Vec::new(), /*selected_thread_id*/ None);
@@ -27,7 +27,7 @@ async fn daemon_version_notice_preserves_manual_update_guidance() {
         assert_eq!(
             app.initialize_server_version_notice(client, Some(server)),
             Some(format!(
-                "A background Codex service is running v{server}, {comparison} your Codex CLI v{client}."
+                "A background Steve service is running v{server}, {comparison} your Steve CLI v{client}."
             ))
         );
         let overview = render_bottom_popup(&app.chat_widget, /*width*/ 100);
@@ -56,9 +56,9 @@ async fn daemon_version_notice_preserves_manual_update_guidance() {
         );
     }
     insta::assert_snapshot!(notices.join("\n"), @"
-    Service v0.155.0-alpha.22 < Codex CLI v0.155.0-alpha.23 · /daemon
-    Service v0.156.0 ≠ Codex CLI v0.155.0-alpha.23 · /daemon
-    Service v0.156.0 ≠ Codex CLI v0.0.0 · /daemon
+    Service v0.155.0-alpha.22 < Steve CLI v0.155.0-alpha.23 · /daemon
+    Service v0.156.0 ≠ Steve CLI v0.155.0-alpha.23 · /daemon
+    Service v0.156.0 ≠ Steve CLI v0.0.0 · /daemon
     ");
 }
 
@@ -76,7 +76,7 @@ async fn daemon_menu_is_read_only_and_confirmation_can_cancel_or_handoff() {
     app.app_server_target = AppServerTarget::LocalDaemon {
         allow_embedded_fallback: true,
         endpoint: crate::RemoteAppServerEndpoint::UnixSocket {
-            socket_path: AbsolutePathBuf::relative_to_current_dir("codex.sock").unwrap(),
+            socket_path: AbsolutePathBuf::relative_to_current_dir("steve.sock").unwrap(),
         },
     };
     app.chat_widget.remote_connection = Some(RemoteConnectionStatus {
@@ -89,7 +89,7 @@ async fn daemon_menu_is_read_only_and_confirmation_can_cancel_or_handoff() {
     let view = app.agents_overview_view(Vec::new(), /*selected_thread_id*/ None);
     app.chat_widget.show_bottom_pane_view(Box::new(view));
     let overview = render_bottom_popup(&app.chat_widget, /*width*/ 80);
-    insta::assert_snapshot!(overview.lines().find(|line| line.contains("Service v")).unwrap().trim(), @"Service v0.153.0 < Codex CLI v0.154.0 · /daemon");
+    insta::assert_snapshot!(overview.lines().find(|line| line.contains("Service v")).unwrap().trim(), @"Service v0.153.0 < Steve CLI v0.154.0 · /daemon");
     let executable = app.daemon_cli_executable.clone();
     for (width, source, snapshot) in [
         (
@@ -116,7 +116,7 @@ async fn daemon_menu_is_read_only_and_confirmation_can_cancel_or_handoff() {
         );
         app.daemon_cli_executable = Some(
             AbsolutePathBuf::from_absolute_path(if cfg!(windows) {
-                r"C:\cli-build\bin\codex"
+                r"C:\cli-build\bin\steve"
             } else {
                 "/x/cli-build/bin/codex"
             })
@@ -126,7 +126,7 @@ async fn daemon_menu_is_read_only_and_confirmation_can_cancel_or_handoff() {
         insta::assert_snapshot!(
             snapshot,
             render_bottom_popup(&app.chat_widget, width)
-                .replace(r"C:\cli-build\bin\codex", "/x/cli-build/bin/codex")
+                .replace(r"C:\cli-build\bin\steve", "/x/cli-build/bin/codex")
         );
         // The default choice cancels without emitting an update or exiting.
         app.chat_widget.handle_key_event(KeyCode::Enter.into());
@@ -213,7 +213,7 @@ async fn daemon_menu_is_read_only_and_confirmation_can_cancel_or_handoff() {
     app.chat_widget.handle_key_event(KeyCode::Enter.into());
     assert!(matches!(rx.try_recv().unwrap(), AppEvent::RunDaemonRestart));
 
-    // A local socket alone does not mean Codex can restart its owner.
+    // A local socket alone does not mean Steve can restart its owner.
     app.chat_widget
         .remote_connection
         .as_mut()
@@ -271,7 +271,7 @@ async fn daemon_menu_is_read_only_and_confirmation_can_cancel_or_handoff() {
     std::fs::remove_file(package.path().join("codex-package.json")).unwrap();
     // The full CLI can have any filename; capability comes from its entry point.
     app.daemon_cli_executable =
-        Some(AbsolutePathBuf::from_absolute_path(package.path().join("bin/codex-tui")).unwrap());
+        Some(AbsolutePathBuf::from_absolute_path(package.path().join("bin/steve-tui")).unwrap());
     app.open_daemon_menu();
     insta::assert_snapshot!(
         "daemon_unpackaged_cli",

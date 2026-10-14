@@ -195,7 +195,7 @@ pub fn fetch_dotslash_file(
 
 /// Returns a default `Config` whose on-disk state is confined to the provided
 /// temporary directory. Using a per-test directory keeps tests hermetic and
-/// avoids clobbering a developer’s real `~/.codex`.
+/// avoids clobbering a developer’s real `~/.steve`.
 pub async fn load_default_config_for_test(codex_home: &TempDir) -> Config {
     load_default_config_for_test_with_cloud_config_bundle(
         codex_home,
@@ -234,7 +234,7 @@ allow_local_binding = true
 fn default_test_overrides() -> ConfigOverrides {
     ConfigOverrides {
         codex_linux_sandbox_exe: Some(
-            find_codex_linux_sandbox_exe().expect("should find binary for codex-linux-sandbox"),
+            find_codex_linux_sandbox_exe().expect("should find binary for steve-linux-sandbox"),
         ),
         ..ConfigOverrides::default()
     }
@@ -259,7 +259,7 @@ pub fn find_codex_linux_sandbox_exe() -> Result<PathBuf, CargoBinError> {
         return Ok(path);
     }
 
-    codex_utils_cargo_bin::cargo_bin("codex-linux-sandbox")
+    codex_utils_cargo_bin::cargo_bin("steve-linux-sandbox")
 }
 
 pub async fn wait_for_event<F>(
@@ -720,7 +720,7 @@ macro_rules! codex_linux_sandbox_exe_or_skip {
             match $crate::find_codex_linux_sandbox_exe() {
                 Ok(path) => Some(path),
                 Err(err) => {
-                    eprintln!("codex-linux-sandbox binary not available, skipping test: {err}");
+                    eprintln!("steve-linux-sandbox binary not available, skipping test: {err}");
                     return;
                 }
             }
@@ -736,7 +736,7 @@ macro_rules! codex_linux_sandbox_exe_or_skip {
             match $crate::find_codex_linux_sandbox_exe() {
                 Ok(path) => Some(path),
                 Err(err) => {
-                    eprintln!("codex-linux-sandbox binary not available, skipping test: {err}");
+                    eprintln!("steve-linux-sandbox binary not available, skipping test: {err}");
                     return $return_value;
                 }
             }

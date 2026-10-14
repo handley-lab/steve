@@ -55,8 +55,8 @@ pub(super) async fn run(http: &impl InstallerHttp, legacy: &Daemon) -> Result<Up
     let script = fetch_installer_script(http).await?;
     anyhow::ensure!(
         script
-            .windows(b"CODEX_INSTALL_DEFER_SELECTION".len())
-            .any(|window| window == b"CODEX_INSTALL_DEFER_SELECTION"),
+            .windows(b"STEVE_INSTALL_DEFER_SELECTION".len())
+            .any(|window| window == b"STEVE_INSTALL_DEFER_SELECTION"),
         "the published installer does not support daemon migration yet; the legacy installation was left unchanged"
     );
     eprintln!("Preparing the daemon update in {}...", root.display());
@@ -95,9 +95,9 @@ pub(super) async fn run(http: &impl InstallerHttp, legacy: &Daemon) -> Result<Up
         "installer did not prepare a latest-channel daemon package"
     );
     let entrypoint = if cfg!(windows) {
-        "bin/codex.exe"
+        "bin/steve.exe"
     } else {
-        "bin/codex"
+        "bin/steve"
     };
     let binary = release.join(entrypoint);
     let version = managed_install::managed_codex_version(&binary).await?;

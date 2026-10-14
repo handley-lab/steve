@@ -285,7 +285,7 @@ impl App {
     }
 
     pub(super) fn open_desktop_thread(&mut self, thread_id: ThreadId) {
-        let url = format!("codex://threads/{thread_id}");
+        let url = format!("steve://threads/{thread_id}");
         if let Err(err) = open_desktop_thread_url(&url) {
             self.chat_widget
                 .add_error_message(desktop_thread_open_error_message(&err));
@@ -467,7 +467,7 @@ fn windows_desktop_app_launch_script(url: &str) -> String {
 $ErrorActionPreference = 'Stop'
 $url = {url}
 
-$package = Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue
+$package = Get-AppxPackage -Name OpenAI.Steve -ErrorAction SilentlyContinue
 if ($null -eq $package) {{
     Write-Error 'Desktop app package is not installed'
     exit 1
@@ -477,12 +477,12 @@ $manifest = Get-AppxPackageManifest -Package $package.PackageFullName
 $application = $manifest.Package.Applications.Application |
     Where-Object {{
         @($_.Extensions.Extension) | Where-Object {{
-            $_.Category -eq 'windows.protocol' -and $_.Protocol.Name -eq 'codex'
+            $_.Category -eq 'windows.protocol' -and $_.Protocol.Name -eq 'steve'
         }}
     }} |
     Select-Object -First 1
 if ($null -eq $application -or [string]::IsNullOrWhiteSpace($application.Executable)) {{
-    Write-Error 'Desktop app package does not declare a codex protocol executable'
+    Write-Error 'Desktop app package does not declare a steve protocol executable'
     exit 1
 }}
 

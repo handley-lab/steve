@@ -42,7 +42,7 @@ async fn exercise_stdio_server(
     let mut env = HashMap::new();
     if opt_in {
         env.insert(
-            OsString::from("CODEX_MCP_PROTOCOL_VERSION"),
+            OsString::from("STEVE_MCP_PROTOCOL_VERSION"),
             OsString::from("2026-07-28"),
         );
     }
@@ -83,7 +83,7 @@ async fn exercise_stdio_server(
         .initialize(
             InitializeRequestParams::new(
                 capabilities,
-                Implementation::new("codex-mcp-client", "0.0.0-test"),
+                Implementation::new("steve-mcp-client", "0.0.0-test"),
             )
             .with_protocol_version(ProtocolVersion::V_2025_06_18),
             Some(Duration::from_secs(5)),

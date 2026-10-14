@@ -115,7 +115,7 @@ fn command_execution_event_serializes_expected_shape() {
                 subsequent_response_id: None,
                 app_server_client: CodexAppServerClientMetadata {
                     product_client_id: "codex_tui".to_string(),
-                    client_name: Some("codex-tui".to_string()),
+                    client_name: Some("steve-tui".to_string()),
                     client_version: Some("1.2.3".to_string()),
                     rpc_transport: AppServerRpcTransport::Websocket,
                     experimental_api_enabled: Some(true),
@@ -174,7 +174,7 @@ fn command_execution_event_serializes_expected_shape() {
             "subsequent_response_id": null,
             "app_server_client": {
                 "product_client_id": "codex_tui",
-                "client_name": "codex-tui",
+                "client_name": "steve-tui",
                 "client_version": "1.2.3",
                 "rpc_transport": "websocket",
                 "experimental_api_enabled": true
@@ -352,7 +352,7 @@ async fn item_lifecycle_notifications_publish_command_execution_event() {
     assert_eq!(payload[0]["event_params"]["execution_duration_ms"], 42);
     assert_eq!(
         payload[0]["event_params"]["app_server_client"]["client_name"],
-        "codex-tui"
+        "steve-tui"
     );
     assert_eq!(payload[0]["event_params"]["thread_source"], "user");
 }

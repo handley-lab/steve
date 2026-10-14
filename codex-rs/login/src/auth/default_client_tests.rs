@@ -49,7 +49,7 @@ fn test_get_codex_user_agent() {
 #[test]
 #[cfg(target_os = "linux")]
 fn os_discovery_is_cached_without_freezing_user_agent_overrides() {
-    const PROBE_DIR: &str = "CODEX_TEST_USER_AGENT_PROBE_DIR";
+    const PROBE_DIR: &str = "STEVE_TEST_USER_AGENT_PROBE_DIR";
     if std::env::var_os(PROBE_DIR).is_some() {
         // Race the first lookup as well as exercising repeated requests.
         std::thread::scope(|scope| {
@@ -110,7 +110,7 @@ fn os_discovery_is_cached_without_freezing_user_agent_overrides() {
 #[test]
 fn is_first_party_originator_matches_known_values() {
     assert_eq!(is_first_party_originator(DEFAULT_ORIGINATOR), true);
-    assert_eq!(is_first_party_originator("codex-tui"), true);
+    assert_eq!(is_first_party_originator("steve-tui"), true);
     assert_eq!(is_first_party_originator("codex_vscode"), true);
     assert_eq!(is_first_party_originator("Codex Something Else"), true);
     assert_eq!(is_first_party_originator("codex_cli"), false);
@@ -323,23 +323,23 @@ async fn raw_auth_client_does_not_log_sensitive_request_or_response_data() {
 
 #[test]
 fn test_invalid_suffix_is_sanitized() {
-    let prefix = "codex_cli_rs/0.0.0";
+    let prefix = "steve_cli_rs/0.0.0";
     let suffix = "bad\rsuffix";
 
     assert_eq!(
         sanitize_user_agent(format!("{prefix} ({suffix})"), prefix),
-        "codex_cli_rs/0.0.0 (bad_suffix)"
+        "steve_cli_rs/0.0.0 (bad_suffix)"
     );
 }
 
 #[test]
 fn test_invalid_suffix_is_sanitized2() {
-    let prefix = "codex_cli_rs/0.0.0";
+    let prefix = "steve_cli_rs/0.0.0";
     let suffix = "bad\0suffix";
 
     assert_eq!(
         sanitize_user_agent(format!("{prefix} ({suffix})"), prefix),
-        "codex_cli_rs/0.0.0 (bad_suffix)"
+        "steve_cli_rs/0.0.0 (bad_suffix)"
     );
 }
 

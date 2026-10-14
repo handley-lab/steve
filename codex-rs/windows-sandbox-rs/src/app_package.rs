@@ -33,7 +33,7 @@ unsafe extern "system" {
 pub fn registered_core_requested() -> bool {
     static REQUESTED: OnceLock<bool> = OnceLock::new();
     *REQUESTED.get_or_init(|| {
-        requested_value(std::env::var_os("CODEX_WINDOWS_REGISTERED_CORE").as_deref())
+        requested_value(std::env::var_os("STEVE_WINDOWS_REGISTERED_CORE").as_deref())
     })
 }
 
@@ -117,7 +117,7 @@ pub(crate) fn verify_registered_core_runner(process: HANDLE, expected_runner: &P
             staged
                 .join("app")
                 .join("resources")
-                .join("codex-command-runner.exe")
+                .join("steve-command-runner.exe")
                 .as_os_str()
         ),
         "registered alias selected a different package identity"

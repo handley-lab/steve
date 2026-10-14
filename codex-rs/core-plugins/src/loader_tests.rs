@@ -340,7 +340,7 @@ fn configured_plugins_from_stack_merges_enabled_effective_layers() {
             ),
             ConfigLayerEntry::new(
                 ConfigLayerSource::Project {
-                    dot_codex_folder: user_config_path(&temp_dir, "project/.codex"),
+                    dot_codex_folder: user_config_path(&temp_dir, "project/.steve"),
                 },
                 toml::from_str(
                     "[plugins.profile]\nenabled = true\n[plugins.profile.mcp_servers.example]\nenabled = false\n",
@@ -349,7 +349,7 @@ fn configured_plugins_from_stack_merges_enabled_effective_layers() {
             ),
             ConfigLayerEntry::new_disabled(
                 ConfigLayerSource::Project {
-                    dot_codex_folder: user_config_path(&temp_dir, "project/untrusted/.codex"),
+                    dot_codex_folder: user_config_path(&temp_dir, "project/untrusted/.steve"),
                 },
                 toml::from_str("[plugins.untrusted]\nenabled = true\n")
                     .expect("untrusted project config toml"),

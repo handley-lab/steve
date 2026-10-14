@@ -80,7 +80,7 @@ fn compaction_event_serializes_expected_shape() {
                 "turn_id": "turn-1",
                 "app_server_client": {
                     "product_client_id": DEFAULT_ORIGINATOR,
-                    "client_name": "codex-tui",
+                    "client_name": "steve-tui",
                     "client_version": "1.0.0",
                     "rpc_transport": "stdio",
                     "experimental_api_enabled": true
@@ -140,7 +140,7 @@ async fn compaction_events_keep_authoritative_voice_session_across_consecutive_c
                 connection_id: 7,
                 params: InitializeParams {
                     client_info: ClientInfo {
-                        name: "codex-tui".to_string(),
+                        name: "steve-tui".to_string(),
                         title: None,
                         version: "1.0.0".to_string(),
                     },
@@ -346,7 +346,7 @@ async fn compaction_events_keep_authoritative_voice_session_across_consecutive_c
     );
     assert_eq!(
         payload[0]["event_params"]["app_server_client"]["client_name"],
-        "codex-tui"
+        "steve-tui"
     );
     assert_eq!(
         payload[0]["event_params"]["app_server_client"]["rpc_transport"],

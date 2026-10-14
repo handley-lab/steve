@@ -975,7 +975,7 @@ async fn desktop_async_answer_dismisses_only_its_question_and_preserves_the_othe
 [{"questionItemId":"[\"request_user_input_async\",\"questions\",0]","question":"Same title?","answer":"Answer from desktop"}]
 </send_user_message_question_reply>"#;
         let reply = format!(
-            "# Context from my IDE setup:\n\n## Open tabs:\n- lib.rs: src/lib.rs\n\n## My request for Codex:\n{reply}"
+            "# Context from my IDE setup:\n\n## Open tabs:\n- lib.rs: src/lib.rs\n\n## My request for Steve:\n{reply}"
         );
         let item = AppServerThreadItem::UserMessage {
             id: "answer".into(),

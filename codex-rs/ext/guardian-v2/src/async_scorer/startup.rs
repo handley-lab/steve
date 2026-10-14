@@ -59,7 +59,7 @@ pub(super) fn decisions_api_key(
     base_url: Option<&str>,
     auth_manager: &AuthManager,
 ) -> Result<String, DecisionsError> {
-    match std::env::var("CODEX_GUARDIAN_DECISIONS_API_KEY") {
+    match std::env::var("STEVE_GUARDIAN_DECISIONS_API_KEY") {
         Ok(key) => Ok(key),
         Err(std::env::VarError::NotPresent) if provider_id == "openai" && base_url.is_none() => {
             auth_manager

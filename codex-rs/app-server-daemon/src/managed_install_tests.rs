@@ -20,7 +20,7 @@ fn rejects_malformed_codex_cli_version_output() {
 #[tokio::test]
 async fn executable_identity_uses_path_and_binary_contents() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    let executable = directory.path().join("codex");
+    let executable = directory.path().join("steve");
     // Span multiple reads, including a partial final buffer, and preserve the
     // digest stored by older clients that hashed the complete file in memory.
     let mut bytes: Vec<u8> = (0..200_003).map(|index| (index % 251) as u8).collect();

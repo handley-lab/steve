@@ -13,7 +13,7 @@ use ratatui::layout::Rect;
 use ratatui::layout::Size;
 use std::process::Command;
 
-const CHILD_ENV: &str = "CODEX_TUI_OWNED_SCREEN_CHILD";
+const CHILD_ENV: &str = "STEVE_TUI_OWNED_SCREEN_CHILD";
 
 #[test]
 fn owned_screen_preserves_inline_viewport_across_overlay_handoff_and_resume() {

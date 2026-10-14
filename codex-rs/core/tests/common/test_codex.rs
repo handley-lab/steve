@@ -100,7 +100,7 @@ type PreBuildHook = dyn FnOnce(&Path) + Send + 'static;
 type WorkspaceSetup = dyn FnOnce(AbsolutePathBuf, Arc<dyn ExecutorFileSystem>) -> BoxFuture<'static, Result<()>>
     + Send;
 const TEST_MODEL_WITH_EXPERIMENTAL_TOOLS: &str = "test-gpt-5.1-codex";
-const REMOTE_EXEC_SERVER_URL_ENV_VAR: &str = "CODEX_TEST_REMOTE_EXEC_SERVER_URL";
+const REMOTE_EXEC_SERVER_URL_ENV_VAR: &str = "STEVE_TEST_REMOTE_EXEC_SERVER_URL";
 static REMOTE_TEST_INSTANCE_COUNTER: AtomicU64 = AtomicU64::new(0);
 const SUBMIT_TURN_COMPLETE_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -614,10 +614,10 @@ impl TestCodexBuilder {
 
     /// Builds a test runtime using the execution environment selected by the test process.
     ///
-    /// With no remote test configuration, or with `CODEX_TEST_ENVIRONMENT=local`, this uses a
-    /// temporary local environment just like [`Self::build`]. `CODEX_TEST_ENVIRONMENT=docker` or
-    /// `CODEX_TEST_ENVIRONMENT=wine-exec` selects the remote exec server configured by
-    /// `CODEX_TEST_REMOTE_EXEC_SERVER_URL`; the legacy `CODEX_TEST_REMOTE_ENV` Docker-container
+    /// With no remote test configuration, or with `STEVE_TEST_ENVIRONMENT=local`, this uses a
+    /// temporary local environment just like [`Self::build`]. `STEVE_TEST_ENVIRONMENT=docker` or
+    /// `STEVE_TEST_ENVIRONMENT=wine-exec` selects the remote exec server configured by
+    /// `STEVE_TEST_REMOTE_EXEC_SERVER_URL`; the legacy `STEVE_TEST_REMOTE_ENV` Docker-container
     /// configuration does the same. Only the automatically selected environment is registered.
     /// Use [`Self::build_with_remote_and_local_env`] when a remote test also needs the local
     /// environment to be selectable explicitly.
@@ -781,7 +781,7 @@ impl TestCodexBuilder {
         #[cfg(target_os = "linux")]
         let codex_linux_sandbox_exe = Some(
             crate::find_codex_linux_sandbox_exe()
-                .context("should find binary for codex-linux-sandbox")?,
+                .context("should find binary for steve-linux-sandbox")?,
         );
         #[cfg(not(target_os = "linux"))]
         let codex_linux_sandbox_exe = None;
@@ -849,7 +849,7 @@ impl TestCodexBuilder {
         let code_mode_host_program = self
             .code_mode_host_program
             .take()
-            .or_else(|| codex_utils_cargo_bin::cargo_bin("codex-code-mode-host").ok());
+            .or_else(|| codex_utils_cargo_bin::cargo_bin("steve-code-mode-host").ok());
         let thread_manager = Arc::new_cyclic(|manager| {
             let mut extensions = self.extensions.to_builder();
             codex_core::install_agent_message_board(&mut extensions, manager.clone());
@@ -999,17 +999,17 @@ impl TestCodexBuilder {
         config.model = Some("gpt-5.5".to_string());
         config.cwd = cwd_override;
         config.model_provider = model_provider;
-        if let Ok(path) = codex_utils_cargo_bin::cargo_bin("codex") {
+        if let Ok(path) = codex_utils_cargo_bin::cargo_bin("steve") {
             config.codex_self_exe = Some(path);
-        } else if let Ok(path) = codex_utils_cargo_bin::cargo_bin("codex-exec") {
-            // `codex-exec` also supports `--codex-run-as-apply-patch`, so use it
+        } else if let Ok(path) = codex_utils_cargo_bin::cargo_bin("steve-exec") {
+            // `steve-exec` also supports `--codex-run-as-apply-patch`, so use it
             // when the multitool binary is not available in test builds.
             config.codex_self_exe = Some(path);
         } else if let Ok(exe) = std::env::current_exe()
             && let Some(bin_dir) = exe.parent().and_then(|parent| parent.parent())
         {
             let codex = bin_dir.join("codex");
-            let codex_exec = bin_dir.join("codex-exec");
+            let codex_exec = bin_dir.join("steve-exec");
             if codex.is_file() {
                 config.codex_self_exe = Some(codex);
             } else if codex_exec.is_file() {

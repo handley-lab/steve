@@ -110,14 +110,14 @@ impl BuildInfo {
             return Self {
                 version: manifest.version,
                 build_commit: build_commit.to_owned(),
-                target: Some(env!("CODEX_BUILD_TARGET").to_owned()),
+                target: Some(env!("STEVE_BUILD_TARGET").to_owned()),
             };
         }
 
         Self {
             version: Version::new(0, 0, 0),
             build_commit: build_commit.to_owned(),
-            target: Some(env!("CODEX_BUILD_TARGET").to_owned()),
+            target: Some(env!("STEVE_BUILD_TARGET").to_owned()),
         }
     }
 }

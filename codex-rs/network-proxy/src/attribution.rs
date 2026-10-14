@@ -11,7 +11,7 @@ use tokio::io::AsyncReadExt;
 
 /// Internal handoff from the trusted Linux proxy bridge.
 #[doc(hidden)]
-pub const PROXY_ATTRIBUTION_TOKEN_ENV_KEY: &str = "CODEX_NETWORK_PROXY_ATTRIBUTION";
+pub const PROXY_ATTRIBUTION_TOKEN_ENV_KEY: &str = "STEVE_NETWORK_PROXY_ATTRIBUTION";
 
 const ATTRIBUTION_FRAME_MAGIC: &[u8; 8] = b"\0CDXPXY1";
 const MAX_ATTRIBUTION_TOKEN_LEN: usize = 128;

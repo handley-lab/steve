@@ -144,10 +144,10 @@ impl RequestPluginInstallHandler {
         }
         if (requested_tool_type == Some(DiscoverableToolType::Plugin)
             || self.presentation == ToolSuggestPresentation::RecommendationContext)
-            && turn.app_server_client_name.as_deref() == Some("codex-tui")
+            && turn.app_server_client_name.as_deref() == Some("steve-tui")
         {
             return Err(FunctionCallError::RespondToModel(
-                "plugin install requests are not available in codex-tui yet".to_string(),
+                "plugin install requests are not available in steve-tui yet".to_string(),
             ));
         }
 

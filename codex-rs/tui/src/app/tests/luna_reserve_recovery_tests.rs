@@ -10,7 +10,7 @@ use serde_json::json;
 pub(super) fn reserve_response() -> GetAccountRateLimitsResponse {
     serde_json::from_value(json!({
         "accountId": "workspace-a", "ordinaryUsageAllowed": false,
-        "rateLimits": {"limitId": "codex", "primary": {"usedPercent": 100}},
+        "rateLimits": {"limitId": "steve", "primary": {"usedPercent": 100}},
         "rateLimitsByLimitId": {"base_model_inference": {
             "limitId": "base_model_inference", "limitName": "gpt-reserve",
             "primary": {"usedPercent": 48, "windowDurationMins": 10080}

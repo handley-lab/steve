@@ -6,7 +6,7 @@ use core_test_support::responses;
 use core_test_support::test_codex_exec::test_codex_exec;
 use wiremock::matchers::header;
 
-/// Verify that when the server reports an error, `codex-exec` exits with a
+/// Verify that when the server reports an error, `steve-exec` exits with a
 /// non-zero status code so automation can detect failures.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn send_codex_exec_originator() -> anyhow::Result<()> {
@@ -18,7 +18,7 @@ async fn send_codex_exec_originator() -> anyhow::Result<()> {
         responses::ev_assistant_message("response_1", "Hello, world!"),
         responses::ev_completed("response_1"),
     ]);
-    responses::mount_sse_once_match(&server, header("Originator", "codex_exec"), body).await;
+    responses::mount_sse_once_match(&server, header("Originator", "steve_exec"), body).await;
 
     test.cmd_with_server(&server)
         .env_remove(CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR)
@@ -44,7 +44,7 @@ async fn supports_originator_override() -> anyhow::Result<()> {
         .await;
 
     test.cmd_with_server(&server)
-        .env("CODEX_INTERNAL_ORIGINATOR_OVERRIDE", "codex_exec_override")
+        .env("STEVE_INTERNAL_ORIGINATOR_OVERRIDE", "codex_exec_override")
         .arg("--skip-git-repo-check")
         .arg("tell me something")
         .assert()

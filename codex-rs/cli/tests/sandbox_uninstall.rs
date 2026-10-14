@@ -12,16 +12,16 @@ fn uninstall_help_and_invalid_arguments_preserve_user_data() -> Result<()> {
     std::fs::write(home.path().join("config.toml"), "invalid config [")?;
     std::fs::write(home.path().join("auth.json"), "preserve credentials")?;
 
-    let mut command = assert_cmd::Command::new(codex_utils_cargo_bin::cargo_bin("codex")?);
+    let mut command = assert_cmd::Command::new(codex_utils_cargo_bin::cargo_bin("steve")?);
     command
-        .env("CODEX_HOME", home.path())
+        .env("STEVE_HOME", home.path())
         .args(["sandbox", "uninstall", "--help"])
         .assert()
         .success();
 
-    let mut command = assert_cmd::Command::new(codex_utils_cargo_bin::cargo_bin("codex")?);
+    let mut command = assert_cmd::Command::new(codex_utils_cargo_bin::cargo_bin("steve")?);
     command
-        .env("CODEX_HOME", home.path())
+        .env("STEVE_HOME", home.path())
         .args(["sandbox", "uninstall", "unexpected"])
         .assert()
         .failure()

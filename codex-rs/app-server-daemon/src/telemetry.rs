@@ -4,7 +4,7 @@
 use std::path::Path;
 
 /// Suppress child reporting when the foreground TUI handoff owns the observation.
-pub const HANDOFF_ENV: &str = "CODEX_DAEMON_TELEMETRY_HANDOFF";
+pub const HANDOFF_ENV: &str = "STEVE_DAEMON_TELEMETRY_HANDOFF";
 
 /// Only presence and enabled state leave the settings reader, never values or contents.
 /// Missing files mean defaults; unreadable or invalid settings remain unknown.

@@ -87,7 +87,7 @@ model_provider = "{local_selection}"
 [model_providers.gateway]
 name = "Local gateway"
 base_url = "{local_url}"
-env_key = "CODEX_TEST_LOCAL_GATEWAY_KEY_MUST_NOT_BE_USED"
+env_key = "STEVE_TEST_LOCAL_GATEWAY_KEY_MUST_NOT_BE_USED"
 experimental_bearer_token = "local-token"
 [model_providers.gateway.http_headers]
 X-Local = "local"

@@ -14,7 +14,7 @@
 //! keystore that always encrypts secrets when they are transferred across the bus. If DBus isn't installed the keystore will fall back to the json
 //! file because we don't use the "vendored" feature.
 //!
-//! If the keyring is not available or fails, we fall back to CODEX_HOME/.credentials.json which is consistent with other coding CLI agents.
+//! If the keyring is not available or fails, we fall back to STEVE_HOME/.credentials.json which is consistent with other coding CLI agents.
 
 mod credential_store;
 mod ema_identity;
@@ -97,7 +97,7 @@ pub(crate) use self::resolved_store::resolve_oauth_tokens_from_store_policy;
 use self::resolved_store::try_resolve_oauth_tokens_from_store_policy;
 pub(crate) use self::runtime::OAuthRuntime;
 
-const KEYRING_SERVICE: &str = "Codex MCP Credentials";
+const KEYRING_SERVICE: &str = "Steve MCP Credentials";
 const MCP_OAUTH_SECRET_PREFIX: &str = "MCP_OAUTH";
 const REFRESH_SKEW_MILLIS: u64 = 30_000;
 
@@ -1403,7 +1403,7 @@ mod tests {
     #[test]
     fn fallback_file_is_private_at_creation() -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
-        const CHILD: &str = "CODEX_TEST_OAUTH_PERMISSIVE_UMASK";
+        const CHILD: &str = "STEVE_TEST_OAUTH_PERMISSIVE_UMASK";
 
         if std::env::var_os(CHILD).is_none() {
             // Change umask only in the child running this one test.

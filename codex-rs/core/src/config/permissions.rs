@@ -49,7 +49,7 @@ pub(crate) const BUILT_IN_DANGER_FULL_ACCESS_PROFILE: &str =
     BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS;
 
 /// Keep the active apply_patch aliases readable without granting access to other
-/// sessions or the rest of CODEX_HOME. Preserve the alias directory, not its target.
+/// sessions or the rest of STEVE_HOME. Preserve the alias directory, not its target.
 pub(super) fn active_arg0_helper_dir(
     codex_home: &Path,
     path_env: &OsStr,

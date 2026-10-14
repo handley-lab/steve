@@ -1,4 +1,4 @@
-//! Command-line startup for `codex exec-server`.
+//! Command-line startup for `steve exec-server`.
 //!
 //! Transport, configuration, authentication, and shutdown are kept together.
 
@@ -34,7 +34,7 @@ pub(super) struct ExecServerCommand {
     #[command(subcommand)]
     pub(super) command: Option<ExecServerSubcommand>,
 
-    /// Error out when config.toml contains fields that are not recognized by this version of Codex.
+    /// Error out when config.toml contains fields that are not recognized by this version of Steve.
     #[arg(
         id = "exec_server_strict_config",
         long = "strict-config",
@@ -53,7 +53,7 @@ pub(super) struct ExecServerCommand {
     /// Loopback stays local. This flag does not require upstream routing.
     #[arg(
         long,
-        env = "CODEX_EXEC_SERVER_PROXY_PRIVATE_IPS_VIA_UPSTREAM",
+        env = "STEVE_EXEC_SERVER_PROXY_PRIVATE_IPS_VIA_UPSTREAM",
         global = true
     )]
     proxy_private_ips_via_upstream: bool,
@@ -106,7 +106,7 @@ pub(super) struct ExecServerCommand {
     #[arg(long = "name", value_name = "NAME", global = true)]
     pub(super) name: Option<String>,
 
-    /// Use Agent Identity auth from CODEX_ACCESS_TOKEN for remote registration.
+    /// Use Agent Identity auth from STEVE_ACCESS_TOKEN for remote registration.
     #[arg(
         long = "use-agent-identity-auth",
         requires = "exec_server_remote",
@@ -173,7 +173,7 @@ impl ExecServerCommand {
         let codex_self_exe = arg0_paths
             .codex_self_exe
             .clone()
-            .ok_or_else(|| anyhow::anyhow!("Codex executable path is not configured"))?;
+            .ok_or_else(|| anyhow::anyhow!("Steve executable path is not configured"))?;
         let mut runtime_paths = ExecServerRuntimeOptions::new(
             codex_self_exe,
             arg0_paths.codex_linux_sandbox_exe.clone(),
@@ -369,7 +369,7 @@ async fn load_exec_server_remote_auth_provider(
 ) -> anyhow::Result<codex_api::SharedAuthProvider> {
     if use_agent_identity_auth {
         read_codex_access_token_from_env().ok_or_else(|| {
-            anyhow::anyhow!("CODEX_ACCESS_TOKEN is required when --use-agent-identity-auth is set")
+            anyhow::anyhow!("STEVE_ACCESS_TOKEN is required when --use-agent-identity-auth is set")
         })?;
         let auth = AuthManager::shared_from_config(config, /*enable_codex_api_key_env*/ false)
             .await?
@@ -378,7 +378,7 @@ async fn load_exec_server_remote_auth_provider(
             .ok_or_else(|| anyhow::anyhow!("Agent Identity authentication is unavailable"))?;
         if !matches!(auth, CodexAuth::AgentIdentity(_)) {
             anyhow::bail!(
-                "CODEX_ACCESS_TOKEN did not provide permitted Agent Identity authentication"
+                "STEVE_ACCESS_TOKEN did not provide permitted Agent Identity authentication"
             );
         }
         return Ok(codex_model_provider::auth_provider_from_auth(&auth));
@@ -386,7 +386,7 @@ async fn load_exec_server_remote_auth_provider(
 
     let (auth_manager, auth) = load_exec_server_remote_auth(
         config,
-        "remote exec-server registration requires ChatGPT authentication or API key authentication; run `codex login` or set CODEX_API_KEY",
+        "remote exec-server registration requires ChatGPT authentication or API key authentication; run `steve login` or set STEVE_API_KEY",
     )
     .await?;
 

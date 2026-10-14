@@ -471,7 +471,7 @@ async fn file_system_elevated_relative_read_denial_uses_policy_cwd(
     {
         return Err(error).context("create Windows sandbox test resources");
     }
-    for name in ["codex-windows-sandbox-setup", "codex-command-runner"] {
+    for name in ["steve-windows-sandbox-setup", "steve-command-runner"] {
         let source = codex_utils_cargo_bin::cargo_bin(name)?;
         let destination = resources.join(Path::new(name).with_extension("exe"));
         if let Err(error) = codex_utils_cargo_bin::copy_executable(&source, &destination)
@@ -721,7 +721,7 @@ fn process_private_desktops() -> Result<BTreeSet<String>> {
                 .position(|&unit| unit == 0)
                 .unwrap_or(name.len());
             let name = String::from_utf16(&name[..end])?;
-            if name.starts_with("CodexSandboxDesktop-") {
+            if name.starts_with("SteveSandboxDesktop-") {
                 desktops.insert(name);
             }
         }

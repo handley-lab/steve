@@ -171,7 +171,7 @@ pub(super) fn sample_thread_start_response(
 pub(super) fn sample_app_server_client_metadata() -> CodexAppServerClientMetadata {
     CodexAppServerClientMetadata {
         product_client_id: DEFAULT_ORIGINATOR.to_string(),
-        client_name: Some("codex-tui".to_string()),
+        client_name: Some("steve-tui".to_string()),
         client_version: Some("1.0.0".to_string()),
         rpc_transport: AppServerRpcTransport::Stdio,
         experimental_api_enabled: Some(true),
@@ -396,13 +396,13 @@ pub(super) async fn ingest_initialize(
                 connection_id: 7,
                 params: InitializeParams {
                     client_info: ClientInfo {
-                        name: "codex-tui".to_string(),
+                        name: "steve-tui".to_string(),
                         title: None,
                         version: "1.0.0".to_string(),
                     },
                     capabilities: None,
                 },
-                product_client_id: "codex-tui".to_string(),
+                product_client_id: "steve-tui".to_string(),
                 runtime: sample_runtime_metadata(),
                 rpc_transport: AppServerRpcTransport::Stdio,
             },
@@ -585,7 +585,7 @@ pub(super) fn sample_initialize_fact(connection_id: u64) -> AnalyticsFact {
         connection_id,
         params: InitializeParams {
             client_info: ClientInfo {
-                name: "codex-tui".to_string(),
+                name: "steve-tui".to_string(),
                 title: None,
                 version: "1.0.0".to_string(),
             },

@@ -52,9 +52,9 @@ fn local_stdio_inherits_ca_certificate_variables() -> anyhow::Result<()> {
                 .into_iter()
                 .map(|name| (name, "certs/custom-ca.pem")),
         )
-        .env("CODEX_CA_CERTIFICATE", "")
+        .env("STEVE_CA_CERTIFICATE", "")
         .env("REQUESTS_CA_BUNDLE", requests_ca_bundle)
-        .env("CODEX_MCP_TEST_SERVER_CWD", &server_dir)
+        .env("STEVE_MCP_TEST_SERVER_CWD", &server_dir)
         .output()?;
 
     assert!(
@@ -71,7 +71,7 @@ fn local_stdio_inherits_ca_certificate_variables() -> anyhow::Result<()> {
 async fn local_stdio_inherits_ca_certificate_variables_child() -> anyhow::Result<()> {
     let server = codex_utils_cargo_bin::cargo_bin("test_stdio_server")?;
     let source_dir = std::env::current_dir()?;
-    let server_dir = std::env::var("CODEX_MCP_TEST_SERVER_CWD")?;
+    let server_dir = std::env::var("STEVE_MCP_TEST_SERVER_CWD")?;
     let expected = source_dir.join("certs").join("custom-ca.pem");
     let npm_override = HashMap::from([(
         OsString::from("NPM_CONFIG_CAFILE"),
@@ -89,7 +89,7 @@ async fn local_stdio_inherits_ca_certificate_variables_child() -> anyhow::Result
             "REQUESTS_CA_BUNDLE",
             Some(expected.to_string_lossy().into_owned()),
         ),
-        (None, "CODEX_CA_CERTIFICATE", None),
+        (None, "STEVE_CA_CERTIFICATE", None),
         (
             Some(npm_override.clone()),
             "NPM_CONFIG_CAFILE",
@@ -161,7 +161,7 @@ async fn modern_local_and_executor_stdio_discover_metadata_identity_and_catalogs
             server.clone().into(),
             Vec::new(),
             Some(HashMap::from([(
-                OsString::from("CODEX_MCP_PROTOCOL_VERSION"),
+                OsString::from("STEVE_MCP_PROTOCOL_VERSION"),
                 OsString::from("2026-07-28"),
             )])),
             &[],
@@ -228,7 +228,7 @@ async fn legacy_stdio_preserves_existing_protocol_marker_environment() -> anyhow
                 server.clone().into(),
                 Vec::new(),
                 Some(HashMap::from([(
-                    OsString::from("CODEX_MCP_PROTOCOL_VERSION"),
+                    OsString::from("STEVE_MCP_PROTOCOL_VERSION"),
                     OsString::from(version),
                 )])),
                 &[],
@@ -264,7 +264,7 @@ async fn legacy_stdio_preserves_existing_protocol_marker_environment() -> anyhow
                     "echo".to_string(),
                     Some(json!({
                         "message": "legacy environment",
-                        "env_var": "CODEX_MCP_PROTOCOL_VERSION",
+                        "env_var": "STEVE_MCP_PROTOCOL_VERSION",
                     })),
                     /*meta*/ None,
                     Some(Duration::from_secs(10)),

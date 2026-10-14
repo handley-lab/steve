@@ -146,7 +146,7 @@ fn write_http_response(stream: &mut TcpStream, status: &str) -> std::io::Result<
 #[test]
 fn otlp_http_exporter_honors_cumulative_temporality_env() -> Result<()> {
     // Isolate the environment setting from other tests, including under Bazel/libtest.
-    const CHILD_ENV: &str = "CODEX_OTEL_TEMPORALITY_TEST_CHILD";
+    const CHILD_ENV: &str = "STEVE_OTEL_TEMPORALITY_TEST_CHILD";
     if std::env::var_os(CHILD_ENV).is_none() {
         let current_thread = thread::current();
         let output = std::process::Command::new(std::env::current_exe().expect("test executable"))

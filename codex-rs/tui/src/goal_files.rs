@@ -15,7 +15,7 @@ use codex_protocol::user_input::TextElement;
 use uuid::Uuid;
 
 const GOAL_ATTACHMENT_DIR: &str = "attachments";
-const GOAL_FILE_PREFIX: &str = "Read the Codex goal objective file at ";
+const GOAL_FILE_PREFIX: &str = "Read the Steve goal objective file at ";
 const GOAL_FILE_SUFFIX: &str = " before continuing.";
 const GOAL_FILE_NAME: &str = "goal-objective.md";
 
@@ -192,7 +192,7 @@ async fn ensure_goal_output_dir(
         return Ok(output_dir.clone());
     }
     let codex_home = codex_home
-        .context("App server did not report $CODEX_HOME; cannot materialize goal files")?;
+        .context("App server did not report $STEVE_HOME; cannot materialize goal files")?;
     let path = codex_home
         .join(GOAL_ATTACHMENT_DIR)
         .join(Uuid::new_v4().to_string());

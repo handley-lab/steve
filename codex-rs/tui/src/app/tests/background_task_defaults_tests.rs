@@ -258,9 +258,9 @@ async fn command_center_new_reads_server_defaults_for_actual_destination() -> Re
                 }
             ),
         )?;
-        std::fs::create_dir(destination.path().join(".codex"))?;
+        std::fs::create_dir(destination.path().join(".steve"))?;
         std::fs::write(
-            destination.path().join(".codex/config.toml"),
+            destination.path().join(".steve/config.toml"),
             "model = \"destination-model\"\nservice_tier = \"flex\"\n",
         )?;
         for home in [client_home.path(), server_home.path()] {
@@ -594,7 +594,7 @@ async fn command_center_new_read_failure_keeps_overview_and_does_not_start() -> 
             .find(|message| {
                 message.contains("Failed to")
                     || message.contains("Unable to check folder trust")
-                    || message.contains("Codex's background server is shutting down")
+                    || message.contains("Steve's background server is shutting down")
             })
             .expect("visible read error");
         if capability == HistoryCapabilities::ConfigReadFails {

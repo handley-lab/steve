@@ -30,7 +30,7 @@ use crate::event_processor::EventProcessor;
 
 #[test]
 fn turn_diff_notifications_render_only_changes() -> anyhow::Result<()> {
-    const CHILD: &str = "CODEX_EXEC_TURN_DIFF_TEST_CHILD";
+    const CHILD: &str = "STEVE_EXEC_TURN_DIFF_TEST_CHILD";
     if std::env::var_os(CHILD).is_none() {
         // Capture stderr in a child so other tests cannot interfere with rendering.
         let output = std::process::Command::new(std::env::current_exe()?)

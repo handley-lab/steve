@@ -345,7 +345,7 @@ async fn setup_bedrock_rejects_invalid_or_conflicting_credentials() -> Result<()
         let mut app_server = bedrock_app_server(
             &layered_home_path,
             &[(
-                "CODEX_APP_SERVER_TEST_USER_CONFIG_FILE",
+                "STEVE_APP_SERVER_TEST_USER_CONFIG_FILE",
                 Some(active_config_path.as_ref()),
             )],
         )

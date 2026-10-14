@@ -224,7 +224,7 @@ impl std::fmt::Display for SandboxTransformError {
                 "sandbox policy cwd URI `{cwd}` is not valid on this host: {source}"
             ),
             Self::MissingLinuxSandboxExecutable => {
-                write!(f, "missing codex-linux-sandbox executable path")
+                write!(f, "missing steve-linux-sandbox executable path")
             }
             Self::WindowsMxcPreparation(err) => {
                 write!(f, "failed to prepare MXC sandbox: {err}")
@@ -736,9 +736,9 @@ fn add_windows_sandbox_wrapper_setup_env_from_vars(
     registered_core: bool,
 ) {
     // This outer helper must use the parent's runtime selection, not shell-policy overrides.
-    env.retain(|key, _| !key.eq_ignore_ascii_case("CODEX_WINDOWS_REGISTERED_CORE"));
+    env.retain(|key, _| !key.eq_ignore_ascii_case("STEVE_WINDOWS_REGISTERED_CORE"));
     if registered_core {
-        env.insert("CODEX_WINDOWS_REGISTERED_CORE".into(), "1".into());
+        env.insert("STEVE_WINDOWS_REGISTERED_CORE".into(), "1".into());
     }
     for (key, value) in vars {
         let key = key.to_string_lossy().into_owned();

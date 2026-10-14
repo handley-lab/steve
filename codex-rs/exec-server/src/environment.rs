@@ -58,13 +58,13 @@ mod accepted;
 
 pub use connect_options::RemoteEnvironmentOptions;
 
-pub const CODEX_EXEC_SERVER_URL_ENV_VAR: &str = "CODEX_EXEC_SERVER_URL";
+pub const CODEX_EXEC_SERVER_URL_ENV_VAR: &str = "STEVE_EXEC_SERVER_URL";
 pub const CODEX_EXEC_SERVER_NOISE_REGISTRY_URL_ENV_VAR: &str =
-    "CODEX_EXEC_SERVER_NOISE_REGISTRY_URL";
+    "STEVE_EXEC_SERVER_NOISE_REGISTRY_URL";
 pub const CODEX_EXEC_SERVER_NOISE_ENVIRONMENT_ID_ENV_VAR: &str =
-    "CODEX_EXEC_SERVER_NOISE_ENVIRONMENT_ID";
+    "STEVE_EXEC_SERVER_NOISE_ENVIRONMENT_ID";
 pub const CODEX_EXEC_SERVER_NOISE_CHATGPT_ACCOUNT_ID_ENV_VAR: &str =
-    "CODEX_EXEC_SERVER_NOISE_CHATGPT_ACCOUNT_ID";
+    "STEVE_EXEC_SERVER_NOISE_CHATGPT_ACCOUNT_ID";
 
 /// The current connection state for one concrete environment.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -86,10 +86,10 @@ pub enum ConnectionAttemptOutcome {
 /// Owns the execution/filesystem environments available to the Codex runtime.
 ///
 /// `EnvironmentManager` is a shared registry for concrete environments. Its
-/// default constructor preserves the legacy `CODEX_EXEC_SERVER_URL` behavior
+/// default constructor preserves the legacy `STEVE_EXEC_SERVER_URL` behavior
 /// while configured construction accepts a provider-supplied snapshot.
 ///
-/// Setting `CODEX_EXEC_SERVER_URL=none` disables environment access by leaving
+/// Setting `STEVE_EXEC_SERVER_URL=none` disables environment access by leaving
 /// the default environment unset and omitting the local environment. Callers
 /// use `default_environment().is_some()` as the signal for model-facing
 /// shell/filesystem tool availability.
@@ -190,9 +190,9 @@ impl EnvironmentManager {
 
     /// Discovers configured environments without starting remote connections.
     ///
-    /// If `CODEX_HOME/environments.toml` is present, it defines the configured
+    /// If `STEVE_HOME/environments.toml` is present, it defines the configured
     /// environments. Otherwise this preserves the legacy
-    /// `CODEX_EXEC_SERVER_URL` behavior.
+    /// `STEVE_EXEC_SERVER_URL` behavior.
     pub async fn prepare_from_codex_home(
         codex_home: impl AsRef<std::path::Path>,
     ) -> Result<PreparedEnvironmentManager, ExecServerError> {
@@ -205,7 +205,7 @@ impl EnvironmentManager {
         Ok(PreparedEnvironmentManager { source })
     }
 
-    /// Builds a manager from `CODEX_HOME` with an explicit outbound HTTP policy.
+    /// Builds a manager from `STEVE_HOME` with an explicit outbound HTTP policy.
     pub async fn from_codex_home(
         codex_home: impl AsRef<std::path::Path>,
         local_runtime_paths: Option<ExecServerRuntimeOptions>,
@@ -752,7 +752,7 @@ impl Environment {
         )
     }
 
-    /// Builds an environment from the raw `CODEX_EXEC_SERVER_URL` value and
+    /// Builds an environment from the raw `STEVE_EXEC_SERVER_URL` value and
     /// local runtime paths used when creating local filesystem helpers.
     fn create_inner(
         exec_server_url: Option<String>,

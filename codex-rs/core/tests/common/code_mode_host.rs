@@ -23,7 +23,7 @@ impl CodeModeHostRecorder {
         let invocations = directory.path().join("host invocations");
         let pid = directory.path().join("host pid");
         fs::write(&invocations, "")?;
-        let host_program = codex_utils_cargo_bin::cargo_bin("codex-code-mode-host")?;
+        let host_program = codex_utils_cargo_bin::cargo_bin("steve-code-mode-host")?;
         let quoted_host =
             shlex::try_quote(host_program.to_str().context("host path is not UTF-8")?)?;
         let quoted_log = shlex::try_quote(invocations.to_str().context("log path is not UTF-8")?)?;

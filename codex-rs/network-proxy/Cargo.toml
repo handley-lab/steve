@@ -10,7 +10,7 @@ path = "src/lib.rs"
 doctest = false
 
 [[bin]]
-name = "codex-network-proxy"
+name = "steve-network-proxy"
 path = "src/main.rs"
 
 [lints]

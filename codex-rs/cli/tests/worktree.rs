@@ -162,9 +162,9 @@ async fn worktree_start_and_fork(backend: &str) -> anyhow::Result<()> {
         fs::create_dir(path)?;
     }
     // Forking without --cd must select the daemon using the resolved project, not this launcher.
-    fs::create_dir(launcher.join(".codex"))?;
+    fs::create_dir(launcher.join(".steve"))?;
     fs::write(
-        launcher.join(".codex/config.toml"),
+        launcher.join(".steve/config.toml"),
         "features.auth_elicitation = false\n",
     )?;
     fs::write(
@@ -172,9 +172,9 @@ async fn worktree_start_and_fork(backend: &str) -> anyhow::Result<()> {
         "committed destination instructions",
     )?;
     let server = MockServer::start().await;
-    fs::create_dir(source.join(".codex"))?;
+    fs::create_dir(source.join(".steve"))?;
     fs::write(
-        source.join(".codex/config.toml"),
+        source.join(".steve/config.toml"),
         "model = \"destination-model\"\nanalytics.enabled = false\ncli_auth_credentials_store = \"file\"\n",
     )?;
     git(&source, &["init", "--quiet"])?;
@@ -220,7 +220,7 @@ trust_level = "trusted"
         "uncommitted launcher instructions",
     )?;
     fs::write(
-        source.join(".codex/config.toml"),
+        source.join(".steve/config.toml"),
         "model = \"source-model\"\nanalytics.enabled = true\n",
     )?;
     app_test_support::write_chatgpt_auth(
@@ -232,12 +232,12 @@ trust_level = "trusted"
             .plan_type("enterprise"),
         codex_config::types::AuthCredentialsStoreMode::File,
     )?;
-    let program = codex_utils_cargo_bin::cargo_bin("codex")?;
+    let program = codex_utils_cargo_bin::cargo_bin("steve")?;
     // Keep cold Rosetta translation outside the timed startup assertions.
     #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
     anyhow::ensure!(
         Command::new(&program)
-            .env("CODEX_HOME", &home)
+            .env("STEVE_HOME", &home)
             .arg("--version")
             .output()?
             .status
@@ -245,18 +245,18 @@ trust_level = "trusted"
         "failed to prepare CLI test executable"
     );
     let mut env: HashMap<String, String> = std::env::vars().collect();
-    env.insert("CODEX_HOME".into(), home.display().to_string());
-    env.insert("CODEX_SQLITE_HOME".into(), home.display().to_string());
+    env.insert("STEVE_HOME".into(), home.display().to_string());
+    env.insert("STEVE_SQLITE_HOME".into(), home.display().to_string());
     env.insert("NO_PROXY".into(), "127.0.0.1,localhost".into());
     env.insert("no_proxy".into(), "127.0.0.1,localhost".into());
     env.insert("TERM".into(), "xterm-256color".into());
     env.insert("TERM_PROGRAM".into(), "unrecognized-terminal".into());
     env.insert("OTEL_METRIC_EXPORT_INTERVAL".into(), "100".into());
     for key in [
-        "CODEX_EXEC_SERVER_URL",
-        "CODEX_ACCESS_TOKEN",
+        "STEVE_EXEC_SERVER_URL",
+        "STEVE_ACCESS_TOKEN",
         "OPENAI_API_KEY",
-        "CODEX_API_KEY",
+        "STEVE_API_KEY",
         "TMUX",
         "TMUX_PANE",
         "ZELLIJ",
@@ -275,7 +275,7 @@ trust_level = "trusted"
     let _daemon = if backend == "daemon" {
         let bin = home.join("packages/app-server-daemon/current/bin");
         fs::create_dir_all(&bin)?;
-        let managed = bin.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+        let managed = bin.join(if cfg!(windows) { "steve.exe" } else { "steve" });
         // Hard links change the executable's ctime and invalidate Rosetta's translation cache.
         #[cfg(unix)]
         std::os::unix::fs::symlink(program.canonicalize()?, &managed)?;
@@ -318,7 +318,7 @@ trust_level = "trusted"
     ] {
         if auth_failure {
             fs::write(
-                source.join(".codex/config.toml"),
+                source.join(".steve/config.toml"),
                 "forced_login_method = \"api\"\n",
             )?;
             git(
@@ -331,7 +331,7 @@ trust_level = "trusted"
                     "require API login",
                 ],
             )?;
-            fs::write(source.join(".codex/config.toml"), "")?;
+            fs::write(source.join(".steve/config.toml"), "")?;
         }
         let (metric_tx, mut metric_rx) = tokio::sync::mpsc::unbounded_channel();
         Mock::given(wiremock::matchers::path("/metrics"))
@@ -404,7 +404,7 @@ trust_level = "trusted"
             args.extend(["--cd".into(), source.display().to_string()]);
         }
         if explicit_cd {
-            args.extend(["--cd".into(), source.join(".codex").display().to_string()]);
+            args.extend(["--cd".into(), source.join(".steve").display().to_string()]);
         }
         if analytics {
             args.extend([
@@ -626,20 +626,20 @@ trust_level = "trusted"
             if backend == "embedded" {
                 let update = exported
                     .iter()
-                    .find(|metric| metric["name"] == "codex.daemon.update")
+                    .find(|metric| metric["name"] == "steve.daemon.update")
                     .context("handoff metric")?;
                 let update_point = &update["sum"]["dataPoints"][0];
                 assert_eq!(update_point["asInt"], 1);
             }
             let point = exported
                 .iter()
-                .filter(|metric| metric["name"] == "codex.tui.start")
+                .filter(|metric| metric["name"] == "steve.tui.start")
                 .flat_map(|metric| metric["sum"]["dataPoints"].as_array().into_iter().flatten())
                 .next()
-                .context("codex.tui.start data point")?;
+                .context("steve.tui.start data point")?;
             let tags = point["attributes"]
                 .as_array()
-                .context("codex.tui.start attributes")?
+                .context("steve.tui.start attributes")?
                 .iter()
                 .map(|attribute| {
                     Ok((
@@ -721,7 +721,7 @@ trust_level = "trusted"
             .collect::<Vec<_>>()
             .join("\n");
         if explicit_cd {
-            let expected = format!("{checkout}/.codex").replace('\\', "/");
+            let expected = format!("{checkout}/.steve").replace('\\', "/");
             assert!(context.replace('\\', "/").contains(&expected), "{context}");
         }
         assert!(
@@ -806,7 +806,7 @@ trust_level = "trusted"
             Mock::given(wiremock::matchers::path("/source/backend-api/wham/config/bundle"))
                 .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                     "config_toml": {"enterprise_managed": [{"id":"distrust-source", "name":"distrust-source",
-                        "contents": format!("[projects.{}]\ntrust_level = \"untrusted\"\n", serde_json::to_string(&codex_config::loader::project_trust_key(&source.join(".codex")))?)}]}
+                        "contents": format!("[projects.{}]\ntrust_level = \"untrusted\"\n", serde_json::to_string(&codex_config::loader::project_trust_key(&source.join(".steve")))?)}]}
                 }))).mount(&server).await;
             let output = rejected_start(
                 &program,
@@ -816,7 +816,7 @@ trust_level = "trusted"
                     "worktrees".into(),
                     "--no-alt-screen".into(),
                     "--cd".into(),
-                    source.join(".codex").display().to_string(),
+                    source.join(".steve").display().to_string(),
                 ],
                 &launcher,
                 &env,
@@ -858,7 +858,7 @@ trust_level = "trusted"
         server.reset().await;
     }
     // Source loads its healthy uncommitted config, but the new checkout loads malformed HEAD.
-    fs::write(source.join(".codex/config.toml"), "not = [valid toml")?;
+    fs::write(source.join(".steve/config.toml"), "not = [valid toml")?;
     git(
         &source,
         &[
@@ -869,7 +869,7 @@ trust_level = "trusted"
             "invalid destination",
         ],
     )?;
-    fs::write(source.join(".codex/config.toml"), "")?;
+    fs::write(source.join(".steve/config.toml"), "")?;
     let before = git(&source, &["worktree", "list", "--porcelain"])?;
     let output = rejected_start(
         &program,

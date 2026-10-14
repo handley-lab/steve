@@ -175,7 +175,7 @@ fn review_event_serializes_expected_shape() {
             review_id: "review-1".to_string(),
             app_server_client: CodexAppServerClientMetadata {
                 product_client_id: "codex_tui".to_string(),
-                client_name: Some("codex-tui".to_string()),
+                client_name: Some("steve-tui".to_string()),
                 client_version: Some("1.2.3".to_string()),
                 rpc_transport: AppServerRpcTransport::Websocket,
                 experimental_api_enabled: Some(true),
@@ -213,7 +213,7 @@ fn review_event_serializes_expected_shape() {
                 "review_id": "review-1",
                 "app_server_client": {
                     "product_client_id": "codex_tui",
-                    "client_name": "codex-tui",
+                    "client_name": "steve-tui",
                     "client_version": "1.2.3",
                     "rpc_transport": "websocket",
                     "experimental_api_enabled": true
@@ -252,7 +252,7 @@ async fn guardian_review_event_ingests_custom_fact_with_optional_target_item() {
                 connection_id: 7,
                 params: InitializeParams {
                     client_info: ClientInfo {
-                        name: "codex-tui".to_string(),
+                        name: "steve-tui".to_string(),
                         title: None,
                         version: "1.0.0".to_string(),
                     },
@@ -973,7 +973,7 @@ async fn guardian_events_keep_thread_source_and_originator_with_explicit_turn_co
     );
     assert_eq!(
         event.event_params.app_server_client.client_name.as_deref(),
-        Some("codex-tui")
+        Some("steve-tui")
     );
 }
 

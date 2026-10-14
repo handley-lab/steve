@@ -70,7 +70,7 @@ fn sandbox_detection_ignores_network_policy_text_in_non_sandbox_mode() {
         /*exit_code*/ 0,
         "",
         "",
-        r#"CODEX_NETWORK_POLICY_DECISION {"decision":"ask","reason":"not_allowed","source":"decider","protocol":"http","host":"google.com","port":80}"#,
+        r#"STEVE_NETWORK_POLICY_DECISION {"decision":"ask","reason":"not_allowed","source":"decider","protocol":"http","host":"google.com","port":80}"#,
     );
     assert!(!is_likely_sandbox_denied(SandboxType::None, &output));
 }
@@ -95,7 +95,7 @@ fn sandbox_detection_ignores_network_policy_text_with_zero_exit_code() {
         /*exit_code*/ 0,
         "",
         "",
-        r#"CODEX_NETWORK_POLICY_DECISION {"decision":"ask","source":"decider","protocol":"http","host":"google.com","port":80}"#,
+        r#"STEVE_NETWORK_POLICY_DECISION {"decision":"ask","source":"decider","protocol":"http","host":"google.com","port":80}"#,
     );
 
     assert!(!is_likely_sandbox_denied(
@@ -795,7 +795,7 @@ fn windows_restricted_token_supports_full_read_split_write_read_carveouts() {
     );
 
     // The workspace-write compatibility projection already protects top-level
-    // `.codex`, so the restricted-token overlay only needs the extra read-only
+    // `.steve`, so the restricted-token overlay only needs the extra read-only
     // docs carveout.
     let expected_deny_write_paths = vec![docs];
 
@@ -1225,7 +1225,7 @@ async fn build_exec_request_projects_workspace_roots_only_for_windows_sandbox() 
             profile,
             &cwd,
             roots,
-            &Some(temp_dir.path().join("codex-linux-sandbox")),
+            &Some(temp_dir.path().join("steve-linux-sandbox")),
             /*codex_self_exe*/ &None,
             SandboxType::WindowsRestrictedToken,
             /*use_legacy_landlock*/ false,

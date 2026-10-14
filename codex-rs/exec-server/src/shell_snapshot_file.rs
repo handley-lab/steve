@@ -12,7 +12,7 @@ use std::os::unix::fs::MetadataExt;
 pub(super) fn materialize(shell: ShellType, state: &str) -> io::Result<File> {
     // Mode 0700 alone cannot stop a same-user sandboxed command from replacing
     // the pathname or retaining a writable handle before unlink. Reuse the root
-    // that every filesystem-restricted sandbox hides, independent of CODEX_HOME.
+    // that every filesystem-restricted sandbox hides, independent of STEVE_HOME.
     let root = codex_uds::prepare_shared_daemon_socket_directory()?;
     let directory = tempfile::tempdir_in(root)?;
     let writer = tempfile::NamedTempFile::new_in(directory.path())?;

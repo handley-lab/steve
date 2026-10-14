@@ -4543,13 +4543,13 @@ async fn executor_owned_chatgpt_mcp_accepts_only_safe_explicit_authorization() -
             "environment header",
             Some(("Authorization", "Bearer executor-secret")),
             None,
-            Some(("aUtHoRiZaTiOn", "CODEX_TEST_HOSTED_SECRET")),
+            Some(("aUtHoRiZaTiOn", "STEVE_TEST_HOSTED_SECRET")),
             false,
         ),
         (
             "environment bearer",
             Some(("Authorization", "Bearer executor-secret")),
-            Some("CODEX_TEST_HOSTED_SECRET"),
+            Some("STEVE_TEST_HOSTED_SECRET"),
             None,
             false,
         ),
@@ -4886,7 +4886,7 @@ fn mcp_init_error_display_prompts_for_github_pat() {
     let display = mcp_init_error_display(server_name, Some(&config), &err, /*reason*/ None);
 
     let expected = format!(
-        "GitHub MCP does not support OAuth. Log in by adding a personal access token (https://github.com/settings/personal-access-tokens) to your environment and config.toml:\n[mcp_servers.{server_name}]\nbearer_token_env_var = CODEX_GITHUB_PERSONAL_ACCESS_TOKEN"
+        "GitHub MCP does not support OAuth. Log in by adding a personal access token (https://github.com/settings/personal-access-tokens) to your environment and config.toml:\n[mcp_servers.{server_name}]\nbearer_token_env_var = STEVE_GITHUB_PERSONAL_ACCESS_TOKEN"
     );
 
     assert_eq!(expected, display);
@@ -5101,7 +5101,7 @@ fn reusable_server_config(url: &str) -> McpServerConfig {
         auth: Default::default(),
         transport: McpServerTransportConfig::StreamableHttp {
             url: url.to_string(),
-            bearer_token_env_var: Some("CODEX_MCP_REUSE_TEST_TOKEN".to_string()),
+            bearer_token_env_var: Some("STEVE_MCP_REUSE_TEST_TOKEN".to_string()),
             http_headers: None,
             env_http_headers: None,
             http_headers_helper: None,
@@ -5879,7 +5879,7 @@ fn connection_identity_tracks_only_oauth_credentials_when_oauth_is_active() {
 #[test]
 fn connection_identity_uses_effective_authorization_headers() {
     let runtime_context = reusable_server_runtime_context();
-    let missing_env_var = format!("CODEX_TEST_UNSET_MCP_AUTHORIZATION_{}", std::process::id());
+    let missing_env_var = format!("STEVE_TEST_UNSET_MCP_AUTHORIZATION_{}", std::process::id());
     assert!(std::env::var_os(&missing_env_var).is_none());
 
     for (static_header, environment_header, has_authorization) in [
@@ -5949,7 +5949,7 @@ async fn reconciliation_reuses_legacy_stdio_server_with_existing_protocol_marker
         command: "legacy-server".to_string(),
         args: Vec::new(),
         env: Some(HashMap::from([(
-            "CODEX_MCP_PROTOCOL_VERSION".to_string(),
+            "STEVE_MCP_PROTOCOL_VERSION".to_string(),
             "1999-01-01".to_string(),
         )])),
         env_vars: Vec::new(),

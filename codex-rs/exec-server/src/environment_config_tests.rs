@@ -7,7 +7,7 @@ fn startup_preference_stays_below_both_managed_layers() -> anyhow::Result<()> {
     let temp = tempfile::tempdir()?;
     let cwd = AbsolutePathBuf::from_absolute_path(temp.path())?;
     let project = ConfigLayerSource::Project {
-        dot_codex_folder: cwd.join(".codex"),
+        dot_codex_folder: cwd.join(".steve"),
     };
     let file = ConfigLayerSource::LegacyManagedConfigTomlFromFile {
         file: cwd.join("managed_config.toml"),

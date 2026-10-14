@@ -591,8 +591,8 @@ async fn turn_start_forwards_cyber_access_program_with_personal_access_token() -
         .without_managed_config()
         .with_env_overrides(&[
             ("OPENAI_API_KEY", None),
-            ("CODEX_ACCESS_TOKEN", Some("at-test-token")),
-            ("CODEX_AUTHAPI_BASE_URL", Some(authapi_base_url.as_str())),
+            ("STEVE_ACCESS_TOKEN", Some("at-test-token")),
+            ("STEVE_AUTHAPI_BASE_URL", Some(authapi_base_url.as_str())),
         ])
         .build_initialized()
         .await?;
@@ -667,7 +667,7 @@ async fn start_api_key_app(home: &Path, server: &MockServer) -> Result<TestAppSe
         .without_managed_config()
         .with_env_overrides(&[
             ("OPENAI_API_KEY", None),
-            ("CODEX_API_KEY", None),
+            ("STEVE_API_KEY", None),
             ("OPENAI_BASE_URL", None),
         ])
         .build_initialized()

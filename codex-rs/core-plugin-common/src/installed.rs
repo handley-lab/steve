@@ -9,7 +9,7 @@ use std::fs;
 
 pub const DEFAULT_PLUGIN_VERSION: &str = "local";
 pub const PLUGINS_CACHE_DIR: &str = "plugins/cache";
-pub const REMOTE_PLUGIN_INSTALL_METADATA_FILE: &str = ".codex-remote-plugin-install.json";
+pub const REMOTE_PLUGIN_INSTALL_METADATA_FILE: &str = ".steve-remote-plugin-install.json";
 pub const REMOTE_PLUGIN_INSTALL_METADATA_SCHEMA_VERSION: u8 = 1;
 
 #[derive(Debug, Deserialize, Serialize)]

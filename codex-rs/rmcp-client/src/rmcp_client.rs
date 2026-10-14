@@ -486,7 +486,7 @@ impl RmcpClient {
             McpProtocolMode::Legacy => None,
             McpProtocolMode::V20260728 => env
                 .as_mut()
-                .and_then(|env| env.remove(OsStr::new("CODEX_MCP_PROTOCOL_VERSION"))),
+                .and_then(|env| env.remove(OsStr::new("STEVE_MCP_PROTOCOL_VERSION"))),
         };
         let protocol_mode = protocol_mode.stdio_mode(requested_stdio_version.as_deref())?;
         let transport_recipe = TransportRecipe::Stdio {

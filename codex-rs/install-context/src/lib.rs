@@ -9,9 +9,9 @@ use serde::Deserialize;
 
 const BIN_DIRNAME: &str = "bin";
 const CODE_MODE_HOST_EXECUTABLE_NAME: &str = if cfg!(windows) {
-    "codex-code-mode-host.exe"
+    "steve-code-mode-host.exe"
 } else {
-    "codex-code-mode-host"
+    "steve-code-mode-host"
 };
 const PACKAGE_METADATA_FILENAME: &str = "codex-package.json";
 const PATH_DIRNAME: &str = "codex-path";
@@ -55,7 +55,7 @@ pub enum InstallMethod {
     Standalone {
         /// The managed standalone release directory. Legacy installs use paths
         /// such as
-        /// `~/.codex/packages/standalone/releases/0.111.0-x86_64-unknown-linux-musl`.
+        /// `~/.steve/packages/standalone/releases/0.111.0-x86_64-unknown-linux-musl`.
         /// Package-layout installs use the package root that contains `bin/`,
         /// `codex-resources/`, and `codex-path/`.
         release_dir: AbsolutePathBuf,
@@ -120,13 +120,13 @@ impl InstallContext {
     pub fn current() -> &'static Self {
         INSTALL_CONTEXT.get_or_init(|| {
             let current_exe = std::env::current_exe().ok();
-            let method_override = if std::env::var_os("CODEX_MANAGED_BY_VITE_PLUS").is_some() {
+            let method_override = if std::env::var_os("STEVE_MANAGED_BY_VITE_PLUS").is_some() {
                 Some(InstallMethod::VitePlus)
-            } else if std::env::var_os("CODEX_MANAGED_BY_PNPM").is_some() {
+            } else if std::env::var_os("STEVE_MANAGED_BY_PNPM").is_some() {
                 Some(InstallMethod::Pnpm)
-            } else if std::env::var_os("CODEX_MANAGED_BY_NPM").is_some() {
+            } else if std::env::var_os("STEVE_MANAGED_BY_NPM").is_some() {
                 Some(InstallMethod::Npm)
-            } else if std::env::var_os("CODEX_MANAGED_BY_BUN").is_some() {
+            } else if std::env::var_os("STEVE_MANAGED_BY_BUN").is_some() {
                 Some(InstallMethod::Bun)
             } else {
                 None
@@ -256,7 +256,7 @@ impl CodexPackageLayout {
             }
             Some(name) if name == OsStr::new("MacOS") => {
                 // A provisioned CLI keeps helpers and metadata in the outer
-                // package. current_exe points inside the bundle, not at bin/codex.
+                // package. current_exe points inside the bundle, not at bin/steve.
                 let contents = exe_dir.parent()?;
                 let bundle = contents.parent()?;
                 if contents.file_name()? != OsStr::new("Contents")
@@ -378,7 +378,7 @@ mod tests {
         fs::create_dir_all(&bin_dir)?;
         fs::create_dir_all(&resources_dir)?;
         fs::write(package_dir.path().join(PACKAGE_METADATA_FILENAME), "{}")?;
-        let exe_path = bin_dir.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+        let exe_path = bin_dir.join(if cfg!(windows) { "steve.exe" } else { "steve" });
         let resource_host = resources_dir.join(CODE_MODE_HOST_EXECUTABLE_NAME);
         fs::write(&exe_path, "")?;
         fs::write(bin_dir.join(CODE_MODE_HOST_EXECUTABLE_NAME), "legacy host")?;
@@ -405,7 +405,7 @@ mod tests {
         fs::create_dir_all(&bin_dir)?;
         fs::create_dir_all(&resources_dir)?;
         fs::write(package_dir.path().join(PACKAGE_METADATA_FILENAME), "{}")?;
-        let exe_path = bin_dir.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+        let exe_path = bin_dir.join(if cfg!(windows) { "steve.exe" } else { "steve" });
         let resource_host = resources_dir.join(CODE_MODE_HOST_EXECUTABLE_NAME);
         fs::write(&exe_path, "")?;
         fs::write(&resource_host, "managed host")?;
@@ -432,7 +432,7 @@ mod tests {
         fs::create_dir_all(&bin_dir)?;
         fs::create_dir_all(resources_dir.join(CODE_MODE_HOST_EXECUTABLE_NAME))?;
         fs::write(package_dir.path().join(PACKAGE_METADATA_FILENAME), "{}")?;
-        let exe_path = bin_dir.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+        let exe_path = bin_dir.join(if cfg!(windows) { "steve.exe" } else { "steve" });
         let legacy_host = bin_dir.join(CODE_MODE_HOST_EXECUTABLE_NAME);
         fs::write(&exe_path, "")?;
         fs::write(&legacy_host, "legacy host")?;
@@ -458,7 +458,7 @@ mod tests {
             .join("packages/standalone/releases/1.2.3-x86_64-unknown-linux-musl");
         let resources_dir = release_dir.join(RESOURCES_DIRNAME);
         fs::create_dir_all(&resources_dir)?;
-        let exe_path = release_dir.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+        let exe_path = release_dir.join(if cfg!(windows) { "steve.exe" } else { "steve" });
         fs::write(&exe_path, "")?;
         fs::write(release_dir.join(CODE_MODE_HOST_EXECUTABLE_NAME), "")?;
         fs::write(
@@ -515,7 +515,7 @@ mod tests {
             .path()
             .join("packages/standalone/releases/1.2.3-x86_64-unknown-linux-musl");
         fs::create_dir_all(&release_dir)?;
-        let exe_path = release_dir.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+        let exe_path = release_dir.join(if cfg!(windows) { "steve.exe" } else { "steve" });
         fs::write(&exe_path, "")?;
 
         let context = InstallContext::from_exe_with_codex_home(
@@ -543,14 +543,14 @@ mod tests {
   "layoutVersion": 1,
   "version": "1.2.3",
   "target": "x86_64-unknown-linux-musl",
-  "variant": "codex",
-  "entrypoint": "bin/codex",
+  "variant": "steve",
+  "entrypoint": "bin/steve",
   "resourcesDir": "codex-resources",
   "pathDir": "codex-path"
 }
 "#,
         )?;
-        let exe_path = bin_dir.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+        let exe_path = bin_dir.join(if cfg!(windows) { "steve.exe" } else { "steve" });
         fs::write(&exe_path, "")?;
         fs::write(bin_dir.join(CODE_MODE_HOST_EXECUTABLE_NAME), "")?;
         fs::write(resources_dir.join(TEST_RESOURCE_NAME), "")?;
@@ -619,7 +619,7 @@ mod tests {
         let bin_dir = package_dir.path().join(BIN_DIRNAME);
         fs::create_dir_all(&bin_dir)?;
         fs::write(package_dir.path().join(PACKAGE_METADATA_FILENAME), "{}")?;
-        let exe_path = bin_dir.join("codex");
+        let exe_path = bin_dir.join("steve");
         let executable_target = package_dir.path().join("host-target");
         let executable_path = bin_dir.join(CODE_MODE_HOST_EXECUTABLE_NAME);
         fs::write(&exe_path, "")?;
@@ -655,7 +655,7 @@ mod tests {
         fs::create_dir_all(&resources_dir)?;
         fs::create_dir_all(&path_dir)?;
         fs::write(package_dir.join(PACKAGE_METADATA_FILENAME), "{}")?;
-        let exe_path = bin_dir.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+        let exe_path = bin_dir.join(if cfg!(windows) { "steve.exe" } else { "steve" });
         fs::write(&exe_path, "")?;
         fs::write(resources_dir.join(TEST_RESOURCE_NAME), "")?;
         fs::write(path_dir.join(default_rg_command()), "")?;
@@ -709,7 +709,7 @@ mod tests {
         fs::create_dir_all(&bin_dir)?;
         fs::create_dir_all(&path_dir)?;
         fs::write(package_dir.path().join(PACKAGE_METADATA_FILENAME), "{}")?;
-        let exe_path = bin_dir.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+        let exe_path = bin_dir.join(if cfg!(windows) { "steve.exe" } else { "steve" });
         fs::write(&exe_path, "")?;
         fs::write(path_dir.join(default_rg_command()), "")?;
         let canonical_path_dir = AbsolutePathBuf::from_absolute_path(path_dir.canonicalize()?)?;
@@ -736,7 +736,7 @@ mod tests {
         let bin_dir = package_dir.path().join(BIN_DIRNAME);
         fs::create_dir_all(&bin_dir)?;
         fs::write(package_dir.path().join(PACKAGE_METADATA_FILENAME), "{}")?;
-        let exe_path = bin_dir.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+        let exe_path = bin_dir.join(if cfg!(windows) { "steve.exe" } else { "steve" });
         fs::write(&exe_path, "")?;
 
         let context = InstallContext::from_exe_with_codex_home(
@@ -760,7 +760,7 @@ mod tests {
         fs::create_dir_all(resources_dir.join(TEST_RESOURCE_NAME))?;
         fs::create_dir_all(path_dir.join(default_rg_command()))?;
         fs::write(package_dir.path().join(PACKAGE_METADATA_FILENAME), "{}")?;
-        let exe_path = bin_dir.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+        let exe_path = bin_dir.join(if cfg!(windows) { "steve.exe" } else { "steve" });
         fs::write(&exe_path, "")?;
         let fallback_exe_path = package_dir.path().join("fallback-codex");
         fs::write(&fallback_exe_path, "")?;
@@ -788,7 +788,7 @@ mod tests {
         };
 
         assert_eq!(
-            context.code_mode_host_program_from_exe(Some(Path::new("/opt/codex/bin/codex"))),
+            context.code_mode_host_program_from_exe(Some(Path::new("/opt/codex/bin/steve"))),
             PathBuf::from("/opt/codex/bin").join(CODE_MODE_HOST_EXECUTABLE_NAME)
         );
     }
@@ -865,7 +865,7 @@ mod tests {
     fn brew_is_detected_on_macos_prefixes() {
         let context = InstallContext::from_exe_with_codex_home(
             /*is_macos*/ true,
-            /*current_exe*/ Some(Path::new("/opt/homebrew/bin/codex")),
+            /*current_exe*/ Some(Path::new("/opt/homebrew/bin/steve")),
             /*method_override*/ None,
             /*codex_home*/ None,
         );

@@ -17,7 +17,7 @@ fn test_metrics() -> Result<MetricsClient> {
     Ok(MetricsClient::new(
         MetricsConfig::in_memory(
             "test",
-            "codex-app-server",
+            "steve-app-server",
             env!("CARGO_PKG_VERSION"),
             InMemoryMetricExporter::default(),
         )

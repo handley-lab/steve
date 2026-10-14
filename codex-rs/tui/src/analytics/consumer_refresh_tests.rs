@@ -19,7 +19,7 @@ fn consumer_chats_keep_missing_rows_and_only_offer_known_metrics() {
             Chat { title: "Refunded task".into(), task: Some(serde_json::from_value(json!({
                 "thread_id":"refund", "data_status":"partial", "usage_source":"credits",
                 "weekly_limit_percent":null,"five_hour_limit_percent":null,"balance_usage_credits":"-0.000004","groups":[{
-                    "product_experience":"codex", "model":"gpt-5.5", "reasoning_effort":"high", "speed":"fast",
+                    "product_experience":"steve", "model":"gpt-5.5", "reasoning_effort":"high", "speed":"fast",
                     "weekly_limit_percent":null,"five_hour_limit_percent":null,"balance_usage_credits":"-0.000004"
                 }]
             })).unwrap()) },

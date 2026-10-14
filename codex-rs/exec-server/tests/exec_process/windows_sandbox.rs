@@ -105,7 +105,7 @@ async fn tmpdir_uses_command_environment_over_rpc(
         {
             return Err(error).context("create Windows sandbox test resources");
         }
-        for name in ["codex-windows-sandbox-setup", "codex-command-runner"] {
+        for name in ["steve-windows-sandbox-setup", "steve-command-runner"] {
             let source = codex_utils_cargo_bin::cargo_bin(name)?;
             let destination = resources.join(std::path::Path::new(name).with_extension("exe"));
             if let Err(error) = codex_utils_cargo_bin::copy_executable(&source, &destination)

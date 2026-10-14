@@ -24,7 +24,7 @@ impl EditorPaths {
             dunce::canonicalize(root.path()).expect("canonicalize editor test root");
         let codex_home = canonical_root.join("codex-home");
         let cwd = canonical_root.join("workspace");
-        fs::create_dir(&codex_home).expect("create Codex home");
+        fs::create_dir(&codex_home).expect("create Steve home");
         fs::create_dir(&cwd).expect("create workspace");
 
         Self {
@@ -65,7 +65,7 @@ fn editor_directory_rejects_writable_home_editor_and_parent() {
     let paths = EditorPaths::new();
     let editor = paths.codex_home.join("editor");
     fs::create_dir(&editor).expect("create editor directory");
-    let parent = paths.codex_home.parent().expect("Codex home parent");
+    let parent = paths.codex_home.parent().expect("Steve home parent");
 
     for writable_root in [paths.codex_home.as_path(), editor.as_path(), parent] {
         let policy = workspace_write_policy(&[writable_root]);
@@ -96,7 +96,7 @@ fn editor_directory_rejects_read_only_carveout_with_writable_parent() {
     let policy = FileSystemSandboxPolicy::restricted(vec![
         FileSystemSandboxEntry::new(
             AbsolutePathBuf::from_absolute_path(&paths.codex_home)
-                .expect("absolute Codex home")
+                .expect("absolute Steve home")
                 .into(),
             FileSystemAccessMode::Write,
         ),
@@ -132,7 +132,7 @@ fn editor_directory_rejects_writable_codex_home_alias() {
 
     let paths = EditorPaths::new();
     let aliased_home = paths.cwd.join("codex-home-link");
-    symlink(&paths.codex_home, &aliased_home).expect("create Codex home symlink");
+    symlink(&paths.codex_home, &aliased_home).expect("create Steve home symlink");
     let policy = workspace_write_policy(&[]);
 
     assert!(policy.can_write_local_path_with_cwd(&aliased_home.join("editor"), &paths.cwd));
@@ -149,11 +149,11 @@ fn editor_directory_rejects_writable_codex_home_alias_target() {
     let alias_parent = paths
         .codex_home
         .parent()
-        .expect("Codex home parent")
+        .expect("Steve home parent")
         .join("aliases");
     fs::create_dir(&alias_parent).expect("create protected alias parent");
     let aliased_home = alias_parent.join("codex-home-link");
-    symlink(&paths.codex_home, &aliased_home).expect("create Codex home symlink");
+    symlink(&paths.codex_home, &aliased_home).expect("create Steve home symlink");
     let policy = workspace_write_policy(&[&paths.codex_home]);
 
     assert!(!policy.can_write_local_path_with_cwd(&aliased_home.join("editor"), &paths.cwd));
@@ -167,9 +167,9 @@ fn editor_directory_uses_protected_workspace_fallback_with_default_temporary_gra
     let root = tempfile::tempdir().expect("create editor test root");
     let codex_home = root.path().join("codex-home");
     let cwd = root.path().join("workspace");
-    fs::create_dir(&codex_home).expect("create Codex home");
+    fs::create_dir(&codex_home).expect("create Steve home");
     fs::create_dir(&cwd).expect("create workspace");
-    let workspace_codex_home = cwd.join(".codex");
+    let workspace_codex_home = cwd.join(".steve");
     let policy = FileSystemSandboxPolicy::workspace_write(
         &[],
         /*exclude_tmpdir_env_var*/ false,
@@ -199,9 +199,9 @@ fn editor_directory_rejects_explicitly_writable_workspace_fallback() {
     let root = tempfile::tempdir().expect("create editor test root");
     let codex_home = root.path().join("codex-home");
     let cwd = root.path().join("workspace");
-    fs::create_dir(&codex_home).expect("create Codex home");
+    fs::create_dir(&codex_home).expect("create Steve home");
     fs::create_dir(&cwd).expect("create workspace");
-    let workspace_codex_home = cwd.join(".codex");
+    let workspace_codex_home = cwd.join(".steve");
     let writable_workspace_codex_home = AbsolutePathBuf::from_absolute_path(&workspace_codex_home)
         .expect("absolute workspace metadata directory");
     let policy = FileSystemSandboxPolicy::workspace_write(
@@ -225,7 +225,7 @@ fn editor_directory_rejects_workspace_fallback_symlink_to_writable_target() {
     use std::os::unix::fs::symlink;
 
     let paths = EditorPaths::new();
-    let workspace_codex_home = paths.cwd.join(".codex");
+    let workspace_codex_home = paths.cwd.join(".steve");
     symlink(&paths.codex_home, &workspace_codex_home).expect("create workspace metadata symlink");
     let policy = workspace_write_policy(&[&paths.codex_home]);
 
@@ -247,9 +247,9 @@ fn editor_directory_uses_next_protected_candidate_after_creation_error() {
     let unavailable_home = paths
         .codex_home
         .parent()
-        .expect("Codex home parent")
+        .expect("Steve home parent")
         .join("unavailable-home");
-    fs::write(&unavailable_home, "not a directory").expect("create unavailable Codex home");
+    fs::write(&unavailable_home, "not a directory").expect("create unavailable Steve home");
     let policy = workspace_write_policy(&[]);
 
     let directory = editor_directory(&[&unavailable_home, &paths.codex_home], &policy, &paths.cwd)
@@ -323,20 +323,20 @@ async fn editor_process_uses_protected_workspace_fallback_with_default_temporary
     let root = tempfile::tempdir().expect("create editor test root");
     let codex_home = root.path().join("codex-home");
     let cwd = root.path().join("workspace");
-    fs::create_dir(&codex_home).expect("create Codex home");
+    fs::create_dir(&codex_home).expect("create Steve home");
     fs::create_dir(&cwd).expect("create workspace");
-    let default_codex_home = dirs::home_dir().expect("home directory").join(".codex");
+    let default_codex_home = dirs::home_dir().expect("home directory").join(".steve");
     let writable_default_codex_home = AbsolutePathBuf::from_absolute_path(&default_codex_home)
-        .expect("absolute default Codex home");
+        .expect("absolute default Steve home");
     let policy = FileSystemSandboxPolicy::workspace_write(
         &[writable_default_codex_home],
         /*exclude_tmpdir_env_var*/ false,
         /*exclude_slash_tmp*/ false,
     );
-    let workspace_codex_home = cwd.join(".codex");
+    let workspace_codex_home = cwd.join(".steve");
     let editor_directory = dunce::canonicalize(&cwd)
         .expect("canonicalize workspace")
-        .join(".codex")
+        .join(".steve")
         .join("editor");
     let editor_command = vec![
         "/bin/sh".to_string(),

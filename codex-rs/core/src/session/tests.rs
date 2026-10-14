@@ -5303,7 +5303,7 @@ async fn emit_subagent_session_started_includes_fork_lineage_and_originator() {
     emit_subagent_session_started(
         &analytics_events_client,
         AppServerClientMetadata {
-            client_name: Some("codex-tui".to_string()),
+            client_name: Some("steve-tui".to_string()),
             client_version: Some("1.0.0".to_string()),
         },
         SessionId::from(child_thread_id),
@@ -5456,7 +5456,7 @@ async fn session_configuration_apply_client_metadata_preserves_permissions() {
     let updated = configuration
         .apply(
             &SessionSettingsUpdate {
-                app_server_client_name: Some("codex-tui".to_string()),
+                app_server_client_name: Some("steve-tui".to_string()),
                 app_server_client_version: Some("1.0.0".to_string()),
                 ..Default::default()
             },
@@ -5470,7 +5470,7 @@ async fn session_configuration_apply_client_metadata_preserves_permissions() {
             updated.app_server_client_name,
             updated.app_server_client_version
         ),
-        (Some("codex-tui".to_string()), Some("1.0.0".to_string())),
+        (Some("steve-tui".to_string()), Some("1.0.0".to_string())),
     );
 }
 
@@ -13386,8 +13386,8 @@ async fn session_start_hooks_only_load_from_trusted_project_layers() -> std::io:
     let codex_home = temp.path().join("home");
     let project_root = temp.path().join("project");
     let nested = project_root.join("nested");
-    let root_dot_codex = project_root.join(".codex");
-    let nested_dot_codex = nested.join(".codex");
+    let root_dot_codex = project_root.join(".steve");
+    let nested_dot_codex = nested.join(".steve");
 
     std::fs::create_dir_all(&codex_home)?;
     std::fs::create_dir_all(&nested_dot_codex)?;
@@ -13432,7 +13432,7 @@ async fn session_start_hooks_require_project_trust_without_config_toml() -> std:
     let temp = tempfile::tempdir()?;
     let project_root = temp.path().join("project");
     let nested = project_root.join("nested");
-    let dot_codex = project_root.join(".codex");
+    let dot_codex = project_root.join(".steve");
     std::fs::create_dir_all(&nested)?;
     std::fs::write(project_root.join(".git"), "gitdir: here")?;
     write_project_hooks(&dot_codex)?;

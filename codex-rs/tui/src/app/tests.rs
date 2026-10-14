@@ -524,9 +524,9 @@ async fn external_editor_writable_directory_rejected_snapshot() -> Result<()> {
     let codex_home = app.chat_widget.config_ref().codex_home.clone();
     let fallback_home = dirs::home_dir()
         .expect("home directory")
-        .join(".codex")
+        .join(".steve")
         .abs();
-    let workspace_codex_home = app.chat_widget.config_ref().cwd.join(".codex");
+    let workspace_codex_home = app.chat_widget.config_ref().cwd.join(".steve");
     let permission_profile = PermissionProfile::workspace_write_with(
         &[codex_home, fallback_home, workspace_codex_home],
         codex_protocol::permissions::NetworkSandboxPolicy::Restricted,
@@ -2224,7 +2224,7 @@ async fn archived_untracked_threads_do_not_appear_in_agent_picker() -> Result<()
             ServerNotification::ThreadAttachmentUpdated(ThreadAttachmentUpdatedNotification {
                 thread_id: attachment_thread_id.to_string(),
                 attachment_type: "pull_request".to_string(),
-                identity_key: r#"["github.com","openai","codex",123]"#.to_string(),
+                identity_key: r#"["github.com","openai","steve",123]"#.to_string(),
                 attachment_id: "attachment-1".to_string(),
                 operation: ThreadAttachmentOperation::Deleted,
             }),
@@ -6235,7 +6235,7 @@ async fn ctrl_l_clears_owned_history_and_preserves_the_draft() -> Result<()> {
             .is::<history_cell::SessionHeaderHistoryCell>()
     );
     let header = lines_to_single_string(&app.transcript_cells[0].display_lines(/*width*/ 80));
-    assert!(header.contains("OpenAI Codex"));
+    assert!(header.contains("Steve"));
     let raw_header = lines_to_single_string(&app.transcript_cells[0].raw_lines());
     assert!(raw_header.contains("gpt-test"));
     assert!(!header.contains("old transcript row"));
@@ -6527,7 +6527,7 @@ async fn set_thread_goal_draft_materializes_long_objective_and_confirms_before_p
     let saved_objective = goal.objective.clone();
     let codex_home = app_server
         .codex_home_path(&app.chat_widget.config_ref().codex_home)
-        .expect("codex home");
+        .expect("steve home");
     assert!(goal_files::objective_file_path(&goal.objective, Some(&codex_home)).is_some());
     assert_eq!(
         goal_files::objective_text_for_edit(&mut app_server, Some(&codex_home), &goal.objective)
@@ -10005,7 +10005,7 @@ async fn clear_only_ui_reset_preserves_chat_session_state() {
 async fn clear_only_ui_reset_allows_active_skill_warning_to_render_again() {
     let mut app = make_test_app().await;
     let error = SkillErrorInfo {
-        path: test_path_buf("/tmp/project/.codex/skills/abc/SKILL.md"),
+        path: test_path_buf("/tmp/project/.steve/skills/abc/SKILL.md"),
         message: "invalid description".to_string(),
     };
 

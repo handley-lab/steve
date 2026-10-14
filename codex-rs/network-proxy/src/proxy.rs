@@ -50,7 +50,7 @@ const WINDOWS_MANAGED_HTTP_PROXY_PORTS: RangeInclusive<u16> = 3128..=3159;
 const WINDOWS_MANAGED_SOCKS_PROXY_PORTS: RangeInclusive<u16> = 8081..=8112;
 
 #[derive(Debug, Clone, Parser)]
-#[command(name = "codex-network-proxy", about = "Codex network sandbox proxy")]
+#[command(name = "steve-network-proxy", about = "Codex network sandbox proxy")]
 pub struct Args {}
 
 #[derive(Debug)]
@@ -624,13 +624,13 @@ pub const PROXY_URL_ENV_KEYS: &[&str] = &[
 ];
 
 pub const ALL_PROXY_ENV_KEYS: &[&str] = &["ALL_PROXY", "all_proxy"];
-pub const PROXY_ACTIVE_ENV_KEY: &str = "CODEX_NETWORK_PROXY_ACTIVE";
-pub const ALLOW_LOCAL_BINDING_ENV_KEY: &str = "CODEX_NETWORK_ALLOW_LOCAL_BINDING";
+pub const PROXY_ACTIVE_ENV_KEY: &str = "STEVE_NETWORK_PROXY_ACTIVE";
+pub const ALLOW_LOCAL_BINDING_ENV_KEY: &str = "STEVE_NETWORK_ALLOW_LOCAL_BINDING";
 // Internal wire format shared with windows-sandbox-rs/src/setup.rs. The value is a
 // comma-separated, sorted list of non-zero loopback proxy ports used only when computing the
 // Windows offline sandbox setup marker.
 #[cfg(target_os = "windows")]
-const WINDOWS_SANDBOX_PROXY_PORTS_ENV_KEY: &str = "CODEX_WINDOWS_SANDBOX_PROXY_PORTS";
+const WINDOWS_SANDBOX_PROXY_PORTS_ENV_KEY: &str = "STEVE_WINDOWS_SANDBOX_PROXY_PORTS";
 const ELECTRON_GET_USE_PROXY_ENV_KEY: &str = "ELECTRON_GET_USE_PROXY";
 const NODE_USE_ENV_PROXY_ENV_KEY: &str = "NODE_USE_ENV_PROXY";
 #[cfg(any(target_os = "macos", test))]
@@ -726,10 +726,10 @@ pub const DEFAULT_NO_PROXY_VALUE: &str = concat!(
 );
 
 #[cfg(target_os = "macos")]
-pub const CODEX_PROXY_GIT_SSH_COMMAND_MARKER: &str = "CODEX_PROXY_GIT_SSH_COMMAND=1 ";
+pub const CODEX_PROXY_GIT_SSH_COMMAND_MARKER: &str = "STEVE_PROXY_GIT_SSH_COMMAND=1 ";
 #[cfg(target_os = "macos")]
 const CODEX_PROXY_GIT_SSH_COMMAND_PREFIX: &str =
-    "CODEX_PROXY_GIT_SSH_COMMAND=1 ssh -o ProxyCommand='nc -X 5 -x ";
+    "STEVE_PROXY_GIT_SSH_COMMAND=1 ssh -o ProxyCommand='nc -X 5 -x ";
 #[cfg(target_os = "macos")]
 const CODEX_PROXY_GIT_SSH_COMMAND_SUFFIX: &str = " %h %p'";
 
@@ -2862,7 +2862,7 @@ mod tests {
         assert_eq!(
             env.get(GIT_SSH_COMMAND_ENV_KEY),
             Some(
-                &"CODEX_PROXY_GIT_SSH_COMMAND=1 ssh -o ProxyCommand='nc -X 5 -x 127.0.0.1:8081 %h %p'"
+                &"STEVE_PROXY_GIT_SSH_COMMAND=1 ssh -o ProxyCommand='nc -X 5 -x 127.0.0.1:8081 %h %p'"
                     .to_string()
             )
         );
@@ -3019,7 +3019,7 @@ mod tests {
         assert_eq!(
             env.get(GIT_SSH_COMMAND_ENV_KEY),
             Some(
-                &"CODEX_PROXY_GIT_SSH_COMMAND=1 ssh -o ProxyCommand='nc -X 5 -x 127.0.0.1:8081 %h %p'"
+                &"STEVE_PROXY_GIT_SSH_COMMAND=1 ssh -o ProxyCommand='nc -X 5 -x 127.0.0.1:8081 %h %p'"
                     .to_string()
             )
         );

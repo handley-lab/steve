@@ -41,7 +41,7 @@ fn large_deny_list_uses_environment_without_changing_the_request() {
     crate::environment_transport::encode("must not reach workload", &mut env).unwrap();
     let profile = PermissionProfile::read_only();
     let command = vec![
-        "codex.exe".to_string(),
+        "steve.exe".to_string(),
         "--codex-run-as-fs-helper".to_string(),
     ];
     let args = create_windows_sandbox_command_args_for_permission_profile(
@@ -116,7 +116,7 @@ fn windows_wrapper_args_round_trip() {
 
     let args = create_windows_sandbox_command_args_for_permission_profile(
         vec![
-            "codex.exe".to_string(),
+            "steve.exe".to_string(),
             "--codex-run-as-fs-helper".to_string(),
         ],
         &command_cwd,
@@ -157,7 +157,7 @@ fn windows_wrapper_args_round_trip() {
 
     assert_eq!(
         parsed.command,
-        vec!["codex.exe", "--codex-run-as-fs-helper"]
+        vec!["steve.exe", "--codex-run-as-fs-helper"]
     );
     assert_eq!(parsed.command_cwd, command_cwd);
     assert_eq!(parsed.workspace_roots, workspace_roots);

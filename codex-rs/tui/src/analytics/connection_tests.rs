@@ -36,7 +36,7 @@ async fn remote() -> (RemoteAppServerClient, tokio::task::JoinHandle<()>) {
         socket
             .send(Message::Text(
                 json!({"id": initialize["id"], "result": {
-                    "userAgent": "analytics-test", "codexHome": "/server/.codex",
+                    "userAgent": "analytics-test", "codexHome": "/server/.steve",
                 }})
                 .to_string()
                 .into(),

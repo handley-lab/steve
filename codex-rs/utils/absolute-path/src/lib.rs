@@ -436,7 +436,7 @@ mod tests {
         let status = Command::new(std::env::current_exe().expect("current test binary"))
             .arg("absolute_paths_with_removed_current_dir_child")
             .arg("--ignored")
-            .env("CODEX_ABSOLUTE_PATH_REMOVED_CWD_CHILD", "1")
+            .env("STEVE_ABSOLUTE_PATH_REMOVED_CWD_CHILD", "1")
             .status()
             .expect("run child test");
 
@@ -447,7 +447,7 @@ mod tests {
     #[test]
     #[ignore]
     fn absolute_paths_with_removed_current_dir_child() {
-        if std::env::var_os("CODEX_ABSOLUTE_PATH_REMOVED_CWD_CHILD").is_none() {
+        if std::env::var_os("STEVE_ABSOLUTE_PATH_REMOVED_CWD_CHILD").is_none() {
             return;
         }
 

@@ -24,7 +24,7 @@ struct TestDaemon {
 impl TestDaemon {
     fn new() -> Result<Self> {
         let home = tempfile::Builder::new().tempdir_in("/tmp")?;
-        let codex = codex_utils_cargo_bin::cargo_bin("codex")?;
+        let codex = codex_utils_cargo_bin::cargo_bin("steve")?;
         let codex_source = std::fs::canonicalize(&codex)?;
         let target = if cfg!(target_os = "macos") {
             format!("{}-apple-darwin", std::env::consts::ARCH)
@@ -45,7 +45,7 @@ impl TestDaemon {
             // Translate the fixture before timed daemon capability and readiness checks.
             ensure!(
                 Command::new(&managed)
-                    .env("CODEX_HOME", home.path())
+                    .env("STEVE_HOME", home.path())
                     .arg("--version")
                     .output()?
                     .status
@@ -75,7 +75,7 @@ impl TestDaemon {
 
     fn command(&self) -> Command {
         let mut command = Command::new(&self.codex);
-        command.env("CODEX_HOME", self.home.path());
+        command.env("STEVE_HOME", self.home.path());
         command
     }
 
@@ -144,7 +144,7 @@ fn managed_daemon_restarts_from_deleted_working_directory() -> Result<()> {
         .arg(&project)
         .arg(&daemon.codex)
         .current_dir(&project)
-        .env("CODEX_HOME", daemon.home.path())
+        .env("STEVE_HOME", daemon.home.path())
         .output()?;
     ensure!(
         restarted.status.success(),
@@ -692,7 +692,7 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
     copy_executable(&daemon.codex, &package.join("bin/codex"))?;
     daemon.codex = package.join("bin/codex");
     for helper in [
-        "bin/codex-code-mode-host",
+        "bin/steve-code-mode-host",
         "codex-path/rg",
         "codex-resources/bwrap",
     ] {
@@ -789,7 +789,7 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
             assert!(!current.exists());
         }
 
-        std::fs::remove_file(package.join("bin/codex-code-mode-host"))?;
+        std::fs::remove_file(package.join("bin/steve-code-mode-host"))?;
         let invalid = daemon
             .command()
             .args(["app-server", "daemon", "update", "--from-cli", "--yes"])
@@ -801,7 +801,7 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
             assert!(!current.exists());
         }
         codex_utils_cargo_bin::write_executable(
-            &package.join("bin/codex-code-mode-host"),
+            &package.join("bin/steve-code-mode-host"),
             "replacement helper",
         )?;
         let replaced = daemon
@@ -833,12 +833,12 @@ fn packaged_daemon_launch(action: &str, initial: InitialDaemon) -> Result<()> {
         assert!(!dedicated.join("auto-update-version").exists());
         assert_eq!(std::fs::read(state.join("settings.json"))?, settings_before);
         assert_eq!(
-            std::fs::read(current.join("bin/codex-code-mode-host"))?,
+            std::fs::read(current.join("bin/steve-code-mode-host"))?,
             b"replacement helper"
         );
         if initial == InitialDaemon::Missing {
             assert_eq!(
-                std::fs::read(original.join("bin/codex-code-mode-host"))?,
+                std::fs::read(original.join("bin/steve-code-mode-host"))?,
                 b"runtime fixture"
             );
         }

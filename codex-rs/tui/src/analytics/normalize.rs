@@ -89,7 +89,7 @@ pub(super) fn history(
                             if key.starts_with("work_") {
                                 "work"
                             } else {
-                                "codex"
+                                "steve"
                             }
                             .to_string()
                         } else if key.eq_ignore_ascii_case("other") {
@@ -338,7 +338,7 @@ pub(super) fn label(key: &str) -> &str {
         "sdk" => "SDK",
         "exec" => "Exec",
         "github" => "GitHub",
-        "codex" => "Codex",
+        "steve" => "Steve",
         "work" => "Work",
         "code_review" | "github_code_review" => "Code review",
         "start-user" | "start-composer" => "User messages",

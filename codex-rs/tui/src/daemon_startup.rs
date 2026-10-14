@@ -19,11 +19,11 @@ const SERVER_FEATURES: [Feature; 4] = [
 ];
 
 pub(super) const FAILURE_HINT: &str = "To work without the background server, rerun the same command with --no-daemon (including resume or fork and its arguments).";
-pub(super) const WSL_DRVFS_EXCLUSION: &str = "a Windows-mounted WSL CODEX_HOME (DrvFS/9p)";
+pub(super) const WSL_DRVFS_EXCLUSION: &str = "a Windows-mounted WSL STEVE_HOME (DrvFS/9p)";
 
 /// Returns whether `codex_home` is on a Windows-mounted WSL filesystem.
 pub fn uses_wsl_drvfs(codex_home: &std::path::Path) -> bool {
-    // The managed daemon writes an executable and Unix-style state beneath CODEX_HOME.
+    // The managed daemon writes an executable and Unix-style state beneath STEVE_HOME.
     // DrvFS does not reliably support the required permission semantics, so starting it
     // there can fail before the TUI opens.
     #[cfg(target_os = "linux")]
@@ -53,7 +53,7 @@ pub fn uses_wsl_drvfs(codex_home: &std::path::Path) -> bool {
 }
 
 #[cfg(any(windows, test))]
-pub(super) const ELEVATED_LAUNCH_WARNING: &str = "Running as administrator: shared background server disabled. To enable it, restart Codex in a terminal without administrator permissions.";
+pub(super) const ELEVATED_LAUNCH_WARNING: &str = "Running as administrator: shared background server disabled. To enable it, restart Steve in a terminal without administrator permissions.";
 
 #[derive(Debug, thiserror::Error)]
 #[error("Cannot use the shared background server: {reason}.\n{FAILURE_HINT}")]
@@ -76,7 +76,7 @@ pub(super) fn exclusion(
     } else if workload_identity_selected {
         Some("workload identity")
     } else if exec_server_url.is_some() {
-        Some("executor selection (CODEX_EXEC_SERVER_URL)")
+        Some("executor selection (STEVE_EXEC_SERVER_URL)")
     } else if cli.agents_overview {
         None
     } else if cli.config_profile_v2.is_some() {

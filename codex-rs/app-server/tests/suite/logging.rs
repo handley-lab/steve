@@ -409,7 +409,7 @@ supports_websockets = false
 #[test]
 fn standalone_app_server_emits_json_info_events() -> Result<()> {
     let codex_home = TempDir::new()?;
-    let event = app_server_json_shutdown_event("codex-app-server", &[], codex_home.path())?;
+    let event = app_server_json_shutdown_event("steve-app-server", &[], codex_home.path())?;
 
     assert_eq!(
         event,
@@ -534,7 +534,7 @@ async fn sqlite_log_metrics_exports_do_not_create_log_cycles() -> Result<()> {
                     attributes,
                     BTreeMap::from([
                         ("error", "none"),
-                        ("originator", "codex-app-server"),
+                        ("originator", "steve-app-server"),
                         ("status", "success"),
                     ]),
                     "metric {name} must preserve its production dimensions"

@@ -723,7 +723,7 @@ default_app_access = "allow"
     )?;
 
     let workspace = TempDir::new()?;
-    let project_config_dir = workspace.path().join(".codex");
+    let project_config_dir = workspace.path().join(".steve");
     std::fs::create_dir_all(&project_config_dir)?;
     std::fs::write(
         project_config_dir.join("config.toml"),
@@ -1314,7 +1314,7 @@ async fn config_read_includes_project_layers_for_cwd() -> Result<()> {
     write_config(&codex_home, r#"model = "gpt-user""#)?;
 
     let workspace = TempDir::new()?;
-    let project_config_dir = workspace.path().join(".codex");
+    let project_config_dir = workspace.path().join(".steve");
     std::fs::create_dir_all(&project_config_dir)?;
     std::fs::write(
         project_config_dir.join("config.toml"),
@@ -1357,9 +1357,9 @@ async fn config_read_respects_managed_project_root_markers() -> Result<()> {
     let codex_home = TempDir::new()?;
     write_config(&codex_home, "model_context_window = 16384\n")?;
     let workspace = TempDir::new()?;
-    let ancestor_config = workspace.path().join(".codex");
+    let ancestor_config = workspace.path().join(".steve");
     let child = workspace.path().join("child");
-    let child_config = child.join(".codex");
+    let child_config = child.join(".steve");
     for dir in [
         workspace.path().join(".git"),
         ancestor_config.clone(),
@@ -1384,7 +1384,7 @@ async fn config_read_respects_managed_project_root_markers() -> Result<()> {
     let mut app_server = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .without_auto_env()
-        .with_env_overrides(&[("CODEX_APP_SERVER_MANAGED_CONFIG_PATH", Some(&managed_path))])
+        .with_env_overrides(&[("STEVE_APP_SERVER_MANAGED_CONFIG_PATH", Some(&managed_path))])
         .build_initialized_with_timeout(DEFAULT_READ_TIMEOUT)
         .await?;
     let request_id = app_server
@@ -1471,7 +1471,7 @@ writable_roots = [{}]
         .with_codex_home(codex_home.path())
         .without_auto_env()
         .with_env_overrides(&[(
-            "CODEX_APP_SERVER_MANAGED_CONFIG_PATH",
+            "STEVE_APP_SERVER_MANAGED_CONFIG_PATH",
             Some(&managed_path_str),
         )])
         .build_initialized_with_timeout(DEFAULT_READ_TIMEOUT)

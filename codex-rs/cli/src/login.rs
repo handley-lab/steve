@@ -1,10 +1,10 @@
 //! CLI login commands and their direct-user observability surfaces.
 //!
 //! The TUI path already installs a broader tracing stack with feedback, OpenTelemetry, and other
-//! interactive-session layers. Direct `codex login` intentionally does less: it preserves the
+//! interactive-session layers. Direct `steve login` intentionally does less: it preserves the
 //! existing stderr/browser UX and adds only a small file-backed tracing layer for login-specific
 //! targets. Keeping that setup local avoids pulling the TUI's session-oriented logging machinery
-//! into a one-shot CLI command while still producing a durable `codex-login.log` artifact that
+//! into a one-shot CLI command while still producing a durable `steve-login.log` artifact that
 //! support can request from users.
 
 use codex_config::types::AuthCredentialsStoreMode;
@@ -49,12 +49,12 @@ const LOGIN_SUCCESS_MESSAGE: &str = "Successfully logged in";
 const DEFAULT_LOGIN_LOG_FILTER: &str =
     "codex_cli=info,codex_core=info,codex_login=info,codex_otel::auth_storage=warn";
 
-/// Installs a small file-backed tracing layer for direct `codex login` flows.
+/// Installs a small file-backed tracing layer for direct `steve login` flows.
 ///
 /// This deliberately duplicates a narrow slice of the TUI logging setup instead of reusing it
 /// wholesale. The TUI stack includes session-oriented layers that are valuable for interactive
 /// runs but unnecessary for a one-shot login command. Keeping the direct CLI path local lets this
-/// command produce a durable `codex-login.log` artifact without coupling it to the TUI's broader
+/// command produce a durable `steve-login.log` artifact without coupling it to the TUI's broader
 /// telemetry and feedback initialization.
 fn init_login_file_logging(config: &Config) -> Option<WorkerGuard> {
     let log_dir = match codex_core::config::log_dir(config) {
@@ -82,7 +82,7 @@ fn init_login_file_logging(config: &Config) -> Option<WorkerGuard> {
         log_file_opts.mode(0o600);
     }
 
-    let log_path = log_dir.join("codex-login.log");
+    let log_path = log_dir.join("steve-login.log");
     let log_file = match log_file_opts.open(&log_path) {
         Ok(log_file) => log_file,
         Err(err) => {
@@ -103,7 +103,7 @@ fn init_login_file_logging(config: &Config) -> Option<WorkerGuard> {
         .with_ansi(false)
         .with_filter(env_filter);
 
-    // Direct `codex login` otherwise relies on ephemeral stderr and browser output.
+    // Direct `steve login` otherwise relies on ephemeral stderr and browser output.
     // Persist the same login targets to a file so support can inspect auth failures
     // without reproducing them through TUI or app-server.
     if let Err(err) = tracing_subscriber::registry().with(file_layer).try_init() {
@@ -119,7 +119,7 @@ fn init_login_file_logging(config: &Config) -> Option<WorkerGuard> {
 
 fn print_login_server_start(actual_port: u16, auth_url: &str) {
     eprintln!(
-        "Starting local login server on http://localhost:{actual_port}.\nIf your browser did not open, navigate to this URL to authenticate:\n\n{auth_url}\n\nOn a remote or headless machine? Use `codex login --device-auth` instead."
+        "Starting local login server on http://localhost:{actual_port}.\nIf your browser did not open, navigate to this URL to authenticate:\n\n{auth_url}\n\nOn a remote or headless machine? Use `steve login --device-auth` instead."
     );
 }
 
@@ -280,7 +280,7 @@ pub async fn run_login_with_access_token(
 
 pub fn read_api_key_from_stdin() -> String {
     read_stdin_secret(
-        "--with-api-key expects the API key on stdin. Try piping it, e.g. `printenv OPENAI_API_KEY | codex login --with-api-key`.",
+        "--with-api-key expects the API key on stdin. Try piping it, e.g. `printenv OPENAI_API_KEY | steve login --with-api-key`.",
         "Reading API key from stdin...",
         "No API key provided via stdin.",
     )
@@ -288,7 +288,7 @@ pub fn read_api_key_from_stdin() -> String {
 
 pub fn read_access_token_from_stdin() -> String {
     read_stdin_secret(
-        "--with-access-token expects the access token on stdin. Try piping it, e.g. `printenv CODEX_ACCESS_TOKEN | codex login --with-access-token`.",
+        "--with-access-token expects the access token on stdin. Try piping it, e.g. `printenv STEVE_ACCESS_TOKEN | steve login --with-access-token`.",
         "Reading access token from stdin...",
         "No access token provided via stdin.",
     )
@@ -368,7 +368,7 @@ pub async fn run_login_with_device_code(
 }
 
 /// Prefers device-code login (with `open_browser = false`) when headless environment is detected, but keeps
-/// `codex login` working in environments where device-code may be disabled/feature-gated.
+/// `steve login` working in environments where device-code may be disabled/feature-gated.
 /// If `run_device_code_login` returns `ErrorKind::NotFound` ("device-code unsupported"), this
 /// falls back to starting the local browser login server.
 pub async fn run_login_with_device_code_fallback_to_browser(
@@ -639,7 +639,7 @@ mod tests {
 
     #[tokio::test]
     async fn clears_existing_auth_before_login() {
-        let codex_home = tempdir().expect("create temporary Codex home");
+        let codex_home = tempdir().expect("create temporary Steve home");
         login_with_api_key(
             codex_home.path(),
             "sk-existing",

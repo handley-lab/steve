@@ -156,7 +156,7 @@ async fn assert_partial_results(provider: &dyn CodeModeSessionProvider) {
 #[tokio::test]
 async fn settled_results_stream_over_stdio() {
     let provider = ProcessOwnedCodeModeSessionProvider::with_host_program(
-        codex_utils_cargo_bin::cargo_bin("codex-code-mode-host").expect("host binary"),
+        codex_utils_cargo_bin::cargo_bin("steve-code-mode-host").expect("host binary"),
     );
     tokio::time::timeout(
         Duration::from_secs(/*secs*/ 20),

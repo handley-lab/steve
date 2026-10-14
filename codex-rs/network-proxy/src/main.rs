@@ -22,7 +22,7 @@ use tracing_subscriber::EnvFilter;
 const MAX_CONFIG_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Parser)]
-#[command(name = "codex-network-proxy", about = "Codex network policy proxy")]
+#[command(name = "steve-network-proxy", about = "Codex network policy proxy")]
 struct Args {
     /// Standalone JSON configuration containing a `network` object.
     #[arg(long, value_name = "PATH")]

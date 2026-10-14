@@ -34,7 +34,7 @@ genrule(
     cmd = " && ".join([
         '$(execpath @bazel_tools//tools/build_defs/hash:sha256) $(execpath :bwrap) "$@"',
         'digest=$$(<"$@")',
-        'printf "CODEX_BWRAP_SHA256=%s\\n" "$$digest" > "$@"',
+        'printf "STEVE_BWRAP_SHA256=%s\\n" "$$digest" > "$@"',
     ]),
     target_compatible_with = ["@platforms//os:linux"],
     tools = ["@bazel_tools//tools/build_defs/hash:sha256"],

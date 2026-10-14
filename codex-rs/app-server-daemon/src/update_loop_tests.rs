@@ -84,7 +84,7 @@ fn updater_reexec_preserves_paths_and_recovers_deleted_working_directory() {
         let executable = home.path().join("updater");
         std::fs::write(
         &executable,
-        b"#!/bin/sh\ntest -d \"$CODEX_HOME\" || exit 1\n{ pwd -P; printf '%s\\n' \"$CODEX_HOME\" \"$CODEX_SQLITE_HOME\" \"$AWS_CONFIG_FILE\" \"$SSL_CERT_DIR\" \"$NPM_CONFIG_CAFILE\"; } > \"$CODEX_TEST_UPDATER_OUTPUT\"\n",
+        b"#!/bin/sh\ntest -d \"$STEVE_HOME\" || exit 1\n{ pwd -P; printf '%s\\n' \"$STEVE_HOME\" \"$STEVE_SQLITE_HOME\" \"$AWS_CONFIG_FILE\" \"$SSL_CERT_DIR\" \"$NPM_CONFIG_CAFILE\"; } > \"$STEVE_TEST_UPDATER_OUTPUT\"\n",
     )
     .expect("updater shim");
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755))
@@ -104,12 +104,12 @@ fn updater_reexec_preserves_paths_and_recovers_deleted_working_directory() {
         let result = std::process::Command::new(std::env::current_exe().expect("test binary"))
             .args(["--exact", "update_loop::tests::updater_reexec_child"])
             .current_dir(&project)
-            .env("CODEX_TEST_UPDATER_EXECUTABLE", &executable)
-            .env("CODEX_TEST_UPDATER_STATE", &state)
-            .env("CODEX_TEST_UPDATER_OUTPUT", &output)
-            .env("CODEX_TEST_UPDATER_DELETE_CWD", delete_cwd.to_string())
-            .env("CODEX_HOME", format!("../{home_name}"))
-            .env("CODEX_SQLITE_HOME", " sqlite ")
+            .env("STEVE_TEST_UPDATER_EXECUTABLE", &executable)
+            .env("STEVE_TEST_UPDATER_STATE", &state)
+            .env("STEVE_TEST_UPDATER_OUTPUT", &output)
+            .env("STEVE_TEST_UPDATER_DELETE_CWD", delete_cwd.to_string())
+            .env("STEVE_HOME", format!("../{home_name}"))
+            .env("STEVE_SQLITE_HOME", " sqlite ")
             .env("AWS_CONFIG_FILE", "~/config")
             .env("NPM_CONFIG_CAFILE", ca_file)
             .env(
@@ -160,16 +160,16 @@ fn updater_reexec_preserves_paths_and_recovers_deleted_working_directory() {
 fn updater_reexec_child() {
     use std::os::unix::process::CommandExt;
 
-    let Some(executable) = std::env::var_os("CODEX_TEST_UPDATER_EXECUTABLE") else {
+    let Some(executable) = std::env::var_os("STEVE_TEST_UPDATER_EXECUTABLE") else {
         return;
     };
-    let state = std::env::var_os("CODEX_TEST_UPDATER_STATE").expect("state path");
-    if std::env::var("CODEX_TEST_UPDATER_DELETE_CWD").as_deref() == Ok("true") {
+    let state = std::env::var_os("STEVE_TEST_UPDATER_STATE").expect("state path");
+    if std::env::var("STEVE_TEST_UPDATER_DELETE_CWD").as_deref() == Ok("true") {
         // Model the initial background launch while the relative home is resolvable.
         let mut command = std::process::Command::new(std::env::current_exe().expect("test binary"));
         command
             .args(["--exact", "update_loop::tests::updater_reexec_child"])
-            .env("CODEX_TEST_UPDATER_DELETE_CWD", "prepared");
+            .env("STEVE_TEST_UPDATER_DELETE_CWD", "prepared");
         crate::background_command::set_working_directory(
             &mut command,
             std::path::Path::new(&state),
@@ -177,7 +177,7 @@ fn updater_reexec_child() {
         .expect("prepare background launch");
         panic!("failed to launch prepared updater: {}", command.exec());
     }
-    if std::env::var("CODEX_TEST_UPDATER_DELETE_CWD").as_deref() == Ok("prepared") {
+    if std::env::var("STEVE_TEST_UPDATER_DELETE_CWD").as_deref() == Ok("prepared") {
         std::fs::remove_dir(std::env::current_dir().expect("project cwd"))
             .expect("delete updater cwd");
     }
@@ -206,7 +206,7 @@ async fn explicit_update_migrates_running_and_stopped_installations() {
             std::fs::create_dir(&package).unwrap();
             codex_utils_cargo_bin::copy_executable(
                 &legacy.managed_codex_bin,
-                &package.join("codex"),
+                &package.join("steve"),
             )
             .unwrap();
             std::fs::remove_file(root.join("current")).unwrap();
@@ -215,7 +215,7 @@ async fn explicit_update_migrates_running_and_stopped_installations() {
         }
         let previous = root.join("current").canonicalize().unwrap();
         let scheduled = FakeInstallerHttp::new(InstallerResponse::Success(
-        b"# CODEX_INSTALL_IF_LATEST\ntest \"$CODEX_INSTALL_DEFER_SELECTION\" = 0 && test \"$CODEX_INSTALL_DAEMON_ONLY\" = 0\n".to_vec(),
+        b"# STEVE_INSTALL_IF_LATEST\ntest \"$STEVE_INSTALL_DEFER_SELECTION\" = 0 && test \"$STEVE_INSTALL_DAEMON_ONLY\" = 0\n".to_vec(),
     ));
         super::update_once(
             &scheduled,
@@ -267,16 +267,16 @@ async fn explicit_update_migrates_running_and_stopped_installations() {
         );
 
         let script = format!(
-            r#"# CODEX_INSTALL_DEFER_SELECTION
+            r#"# STEVE_INSTALL_DEFER_SELECTION
 set -eu
-test "$CODEX_INSTALL_DEFER_SELECTION" = 1
-test "$CODEX_INSTALL_IF_CURRENT" = 0
-test "$CODEX_INSTALL_DAEMON_ONLY" = 1
-test "$CODEX_INSTALL_IF_LATEST" = 0
-root="$CODEX_HOME/packages/app-server-daemon"
+test "$STEVE_INSTALL_DEFER_SELECTION" = 1
+test "$STEVE_INSTALL_IF_CURRENT" = 0
+test "$STEVE_INSTALL_DAEMON_ONLY" = 1
+test "$STEVE_INSTALL_IF_LATEST" = 0
+root="$STEVE_HOME/packages/app-server-daemon"
 mkdir -p "$root/releases/{release}/bin"
-printf '#!/bin/sh\nif [ "$1" = --version ]; then echo codex 1.0.0; else exit 2; fi\n' > "$root/releases/{release}/bin/codex"
-chmod +x "$root/releases/{release}/bin/codex"
+printf '#!/bin/sh\nif [ "$1" = --version ]; then echo codex 1.0.0; else exit 2; fi\n' > "$root/releases/{release}/bin/steve"
+chmod +x "$root/releases/{release}/bin/steve"
 ln -sfn 'releases/{release}' "$root/.migration-current"
 printf '{release}' > "$root/auto-update-version"
 "#
@@ -306,7 +306,7 @@ printf '{release}' > "$root/auto-update-version"
         status: UpdateStatus::Updated,
         installed_version: Some("1.0.0".to_string()),
         running_version: (running).then(|| "1.0.0".to_string()),
-        managed_codex_path: dedicated.join("current/bin/codex"),
+        managed_codex_path: dedicated.join("current/bin/steve"),
         message: "The daemon was updated and moved to its dedicated package. The legacy CLI package was left unchanged.".to_string(),
     });
         assert_eq!(
@@ -328,7 +328,7 @@ printf '{release}' > "$root/auto-update-version"
             update_pid_file: legacy
                 .update_pid_file
                 .with_file_name(crate::DAEMON_UPDATE_PID_FILE_NAME),
-            managed_codex_bin: dedicated.join("current/bin/codex"),
+            managed_codex_bin: dedicated.join("current/bin/steve"),
             ..legacy.clone()
         };
         let new_backend = crate::backend::pid_backend(selected.backend_paths(&daemon_settings));
@@ -426,7 +426,7 @@ fn manual_update_daemon(home: &TempDir) -> (Daemon, String) {
     };
     let release = format!("1.0.0-{target}");
     let standalone = home.path().join("packages/standalone");
-    let bin = standalone.join("releases").join(&release).join("codex");
+    let bin = standalone.join("releases").join(&release).join("steve");
     std::fs::create_dir_all(bin.parent().expect("binary parent")).expect("release directory");
     codex_utils_cargo_bin::write_executable(
         &bin,
@@ -703,7 +703,7 @@ async fn test_control_server(
             };
             websocket.send(tokio_tungstenite::tungstenite::Message::Text(
                 serde_json::json!({"id": 1, "result": {
-                    "userAgent": format!("codex_app_server_daemon/{version}"),
+                    "userAgent": format!("steve_app_server_daemon/{version}"),
                     "codexHome": codex_home, "platformFamily": "unix", "platformOs": std::env::consts::OS,
                 }}).to_string().into(),
             )).await.expect("initialize response");
@@ -728,13 +728,13 @@ async fn scheduled_no_op_preserves_daemon_and_hands_off_stale_updater() {
         .join("releases")
         .join(release.replace("1.0.0", "0.8.0"));
     std::fs::create_dir_all(stale.join("bin")).unwrap();
-    std::fs::copy(&daemon.managed_codex_bin, stale.join("bin/codex")).unwrap();
+    std::fs::copy(&daemon.managed_codex_bin, stale.join("bin/steve")).unwrap();
     std::fs::write(
         stale.join("codex-package.json"),
         serde_json::json!({
             "version": "0.8.0",
             "target": release.strip_prefix("1.0.0-").unwrap(),
-            "entrypoint": "bin/codex"
+            "entrypoint": "bin/steve"
         })
         .to_string(),
     )
@@ -746,7 +746,7 @@ async fn scheduled_no_op_preserves_daemon_and_hands_off_stale_updater() {
     let server = test_control_server(&daemon, home.path()).await;
     let pid_record = std::fs::read(&daemon.pid_file).expect("daemon PID record");
     let no_op = FakeInstallerHttp::new(InstallerResponse::Success(
-        b"# CODEX_INSTALL_IF_LATEST CODEX_INSTALL_DAEMON_ONLY\nexit 0\n".to_vec(),
+        b"# STEVE_INSTALL_IF_LATEST STEVE_INSTALL_DAEMON_ONLY\nexit 0\n".to_vec(),
     ));
 
     let outcome = super::update_once(
@@ -790,7 +790,7 @@ async fn scheduled_resource_only_update_restarts_daemon() {
     let next_release = release.replacen("1.0.0", "1.0.1", 1);
     let installer = FakeInstallerHttp::new(InstallerResponse::Success(
         format!(
-            "#!/bin/sh\n# CODEX_INSTALL_IF_LATEST\nmkdir -p '{root}/releases/{next_release}'\ncp '{root}/releases/{release}/codex' '{root}/releases/{next_release}/codex'\nln -sfn 'releases/{next_release}' '{root}/current'\nprintf '{next_release}' > '{root}/auto-update-version'\n",
+            "#!/bin/sh\n# STEVE_INSTALL_IF_LATEST\nmkdir -p '{root}/releases/{next_release}'\ncp '{root}/releases/{release}/codex' '{root}/releases/{next_release}/codex'\nln -sfn 'releases/{next_release}' '{root}/current'\nprintf '{next_release}' > '{root}/auto-update-version'\n",
             root = root.display(),
         )
         .into_bytes(),
@@ -1029,26 +1029,26 @@ async fn check_manual_update_restart(package_directory: &str) {
         .trim_start_matches("local-development-")
         .replacen("1.0.0", version, 1);
     let guard = if local_package {
-        "CODEX_INSTALL_IF_CURRENT"
+        "STEVE_INSTALL_IF_CURRENT"
     } else {
-        "CODEX_INSTALL_IF_LATEST"
+        "STEVE_INSTALL_IF_LATEST"
     };
     let install_binary = if local_package {
         // Same binary and version, but a different package: it must still restart.
         format!(
-            "cp '{root}/releases/{release}/codex' '{root}/releases/{next}/bin/codex'",
+            "cp '{root}/releases/{release}/codex' '{root}/releases/{next}/bin/steve'",
             root = standalone.display()
         )
     } else {
         format!(
-            r#"printf '#!/bin/sh\nif [ "$1" = --version ]; then echo codex 1.1.0; else exec sleep 30; fi\n' > '{root}/releases/{next}/bin/codex'"#,
+            r#"printf '#!/bin/sh\nif [ "$1" = --version ]; then echo codex 1.1.0; else exec sleep 30; fi\n' > '{root}/releases/{next}/bin/steve'"#,
             root = standalone.display()
         )
     };
     let ready = home.path().join("installer-ready");
     let proceed = home.path().join("installer-proceed");
     let script = format!(
-        "#!/bin/sh\n# CODEX_INSTALL_IF_LATEST CODEX_INSTALL_IF_CURRENT CODEX_INSTALL_DAEMON_ONLY\nif [ \"$CODEX_UPDATE_FROM_RELEASE\" = '{next}' ]; then exit 0; fi\ntest \"${guard}\" = 1 || exit 4\ntest \"$CODEX_UPDATE_FROM_RELEASE\" = '{release}' || exit 5\ntouch '{ready}'\nwhile [ ! -e '{proceed}' ]; do sleep .05; done\nmkdir -p '{root}/releases/{next}/bin'\n{install_binary}\nchmod +x '{root}/releases/{next}/bin/codex'\nln -sfn 'releases/{next}' '{root}/current'\nprintf '{next}' > '{root}/auto-update-version'\n",
+        "#!/bin/sh\n# STEVE_INSTALL_IF_LATEST STEVE_INSTALL_IF_CURRENT STEVE_INSTALL_DAEMON_ONLY\nif [ \"$STEVE_UPDATE_FROM_RELEASE\" = '{next}' ]; then exit 0; fi\ntest \"${guard}\" = 1 || exit 4\ntest \"$STEVE_UPDATE_FROM_RELEASE\" = '{release}' || exit 5\ntouch '{ready}'\nwhile [ ! -e '{proceed}' ]; do sleep .05; done\nmkdir -p '{root}/releases/{next}/bin'\n{install_binary}\nchmod +x '{root}/releases/{next}/bin/steve'\nln -sfn 'releases/{next}' '{root}/current'\nprintf '{next}' > '{root}/auto-update-version'\n",
         root = standalone.display(),
         ready = ready.display(),
         proceed = proceed.display(),
@@ -1099,7 +1099,7 @@ async fn check_manual_update_restart(package_directory: &str) {
     assert_eq!(output.running_version.as_deref(), Some(version));
     assert_eq!(
         output.managed_codex_path,
-        standalone.join("current/bin/codex")
+        standalone.join("current/bin/steve")
     );
     let restarted = current_pid();
     assert_ne!(restarted, before);
@@ -1121,7 +1121,7 @@ async fn check_manual_update_restart(package_directory: &str) {
         .expect("updater task")
         .expect("updater loop");
     let no_op = FakeInstallerHttp::new(InstallerResponse::Success(
-        b"#!/bin/sh\n# CODEX_INSTALL_IF_LATEST CODEX_INSTALL_DAEMON_ONLY\nexit 0\n".to_vec(),
+        b"#!/bin/sh\n# STEVE_INSTALL_IF_LATEST STEVE_INSTALL_DAEMON_ONLY\nexit 0\n".to_vec(),
     ));
     let bin = daemon
         .current_managed_codex_bin()
@@ -1153,9 +1153,9 @@ async fn powershell_installer_is_noninteractive_and_reports_script_failure() {
     let valid = FakeInstallerHttp::new(InstallerResponse::Success(
         br#"
 function Test-Installer {
-    if ($env:CODEX_NON_INTERACTIVE -ne '1') { throw 'interactive installer' }
-    if ($env:CODEX_INSTALL_DAEMON_ONLY -ne '1') { throw 'wrong package destination' }
-    if ($env:CODEX_INSTALL_IF_CURRENT -ne '1' -or $env:CODEX_INSTALL_IF_LATEST -ne '0') { throw 'wrong update guard' }
+    if ($env:STEVE_NON_INTERACTIVE -ne '1') { throw 'interactive installer' }
+    if ($env:STEVE_INSTALL_DAEMON_ONLY -ne '1') { throw 'wrong package destination' }
+    if ($env:STEVE_INSTALL_IF_CURRENT -ne '1' -or $env:STEVE_INSTALL_IF_LATEST -ne '0') { throw 'wrong update guard' }
 }
 Test-Installer
 "#
@@ -1239,7 +1239,7 @@ async fn update_rejects_a_package_root_change_during_download() {
                 self.0.join("packages/app-server-daemon"),
             )?;
             Ok(InstallerResponse::Success(
-                b"# CODEX_INSTALL_IF_LATEST\nexit 99\n".to_vec(),
+                b"# STEVE_INSTALL_IF_LATEST\nexit 99\n".to_vec(),
             ))
         }
     }
@@ -1272,7 +1272,7 @@ async fn daemon_owned_updates_require_and_request_an_isolated_installer() {
         .await
         .unwrap();
     let old = FakeInstallerHttp::new(InstallerResponse::Success(
-        b"# CODEX_INSTALL_IF_LATEST\nexit 0\n".to_vec(),
+        b"# STEVE_INSTALL_IF_LATEST\nexit 0\n".to_vec(),
     ));
     let error = manual_update_once(
         &old,
@@ -1289,7 +1289,7 @@ async fn daemon_owned_updates_require_and_request_an_isolated_installer() {
             .contains("does not support daemon-owned packages")
     );
     let current = FakeInstallerHttp::new(InstallerResponse::Success(
-        b"# CODEX_INSTALL_IF_LATEST\ntest \"$CODEX_INSTALL_IF_LATEST\" = 1 && test \"$CODEX_INSTALL_DAEMON_ONLY\" = 1\n".to_vec(),
+        b"# STEVE_INSTALL_IF_LATEST\ntest \"$STEVE_INSTALL_IF_LATEST\" = 1 && test \"$STEVE_INSTALL_DAEMON_ONLY\" = 1\n".to_vec(),
     ));
     let output = manual_update_once(
         &current,
@@ -1306,16 +1306,16 @@ async fn daemon_owned_updates_require_and_request_an_isolated_installer() {
     // Reuse the stopped daemon to verify explicit unpinning with either preference.
     let marker = root.join("auto-update-version");
     let no_op = FakeInstallerHttp::new(InstallerResponse::Success(
-        b"# CODEX_INSTALL_IF_CURRENT CODEX_INSTALL_DAEMON_ONLY\nexit 0\n".to_vec(),
+        b"# STEVE_INSTALL_IF_CURRENT STEVE_INSTALL_DAEMON_ONLY\nexit 0\n".to_vec(),
     ));
     let script = format!(
-        r#"# CODEX_INSTALL_IF_CURRENT CODEX_INSTALL_DAEMON_ONLY
+        r#"# STEVE_INSTALL_IF_CURRENT STEVE_INSTALL_DAEMON_ONLY
 set -eu
-test "$CODEX_INSTALL_IF_CURRENT" = 1
-test "$CODEX_INSTALL_IF_LATEST" = 0
-test "$CODEX_INSTALL_DAEMON_ONLY" = 1
-test "$CODEX_RELEASE" = latest
-test "$CODEX_UPDATE_FROM_RELEASE" = '{release}'
+test "$STEVE_INSTALL_IF_CURRENT" = 1
+test "$STEVE_INSTALL_IF_LATEST" = 0
+test "$STEVE_INSTALL_DAEMON_ONLY" = 1
+test "$STEVE_RELEASE" = latest
+test "$STEVE_UPDATE_FROM_RELEASE" = '{release}'
 printf '%s' '{release}' > '{marker}'
 "#,
         marker = marker.display()

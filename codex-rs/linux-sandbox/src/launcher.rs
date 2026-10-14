@@ -340,7 +340,7 @@ mod tests {
             "7".to_string(),
             "/tmp/socket-root".to_string(),
             "--".to_string(),
-            "/usr/bin/codex-linux-sandbox".to_string(),
+            "/usr/bin/steve-linux-sandbox".to_string(),
             "--apply-seccomp-then-exec".to_string(),
             "--".to_string(),
             "echo".to_string(),
@@ -357,7 +357,7 @@ mod tests {
                 "/proc/self/fd/7".to_string(),
                 "/tmp/socket-root".to_string(),
                 "--".to_string(),
-                "/usr/bin/codex-linux-sandbox".to_string(),
+                "/usr/bin/steve-linux-sandbox".to_string(),
                 "--verify-fd-mount".to_string(),
                 "7:/tmp/socket-root".to_string(),
                 "--apply-seccomp-then-exec".to_string(),
@@ -379,7 +379,7 @@ mod tests {
             "9".to_string(),
             "/tmp/second:with-colon".to_string(),
             "--".to_string(),
-            "codex-linux-sandbox".to_string(),
+            "steve-linux-sandbox".to_string(),
             "--apply-seccomp-then-exec".to_string(),
             "--".to_string(),
             "true".to_string(),
@@ -398,7 +398,7 @@ mod tests {
                 "/proc/self/fd/9".to_string(),
                 "/tmp/second:with-colon".to_string(),
                 "--".to_string(),
-                "codex-linux-sandbox".to_string(),
+                "steve-linux-sandbox".to_string(),
                 "--verify-fd-mount".to_string(),
                 "7:/tmp/first".to_string(),
                 "--verify-fd-mount".to_string(),
@@ -423,7 +423,7 @@ mod tests {
                 fd.to_string(),
                 destination.to_string(),
                 "--".to_string(),
-                "codex-linux-sandbox".to_string(),
+                "steve-linux-sandbox".to_string(),
             ];
 
             assert!(translate_legacy_bwrap_fd_mounts(&mut argv).is_err());
@@ -457,7 +457,7 @@ mod tests {
             "7".to_string(),
             "/tmp/second".to_string(),
             "--".to_string(),
-            "codex-linux-sandbox".to_string(),
+            "steve-linux-sandbox".to_string(),
         ];
 
         assert!(translate_legacy_bwrap_fd_mounts(&mut argv).is_err());

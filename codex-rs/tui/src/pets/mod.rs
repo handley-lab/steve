@@ -2,8 +2,8 @@
 //!
 //! The TUI treats built-in and custom pets differently on purpose:
 //! built-in pets are versioned application assets fetched on demand into a
-//! managed CODEX_HOME cache, while custom pets remain entirely user-owned data
-//! under `$CODEX_HOME/pets/<pet-id>/pet.json` or legacy avatar directories.
+//! managed STEVE_HOME cache, while custom pets remain entirely user-owned data
+//! under `$STEVE_HOME/pets/<pet-id>/pet.json` or legacy avatar directories.
 //!
 //! This module owns the TUI-facing contracts around that split:
 //! resolving a selected pet id, preparing frames for terminal image protocols,
@@ -51,7 +51,7 @@ pub(crate) use picker::PET_PICKER_VIEW_ID;
 pub(crate) use picker::build_pet_picker_params;
 pub(crate) use preview::PetPickerPreviewState;
 
-pub(crate) const DEFAULT_PET_ID: &str = "codex";
+pub(crate) const DEFAULT_PET_ID: &str = "steve";
 pub(crate) const DISABLED_PET_ID: &str = "disabled";
 
 /// Ensure that a selected built-in pet has a locally cached spritesheet.

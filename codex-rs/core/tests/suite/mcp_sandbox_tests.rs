@@ -58,7 +58,7 @@ async fn mcp_server_enforces_sandbox_state_with_codex_sandbox() -> Result<()> {
     Mock::given(method("POST"))
         .and(path("/mcp"))
         .respond_with(SandboxMcpServer {
-            codex: cargo_bin("codex")?,
+            codex: cargo_bin("steve")?,
             codex_home: sandbox_home.path().to_path_buf(),
             cwd: server_cwd.path().to_path_buf(),
         })
@@ -189,17 +189,17 @@ impl Respond for SandboxMcpServer {
                 let mut command = background_command(&self.codex);
                 command
                     .current_dir(&self.cwd)
-                    .env("CODEX_HOME", &self.codex_home)
-                    .env_remove("CODEX_ACCESS_TOKEN")
+                    .env("STEVE_HOME", &self.codex_home)
+                    .env_remove("STEVE_ACCESS_TOKEN")
                     .env_remove("OPENAI_API_KEY")
-                    .env("CODEX_TEST_WRITE_PATH", target_path)
+                    .env("STEVE_TEST_WRITE_PATH", target_path)
                     .stdin(Stdio::null())
                     .args(["sandbox", "--sandbox-state-json", &state.to_string(), "--"]);
                 #[cfg(not(windows))]
                 command.args([
                     "/bin/sh",
                     "-c",
-                    "printf sandboxed > \"$CODEX_TEST_WRITE_PATH\"",
+                    "printf sandboxed > \"$STEVE_TEST_WRITE_PATH\"",
                 ]);
                 #[cfg(windows)]
                 command.args([
@@ -208,7 +208,7 @@ impl Respond for SandboxMcpServer {
                     "-NonInteractive",
                     "-Command",
                     // Use a cmdlet that works in PowerShell's Constrained Language Mode.
-                    "Set-Content -LiteralPath $env:CODEX_TEST_WRITE_PATH -Value 'sandboxed' -Encoding Ascii -NoNewline -ErrorAction Stop",
+                    "Set-Content -LiteralPath $env:STEVE_TEST_WRITE_PATH -Value 'sandboxed' -Encoding Ascii -NoNewline -ErrorAction Stop",
                 ]);
                 let output = command.output().expect("launch codex sandbox");
                 let report = json!({

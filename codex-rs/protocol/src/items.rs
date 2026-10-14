@@ -834,8 +834,8 @@ mod tests {
 
         for path in [
             "",
-            "/home/user/.codex/plugins/cache/sample/scripts/run.py",
-            "C:/Users/user/.codex/plugins/cache/sample/scripts/run.py",
+            "/home/user/.steve/plugins/cache/sample/scripts/run.py",
+            "C:/Users/user/.steve/plugins/cache/sample/scripts/run.py",
             "scripts/C:/run.py",
             r"\\server\share\sample\scripts\run.py",
             r"scripts\run.py",

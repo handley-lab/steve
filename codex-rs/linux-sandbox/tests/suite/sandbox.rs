@@ -64,7 +64,7 @@ fn create_env_from_core_vars() -> HashMap<String, String> {
 }
 
 fn codex_linux_sandbox_exe() -> PathBuf {
-    let sandbox_program = PathBuf::from(env!("CARGO_BIN_EXE_codex-linux-sandbox"));
+    let sandbox_program = PathBuf::from(env!("CARGO_BIN_EXE_steve-linux-sandbox"));
     match sandbox_program.canonicalize() {
         Ok(path) => path,
         Err(_) => sandbox_program,
@@ -902,7 +902,7 @@ async fn sandbox_blocks_nc() {
 }
 
 #[test_case::test_case(".git", "config")]
-#[test_case::test_case(".codex", "config.toml")]
+#[test_case::test_case(".steve", "config.toml")]
 #[test_case::test_case(".aws", "config")]
 #[tokio::test]
 async fn sandbox_blocks_metadata_writes_inside_writable_root(name: &str, config: &str) {
@@ -960,8 +960,8 @@ async fn sandbox_blocks_codex_symlink_replacement_attack() {
     let decoy = tmpdir.path().join("decoy-codex");
     std::fs::create_dir_all(&decoy).expect("create decoy dir");
 
-    let dot_codex = tmpdir.path().join(".codex");
-    symlink(&decoy, &dot_codex).expect("create .codex symlink");
+    let dot_codex = tmpdir.path().join(".steve");
+    symlink(&decoy, &dot_codex).expect("create .steve symlink");
 
     let codex_target = dot_codex.join("config.toml");
 
@@ -978,7 +978,7 @@ async fn sandbox_blocks_codex_symlink_replacement_attack() {
             /*network_access*/ true,
         )
         .await,
-        ".codex symlink replacement should be denied",
+        ".steve symlink replacement should be denied",
     );
     assert_ne!(codex_output.exit_code, 0);
 }
@@ -996,8 +996,8 @@ async fn sandbox_reports_codex_symlink_build_failure_without_panicking() {
     let decoy = tmpdir.path().join("decoy-codex");
     std::fs::create_dir_all(&decoy).expect("create decoy dir");
 
-    let dot_codex = tmpdir.path().join(".codex");
-    symlink(&decoy, &dot_codex).expect("create .codex symlink");
+    let dot_codex = tmpdir.path().join(".steve");
+    symlink(&decoy, &dot_codex).expect("create .steve symlink");
 
     let output = match run_cmd_result_with_writable_roots(
         &["bash", "-lc", "true"],
@@ -1012,9 +1012,9 @@ async fn sandbox_reports_codex_symlink_build_failure_without_panicking() {
             CodexErrorDetails::Sandbox(SandboxErr::Denied { output, .. }) => {
                 output.as_ref().clone()
             }
-            details => panic!(".codex symlink build failure should deny: {details:?}"),
+            details => panic!(".steve symlink build failure should deny: {details:?}"),
         },
-        Ok(output) => panic!(".codex symlink build failure should deny: {output:?}"),
+        Ok(output) => panic!(".steve symlink build failure should deny: {output:?}"),
     };
 
     assert_eq!(output.exit_code, 1);
@@ -1206,7 +1206,7 @@ fi
 
     let mkdir_codex_output = expect_denied(
         run_cmd_result_with_cwd_and_writable_roots(
-            &["mkdir", ".codex"],
+            &["mkdir", ".steve"],
             &subdir,
             std::slice::from_ref(&subdir),
             LONG_TIMEOUT_MS,
@@ -1214,10 +1214,10 @@ fi
             /*network_access*/ true,
         )
         .await,
-        "child .codex directory creation should be denied",
+        "child .steve directory creation should be denied",
     );
     assert_ne!(mkdir_codex_output.exit_code, 0);
-    assert!(!subdir.join(".codex").exists());
+    assert!(!subdir.join(".steve").exists());
 
     let script = format!(
         r#"set -e
@@ -1244,7 +1244,7 @@ printf '%s\n' '{{"message":"ok"}}' | python3 jsonl_viewer.py | grep -q ok
 
     assert!(subdir.join("jsonl_viewer.py").is_file());
     assert!(!subdir.join(".git").exists());
-    assert!(!subdir.join(".codex").exists());
+    assert!(!subdir.join(".steve").exists());
     assert!(!subdir.join(".agents").exists());
 }
 

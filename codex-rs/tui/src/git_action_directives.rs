@@ -1,4 +1,4 @@
-//! Codex App directives embedded in assistant markdown.
+//! Steve App directives embedded in assistant markdown.
 //!
 //! Preserve whitespace on unchanged lines: Markdown hard breaks and code can depend on it.
 

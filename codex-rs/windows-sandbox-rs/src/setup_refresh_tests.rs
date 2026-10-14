@@ -14,7 +14,7 @@ use super::run_setup_refresh_payload;
 
 const DETACHED_TEST: &str = "setup::refresh_tests::refresh_helper_has_no_console";
 const HELPER_TEST: &str = "setup::refresh_tests::refresh_console_probe";
-const HOME_ENV: &str = "CODEX_TEST_REFRESH_CONSOLE_HOME";
+const HOME_ENV: &str = "STEVE_TEST_REFRESH_CONSOLE_HOME";
 
 #[test]
 fn refresh_helper_has_no_console() -> Result<()> {
@@ -33,7 +33,7 @@ fn refresh_helper_has_no_console() -> Result<()> {
     codex_utils_cargo_bin::copy_executable(&executable, &detached)?;
     codex_utils_cargo_bin::copy_executable(
         &executable,
-        &temporary.path().join("codex-windows-sandbox-setup.exe"),
+        &temporary.path().join("steve-windows-sandbox-setup.exe"),
     )?;
     let output = Command::new(detached)
         .args(["--exact", DETACHED_TEST, "--nocapture"])

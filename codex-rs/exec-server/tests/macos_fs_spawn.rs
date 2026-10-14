@@ -27,7 +27,7 @@ use crate::support::FileSystemImplementation;
 use crate::support::create_file_system_context;
 use crate::support::workspace_write_sandbox;
 
-const CHILD_FLAG: &str = "CODEX_EXEC_SERVER_MACOS_FS_SPAWN_TEST_CHILD";
+const CHILD_FLAG: &str = "STEVE_EXEC_SERVER_MACOS_FS_SPAWN_TEST_CHILD";
 const CHILD_COMPLETED: &str = "filesystem spawn assertions completed";
 static PARENT_FORKS: AtomicUsize = AtomicUsize::new(0);
 

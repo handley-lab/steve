@@ -12,13 +12,13 @@ use std::collections::BTreeMap;
 // Provider installation is process-global. Isolate these cases even under Bazel/libtest,
 // which otherwise runs all unit tests in a shared process.
 fn run_in_subprocess() -> bool {
-    if std::env::var_os("CODEX_AUTH_STORAGE_TEST_CHILD").is_some() {
+    if std::env::var_os("STEVE_AUTH_STORAGE_TEST_CHILD").is_some() {
         return false;
     }
     let thread = std::thread::current();
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", thread.name().unwrap(), "--nocapture"])
-        .env("CODEX_AUTH_STORAGE_TEST_CHILD", "1")
+        .env("STEVE_AUTH_STORAGE_TEST_CHILD", "1")
         .output()
         .unwrap();
     assert!(

@@ -556,7 +556,7 @@ async fn metrics_exporters_respect_analytics_preferences() -> Result<()> {
                 let provider = codex_core::otel_init::build_provider(
                     &config,
                     SERVICE_VERSION,
-                    Some("codex-app-server"),
+                    Some("steve-app-server"),
                     default_analytics_enabled,
                 )
                 .map_err(|err| anyhow::anyhow!(err.to_string()))?;
@@ -777,10 +777,10 @@ operations:
     )?;
     std::fs::write(
         &script_path,
-        r#"test -n "$CODEX_PLUGIN_METRICS_OUTPUT"
+        r#"test -n "$STEVE_PLUGIN_METRICS_OUTPUT"
 sleep "${1:-0.3}"
 while [ -n "${2:-}" ] && [ ! -f "$2" ]; do sleep 0.01; done
-printf '%s' '{"version":1,"measurements":[{"name":"findings","value":3,"dimensions":{"severity":"high"}},{"name":"files_scanned","value":17}]}' > "$CODEX_PLUGIN_METRICS_OUTPUT"
+printf '%s' '{"version":1,"measurements":[{"name":"findings","value":3,"dimensions":{"severity":"high"}},{"name":"files_scanned","value":17}]}' > "$STEVE_PLUGIN_METRICS_OUTPUT"
 "#,
     )?;
 

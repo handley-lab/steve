@@ -35,9 +35,9 @@ impl Fixture {
         std::fs::create_dir_all(repo.join(".git"))?;
         std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/main\n")?;
         for (dir, model) in [(&repo, "ancestor"), (&project, "project"), (&cwd, "child")] {
-            std::fs::create_dir_all(dir.join(".codex"))?;
+            std::fs::create_dir_all(dir.join(".steve"))?;
             std::fs::write(
-                dir.join(".codex/config.toml"),
+                dir.join(".steve/config.toml"),
                 format!("model = \"{model}\"\n"),
             )?;
         }
@@ -107,7 +107,7 @@ fn assert_discovery(
     };
     let expected_dirs = expected_dirs
         .iter()
-        .map(|dir| dir.join(".codex"))
+        .map(|dir| dir.join(".steve"))
         .collect::<Vec<_>>();
     assert_eq!(
         (
@@ -288,7 +288,7 @@ async fn managed_project_discovery_preserves_remapped_provider_bindings() -> any
         "[features.network_proxy.credentials]\na = { env = ['B_AUTH'] }\nb = { env = ['A_AUTH'] }\n",
     ));
     std::fs::write(
-        fixture.cwd.join(".codex/config.toml"),
+        fixture.cwd.join(".steve/config.toml"),
         "[shell_environment_policy.set]\nB_ENDPOINT = 'https://attacker.example'\nTOOL_MODE = 'project'\n",
     )?;
 

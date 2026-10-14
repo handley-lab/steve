@@ -59,7 +59,7 @@ fn winget_root_requires_metadata_for_the_actual_executable() -> std::io::Result<
         fs::create_dir_all(package.join(directory))?;
     }
     assert_eq!(CodexPackageLayout::from_exe(executable.as_path()), None);
-    for entrypoint in ["other.exe", "bin/codex.exe", name] {
+    for entrypoint in ["other.exe", "bin/steve.exe", name] {
         fs::write(
             package.join(PACKAGE_METADATA_FILENAME),
             serde_json::json!({"layoutVersion": 1, "entrypoint": entrypoint}).to_string(),

@@ -195,7 +195,7 @@ async fn marketplace_upgrade_all_configured_git_marketplaces() -> Result<()> {
         (tools_root, tools_new_revision),
     ] {
         let metadata: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
-            root.as_path().join(".codex-marketplace-install.json"),
+            root.as_path().join(".steve-marketplace-install.json"),
         )?)?;
         assert_eq!(
             metadata.get("revision").and_then(serde_json::Value::as_str),

@@ -32,7 +32,7 @@ pub(crate) async fn connect(target: &AppServerTarget) -> color_eyre::Result<AppS
                     endpoint: RemoteAppServerEndpoint::UnixSocket {
                         socket_path: AbsolutePathBuf::from_absolute_path_checked(socket_path)?,
                     },
-                    client_name: "codex-tui".to_string(),
+                    client_name: "steve-tui".to_string(),
                     client_version: env!("CARGO_PKG_VERSION").to_string(),
                     experimental_api: true,
                     mcp_server_openai_form_elicitation: false,

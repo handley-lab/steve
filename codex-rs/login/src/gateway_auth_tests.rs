@@ -504,7 +504,7 @@ async fn gateway_credentials_use_a_dedicated_encrypted_file_and_reload_large_tok
             .join("secrets/gateway_oauth.age")
             .is_file()
     );
-    assert!(!codex_home.path().join("secrets/codex_auth.age").exists());
+    assert!(!codex_home.path().join("secrets/steve_auth.age").exists());
 
     let reloaded = GatewayAuthManager::new(
         config,

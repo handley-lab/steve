@@ -172,9 +172,9 @@ async fn snapshot_helpers_preserve_thread_without_caching_exec_metadata() -> Res
         .arg("--exact")
         .arg("shell_snapshot::tests::snapshot_helper_exec_metadata_child")
         .arg("--nocapture")
-        .env("CODEX_TEST_SNAPSHOT_HELPER_CHILD", "1")
-        .env("CODEX_THREAD_ID", "helper-thread")
-        .env("CODEX_TOOL_CALL_ID", "stale-call")
+        .env("STEVE_TEST_SNAPSHOT_HELPER_CHILD", "1")
+        .env("STEVE_THREAD_ID", "helper-thread")
+        .env("STEVE_TOOL_CALL_ID", "stale-call")
         .env("BASH_ENV", "/dev/null")
         .output()?;
 
@@ -190,15 +190,15 @@ async fn snapshot_helpers_preserve_thread_without_caching_exec_metadata() -> Res
 #[cfg(unix)]
 #[tokio::test]
 async fn snapshot_helper_exec_metadata_child() -> Result<()> {
-    if std::env::var_os("CODEX_TEST_SNAPSHOT_HELPER_CHILD").is_none() {
+    if std::env::var_os("STEVE_TEST_SNAPSHOT_HELPER_CHILD").is_none() {
         return Ok(());
     }
     assert_eq!(
-        std::env::var("CODEX_THREAD_ID").as_deref(),
+        std::env::var("STEVE_THREAD_ID").as_deref(),
         Ok("helper-thread")
     );
     assert_eq!(
-        std::env::var("CODEX_TOOL_CALL_ID").as_deref(),
+        std::env::var("STEVE_TOOL_CALL_ID").as_deref(),
         Ok("stale-call")
     );
 
@@ -206,7 +206,7 @@ async fn snapshot_helper_exec_metadata_child() -> Result<()> {
     let shell = crate::shell::get_shell(ShellType::Bash).context("No available Bash shell")?;
     let helper_env = run_script_with_timeout(
         &shell,
-        "printf '%s|%s' \"${CODEX_THREAD_ID-unset}\" \"${CODEX_TOOL_CALL_ID-unset}\"",
+        "printf '%s|%s' \"${STEVE_THREAD_ID-unset}\" \"${STEVE_TOOL_CALL_ID-unset}\"",
         SNAPSHOT_TIMEOUT,
         SnapshotShellMode::NonLogin,
         &dir.path().abs(),
@@ -216,16 +216,16 @@ async fn snapshot_helper_exec_metadata_child() -> Result<()> {
     .await?;
     assert_eq!(helper_env, "helper-thread|unset");
     let snapshot = get_snapshot(ShellType::Bash).await?;
-    assert!(!snapshot.contains("CODEX_THREAD_ID"));
-    assert!(!snapshot.contains("CODEX_TOOL_CALL_ID"));
+    assert!(!snapshot.contains("STEVE_THREAD_ID"));
+    assert!(!snapshot.contains("STEVE_TOOL_CALL_ID"));
     assert!(!snapshot.contains("helper-thread"));
     assert!(!snapshot.contains("stale-call"));
 
     let validation_path = dir.path().join("validation.sh").abs();
     fs::write(
         &validation_path,
-        "test \"${CODEX_THREAD_ID-missing}\" = helper-thread && \
-         test \"${CODEX_TOOL_CALL_ID-missing}\" = missing\n",
+        "test \"${STEVE_THREAD_ID-missing}\" = helper-thread && \
+         test \"${STEVE_TOOL_CALL_ID-missing}\" = missing\n",
     )
     .await?;
     validate_snapshot(
@@ -279,9 +279,9 @@ async fn inactive_profiles_keep_snapshots_but_active_brokers_require_sandbox() -
     use tokio_util::sync::CancellationToken;
 
     let dir = tempdir()?;
-    std::fs::create_dir(dir.path().join(".codex"))?;
+    std::fs::create_dir(dir.path().join(".steve"))?;
     std::fs::write(
-        dir.path().join(".codex/startup.sh"),
+        dir.path().join(".steve/startup.sh"),
         "printf started > startup-ran\n",
     )?;
     let session_id = ThreadId::new();
@@ -354,7 +354,7 @@ async fn inactive_profiles_keep_snapshots_but_active_brokers_require_sandbox() -
                 ShellEnvironmentPolicy {
                     r#set: HashMap::from([(
                         "BASH_ENV".to_string(),
-                        "./.codex/startup.sh".to_string(),
+                        "./.steve/startup.sh".to_string(),
                     )]),
                     ..ShellEnvironmentPolicy::default()
                 },
@@ -459,13 +459,13 @@ async fn inactive_profiles_keep_snapshots_but_active_brokers_require_sandbox() -
 
     // Identical concurrent captures must not share one command's cancellation.
     fs::write(
-        dir.path().join(".codex/startup.sh"),
+        dir.path().join(".steve/startup.sh"),
         "export OPENAI_API_KEY=sk-snapshot-cache-test\nprintf started > capture-started\nwhile [ ! -f finish-startup ]; do sleep 0.01; done\n",
     )
     .await?;
     config.shell_environment_policy.r#set.insert(
         "BASH_ENV".into(),
-        dir.path().join(".codex/startup.sh").display().to_string(),
+        dir.path().join(".steve/startup.sh").display().to_string(),
     );
     environments.set_snapshot_credential_broker(SnapshotCredentialBrokerState::Ready(
         started_proxy.proxy(),
@@ -631,7 +631,7 @@ async fn inactive_profiles_keep_snapshots_but_active_brokers_require_sandbox() -
     fs::remove_file(dir.path().join("finish-startup")).await?;
     fs::remove_file(dir.path().join("capture-started")).await?;
     fs::write(
-        dir.path().join(".codex/startup.sh"),
+        dir.path().join(".steve/startup.sh"),
         "export OPENAI_API_KEY=sk-snapshot-cache-test\nprintf x >> capture-started\nwhile [ ! -f finish-startup ]; do sleep 0.01; done\n",
     )
     .await?;
@@ -854,7 +854,7 @@ async fn snapshot_discovers_and_redacts_shell_initialized_credentials() -> Resul
         assert!(!snapshot.contains(secret), "snapshot exposed {secret}");
     }
     assert!(!snapshot.contains("attacker.example"));
-    assert!(!snapshot.contains("CODEX_NETWORK_PROXY_BROKERED_CREDENTIALS"));
+    assert!(!snapshot.contains("STEVE_NETWORK_PROXY_BROKERED_CREDENTIALS"));
     assert!(snapshot.contains("api.snapshot.example"));
     assert!(!snapshot.contains("attacker.vendor.example"));
     assert!(snapshot.contains("IDENTITY_SEEN=\"missing\""));
@@ -880,7 +880,7 @@ async fn snapshot_discovers_and_redacts_shell_initialized_credentials() -> Resul
     fs::write(
         &validation_path,
         "test \"${HOME-missing}\" = missing && \
-         test \"${CODEX_NETWORK_PROXY_CREDENTIAL_BROKER_ACTIVE-}\" = 1\n",
+         test \"${STEVE_NETWORK_PROXY_CREDENTIAL_BROKER_ACTIVE-}\" = 1\n",
     )
     .await?;
     validate_snapshot(

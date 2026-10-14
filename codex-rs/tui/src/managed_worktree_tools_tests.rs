@@ -53,8 +53,8 @@ async fn start_server(
     let mut overrides = None;
     server.thread_tool_transport().configure_mcp(&mut overrides);
     let overrides = overrides.unwrap();
-    assert!(!overrides.contains_key("mcp_servers.codex_tui"));
-    let mcp = &overrides["mcp_servers.codex_worktrees"];
+    assert!(!overrides.contains_key("mcp_servers.steve_tui"));
+    let mcp = &overrides["mcp_servers.steve_worktrees"];
     let response = codex_http_client::HttpClientBuilder::new().build_direct()?
         .post(mcp["url"].as_str().unwrap())
         .header("Authorization", mcp["http_headers"]["Authorization"].as_str().unwrap())
@@ -122,7 +122,7 @@ async fn creation_attaches_to_original_task_and_survives_service_restart_scenari
         serde_json::from_value(json!({"url":"http://127.0.0.1:1/mcp"}))?;
     let mut servers = conflicting.mcp_servers.get().clone();
     servers.insert(
-        "codex_worktrees".to_owned(),
+        "steve_worktrees".to_owned(),
         codex_config::McpServerConfig::try_from(raw).map_err(color_eyre::eyre::Report::msg)?,
     );
     conflicting.mcp_servers.set(servers)?;

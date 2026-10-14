@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "codex-file-search"
+name = "steve-file-search"
 path = "src/main.rs"
 
 [lib]

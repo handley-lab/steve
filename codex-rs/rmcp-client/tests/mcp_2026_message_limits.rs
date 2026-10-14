@@ -242,7 +242,7 @@ async fn modern_local_and_executor_stdio_reject_oversized_lines() -> anyhow::Res
         };
         let env = modern.then(|| {
             HashMap::from([(
-                OsString::from("CODEX_MCP_PROTOCOL_VERSION"),
+                OsString::from("STEVE_MCP_PROTOCOL_VERSION"),
                 OsString::from("2026-07-28"),
             )])
         });

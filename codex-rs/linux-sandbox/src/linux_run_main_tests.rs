@@ -70,12 +70,12 @@ fn inserts_bwrap_argv0_before_command_separator() {
     apply_inner_command_argv0_for_launcher(
         &mut argv,
         /*supports_argv0*/ true,
-        "/tmp/codex-arg0-session/codex-linux-sandbox".to_string(),
+        "/tmp/codex-arg0-session/steve-linux-sandbox".to_string(),
     );
     let separator = argv.iter().position(|arg| arg == "--").unwrap();
     assert_eq!(
         &argv[separator - 2..],
-        ["--argv0", "codex-linux-sandbox", "--", "/bin/true"]
+        ["--argv0", "steve-linux-sandbox", "--", "/bin/true"]
     );
 }
 
@@ -98,13 +98,13 @@ fn rewrites_inner_command_path_when_bwrap_lacks_argv0() {
     apply_inner_command_argv0_for_launcher(
         &mut argv,
         /*supports_argv0*/ false,
-        "/tmp/codex-arg0-session/codex-linux-sandbox".to_string(),
+        "/tmp/codex-arg0-session/steve-linux-sandbox".to_string(),
     );
 
     assert!(!argv.iter().any(|arg| arg == "--argv0"));
     assert!(
         argv.windows(2)
-            .any(|window| { window == ["--", "/tmp/codex-arg0-session/codex-linux-sandbox"] })
+            .any(|window| { window == ["--", "/tmp/codex-arg0-session/steve-linux-sandbox"] })
     );
 }
 
@@ -596,7 +596,7 @@ fn managed_proxy_inner_command_includes_route_spec() {
 #[test]
 fn managed_network_policy_alone_enables_proxy_mode() {
     let parsed = LinuxSandboxCommand::try_parse_from([
-        "codex-linux-sandbox",
+        "steve-linux-sandbox",
         "--sandbox-policy-cwd",
         "/tmp",
         "--managed-network",
@@ -614,7 +614,7 @@ fn managed_network_policy_alone_enables_proxy_mode() {
 #[test]
 fn malformed_managed_network_policy_is_rejected() {
     let error = LinuxSandboxCommand::try_parse_from([
-        "codex-linux-sandbox",
+        "steve-linux-sandbox",
         "--sandbox-policy-cwd",
         "/tmp",
         "--managed-network",

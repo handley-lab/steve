@@ -8,9 +8,9 @@ use anyhow::Context;
 use anyhow::Result;
 use anyhow::ensure;
 
-const PREFIX: &str = "CODEX_SANDBOX_LAUNCH_";
-const COUNT: &str = "CODEX_SANDBOX_LAUNCH_COUNT";
-const LENGTH: &str = "CODEX_SANDBOX_LAUNCH_BYTES";
+const PREFIX: &str = "STEVE_SANDBOX_LAUNCH_";
+const COUNT: &str = "STEVE_SANDBOX_LAUNCH_COUNT";
+const LENGTH: &str = "STEVE_SANDBOX_LAUNCH_BYTES";
 const CHUNK_BYTES: usize = 16 * 1024;
 const MAX_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CHUNKS: usize = MAX_BYTES / (CHUNK_BYTES - 3) + 1;

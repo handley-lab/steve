@@ -41,7 +41,7 @@ use crate::protocol_event::wrapped_protocol_event_type;
 /// The value is a root directory. Each independent root session gets one child
 /// bundle directory. Spawned child threads share their root session's bundle so
 /// one reduced `state.json` describes the whole multi-agent rollout tree.
-pub const CODEX_ROLLOUT_TRACE_ROOT_ENV: &str = "CODEX_ROLLOUT_TRACE_ROOT";
+pub const CODEX_ROLLOUT_TRACE_ROOT_ENV: &str = "STEVE_ROLLOUT_TRACE_ROOT";
 
 /// Metadata captured once at thread/session start.
 ///
@@ -98,7 +98,7 @@ impl ThreadTraceContext {
         }
     }
 
-    /// Starts a root thread trace from `CODEX_ROLLOUT_TRACE_ROOT`, or disables tracing.
+    /// Starts a root thread trace from `STEVE_ROLLOUT_TRACE_ROOT`, or disables tracing.
     ///
     /// Trace startup is best-effort. A tracing failure must not make the Codex
     /// session unusable, because traces are diagnostic and can be enabled while

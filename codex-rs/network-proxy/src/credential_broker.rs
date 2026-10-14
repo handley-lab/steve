@@ -40,8 +40,8 @@ pub(crate) use environment::marked_credential_dummy_env_keys;
 pub use provider_config::CredentialAuthMethod;
 pub use provider_config::CredentialProviderConfig;
 
-pub const CREDENTIAL_BROKER_ACTIVE_ENV_KEY: &str = "CODEX_NETWORK_PROXY_CREDENTIAL_BROKER_ACTIVE";
-pub(crate) const BROKERED_CREDENTIALS_ENV_KEY: &str = "CODEX_NETWORK_PROXY_BROKERED_CREDENTIALS";
+pub const CREDENTIAL_BROKER_ACTIVE_ENV_KEY: &str = "STEVE_NETWORK_PROXY_CREDENTIAL_BROKER_ACTIVE";
+pub(crate) const BROKERED_CREDENTIALS_ENV_KEY: &str = "STEVE_NETWORK_PROXY_BROKERED_CREDENTIALS";
 const MIN_EMBEDDED_CREDENTIAL_LENGTH: usize = 16;
 const BROKERED_CREDENTIAL_ALIAS_MARKER_PREFIX: &str = "@alias:";
 

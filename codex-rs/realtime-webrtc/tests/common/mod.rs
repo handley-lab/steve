@@ -21,11 +21,11 @@ use std::time::UNIX_EPOCH;
 
 pub const BUILD_COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 pub const WAIT: Duration = Duration::from_secs(/*secs*/ 10);
-const APP: &str = if cfg!(windows) { "codex.exe" } else { "codex" };
+const APP: &str = if cfg!(windows) { "steve.exe" } else { "codex" };
 const HELPER: &str = if cfg!(windows) {
-    "codex-voice-host.exe"
+    "steve-voice-host.exe"
 } else {
-    "codex-voice-host"
+    "steve-voice-host"
 };
 
 pub fn wait_for(mut ready: impl FnMut() -> bool) -> Result<()> {

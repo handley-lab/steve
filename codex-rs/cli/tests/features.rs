@@ -20,8 +20,8 @@ use wiremock::matchers::method;
 use wiremock::matchers::path;
 
 fn codex_command(codex_home: &Path) -> Result<assert_cmd::Command> {
-    let mut cmd = assert_cmd::Command::new(codex_utils_cargo_bin::cargo_bin("codex")?);
-    cmd.env("CODEX_HOME", codex_home);
+    let mut cmd = assert_cmd::Command::new(codex_utils_cargo_bin::cargo_bin("steve")?);
+    cmd.env("STEVE_HOME", codex_home);
     Ok(cmd)
 }
 
@@ -160,7 +160,7 @@ fn strict_config_is_not_supported_for_cloud_command() -> Result<()> {
         .assert()
         .failure()
         .stderr(contains(
-            "`--strict-config` is not supported for `codex cloud`",
+            "`--strict-config` is not supported for `steve cloud`",
         ));
 
     Ok(())
@@ -308,8 +308,8 @@ async fn features_list_honors_cloud_managed_feature_requirements() -> Result<()>
         .current_dir(codex_home.path())
         .env("NO_PROXY", "127.0.0.1,localhost")
         .env("no_proxy", "127.0.0.1,localhost")
-        .env_remove("CODEX_ACCESS_TOKEN")
-        .env_remove("CODEX_API_KEY")
+        .env_remove("STEVE_ACCESS_TOKEN")
+        .env_remove("STEVE_API_KEY")
         .env_remove("OPENAI_API_KEY")
         .args(["features", "list"])
         .assert()
@@ -417,9 +417,9 @@ fn no_daemon_rejects_agents_and_explicit_remote_targets() -> Result<()> {
         let args = args.split_whitespace().collect::<Vec<_>>();
         let home = TempDir::new()?;
         let expected = if args.contains(&"agents") {
-            "--no-daemon cannot be used with codex agents."
+            "--no-daemon cannot be used with steve agents."
         } else if args.contains(&"queue") && !args.contains(&"--remote") {
-            "--no-daemon cannot be used with codex queue."
+            "--no-daemon cannot be used with steve queue."
         } else {
             "--no-daemon cannot be used with --remote."
         };

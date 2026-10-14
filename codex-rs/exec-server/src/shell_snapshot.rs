@@ -373,7 +373,7 @@ async fn capture_snapshot(
     } else {
         MAX_SNAPSHOT_CAPTURE_BYTES
     };
-    const SOURCE_MARKER: &str = "CODEX_SNAPSHOT_SOURCE";
+    const SOURCE_MARKER: &str = "STEVE_SNAPSHOT_SOURCE";
     script = if let Some(probe) = &probe {
         let fd = probe.as_raw_fd();
         // Automatic startup has already run: do not call exec/unset here,

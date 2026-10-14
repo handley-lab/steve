@@ -36,7 +36,7 @@ const DEADLINE: Duration = Duration::from_secs(/*secs*/ 10);
 async fn build_commit() -> Result<String> {
     let output = timeout(
         DEADLINE,
-        Command::new(cargo_bin("codex-voice-host")?)
+        Command::new(cargo_bin("steve-voice-host")?)
             .arg("--build-commit")
             .kill_on_drop(true)
             .output(),
@@ -65,7 +65,7 @@ fn install_startup_libraries(runtime: &Path) -> Result<()> {
             .context("runtime parent")?
             .to_owned()
     } else {
-        std::env::var_os("CODEX_TEST_VOICE_RUNTIME")
+        std::env::var_os("STEVE_TEST_VOICE_RUNTIME")
             .map(PathBuf::from)
             .context("prepared runtime required for installed helper tests")?
     };
@@ -87,9 +87,9 @@ fn install_helper(root: &Path) -> Result<CodexPackageLayout> {
     fs::create_dir_all(&bin)?;
     fs::create_dir_all(&helper_dir)?;
     fs::write(root.join("codex-package.json"), "{}")?;
-    let app = bin.join(if cfg!(windows) { "codex.exe" } else { "codex" });
+    let app = bin.join(if cfg!(windows) { "steve.exe" } else { "codex" });
     fs::write(&app, [])?;
-    let source = cargo_bin("codex-voice-host")?;
+    let source = cargo_bin("steve-voice-host")?;
     let helper = helper_dir.join(source.file_name().context("helper binary file name")?);
     codex_utils_cargo_bin::copy_executable(&source, &helper)?;
     install_startup_libraries(helper_dir.parent().context("helper runtime directory")?)?;
@@ -109,7 +109,7 @@ async fn installed_client_rejects_mixed_builds_and_missing_helper() -> Result<()
         .tempdir()?;
     let package = install_helper(directory.path())?;
     let bin = directory.path().join("bin");
-    let source = cargo_bin("codex-voice-host")?;
+    let source = cargo_bin("steve-voice-host")?;
     let helper = directory
         .path()
         .join("codex-resources/voice/bin")
@@ -159,7 +159,7 @@ async fn installed_client_accepts_non_utf8_package_path() -> Result<()> {
     fs::write(root.join("codex-package.json"), "{}")?;
     let app = bin.join("codex");
     fs::write(&app, [])?;
-    let source = cargo_bin("codex-voice-host")?;
+    let source = cargo_bin("steve-voice-host")?;
     codex_utils_cargo_bin::copy_executable(&source, &helper_dir.join(source.file_name().unwrap()))?;
     install_startup_libraries(helper_dir.parent().unwrap())?;
     let package = InstallContext::from_exe(

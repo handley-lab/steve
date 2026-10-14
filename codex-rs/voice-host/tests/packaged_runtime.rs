@@ -15,10 +15,10 @@ use tokio::time::timeout;
 const DEADLINE: Duration = Duration::from_secs(/*secs*/ 10);
 
 #[tokio::test]
-#[ignore = "requires CODEX_TEST_VOICE_RUNTIME containing real prepared native libraries"]
+#[ignore = "requires STEVE_TEST_VOICE_RUNTIME containing real prepared native libraries"]
 async fn relocated_runtime_initializes_closes_and_rejects_duplicate_initialization() -> Result<()> {
-    let source = std::env::var_os("CODEX_TEST_VOICE_RUNTIME")
-        .context("set CODEX_TEST_VOICE_RUNTIME to a matching prepared runtime")?;
+    let source = std::env::var_os("STEVE_TEST_VOICE_RUNTIME")
+        .context("set STEVE_TEST_VOICE_RUNTIME to a matching prepared runtime")?;
     let source = fs::canonicalize(source)?;
     ensure!(
         source.join("runtime.json").is_file(),
@@ -45,12 +45,12 @@ async fn relocated_runtime_initializes_closes_and_rejects_duplicate_initializati
             }
         }
     }
-    let helper_source = cargo_bin("codex-voice-host")?;
+    let helper_source = cargo_bin("steve-voice-host")?;
     let name = helper_source.file_name().context("helper filename")?;
     fs::create_dir_all(runtime.join("bin"))?;
     codex_utils_cargo_bin::copy_executable(&helper_source, &runtime.join("bin").join(name))?;
     fs::create_dir(root.join("bin"))?;
-    let app_name = if cfg!(windows) { "codex.exe" } else { "codex" };
+    let app_name = if cfg!(windows) { "steve.exe" } else { "codex" };
     fs::write(root.join("bin").join(app_name), [])?;
     fs::write(root.join("codex-package.json"), "{}")?;
     let moved = directory.path().join("relocated package");

@@ -329,7 +329,7 @@ struct Daemon {
 
 impl Daemon {
     fn from_environment() -> Result<Self> {
-        let codex_home = find_codex_home().context("failed to resolve CODEX_HOME")?;
+        let codex_home = find_codex_home().context("failed to resolve STEVE_HOME")?;
         let socket_path = app_server_control_socket_path(codex_home.as_path())?
             .as_path()
             .to_path_buf();
@@ -1303,7 +1303,7 @@ mod tests {
             status: LifecycleStatus::AlreadyRunning,
             backend: Some(BackendKind::Pid),
             pid: None,
-            managed_codex_path: "codex".into(),
+            managed_codex_path: "steve".into(),
             managed_codex_version: Some("1.2.3".to_string()),
             socket_path: "codex.sock".into(),
             cli_version: Some("1.2.3".to_string()),
@@ -1316,7 +1316,7 @@ mod tests {
             serde_json::json!({
                 "status": "alreadyRunning",
                 "backend": "pid",
-                "managedCodexPath": "codex",
+                "managedCodexPath": "steve",
                 "managedCodexVersion": "1.2.3",
                 "socketPath": "codex.sock",
                 "cliVersion": "1.2.3",
@@ -1333,7 +1333,7 @@ mod tests {
             backend: BackendKind::Pid,
             auto_update_enabled: true,
             remote_control_enabled: true,
-            managed_codex_path: "codex".into(),
+            managed_codex_path: "steve".into(),
             managed_codex_version: Some("1.2.3".to_string()),
             socket_path: "codex.sock".into(),
             cli_version: "1.2.3".to_string(),
@@ -1348,7 +1348,7 @@ mod tests {
                 "backend": "pid",
                 "autoUpdateEnabled": true,
                 "remoteControlEnabled": true,
-                "managedCodexPath": "codex",
+                "managedCodexPath": "steve",
                 "managedCodexVersion": "1.2.3",
                 "socketPath": "codex.sock",
                 "cliVersion": "1.2.3",
@@ -1434,7 +1434,7 @@ mod tests {
             update_pid_file: state.join("updater.pid"),
             operation_lock_file: state.join("daemon.lock"),
             settings_file: state.join("settings.json"),
-            managed_codex_bin: home.path().join("codex"),
+            managed_codex_bin: home.path().join("steve"),
         };
         codex_app_server_transport::daemon_recovery::write_candidates(
             &daemon.recovery_file().expect("recovery path"),
@@ -1468,7 +1468,7 @@ mod tests {
     async fn managed_local_backend_counts_as_bootstrapped_without_updater() {
         let home = TempDir::new().expect("home");
         let standalone = home.path().join("packages/standalone");
-        let local_bin = standalone.join("local-main/bin/codex");
+        let local_bin = standalone.join("local-main/bin/steve");
         tokio::fs::create_dir_all(local_bin.parent().expect("bin parent"))
             .await
             .expect("local bin directory");
@@ -1486,7 +1486,7 @@ mod tests {
             update_pid_file: state.join("app-server-updater.pid"),
             operation_lock_file: state.join("daemon.lock"),
             settings_file: state.join("settings.json"),
-            managed_codex_bin: standalone.join("current/bin/codex"),
+            managed_codex_bin: standalone.join("current/bin/steve"),
         };
         let settings = DaemonSettings::default();
         assert!(

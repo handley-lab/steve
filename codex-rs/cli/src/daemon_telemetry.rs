@@ -52,7 +52,7 @@ pub(crate) async fn record_command(
             ("update_target", target),
             ("outcome", outcome),
         ]);
-        let _ = metrics.counter("codex.daemon.update", /*inc*/ 1, &tags);
+        let _ = metrics.counter("steve.daemon.update", /*inc*/ 1, &tags);
     }
     let _ = otel
         .shutdown_with_timeout(std::time::Duration::from_secs(/*secs*/ 2))

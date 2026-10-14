@@ -741,7 +741,7 @@ impl App {
         }
 
         self.session_telemetry.counter(
-            "codex.thread.side",
+            "steve.thread.side",
             /*inc*/ 1,
             &[("source", "slash_command")],
         );

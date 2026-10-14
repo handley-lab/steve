@@ -1,4 +1,4 @@
-//! Diagnoses whether Codex update paths target the running installation.
+//! Diagnoses whether Steve update paths target the running installation.
 //!
 //! Update diagnostics combine cached version metadata, install-channel hints,
 //! and bounded latest-version HTTP probes. It never executes package managers or
@@ -393,7 +393,7 @@ fn update_action_label(context: &InstallContext) -> &'static str {
         InstallMethod::Bun => "bun install -g @openai/codex",
         InstallMethod::VitePlus => "vp install -g @openai/codex",
         InstallMethod::Pnpm => "pnpm add -g @openai/codex",
-        InstallMethod::Brew => "brew upgrade --cask codex",
+        InstallMethod::Brew => "brew upgrade --cask steve",
         InstallMethod::Standalone { .. } => "standalone installer",
         InstallMethod::Other => "manual or unknown",
     }

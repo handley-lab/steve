@@ -1806,9 +1806,9 @@ async fn embedded_voice_settings_follow_project_after_thread_switch() -> Result<
     let projects = tempfile::tempdir()?;
     for voice in [RealtimeVoice::Maple, RealtimeVoice::Sol] {
         let cwd = projects.path().join(voice.wire_name());
-        std::fs::create_dir_all(cwd.join(".codex"))?;
+        std::fs::create_dir_all(cwd.join(".steve"))?;
         std::fs::write(
-            cwd.join(".codex/config.toml"),
+            cwd.join(".steve/config.toml"),
             format!("[realtime]\nvoice = \"{}\"\n", voice.wire_name()),
         )?;
         crate::legacy_core::config::set_project_trust_level(
@@ -2011,9 +2011,9 @@ async fn overridden_voice_save_keeps_effective_voice() -> Result<()> {
         let (mut app, mut events, _ops) = make_test_app_with_channels().await;
         let project = tempfile::tempdir()?;
         let overrides = if project_override {
-            std::fs::create_dir_all(project.path().join(".codex"))?;
+            std::fs::create_dir_all(project.path().join(".steve"))?;
             std::fs::write(
-                project.path().join(".codex/config.toml"),
+                project.path().join(".steve/config.toml"),
                 "[realtime]\nvoice = \"maple\"\n",
             )?;
             crate::legacy_core::config::set_project_trust_level(
@@ -2202,9 +2202,9 @@ async fn microphone_channel_is_machine_local_across_project_and_remote_transitio
     let mut app = make_test_app().await;
     let project = tempfile::tempdir()?;
     let remote = tempfile::tempdir()?;
-    std::fs::create_dir_all(project.path().join(".codex"))?;
+    std::fs::create_dir_all(project.path().join(".steve"))?;
     std::fs::write(
-        project.path().join(".codex/config.toml"),
+        project.path().join(".steve/config.toml"),
         "default_permissions = \"work\"\n[audio]\nmicrophone_channel = 2\n[permissions.work]\nextends = \":workspace\"\n",
     )?;
     crate::legacy_core::config::set_project_trust_level(

@@ -1417,7 +1417,7 @@ async fn mcp_pagination_preserves_valid_tools_and_rejects_oversized_cursors(
                 )]);
                 if protocol_mode == McpProtocolMode::V20260728 {
                     env.insert(
-                        "CODEX_MCP_PROTOCOL_VERSION".to_string(),
+                        "STEVE_MCP_PROTOCOL_VERSION".to_string(),
                         "2026-07-28".to_string(),
                     );
                 }
@@ -2234,7 +2234,7 @@ async fn stdio_mcp_tool_call_includes_sandbox_state_meta(
             // The real CLI is explicitly provided; the test harness is not a CLI.
             config.codex_self_exe = Some(
                 AbsolutePathBuf::from_absolute_path_checked(
-                    cargo_bin("codex").expect("codex binary"),
+                    cargo_bin("steve").expect("codex binary"),
                 )
                 .expect("absolute codex binary path")
                 .into_path_buf(),
@@ -3711,7 +3711,7 @@ async fn remote_stdio_env_var_source_does_not_copy_local_env() -> anyhow::Result
 }
 
 /// Remote runtime websocket URL used by remote-aware MCP integration tests.
-const REMOTE_EXEC_SERVER_URL_ENV_VAR: &str = "CODEX_TEST_REMOTE_EXEC_SERVER_URL";
+const REMOTE_EXEC_SERVER_URL_ENV_VAR: &str = "STEVE_TEST_REMOTE_EXEC_SERVER_URL";
 /// OAuth metadata path served by the Streamable HTTP MCP test server.
 const STREAMABLE_HTTP_METADATA_PATH: &str = "/.well-known/oauth-authorization-server/mcp";
 
@@ -4171,8 +4171,8 @@ auth = "chatgpt"
     Ok(())
 }
 
-/// This test writes to a fallback credentials file in CODEX_HOME.
-/// Ideally, we wouldn't need to serialize the test but it's much more cumbersome to wire CODEX_HOME through the code.
+/// This test writes to a fallback credentials file in STEVE_HOME.
+/// Ideally, we wouldn't need to serialize the test but it's much more cumbersome to wire STEVE_HOME through the code.
 #[test]
 #[serial(codex_home)]
 fn streamable_http_with_oauth_round_trip() -> anyhow::Result<()> {
@@ -4271,12 +4271,12 @@ async fn streamable_http_with_oauth_round_trip_impl() -> anyhow::Result<()> {
     };
     let server_url = http_server.url().to_string();
 
-    // Phase 3: seed an isolated CODEX_HOME with fallback OAuth tokens for this
+    // Phase 3: seed an isolated STEVE_HOME with fallback OAuth tokens for this
     // server so the test does not share credentials with other suite cases.
     let temp_home = Arc::new(tempdir()?);
-    let _codex_home_guard = EnvVarGuard::set("CODEX_HOME", temp_home.path().as_os_str());
+    let _codex_home_guard = EnvVarGuard::set("STEVE_HOME", temp_home.path().as_os_str());
     let unset_authorization_env_var = format!(
-        "CODEX_TEST_UNSET_MCP_OAUTH_AUTHORIZATION_{}",
+        "STEVE_TEST_UNSET_MCP_OAUTH_AUTHORIZATION_{}",
         std::process::id()
     );
     assert!(std::env::var_os(&unset_authorization_env_var).is_none());

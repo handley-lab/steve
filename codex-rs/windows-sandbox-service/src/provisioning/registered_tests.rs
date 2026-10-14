@@ -257,7 +257,7 @@ fn native_successful_sibling_validation() -> Result<()> {
             ),
             "missing" => assert_eq!(
                 attempt(&record),
-                Err("runtime account is not in CodexSandboxUsers".into())
+                Err("runtime account is not in SteveSandboxUsers".into())
             ),
             _ => panic!("unknown fixture group state: {groups}"),
         }

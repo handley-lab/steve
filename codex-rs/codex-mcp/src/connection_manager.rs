@@ -382,7 +382,7 @@ impl McpConnectionSet {
             );
             let resolved_environment =
                 runtime_context.resolve_server_environment(&server_name, &configured_config);
-            // For built-in Codex Apps, `CODEX_CONNECTORS_TOKEN` is a debug
+            // For built-in Codex Apps, `STEVE_CONNECTORS_TOKEN` is a debug
             // override: it supplies runtime auth but bypasses the shared tools
             // cache.
             let uses_env_bearer_token = match &configured_config.transport {
@@ -481,7 +481,7 @@ impl McpConnectionSet {
                 }
                 McpServerTransportConfig::Stdio { env, .. } => match env
                     .as_ref()
-                    .and_then(|variables| variables.get("CODEX_MCP_PROTOCOL_VERSION"))
+                    .and_then(|variables| variables.get("STEVE_MCP_PROTOCOL_VERSION"))
                 {
                     None => Some(crate::McpProtocolMode::Legacy),
                     Some(version)

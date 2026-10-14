@@ -108,14 +108,14 @@ fn test_get_command_keeps_path_prepends_after_login_startup() -> anyhow::Result<
     let startup = temp_dir.path().join("startup");
     std::fs::write(
         &startup,
-        "export PATH=\"$CODEX_TEST_LOGIN_PATH\" CODEX_TEST_LOGIN_PATH_RESET=1\n",
+        "export PATH=\"$STEVE_TEST_LOGIN_PATH\" STEVE_TEST_LOGIN_PATH_RESET=1\n",
     )?;
     let path_dirs = [
         PathUri::from_host_native_path(&path_dir)?,
         PathUri::from_host_native_path(&extra_path_dir)?,
     ];
     let args: ExecCommandArgs = parse_arguments(
-        r#"{"cmd":"sh -c 'test \"$CODEX_TEST_LOGIN_PATH_RESET\" = 1 && printf \"%s\\n\" \"$PATH\" && command -v rg'"}"#,
+        r#"{"cmd":"sh -c 'test \"$STEVE_TEST_LOGIN_PATH_RESET\" = 1 && printf \"%s\\n\" \"$PATH\" && command -v rg'"}"#,
     )?;
     let shell = Arc::new(get_shell(ShellType::Bash).expect("bash should be available"));
     let resolved = get_command(&args, Arc::clone(&shell), /*allow_login_shell*/ true)
@@ -145,8 +145,8 @@ fn test_get_command_keeps_path_prepends_after_login_startup() -> anyhow::Result<
         let output = std::process::Command::new(&execution_command[0])
             .args(&execution_command[1..])
             .env("BASH_ENV", &startup)
-            .env("CODEX_TEST_LOGIN_PATH", login_path)
-            .env_remove("CODEX_TEST_LOGIN_PATH_RESET")
+            .env("STEVE_TEST_LOGIN_PATH", login_path)
+            .env_remove("STEVE_TEST_LOGIN_PATH_RESET")
             .env("PATH", &path_dir)
             .output()?;
         assert!(
@@ -172,7 +172,7 @@ fn test_get_command_runs_login_shell_when_path_is_readonly() -> anyhow::Result<(
     std::fs::write(temp_dir.path().join(".bash_logout"), ":\n")?;
     std::fs::write(
         &startup,
-        "if shopt -q login_shell; then\n    export HOME=\"$CODEX_TEST_LOGIN_HOME\"\n    export PATH=/usr/bin:/bin\n    readonly PATH\n    set -e\nfi\n",
+        "if shopt -q login_shell; then\n    export HOME=\"$STEVE_TEST_LOGIN_HOME\"\n    export PATH=/usr/bin:/bin\n    readonly PATH\n    set -e\nfi\n",
     )?;
     let path_dir = PathUri::from_host_native_path(temp_dir.path().join("codex-path"))?;
     let args: ExecCommandArgs = parse_arguments(
@@ -189,7 +189,7 @@ fn test_get_command_runs_login_shell_when_path_is_readonly() -> anyhow::Result<(
         .args(&command[1..])
         .env("HOME", temp_dir.path())
         .env("BASH_ENV", startup)
-        .env("CODEX_TEST_LOGIN_HOME", temp_dir.path())
+        .env("STEVE_TEST_LOGIN_HOME", temp_dir.path())
         .env_remove("SHLVL")
         .output()?;
 

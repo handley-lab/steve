@@ -42,8 +42,8 @@ fn external_editors_keep_the_screen_and_return_the_draft() -> Result<()> {
                 "tui.fullscreen_transcript=false",
             ]
         };
-        let codex = codex_utils_cargo_bin::cargo_bin("codex-tui")
-            .or_else(|_| codex_utils_cargo_bin::cargo_bin("codex"))?;
+        let codex = codex_utils_cargo_bin::cargo_bin("steve-tui")
+            .or_else(|_| codex_utils_cargo_bin::cargo_bin("steve"))?;
         let mut terminal = PtyCodex::start_binary(&codex, &repo_root, home, &args, Some(&editor))?;
         terminal.wait_for_startup()?;
         terminal.wait_for_screen("GPT-5.6-Terra")?;
@@ -66,7 +66,7 @@ fn external_editors_keep_the_screen_and_return_the_draft() -> Result<()> {
             terminal.wait_for_screen("Save and close external editor to continue.")?;
             ensure!(terminal.screen_contains("initial draft"));
             if fullscreen {
-                ensure!(terminal.screen_contains("OpenAI Codex"));
+                ensure!(terminal.screen_contains("Steve"));
                 ensure!(terminal.screen_contains("GPT-5.6-Terra"));
             }
             ensure!(

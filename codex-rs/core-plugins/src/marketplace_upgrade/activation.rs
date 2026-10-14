@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 use tracing::warn;
 
-const MARKETPLACE_INSTALL_METADATA_FILE: &str = ".codex-marketplace-install.json";
+const MARKETPLACE_INSTALL_METADATA_FILE: &str = ".steve-marketplace-install.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

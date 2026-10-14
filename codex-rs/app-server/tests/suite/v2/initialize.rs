@@ -97,7 +97,7 @@ async fn initialize_probe_does_not_override_originator() -> Result<()> {
     };
     let InitializeResponse { user_agent, .. } = to_response::<InitializeResponse>(response)?;
 
-    assert!(user_agent.starts_with("codex_cli_rs/"));
+    assert!(user_agent.starts_with("steve_cli_rs/"));
     Ok(())
 }
 
@@ -130,7 +130,7 @@ async fn initialize_codex_backend_does_not_override_originator() -> Result<()> {
     };
     let InitializeResponse { user_agent, .. } = to_response::<InitializeResponse>(response)?;
 
-    assert!(user_agent.starts_with("codex_cli_rs/"));
+    assert!(user_agent.starts_with("steve_cli_rs/"));
     Ok(())
 }
 
@@ -147,7 +147,7 @@ async fn initialize_respects_originator_override_env_var() -> Result<()> {
         .with_codex_home(codex_home.path())
         .without_auto_env()
         .with_env_overrides(&[(
-            "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
+            "STEVE_INTERNAL_ORIGINATOR_OVERRIDE",
             Some("codex_originator_via_env_var"),
         )])
         .build()
@@ -191,7 +191,7 @@ async fn initialize_rejects_invalid_client_name() -> Result<()> {
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .without_auto_env()
-        .with_env_overrides(&[("CODEX_INTERNAL_ORIGINATOR_OVERRIDE", None)])
+        .with_env_overrides(&[("STEVE_INTERNAL_ORIGINATOR_OVERRIDE", None)])
         .build()
         .await?;
 
@@ -296,7 +296,7 @@ async fn turn_start_notify_payload_includes_initialize_client_name() -> Result<(
     let server = create_mock_responses_server_sequence_unchecked(responses).await;
     let codex_home = TempDir::new()?;
     let notify_file = codex_home.path().join("notify.json");
-    let notify_capture = cargo_bin("codex-app-server-test-notify-capture")?;
+    let notify_capture = cargo_bin("steve-app-server-test-notify-capture")?;
     let notify_capture = notify_capture
         .to_str()
         .expect("notify capture path should be valid UTF-8");

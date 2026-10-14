@@ -128,7 +128,7 @@ fn write_rollout(
             id: thread_id,
             timestamp: timestamp.to_string(),
             cwd: config.codex_home.join("project").to_path_buf(),
-            originator: "codex".to_string(),
+            originator: "steve".to_string(),
             cli_version: "0.0.0".to_string(),
             source,
             model_provider: Some(config.model_provider_id.clone()),

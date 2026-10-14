@@ -262,8 +262,8 @@ computer_use_only = false
         .with_codex_home(codex_home.path())
         .with_env_overrides(&[
             ("OPENAI_API_KEY", None),
-            ("CODEX_API_KEY", None),
-            ("CODEX_ACCESS_TOKEN", None),
+            ("STEVE_API_KEY", None),
+            ("STEVE_ACCESS_TOKEN", None),
             ("OPENAI_FEDERATION_RULE_ID", None),
             ("OPENAI_IDENTITY_TOKEN_FILE", None),
             ("OPENAI_WORKLOAD_IDENTITY_CONTEXT", None),

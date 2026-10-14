@@ -116,7 +116,7 @@ pub(super) fn history(
                 let values = breakdown(total, if report < 3 { group } else { 0 });
                 let pairs = if report == 0 && group == 0 {
                     vec![
-                        ("Codex", total * 65 / 100),
+                        ("Steve", total * 65 / 100),
                         ("Work", total - total * 65 / 100),
                     ]
                 } else {

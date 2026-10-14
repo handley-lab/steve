@@ -19,7 +19,7 @@ use tokio::time::timeout;
 const DEADLINE: Duration = Duration::from_secs(/*secs*/ 10);
 
 fn spawn() -> Result<Child> {
-    Ok(Command::new(cargo_bin("codex-voice-host")?)
+    Ok(Command::new(cargo_bin("steve-voice-host")?)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -30,7 +30,7 @@ fn spawn() -> Result<Child> {
 async fn build_commit() -> Result<String> {
     let output = timeout(
         DEADLINE,
-        Command::new(cargo_bin("codex-voice-host")?)
+        Command::new(cargo_bin("steve-voice-host")?)
             .arg("--build-commit")
             .kill_on_drop(true)
             .output(),

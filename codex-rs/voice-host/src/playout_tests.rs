@@ -29,7 +29,7 @@ fn init_audio_runtime() {
                 .to_path_buf(),
         )
     } else {
-        std::env::var_os("CODEX_TEST_VOICE_RUNTIME").map(std::path::PathBuf::from)
+        std::env::var_os("STEVE_TEST_VOICE_RUNTIME").map(std::path::PathBuf::from)
     };
     // Ordinary Cargo builds use installed plugins; explicit fixtures must load exactly.
     if let Some(root) = root {

@@ -57,7 +57,7 @@ pub(super) async fn record_start(
             ("initiation_source", "tui_auto_start"),
             ("outcome", outcome),
         ]);
-        let _ = metrics.counter("codex.daemon.start", /*inc*/ 1, &tags);
+        let _ = metrics.counter("steve.daemon.start", /*inc*/ 1, &tags);
     }
     let _ = otel
         .shutdown_with_timeout(INTERACTIVE_OTEL_SHUTDOWN_TIMEOUT)

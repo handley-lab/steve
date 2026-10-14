@@ -692,7 +692,7 @@ async fn capture_snapshot(
         .apply_to_env_for_snapshot(&mut env);
     let mut snapshot_allowed_env = env.clone();
     // The live broker regenerates this marker; captured dummies can belong to another scope.
-    snapshot_allowed_env.remove("CODEX_NETWORK_PROXY_BROKERED_CREDENTIALS");
+    snapshot_allowed_env.remove("STEVE_NETWORK_PROXY_BROKERED_CREDENTIALS");
     for key in &provider_context_keys {
         if env_value(&original_env, key) != env_value(&env, key) {
             remove_env_value(&mut snapshot_allowed_env, key);

@@ -1226,7 +1226,7 @@ async fn external_transport_registers_dynamic_tools_and_finds_task_mentions() ->
     assert_eq!(starts.len(), 2);
     for params in starts {
         assert_eq!(params["dynamicTools"][0]["type"], "namespace");
-        assert_eq!(params["dynamicTools"][0]["name"], "codex_tui");
+        assert_eq!(params["dynamicTools"][0]["name"], "steve_tui");
         assert_eq!(
             params["dynamicTools"][0]["tools"].as_array().map(Vec::len),
             Some(6)
@@ -1527,7 +1527,7 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
     let tools = &inventory
         .data
         .iter()
-        .find(|server| server.name == "codex_tui")
+        .find(|server| server.name == "steve_tui")
         .expect("local daemon must connect to the TUI MCP server")
         .tools;
     assert_eq!(tools.len(), 9);
@@ -1547,7 +1547,7 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
     for params in &starts {
         assert_eq!(params["dynamicTools"], serde_json::Value::Null);
         assert_eq!(params["config"].get("web_search"), None);
-        let server = &params["config"]["mcp_servers.codex_tui"];
+        let server = &params["config"]["mcp_servers.steve_tui"];
         assert!(
             server["url"]
                 .as_str()
@@ -1564,7 +1564,7 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
         }
     }
 
-    let mcp_url = starts[0]["config"]["mcp_servers.codex_tui"]["url"]
+    let mcp_url = starts[0]["config"]["mcp_servers.steve_tui"]["url"]
         .as_str()
         .expect("MCP server URL");
     let unauthorized = codex_http_client::HttpClientBuilder::new()
@@ -1593,8 +1593,8 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
         .pop()
         .expect("resumed task request");
     assert_eq!(
-        resumed["config"]["mcp_servers.codex_tui"],
-        starts[0]["config"]["mcp_servers.codex_tui"]
+        resumed["config"]["mcp_servers.steve_tui"],
+        starts[0]["config"]["mcp_servers.steve_tui"]
     );
     Box::pin(app_server.resume_thread(
         &app.local_settings,
@@ -1607,8 +1607,8 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
         .pop()
         .expect("reattached task request");
     assert_eq!(
-        reattached["config"]["mcp_servers.codex_tui"],
-        starts[0]["config"]["mcp_servers.codex_tui"]
+        reattached["config"]["mcp_servers.steve_tui"],
+        starts[0]["config"]["mcp_servers.steve_tui"]
     );
     Box::pin(app_server.fork_thread(&app.local_settings, app.config.clone(), delegation_source))
         .await?;
@@ -1616,11 +1616,11 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
         .pop()
         .expect("forked task request");
     assert_eq!(
-        forked["config"]["mcp_servers.codex_tui"],
-        starts[0]["config"]["mcp_servers.codex_tui"]
+        forked["config"]["mcp_servers.steve_tui"],
+        starts[0]["config"]["mcp_servers.steve_tui"]
     );
     let authorization =
-        starts[0]["config"]["mcp_servers.codex_tui"]["http_headers"]["Authorization"]
+        starts[0]["config"]["mcp_servers.steve_tui"]["http_headers"]["Authorization"]
             .as_str()
             .expect("MCP bearer token");
     let client = codex_http_client::HttpClientBuilder::new().build_direct()?;
@@ -1729,8 +1729,8 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
     assert_eq!(child["dynamicTools"], serde_json::Value::Null);
     assert!(child["config"]["web_search"].is_null());
     assert_eq!(
-        child["config"]["mcp_servers.codex_tui"],
-        starts[0]["config"]["mcp_servers.codex_tui"]
+        child["config"]["mcp_servers.steve_tui"],
+        starts[0]["config"]["mcp_servers.steve_tui"]
     );
     // Fork another task: this synthetic MCP call has no active turn to cut before.
     let fork_source =
@@ -1773,8 +1773,8 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
         .pop()
         .expect("MCP-created fork request");
     assert_eq!(
-        forked["config"]["mcp_servers.codex_tui"],
-        starts[0]["config"]["mcp_servers.codex_tui"]
+        forked["config"]["mcp_servers.steve_tui"],
+        starts[0]["config"]["mcp_servers.steve_tui"]
     );
 
     app_server.shutdown().await?;
@@ -1860,13 +1860,13 @@ async fn local_mcp_respects_configured_servers_and_managed_requirements() -> Res
             .expect("fallback task start");
         if scenario == "allowed" {
             assert!(start["dynamicTools"].is_null());
-            assert!(start["config"]["mcp_servers.codex_tui"].is_object());
+            assert!(start["config"]["mcp_servers.steve_tui"].is_object());
         } else {
             assert_eq!(
                 start["dynamicTools"][0]["tools"].as_array().map(Vec::len),
                 Some(6)
             );
-            assert!(start["config"]["mcp_servers.codex_tui"].is_null());
+            assert!(start["config"]["mcp_servers.steve_tui"].is_null());
         }
         app_server.shutdown().await?;
         proxy.await??;
@@ -2094,7 +2094,7 @@ async fn check_dynamic_tool_requests(
                     thread_id: thread_id.clone(),
                     turn_id: "turn-1".to_string(),
                     call_id: "call-2".to_string(),
-                    namespace: Some("codex_tui".to_string()),
+                    namespace: Some("steve_tui".to_string()),
                     tool: "list_threads".to_string(),
                     arguments: serde_json::json!({}),
                 },
@@ -2151,7 +2151,7 @@ async fn check_dynamic_tool_requests(
                     thread_id: thread_id.clone(),
                     turn_id: "turn-1".to_string(),
                     call_id: "call-3".to_string(),
-                    namespace: Some("codex_tui".to_string()),
+                    namespace: Some("steve_tui".to_string()),
                     tool: "set_thread_title".to_string(),
                     arguments: serde_json::json!({"threadId": thread_id, "title": "Renamed"}),
                 },
@@ -2185,7 +2185,7 @@ async fn check_dynamic_tool_requests(
                         thread_id: thread_id.clone(),
                         turn_id: "turn-1".to_string(),
                         call_id: format!("rejected-{index}"),
-                        namespace: Some("codex_tui".to_string()),
+                        namespace: Some("steve_tui".to_string()),
                         tool: tool.to_string(),
                         arguments: serde_json::json!({}),
                     },
@@ -2264,7 +2264,7 @@ async fn check_dynamic_tool_requests(
             thread_id: creation_source.to_string(),
             turn_id: "turn-1".to_string(),
             call_id: "call-4".to_string(),
-            namespace: Some("codex_tui".to_string()),
+            namespace: Some("steve_tui".to_string()),
             tool: "create_thread".to_string(),
             arguments: serde_json::json!({
                 "prompt": "Check <main> & report",
@@ -2350,7 +2350,7 @@ async fn check_dynamic_tool_requests(
         turn["toolOutput"],
         serde_json::json!({
             "name": "create_thread",
-            "namespace": "codex_tui",
+            "namespace": "steve_tui",
             "output": format!(
                 "<codex_delegation>\n  <source_thread_id>{creation_source}</source_thread_id>\n  <input>Check &lt;main&gt; &amp; report</input>\n</codex_delegation>"
             )
@@ -2387,7 +2387,7 @@ async fn check_dynamic_tool_requests(
             thread_id: thread_id.clone(),
             turn_id: "turn-1".to_string(),
             call_id: "call-5".to_string(),
-            namespace: Some("codex_tui".to_string()),
+            namespace: Some("steve_tui".to_string()),
             tool: "send_message_to_thread".to_string(),
             arguments: serde_json::json!({
                 "threadId": created_thread_id,
@@ -2435,7 +2435,7 @@ async fn check_dynamic_tool_requests(
         turn["toolOutput"],
         serde_json::json!({
             "name": "send_message_to_thread",
-            "namespace": "codex_tui",
+            "namespace": "steve_tui",
             "output": format!(
                 "<codex_delegation>\n  <source_thread_id>{thread_id}</source_thread_id>\n  <input>Follow &lt;up&gt; &amp; report</input>\n</codex_delegation>"
             )
@@ -3229,7 +3229,7 @@ async fn underfilled_scrollback_fetches_older_pages_without_opening_the_transcri
         overlay.set_highlight_cell(Some(0));
         let partial = render_overlay(overlay);
         assert!(partial.contains("Earlier messages available."));
-        assert!(!partial.contains("OpenAI Codex"));
+        assert!(!partial.contains("Steve"));
         assert!(!partial.contains("This is a test announcement"));
         assert!(!partial.contains('%'));
 
@@ -3239,7 +3239,7 @@ async fn underfilled_scrollback_fetches_older_pages_without_opening_the_transcri
         )?;
         let loading = render_overlay(overlay);
         assert!(loading.contains("Loading earlier messages…"));
-        assert!(!loading.contains("OpenAI Codex"));
+        assert!(!loading.contains("Steve"));
         assert!(!loading.contains('%'));
     } else {
         panic!("expected transcript overlay");
@@ -3762,7 +3762,7 @@ async fn managed_worktree_transitions_bind_owner_and_preserve_only_fork_history(
     let source = dunce::canonicalize(root.path())?.join("source");
     let project_pool = dunce::canonicalize(root.path())?.join("project-pool");
     fs::create_dir_all(&home)?;
-    fs::create_dir_all(source.join(".codex"))?;
+    fs::create_dir_all(source.join(".steve"))?;
     fs::write(home.join("config.toml"), "[features]\nworktrees = true\n")?;
     crate::legacy_core::config::set_project_trust_level(
         &home,
@@ -3779,7 +3779,7 @@ git-worktree-root = {}
 "#,
         toml::Value::String(project_pool.display().to_string()),
     );
-    fs::write(source.join(".codex/config.toml"), destination)?;
+    fs::write(source.join(".steve/config.toml"), destination)?;
     fs::write(source.join("AGENTS.md"), "committed worktree instructions")?;
     for args in [
         vec!["init", "--quiet"],
@@ -3803,7 +3803,7 @@ git-worktree-root = {}
         );
     }
     fs::write(
-        source.join(".codex/config.toml"),
+        source.join(".steve/config.toml"),
         r#"developer_instructions = "dirty policy"
 model = "gpt-5.4"
 model_reasoning_effort = "low"
@@ -3922,7 +3922,7 @@ model_reasoning_effort = "low"
     );
     assert!(retained.contains("git worktree remove <checkout-path>"));
     fs::write(
-        source.join(".codex/config.toml"),
+        source.join(".steve/config.toml"),
         r#"developer_instructions = "committed policy"
 [features]
 terminal_visualization_instructions = true
@@ -4322,21 +4322,21 @@ async fn changing_directory_preserves_project_trust_permissions_history_and_hook
         names.map(|name| codex_home.path().join(name));
     fs::create_dir_all(&current)?;
     for directory in [&trusted, &unknown, &untrusted, &mismatch, &failed] {
-        fs::create_dir_all(directory.join(".codex"))?;
-        fs::write(directory.join(".codex/config.toml"), "")?;
+        fs::create_dir_all(directory.join(".steve"))?;
+        fs::write(directory.join(".steve/config.toml"), "")?;
     }
     let contents = "developer_instructions = \"destination policy\"\nmodel_reasoning_effort = \"high\"\napproval_policy = \"on-request\"\n[tui]\ntheme = \"dracula\"\n[tui.keymap.global]\nopen_transcript = \"f12\"";
-    fs::write(trusted.join(".codex/config.toml"), contents)?;
+    fs::write(trusted.join(".steve/config.toml"), contents)?;
     let agents = trusted.join("AGENTS.md");
     fs::write(&agents, "Follow destination project instructions.")?;
     let hooks = r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"x"}]}]}}"#;
-    fs::write(trusted.join(".codex/hooks.json"), hooks)?;
+    fs::write(trusted.join(".steve/hooks.json"), hooks)?;
     let contents = "default_permissions = \"dev\"\n[permissions.dev.filesystem]\n\":root\" = \"write\"\n[tui.keymap.global]\nopen_transcript = \"ctrl-l\"";
-    fs::write(mismatch.join(".codex/config.toml"), contents)?;
+    fs::write(mismatch.join(".steve/config.toml"), contents)?;
     let requirements = codex_home.path().join("requirements.toml");
     let rules = "allowed_approval_policies=[\"untrusted\"]\nallowed_sandbox_modes=[\"read-only\"]";
     fs::write(&requirements, rules)?;
-    fs::create_dir_all(unknown.join(".codex"))?;
+    fs::create_dir_all(unknown.join(".steve"))?;
     for dir in [&trusted, &untrusted, &mismatch, &failed] {
         let trust = [T::Trusted, T::Untrusted][usize::from(dir == &untrusted)];
         crate::legacy_core::config::set_project_trust_level(codex_home.path(), dir, trust)

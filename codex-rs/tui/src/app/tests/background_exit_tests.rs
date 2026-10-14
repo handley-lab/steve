@@ -258,7 +258,7 @@ async fn embedded_exit_keeps_the_session_summary() {
     assert_snapshot!(output, @"
     Token usage: total=2 input=0 output=2
     To continue this session, run:
-      codex resume THREAD_ID
+      steve resume THREAD_ID
     ");
 }
 
@@ -266,7 +266,7 @@ fn prepare_local_daemon_thread(app: &mut App) -> Result<ThreadId> {
     app.app_server_target = AppServerTarget::LocalDaemon {
         allow_embedded_fallback: true,
         endpoint: crate::RemoteAppServerEndpoint::UnixSocket {
-            socket_path: AbsolutePathBuf::relative_to_current_dir("codex.sock")?,
+            socket_path: AbsolutePathBuf::relative_to_current_dir("steve.sock")?,
         },
     };
     let thread_id = ThreadId::new();
@@ -326,9 +326,9 @@ async fn daemon_ctrl_c_shows_background_exit_menu_and_escape_dismisses_it() -> R
       Choose what happens to the current task.
 
 
-    › 1. Cancel task        Stop the current task and stay in Codex
-      2. Run in background  Exit Codex and leave the task running
-      3. Exit               Stop the current task and exit Codex
+    › 1. Cancel task        Stop the current task and stay in Steve
+      2. Run in background  Exit Steve and leave the task running
+      3. Exit               Stop the current task and exit Steve
 
       enter select · esc back
     ");
@@ -595,8 +595,8 @@ async fn daemon_ctrl_c_hides_background_exit_for_running_background_side_thread(
       Choose what happens to the current task.
 
 
-    › 1. Cancel task  Stop the current task and stay in Codex
-      2. Exit         Stop the current task and exit Codex
+    › 1. Cancel task  Stop the current task and stay in Steve
+      2. Exit         Stop the current task and exit Steve
 
       enter select · esc back
     ");

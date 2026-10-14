@@ -69,7 +69,7 @@ async fn root_metadata_symlinks_cannot_reopen_approved_denials() {
             "--ro-bind /usr /usr --ro-bind /etc /etc --proc /proc --dev /dev".split_whitespace(),
         );
         command.args("--dir /run --dir /.agents --symlink /private-link /.git".split_whitespace());
-        command.args(["--symlink", codex_target, "/.codex"]);
+        command.args(["--symlink", codex_target, "/.steve"]);
         command.args(["--symlink", "/private/reopened", "/private-link"]);
         for path in ["/bin", "/sbin", "/lib", "/lib64"] {
             if let Ok(metadata) = fs::symlink_metadata(path) {
@@ -103,8 +103,8 @@ async fn root_metadata_symlinks_cannot_reopen_approved_denials() {
     let script = r#"
         set -eu
         if cat /private/reopened/secret >/dev/null 2>&1 ||
-           cat /.codex/secret >/dev/null 2>&1 || cat /.git/secret >/dev/null 2>&1; then exit 21; fi
-        if (printf bad > /.codex/changed) 2>/dev/null; then exit 22; fi
+           cat /.steve/secret >/dev/null 2>&1 || cat /.git/secret >/dev/null 2>&1; then exit 21; fi
+        if (printf bad > /.steve/changed) 2>/dev/null; then exit 22; fi
         printf good > /.agents/allowed
         printf good > /tmp/marker
         printf 'root-metadata-denials-held\n'
@@ -125,7 +125,7 @@ async fn root_metadata_symlinks_cannot_reopen_approved_denials() {
 
     let script = r#"
         set -eu
-        printf safe > /.codex/allowed
+        printf safe > /.steve/allowed
         if cat /.git/secret >/dev/null 2>&1; then exit 23; fi
     "#;
     let output = run(&private_denied, "/private", "/tmp/public", script);
@@ -139,7 +139,7 @@ async fn root_metadata_symlinks_cannot_reopen_approved_denials() {
         set -eu
         rm /private
         ln -s /tmp/public /private
-        cat /.codex/secret
+        cat /.steve/secret
     "#;
     let output = run(&private_denied, "/real-private", "/private", script);
     assert!(!output.status.success(), "{output:?}");
@@ -154,21 +154,21 @@ async fn root_metadata_symlinks_cannot_reopen_approved_denials() {
         .push(path_entry("/private/reopened", FileSystemAccessMode::Write));
     let script = r#"
         set -eu
-        test "$(cat /.codex/secret)" = private
+        test "$(cat /.steve/secret)" = private
         if cat /private/sibling >/dev/null 2>&1; then exit 24; fi
     "#;
     let output = run(&reopened, "/private", "/private/reopened", script);
     assert_eq!(output.status.code(), Some(0), "{output:?}");
 
     let output = run(
-        &approved("/.codex/secret"),
+        &approved("/.steve/secret"),
         "/private",
         "/private/reopened",
         "true",
     );
     assert!(!output.status.success(), "{output:?}");
     assert!(String::from_utf8_lossy(&output.stderr).contains(
-        "cannot enforce sandbox deny-read path /.codex/secret because it crosses writable symlink /.codex"
+        "cannot enforce sandbox deny-read path /.steve/secret because it crosses writable symlink /.steve"
     ), "{output:?}");
     assert!(output.stdout.is_empty(), "{output:?}");
 }

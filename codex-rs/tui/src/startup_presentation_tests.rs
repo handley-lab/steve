@@ -13,7 +13,7 @@ async fn selected_profile_controls_submit_before_the_first_frame() -> anyhow::Re
         "disable_paste_burst = false\n",
     )?;
     let selected = AbsolutePathBuf::from_absolute_path(home.path().join("work.config.toml"))?;
-    let cli = Cli::try_parse_from(["codex"])?;
+    let cli = Cli::try_parse_from(["steve"])?;
     for (submit, expected_bindings) in [
         ("[]", Vec::new()),
         ("\"f12\"", vec![crate::key_hint::plain(KeyCode::F(12))]),
@@ -53,27 +53,27 @@ async fn selected_profile_controls_submit_before_the_first_frame() -> anyhow::Re
 async fn first_frame_respects_screen_and_status_line_overrides() -> anyhow::Result<()> {
     let home = tempfile::tempdir()?;
     for (config, args, expected) in [
-        ("", vec!["codex"], (true, true, true)),
-        ("[tui]\n", vec!["codex"], (true, true, true)),
-        ("", vec!["codex", "--no-alt-screen"], (false, false, true)),
+        ("", vec!["steve"], (true, true, true)),
+        ("[tui]\n", vec!["steve"], (true, true, true)),
+        ("", vec!["steve", "--no-alt-screen"], (false, false, true)),
         (
             "[tui]\nfullscreen_transcript = true\n",
-            vec!["codex"],
+            vec!["steve"],
             (true, true, true),
         ),
         (
             "[tui]\nfullscreen_transcript = true\n",
-            vec!["codex", "--no-alt-screen"],
+            vec!["steve", "--no-alt-screen"],
             (false, false, true),
         ),
         (
             "[tui]\nfullscreen_transcript = false\n",
-            vec!["codex"],
+            vec!["steve"],
             (true, false, true),
         ),
         (
             "[tui]\nfullscreen_transcript = true\nalternate_screen = \"never\"\nstatus_line = []\n",
-            vec!["codex"],
+            vec!["steve"],
             (false, false, false),
         ),
     ] {

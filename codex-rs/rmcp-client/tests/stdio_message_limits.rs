@@ -86,7 +86,7 @@ async fn stdio_message_limits_preserve_legacy_local_compatibility() -> anyhow::R
         )]);
         if protocol_mode == McpProtocolMode::V20260728 {
             env.insert(
-                OsString::from("CODEX_MCP_PROTOCOL_VERSION"),
+                OsString::from("STEVE_MCP_PROTOCOL_VERSION"),
                 OsString::from("2026-07-28"),
             );
         }
@@ -244,7 +244,7 @@ async fn local_stdio_shutdown_terminates_descendants_after_server_exit() -> anyh
         ]);
         if protocol_mode == McpProtocolMode::V20260728 {
             env.insert(
-                OsString::from("CODEX_MCP_PROTOCOL_VERSION"),
+                OsString::from("STEVE_MCP_PROTOCOL_VERSION"),
                 OsString::from("2026-07-28"),
             );
         }

@@ -71,7 +71,7 @@ async fn shell_snapshot_preserves_successful_startup_output_and_services(
                 }),
                 tty: false,
                 pipe_stdin: false,
-                arg0: Some("codex-linux-sandbox".to_string()),
+                arg0: Some("steve-linux-sandbox".to_string()),
                 sandbox: None,
                 enforce_managed_network: false,
                 managed_network: None,

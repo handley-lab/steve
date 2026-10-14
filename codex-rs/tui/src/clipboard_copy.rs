@@ -1,7 +1,7 @@
 //! Clipboard copy backend for the TUI's `/copy` command and `Ctrl+O` hotkey.
 //!
 //! Local copying uses the native clipboard, or the Windows clipboard directly on WSL.
-//! In tmux and Herdr, also forward to the attached terminal so clients attached after Codex
+//! In tmux and Herdr, also forward to the attached terminal so clients attached after Steve
 //! started receive the copy. Over SSH without a multiplexer, send OSC 52 directly.
 //!
 //! Terminal writes have no delivery acknowledgement: a successful send must not
@@ -229,7 +229,7 @@ fn copy_to_clipboard_with(
     };
     // Copy natively first: an X11 SelectionClear from a terminal write can otherwise
     // race with arboard reusing its ownership window and clear the new native data.
-    // Persistent multiplexer sessions may gain remote clients after Codex starts, so still
+    // Persistent multiplexer sessions may gain remote clients after Steve starts, so still
     // forward even when no SSH variables were inherited or native copying succeeded.
     let terminal_result =
         (environment.tmux_session || environment.herdr_session || environment.ssh_session)

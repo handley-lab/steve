@@ -185,7 +185,7 @@ fn legacy_rmcp_oauth_keyring_credentials_remain_readable() -> Result<()> {
 
 const LOCK_HOLDER_CHILD_TEST: &str =
     "oauth::store_lock::tests::store_lock_is_released_when_holder_process_exits_child";
-const LOCK_HOLDER_READY_PATH_ENV: &str = "CODEX_OAUTH_STORE_LOCK_CHILD_READY_PATH";
+const LOCK_HOLDER_READY_PATH_ENV: &str = "STEVE_OAUTH_STORE_LOCK_CHILD_READY_PATH";
 
 #[test]
 fn store_lock_is_released_when_holder_process_exits() -> Result<()> {
@@ -195,7 +195,7 @@ fn store_lock_is_released_when_holder_process_exits() -> Result<()> {
         .arg("--exact")
         .arg(LOCK_HOLDER_CHILD_TEST)
         .arg("--ignored")
-        .env("CODEX_HOME", env.path())
+        .env("STEVE_HOME", env.path())
         .env(LOCK_HOLDER_READY_PATH_ENV, &ready_file)
         .spawn()
         .context("spawn OAuth store lock holder test process")?;

@@ -48,7 +48,7 @@ fn managed_local_binding_does_not_allow_external_dns() {
     .expect("generated Seatbelt arguments");
     let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
         .args(args)
-        .env("CODEX_TEST_DNS_PROXY_ADDRESS", proxy_address.to_string())
+        .env("STEVE_TEST_DNS_PROXY_ADDRESS", proxy_address.to_string())
         .output()
         .expect("run managed DNS probe");
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -65,7 +65,7 @@ fn managed_local_binding_does_not_allow_external_dns() {
 #[test]
 #[ignore = "executed by the parent test inside Seatbelt"]
 fn external_dns_child() {
-    let Ok(proxy_address) = std::env::var("CODEX_TEST_DNS_PROXY_ADDRESS") else {
+    let Ok(proxy_address) = std::env::var("STEVE_TEST_DNS_PROXY_ADDRESS") else {
         return;
     };
     TcpStream::connect(proxy_address).expect("managed proxy remains reachable");

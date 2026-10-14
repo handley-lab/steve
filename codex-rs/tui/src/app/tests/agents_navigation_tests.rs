@@ -7,7 +7,7 @@ async fn agents_navigation_requires_local_daemon() -> Result<()> {
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let mut app_server = start_config_write_test_app_server(&app).await?;
     let endpoint = crate::RemoteAppServerEndpoint::UnixSocket {
-        socket_path: AbsolutePathBuf::relative_to_current_dir("codex.sock")?,
+        socket_path: AbsolutePathBuf::relative_to_current_dir("steve.sock")?,
     };
     for target in [
         AppServerTarget::Embedded,
@@ -56,7 +56,7 @@ async fn externally_archived_thread_keeps_advertised_agents_navigation() -> Resu
     let mut app_server = start_config_write_test_app_server(&app).await?;
     app.app_server_target = AppServerTarget::LocalDaemon {
         endpoint: crate::RemoteAppServerEndpoint::UnixSocket {
-            socket_path: AbsolutePathBuf::relative_to_current_dir("codex.sock")?,
+            socket_path: AbsolutePathBuf::relative_to_current_dir("steve.sock")?,
         },
         allow_embedded_fallback: true,
     };

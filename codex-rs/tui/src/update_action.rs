@@ -18,11 +18,11 @@ pub enum UpdateAction {
     VitePlusGlobalLatest,
     /// Update via `pnpm add -g @openai/codex@latest`.
     PnpmGlobalLatest,
-    /// Update via `brew upgrade codex`.
+    /// Update via `brew upgrade steve`.
     BrewUpgrade,
-    /// Update via `curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh`.
+    /// Update via `curl -fsSL https://chatgpt.com/codex/install.sh | STEVE_NON_INTERACTIVE=1 sh`.
     StandaloneUnix,
-    /// Update via `$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex`.
+    /// Update via `$env:STEVE_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex`.
     StandaloneWindows,
 }
 
@@ -46,17 +46,17 @@ impl UpdateAction {
     /// Returns the list of command-line arguments for invoking the update.
     pub fn command_args(self) -> (&'static str, &'static [&'static str]) {
         match self {
-            UpdateAction::Daemon(source) => ("codex", source.command_args()),
+            UpdateAction::Daemon(source) => ("steve", source.command_args()),
             UpdateAction::NpmGlobalLatest => ("npm", &["install", "-g", "@openai/codex"]),
             UpdateAction::BunGlobalLatest => ("bun", &["install", "-g", "@openai/codex"]),
             UpdateAction::VitePlusGlobalLatest => ("vp", &["install", "-g", "@openai/codex"]),
             UpdateAction::PnpmGlobalLatest => ("pnpm", &["add", "-g", "@openai/codex"]),
-            UpdateAction::BrewUpgrade => ("brew", &["upgrade", "--cask", "codex"]),
+            UpdateAction::BrewUpgrade => ("brew", &["upgrade", "--cask", "steve"]),
             UpdateAction::StandaloneUnix => (
                 "sh",
                 &[
                     "-c",
-                    "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh",
+                    "curl -fsSL https://chatgpt.com/codex/install.sh | STEVE_NON_INTERACTIVE=1 sh",
                 ],
             ),
             UpdateAction::StandaloneWindows => (
@@ -65,7 +65,7 @@ impl UpdateAction {
                     "-ExecutionPolicy",
                     "Bypass",
                     "-c",
-                    "$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex",
+                    "$env:STEVE_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex",
                 ],
             ),
         }
@@ -163,7 +163,7 @@ mod tests {
                 "sh",
                 &[
                     "-c",
-                    "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh"
+                    "curl -fsSL https://chatgpt.com/codex/install.sh | STEVE_NON_INTERACTIVE=1 sh"
                 ][..],
             )
         );
@@ -175,7 +175,7 @@ mod tests {
                     "-ExecutionPolicy",
                     "Bypass",
                     "-c",
-                    "$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex"
+                    "$env:STEVE_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex"
                 ][..],
             )
         );

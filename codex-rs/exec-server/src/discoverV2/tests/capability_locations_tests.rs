@@ -59,7 +59,7 @@ async fn prewarming_resolves_global_locations_without_cwd_or_config() -> anyhow:
     }
     write(
         temp.path(),
-        "codex/plugins/cache/team/demo/.codex-remote-plugin-install.json",
+        "codex/plugins/cache/team/demo/.steve-remote-plugin-install.json",
         r#"{"schema_version":1,"remote_plugin_id":"plugins~demo"}"#,
     )?;
     let locations = prewarm_locations(&LocalFileSystem::unsandboxed(), &request).await?;
@@ -89,7 +89,7 @@ async fn prewarming_resolves_global_locations_without_cwd_or_config() -> anyhow:
     assert_eq!(actual, expected);
     assert!(locations.warnings.is_empty());
 
-    let metadata = "codex/plugins/cache/team/demo/.codex-remote-plugin-install.json";
+    let metadata = "codex/plugins/cache/team/demo/.steve-remote-plugin-install.json";
     for contents in [
         "invalid JSON".to_string(),
         " ".repeat(super::MAX_REMOTE_INSTALL_METADATA_BYTES as usize + 1),

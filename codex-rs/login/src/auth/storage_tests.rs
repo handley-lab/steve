@@ -14,6 +14,77 @@ use tempfile::tempdir;
 use codex_keyring_store::tests::MockKeyringStore;
 use keyring::Error as KeyringError;
 
+#[test]
+fn direct_keyring_keeps_codex_credentials_separate() -> anyhow::Result<()> {
+    #[derive(Debug, Default)]
+    struct NamespacedStore {
+        values: std::sync::Mutex<std::collections::HashMap<(String, String), String>>,
+    }
+
+    impl KeyringStore for NamespacedStore {
+        fn load(
+            &self,
+            service: &str,
+            account: &str,
+        ) -> Result<Option<String>, codex_keyring_store::CredentialStoreError> {
+            Ok(self
+                .values
+                .lock()
+                .unwrap()
+                .get(&(service.to_owned(), account.to_owned()))
+                .cloned())
+        }
+
+        fn save(
+            &self,
+            service: &str,
+            account: &str,
+            value: &str,
+        ) -> Result<(), codex_keyring_store::CredentialStoreError> {
+            self.values
+                .lock()
+                .unwrap()
+                .insert((service.to_owned(), account.to_owned()), value.to_owned());
+            Ok(())
+        }
+
+        fn delete(
+            &self,
+            service: &str,
+            account: &str,
+        ) -> Result<bool, codex_keyring_store::CredentialStoreError> {
+            Ok(self
+                .values
+                .lock()
+                .unwrap()
+                .remove(&(service.to_owned(), account.to_owned()))
+                .is_some())
+        }
+    }
+
+    let home = tempdir()?;
+    let store = Arc::new(NamespacedStore::default());
+    let account = compute_store_key(home.path())?;
+    store.save("Codex Auth", &account, "codex-canary")?;
+    let storage = DirectKeyringAuthStorage::new(
+        home.path().to_path_buf(),
+        store.clone(),
+        AuthCredentialsStoreMode::Keyring,
+    );
+    assert_eq!(storage.load()?, None);
+    let auth: AuthDotJson = serde_json::from_value(json!({"OPENAI_API_KEY": "steve-test-key"}))?;
+    storage.save(&auth)?;
+    assert_eq!(storage.load()?, Some(auth));
+    assert!(store.load("Steve Auth", &account)?.is_some());
+    assert!(storage.delete()?);
+    assert_eq!(store.load("Steve Auth", &account)?, None);
+    assert_eq!(
+        store.load("Codex Auth", &account)?,
+        Some("codex-canary".to_owned())
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn file_storage_load_returns_auth_dot_json() -> anyhow::Result<()> {
     let codex_home = tempdir()?;
@@ -396,7 +467,7 @@ fn assert_keyring_saved_auth_and_removed_fallback(
 }
 
 fn encrypted_auth_file(codex_home: &Path) -> PathBuf {
-    codex_home.join("secrets").join("codex_auth.age")
+    codex_home.join("secrets").join("steve_auth.age")
 }
 
 fn id_token_with_prefix(prefix: &str) -> IdTokenInfo {
@@ -479,11 +550,11 @@ fn secrets_keyring_auth_storage_load_returns_deserialized_auth() -> anyhow::Resu
 
 #[test]
 fn keyring_auth_storage_compute_store_key_for_home_directory() -> anyhow::Result<()> {
-    let codex_home = PathBuf::from("~/.codex");
+    let codex_home = PathBuf::from("~/.steve");
 
     let key = compute_store_key(codex_home.as_path())?;
 
-    assert_eq!(key, "cli|940db7b1d0e4eb40");
+    assert_eq!(key, "cli|e6e7a3a587ba6d7a");
     Ok(())
 }
 

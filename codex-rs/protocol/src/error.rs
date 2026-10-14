@@ -195,7 +195,7 @@ pub enum CodexErrorDetails {
     /// Sandbox error
     #[error("sandbox error: {0}")]
     Sandbox(#[from] SandboxErr),
-    #[error("codex-linux-sandbox was required but not provided")]
+    #[error("steve-linux-sandbox was required but not provided")]
     LandlockSandboxExecutableNotProvided,
     #[error("unsupported operation: {0}")]
     UnsupportedOperation(String),

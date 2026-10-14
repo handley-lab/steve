@@ -153,7 +153,7 @@ async fn command_exec_env_overrides_merge_with_server_environment_and_support_un
             command: vec![
                 "/bin/sh".to_string(),
                 "-lc".to_string(),
-                "printf '%s|%s|%s|%s|%s|%s' \"$COMMAND_EXEC_BASELINE\" \"$COMMAND_EXEC_EXTRA\" \"${RUST_LOG-unset}\" \"$CODEX_HOME\" \"$OPENAI_FEDERATION_RULE_ID\" \"$openai_identity_token_file\"".to_string(),
+                "printf '%s|%s|%s|%s|%s|%s' \"$COMMAND_EXEC_BASELINE\" \"$COMMAND_EXEC_EXTRA\" \"${RUST_LOG-unset}\" \"$STEVE_HOME\" \"$OPENAI_FEDERATION_RULE_ID\" \"$openai_identity_token_file\"".to_string(),
             ],
             process_id: None,
             tty: false,
@@ -432,7 +432,7 @@ async fn command_exec_permission_profile_starts_selected_network_proxy() -> Resu
             command: vec![
                 "sh".to_string(),
                 "-lc".to_string(),
-                "printf '%s' \"${CODEX_NETWORK_PROXY_ACTIVE-unset}\"".to_string(),
+                "printf '%s' \"${STEVE_NETWORK_PROXY_ACTIVE-unset}\"".to_string(),
             ],
             process_id: None,
             tty: false,
@@ -480,7 +480,7 @@ async fn command_exec_permission_profile_does_not_reuse_default_network_proxy() 
             command: vec![
                 "sh".to_string(),
                 "-lc".to_string(),
-                "printf '%s' \"${CODEX_NETWORK_PROXY_ACTIVE-unset}\"".to_string(),
+                "printf '%s' \"${STEVE_NETWORK_PROXY_ACTIVE-unset}\"".to_string(),
             ],
             process_id: None,
             tty: false,

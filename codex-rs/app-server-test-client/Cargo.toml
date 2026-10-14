@@ -29,3 +29,7 @@ doctest = false
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+
+[[bin]]
+name = "steve-app-server-test-client"
+path = "src/main.rs"

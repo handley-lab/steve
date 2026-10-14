@@ -36,11 +36,11 @@ use std::path::Path;
 pub(crate) mod apply_patch;
 pub(crate) mod unified_exec;
 
-const SNAPSHOT_ORIGINAL_BASH_ENV_ENV_KEY: &str = "CODEX_NETWORK_PROXY_SNAPSHOT_ORIGINAL_BASH_ENV";
-const SNAPSHOT_ORIGINAL_POSIX_ENV_ENV_KEY: &str = "CODEX_NETWORK_PROXY_SNAPSHOT_ORIGINAL_POSIX_ENV";
-const SNAPSHOT_ORIGINAL_ZDOTDIR_ENV_KEY: &str = "CODEX_NETWORK_PROXY_SNAPSHOT_ORIGINAL_ZDOTDIR";
-const SNAPSHOT_BROKERED_VALUE_ENV_PREFIX: &str = "CODEX_NETWORK_PROXY_SNAPSHOT_BROKERED_VALUE_";
-const SNAPSHOT_BROKERED_UNSET_ENV_PREFIX: &str = "CODEX_NETWORK_PROXY_SNAPSHOT_BROKERED_UNSET_";
+const SNAPSHOT_ORIGINAL_BASH_ENV_ENV_KEY: &str = "STEVE_NETWORK_PROXY_SNAPSHOT_ORIGINAL_BASH_ENV";
+const SNAPSHOT_ORIGINAL_POSIX_ENV_ENV_KEY: &str = "STEVE_NETWORK_PROXY_SNAPSHOT_ORIGINAL_POSIX_ENV";
+const SNAPSHOT_ORIGINAL_ZDOTDIR_ENV_KEY: &str = "STEVE_NETWORK_PROXY_SNAPSHOT_ORIGINAL_ZDOTDIR";
+const SNAPSHOT_BROKERED_VALUE_ENV_PREFIX: &str = "STEVE_NETWORK_PROXY_SNAPSHOT_BROKERED_VALUE_";
+const SNAPSHOT_BROKERED_UNSET_ENV_PREFIX: &str = "STEVE_NETWORK_PROXY_SNAPSHOT_BROKERED_UNSET_";
 
 pub(crate) fn exec_env_for_sandbox_permissions(
     env: &HashMap<String, String>,
@@ -276,7 +276,7 @@ pub(crate) fn prepare_brokered_shell_snapshot_env(
 /// `explicit_env_overrides` contains policy-driven shell env overrides that
 /// should win after the snapshot is sourced, while `env` is the full live exec
 /// environment. We need access to both so snapshot restore logic can preserve
-/// runtime-only vars like `CODEX_THREAD_ID` without pretending they came from
+/// runtime-only vars like `STEVE_THREAD_ID` without pretending they came from
 /// the explicit override policy.
 ///
 /// `runtime_path_prepends` contains Codex-owned PATH entries already applied to

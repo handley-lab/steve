@@ -33,7 +33,7 @@ use test_case::test_case;
 use tokio::process::Command;
 use tracing_subscriber::prelude::*;
 
-const SUBPROCESS_ENV_VAR: &str = "CODEX_TURN_PHASE_TRACE_TEST_SUBPROCESS";
+const SUBPROCESS_ENV_VAR: &str = "STEVE_TURN_PHASE_TRACE_TEST_SUBPROCESS";
 
 fn attribute(attributes: &[KeyValue], key: &str) -> Option<String> {
     attributes

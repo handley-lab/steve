@@ -4621,7 +4621,7 @@ enabled = true
 "#,
     );
     write_file(
-        &repo_root.join(".codex/config.toml"),
+        &repo_root.join(".steve/config.toml"),
         r#"[[skills.config]]
 name = "enabled-plugin:sample-search"
 enabled = false
@@ -7108,14 +7108,14 @@ async fn load_plugins_uses_project_config_files() {
         r#"{"name":"sample"}"#,
     );
     write_file(
-        &project_root.join(".codex/config.toml"),
+        &project_root.join(".steve/config.toml"),
         &plugin_config_toml(/*enabled*/ true, /*plugins_feature_enabled*/ true),
     );
 
     let stack = ConfigLayerStack::new(
         vec![ConfigLayerEntry::new(
             ConfigLayerSource::Project {
-                dot_codex_folder: AbsolutePathBuf::try_from(project_root.join(".codex")).unwrap(),
+                dot_codex_folder: AbsolutePathBuf::try_from(project_root.join(".steve")).unwrap(),
             },
             toml::from_str(&plugin_config_toml(
                 /*enabled*/ true, /*plugins_feature_enabled*/ true,
@@ -7668,7 +7668,7 @@ remote_plugin = true
     let linear_metadata = plugin_cache_root
         .join(REMOTE_GLOBAL_MARKETPLACE_NAME)
         .join("linear")
-        .join(".codex-remote-plugin-install.json");
+        .join(".steve-remote-plugin-install.json");
     assert!(renamed_malformed_cache.exists());
     assert!(previous_malformed_cache.exists());
     assert!(!linear_metadata.exists());

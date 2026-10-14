@@ -35,7 +35,7 @@ const REMOTE_PLUGIN_BUNDLE_MAX_EXTRACTED_BYTES: u64 = 512 * 1024 * 1024;
 const REMOTE_PLUGIN_INSTALL_STAGING_DIR: &str = "plugins/.remote-plugin-install-staging";
 #[cfg(debug_assertions)]
 const TEST_ALLOW_LOOPBACK_HTTP_REMOTE_PLUGIN_BUNDLES_ENV: &str =
-    "CODEX_TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS";
+    "STEVE_TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS";
 
 #[derive(Debug, Clone)]
 pub struct ValidatedRemotePluginBundle {
@@ -864,7 +864,7 @@ mod tests {
         );
         let metadata_path = store
             .plugin_base_root(&result.plugin_id)
-            .join(".codex-remote-plugin-install.json");
+            .join(".steve-remote-plugin-install.json");
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(
                 &std::fs::read_to_string(metadata_path.as_path())

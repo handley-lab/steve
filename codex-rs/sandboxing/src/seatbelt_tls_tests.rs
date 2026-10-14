@@ -15,9 +15,9 @@ use std::net::TcpStream;
 use std::process::Command;
 use std::time::Duration;
 
-const EXPECTATION_ENV: &str = "CODEX_SEATBELT_TLS_EXPECTATION";
-const PROXY_ADDRESS_ENV: &str = "CODEX_SEATBELT_TLS_PROXY_ADDRESS";
-const OTHER_ADDRESS_ENV: &str = "CODEX_SEATBELT_TLS_OTHER_ADDRESS";
+const EXPECTATION_ENV: &str = "STEVE_SEATBELT_TLS_EXPECTATION";
+const PROXY_ADDRESS_ENV: &str = "STEVE_SEATBELT_TLS_PROXY_ADDRESS";
+const OTHER_ADDRESS_ENV: &str = "STEVE_SEATBELT_TLS_OTHER_ADDRESS";
 const SANDBOX_FILTER_GLOBAL_NAME: libc::c_int = 2;
 
 // These symbols are exported by libSystem, which Rust already links on macOS.

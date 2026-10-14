@@ -99,7 +99,7 @@ impl RateLimitWindowDisplay {
 
 #[derive(Debug, Clone)]
 pub(crate) struct RateLimitSnapshotDisplay {
-    /// Canonical limit identifier (for example: `codex` or `codex_other`).
+    /// Canonical limit identifier (for example: `steve` or `codex_other`).
     pub limit_name: String,
     /// Optional normal model associated with this account-read quota alias.
     pub normal_model_slug: Option<String>,
@@ -148,7 +148,7 @@ pub(crate) fn rate_limit_snapshot_display(
 ) -> RateLimitSnapshotDisplay {
     rate_limit_snapshot_display_for_limit(
         snapshot,
-        "codex".to_string(),
+        "steve".to_string(),
         captured_at,
         ClockFormat::TwentyFourHour,
     )
@@ -234,7 +234,7 @@ pub(crate) fn compose_rate_limit_data_many(
 
     // Show ordinary plan usage before model-specific quotas, regardless of backend bucket IDs.
     let mut ordered_snapshots = snapshots.iter().collect::<Vec<_>>();
-    ordered_snapshots.sort_by_key(|snapshot| !snapshot.limit_name.eq_ignore_ascii_case("codex"));
+    ordered_snapshots.sort_by_key(|snapshot| !snapshot.limit_name.eq_ignore_ascii_case("steve"));
     for snapshot in ordered_snapshots {
         let credit_row = snapshot.credits.as_ref().and_then(credit_status_row);
         // Metadata-only buckets have no visible values and should not leave an empty heading.
@@ -257,7 +257,7 @@ pub(crate) fn compose_rate_limit_data_many(
             .unwrap_or(false);
 
         let limit_bucket_label = crate::model_catalog::model_display_name(&snapshot.limit_name);
-        let show_limit_prefix = !limit_bucket_label.eq_ignore_ascii_case("codex");
+        let show_limit_prefix = !limit_bucket_label.eq_ignore_ascii_case("steve");
         let primary_label = snapshot
             .primary
             .as_ref()
@@ -468,7 +468,7 @@ mod tests {
     fn non_codex_single_limit_renders_combined_row() {
         let now = Local::now();
         let codex = RateLimitSnapshotDisplay {
-            limit_name: "codex".to_string(),
+            limit_name: "steve".to_string(),
             normal_model_slug: None,
             captured_at: now,
             primary: Some(window(/*used_percent*/ 10.0)),

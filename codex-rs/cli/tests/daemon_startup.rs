@@ -81,11 +81,11 @@ async fn elevated_local_tui_uses_embedded_without_starting_daemon() -> Result<()
     for command in ["elevated", "elevated-resume", "elevated-fork"] {
         daemon_startup(command).await?;
     }
-    let codex = codex_utils_cargo_bin::cargo_bin("codex")?;
+    let codex = codex_utils_cargo_bin::cargo_bin("steve")?;
     let home = tempfile::tempdir()?;
     for operation in ["start", "restart"] {
         let output = Command::new(&codex)
-            .env("CODEX_HOME", home.path())
+            .env("STEVE_HOME", home.path())
             .args(["app-server", "daemon", operation])
             .output()?;
         ensure!(
@@ -105,12 +105,12 @@ async fn elevated_local_tui_uses_embedded_without_starting_daemon() -> Result<()
 #[tokio::test]
 #[cfg(windows)]
 async fn restrictive_launcher_uses_embedded_if_daemon_cannot_start() -> Result<()> {
-    const CHILD: &str = "CODEX_TEST_RESTRICTIVE_DAEMON_START";
+    const CHILD: &str = "STEVE_TEST_RESTRICTIVE_DAEMON_START";
     if std::env::var_os(CHILD).is_some() {
         // The PTY creates its own breakaway-permitted job. Add Cargo's
         // restriction *inside* the PTY so it is the CLI's innermost job.
         let job = codex_utils_pty::JobObject::create_without_breakaway()?;
-        let codex = codex_utils_cargo_bin::cargo_bin("codex")?;
+        let codex = codex_utils_cargo_bin::cargo_bin("steve")?;
         let mut command = tokio::process::Command::new(codex);
         command
             .arg("--no-alt-screen")
@@ -145,7 +145,7 @@ async fn daemon_startup(command: &str) -> Result<()> {
     #[cfg(not(windows))]
     let elevated = false;
     let elevated_launch = command.starts_with("elevated");
-    let codex = codex_utils_cargo_bin::cargo_bin("codex")?.canonicalize()?;
+    let codex = codex_utils_cargo_bin::cargo_bin("steve")?.canonicalize()?;
     let workspace = tempfile::tempdir()?;
     let workspace_path = workspace.path().canonicalize()?;
     #[cfg(unix)]
@@ -156,7 +156,7 @@ async fn daemon_startup(command: &str) -> Result<()> {
     #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
     anyhow::ensure!(
         Command::new(&codex)
-            .env("CODEX_HOME", home.path())
+            .env("STEVE_HOME", home.path())
             .arg("--version")
             .output()?
             .status
@@ -195,10 +195,10 @@ async fn daemon_startup(command: &str) -> Result<()> {
     }
     let mut env = std::env::vars().collect::<std::collections::HashMap<_, _>>();
     for key in [
-        "CODEX_EXEC_SERVER_URL",
-        "CODEX_ACCESS_TOKEN",
-        "CODEX_API_KEY",
-        "CODEX_CLOUD_TASKS_MODE",
+        "STEVE_EXEC_SERVER_URL",
+        "STEVE_ACCESS_TOKEN",
+        "STEVE_API_KEY",
+        "STEVE_CLOUD_TASKS_MODE",
         "OPENAI_API_KEY",
         "OPENAI_FEDERATION_RULE_ID",
         "OPENAI_IDENTITY_TOKEN_FILE",
@@ -206,9 +206,9 @@ async fn daemon_startup(command: &str) -> Result<()> {
     ] {
         env.remove(key);
     }
-    env.insert("CODEX_HOME".into(), home.path().display().to_string());
+    env.insert("STEVE_HOME".into(), home.path().display().to_string());
     env.insert(
-        "CODEX_SQLITE_HOME".into(),
+        "STEVE_SQLITE_HOME".into(),
         home.path().display().to_string(),
     );
     env.insert("TERM".into(), "xterm-256color".into());
@@ -223,7 +223,7 @@ async fn daemon_startup(command: &str) -> Result<()> {
         let managed = home
             .path()
             .join("packages/app-server-daemon/current/bin")
-            .join(if cfg!(windows) { "codex.exe" } else { "codex" });
+            .join(if cfg!(windows) { "steve.exe" } else { "steve" });
         fs::create_dir_all(home.path().join("packages/app-server-daemon/current/bin"))?;
         // Hard links change the executable's ctime and invalidate Rosetta's translation cache.
         #[cfg(unix)]
@@ -326,7 +326,7 @@ async fn daemon_startup(command: &str) -> Result<()> {
                     "payload": {
                         "session_id": thread_id, "id": thread_id,
                         "timestamp": "2025-01-05T12:00:00Z", "cwd": workspace_path,
-                        "originator": "codex", "cli_version": "0.0.0",
+                        "originator": "steve", "cli_version": "0.0.0",
                         "source": "cli", "model_provider": "openai"
                     }
                 });
@@ -351,7 +351,7 @@ async fn daemon_startup(command: &str) -> Result<()> {
             }
         };
         let program = if cfg!(windows) && command == "restrictive-job" {
-            env.insert("CODEX_TEST_RESTRICTIVE_DAEMON_START".into(), "1".into());
+            env.insert("STEVE_TEST_RESTRICTIVE_DAEMON_START".into(), "1".into());
             args = vec![
                 "--exact".into(),
                 "restrictive_launcher_uses_embedded_if_daemon_cannot_start".into(),

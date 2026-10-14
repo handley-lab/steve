@@ -24,8 +24,8 @@ static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 // Debug-only test hook: lets integration tests point the server at a temporary
 // managed config file without writing to /etc.
-const MANAGED_CONFIG_PATH_ENV_VAR: &str = "CODEX_APP_SERVER_MANAGED_CONFIG_PATH";
-const DISABLE_MANAGED_CONFIG_ENV_VAR: &str = "CODEX_APP_SERVER_DISABLE_MANAGED_CONFIG";
+const MANAGED_CONFIG_PATH_ENV_VAR: &str = "STEVE_APP_SERVER_MANAGED_CONFIG_PATH";
+const DISABLE_MANAGED_CONFIG_ENV_VAR: &str = "STEVE_APP_SERVER_DISABLE_MANAGED_CONFIG";
 
 #[derive(Debug, Parser)]
 #[command(version)]

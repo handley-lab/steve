@@ -671,7 +671,7 @@ mod tests {
                 strip_request_headers: vec!["authorization".to_string()],
                 inject_request_headers: vec![InjectedHeaderConfig {
                     name: "authorization".to_string(),
-                    secret_env_var: Some("CODEX_GITHUB_TOKEN".to_string()),
+                    secret_env_var: Some("STEVE_GITHUB_TOKEN".to_string()),
                     secret_file: None,
                     prefix: Some("Bearer ".to_string()),
                 }],
@@ -744,7 +744,7 @@ mod tests {
 
         let hooks = compile_mitm_hooks_with_resolvers(
             &config,
-            |name| (name == "CODEX_GITHUB_TOKEN").then(|| "ghp-secret".to_string()),
+            |name| (name == "STEVE_GITHUB_TOKEN").then(|| "ghp-secret".to_string()),
             |_| Err(anyhow!("unexpected file lookup")),
         )
         .unwrap();
@@ -753,7 +753,7 @@ mod tests {
         assert_eq!(compiled.len(), 1);
         assert_eq!(
             compiled[0].actions.inject_request_headers[0].source,
-            SecretSource::EnvVar("CODEX_GITHUB_TOKEN".to_string())
+            SecretSource::EnvVar("STEVE_GITHUB_TOKEN".to_string())
         );
         assert_eq!(
             compiled[0].actions.inject_request_headers[0].value,

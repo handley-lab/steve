@@ -301,7 +301,7 @@ fn remote_plugin_install_metadata_follows_installed_cache_lifecycle() {
     let metadata_path = store.remote_plugin_install_metadata_path(&plugin_id);
     assert_eq!(
         metadata_path.as_path().file_name(),
-        Some(std::ffi::OsStr::new(".codex-remote-plugin-install.json"))
+        Some(std::ffi::OsStr::new(".steve-remote-plugin-install.json"))
     );
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(

@@ -13,11 +13,11 @@ The word `batch` in a user request is not CLI opt-in by itself.
 Real API calls require **network access** + `OPENAI_API_KEY`. `--dry-run` does not.
 
 ## Quick start (works from any repo)
-Set a stable path to the skill CLI (default `CODEX_HOME` is `~/.codex`):
+Set a stable path to the skill CLI (default `STEVE_HOME` is `~/.steve`):
 
 ```
-export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
-export IMAGE_GEN="$CODEX_HOME/skills/.system/imagegen/scripts/image_gen.py"
+export STEVE_HOME="${STEVE_HOME:-$HOME/.steve}"
+export IMAGE_GEN="$STEVE_HOME/skills/.system/imagegen/scripts/image_gen.py"
 ```
 
 Install dependencies into that environment with its package manager. In uv-managed environments, `uv pip install ...` remains the preferred path.

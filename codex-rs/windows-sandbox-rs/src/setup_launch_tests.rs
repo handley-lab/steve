@@ -22,7 +22,7 @@ use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE;
 use super::spawn_with_retained_handles;
 
 const CHILD_TEST: &str = "setup_launch::tests::retained_handles_child";
-const CHILD_DIRECTORY_ENV: &str = "CODEX_TEST_SETUP_LAUNCH_DIRECTORY";
+const CHILD_DIRECTORY_ENV: &str = "STEVE_TEST_SETUP_LAUNCH_DIRECTORY";
 const CHILD_TIMEOUT: Duration = Duration::from_secs(/*secs*/ 10);
 const POLL_INTERVAL: Duration = Duration::from_millis(/*millis*/ 10);
 

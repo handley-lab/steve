@@ -52,7 +52,7 @@ fn caught_panic_rehides_cursor_before_repainting_and_restores_its_shape() {
             "--ignored",
             "--nocapture",
         ])
-        .env("CODEX_TUI_CAUGHT_PANIC_PTY_CHILD", "1")
+        .env("STEVE_TUI_CAUGHT_PANIC_PTY_CHILD", "1")
         .stdin(Stdio::from(slave.try_clone().expect("clone PTY slave")))
         .stdout(Stdio::from(slave))
         .stderr(Stdio::piped())
@@ -136,7 +136,7 @@ fn caught_panic_rehides_cursor_before_repainting_and_restores_its_shape() {
 #[tokio::test(flavor = "current_thread")]
 #[ignore]
 async fn caught_panic_pty_child() {
-    if std::env::var_os("CODEX_TUI_CAUGHT_PANIC_PTY_CHILD").is_none() {
+    if std::env::var_os("STEVE_TUI_CAUGHT_PANIC_PTY_CHILD").is_none() {
         return;
     }
     super::set_modes().expect("set terminal modes");

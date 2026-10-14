@@ -26,8 +26,8 @@ pub(crate) const TEST_BUILD_COMMIT: &str = "0123456789abcdef0123456789abcdef0123
 pub(crate) const DELAYED_OUTPUT_AFTER_EXIT_PARENT_ARG: &str =
     "--codex-test-delayed-output-after-exit-parent";
 pub(crate) const SYSTEM_PROXY_REQUEST_URL_ENV: &str =
-    "CODEX_EXEC_SERVER_TEST_SYSTEM_PROXY_REQUEST_URL";
-pub(crate) const SYSTEM_PROXY_URL_ENV: &str = "CODEX_EXEC_SERVER_TEST_SYSTEM_PROXY_URL";
+    "STEVE_EXEC_SERVER_TEST_SYSTEM_PROXY_REQUEST_URL";
+pub(crate) const SYSTEM_PROXY_URL_ENV: &str = "STEVE_EXEC_SERVER_TEST_SYSTEM_PROXY_URL";
 
 const CODEX_WINDOWS_SANDBOX_ARG1: &str = "--run-as-windows-sandbox";
 const DELAYED_OUTPUT_AFTER_EXIT_CHILD_ARG: &str = "--codex-test-delayed-output-after-exit-child";
@@ -224,7 +224,7 @@ fn maybe_run_exec_server_from_test_binary(guard: Option<&TestBinaryDispatchGuard
             std::process::exit(1);
         }
     };
-    runtime_paths.prefer_mxc = env::var("CODEX_EXEC_SERVER_TEST_PREFER_MXC")
+    runtime_paths.prefer_mxc = env::var("STEVE_EXEC_SERVER_TEST_PREFER_MXC")
         .ok()
         .map(|value| {
             value.parse().unwrap_or_else(|error| {

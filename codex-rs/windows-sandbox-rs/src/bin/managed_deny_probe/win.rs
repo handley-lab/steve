@@ -49,10 +49,10 @@ fn probe_exit(code: i32) -> ! {
 }
 
 pub(super) fn main() {
-    let allowed_text = probe_path("CODEX_WINDOWS_ALLOWED_TEXT");
-    let denied_text = probe_path("CODEX_WINDOWS_DENIED_TEXT");
-    let allowed_module = probe_path("CODEX_WINDOWS_ALLOWED_MODULE");
-    let denied_module = probe_path("CODEX_WINDOWS_DENIED_MODULE");
+    let allowed_text = probe_path("STEVE_WINDOWS_ALLOWED_TEXT");
+    let denied_text = probe_path("STEVE_WINDOWS_DENIED_TEXT");
+    let allowed_module = probe_path("STEVE_WINDOWS_ALLOWED_MODULE");
+    let denied_module = probe_path("STEVE_WINDOWS_DENIED_MODULE");
 
     match std::fs::read_to_string(&allowed_text) {
         Ok(contents) if contents.trim() == "ALLOW-CONTROL" => println!("allowed-read:OK"),

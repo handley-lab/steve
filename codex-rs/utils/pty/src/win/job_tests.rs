@@ -11,7 +11,7 @@ use winapi::um::winnt::JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
 async fn background_launches_keep_consoles_hidden_when_containment_fails() -> anyhow::Result<()> {
     const TEST_NAME: &str =
         "win::job::tests::background_launches_keep_consoles_hidden_when_containment_fails";
-    const PHASE: &str = "CODEX_TEST_BACKGROUND_JOB_PHASE";
+    const PHASE: &str = "STEVE_TEST_BACKGROUND_JOB_PHASE";
     let executable = std::env::current_exe()?;
     match std::env::var(PHASE).as_deref() {
         Ok("probe") => {

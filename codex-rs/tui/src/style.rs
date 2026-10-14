@@ -89,7 +89,7 @@ pub(crate) fn accent_style() -> Style {
         effective_stdout_color_level(),
         StdoutColorLevel::TrueColor | StdoutColorLevel::Ansi256
     ) && let Some(mut style) =
-        crate::render::highlight::foreground_style_for_scopes(&["codex.accent"])
+        crate::render::highlight::foreground_style_for_scopes(&["steve.accent"])
     {
         if let Some(Color::Rgb(r, g, b)) = style.fg {
             style = style.fg(best_color((r, g, b)));
@@ -324,7 +324,7 @@ mod tests {
 
     #[test]
     fn theme_accents_respect_terminal_color_depth() {
-        const CHILD: &str = "CODEX_ACCENT_COLOR_TEST_CHILD";
+        const CHILD: &str = "STEVE_ACCENT_COLOR_TEST_CHILD";
         let Ok(level) = std::env::var(CHILD) else {
             for level in ["0", "1", "2", "3"] {
                 let output = std::process::Command::new(std::env::current_exe().unwrap())

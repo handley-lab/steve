@@ -12,7 +12,7 @@ use crate::app_command::UserVerificationFailure;
 pub(super) fn verification_failure(error: &TypedRequestError) -> UserVerificationFailure {
     let TypedRequestError::Server { source, .. } = error else {
         return UserVerificationFailure {
-            message: "Could not complete user verification with the local Codex binary.",
+            message: "Could not complete user verification with the local Steve binary.",
             details: UserVerificationErrorDetails::Failed {
                 reason: UserVerificationFailureReason::ServiceError,
             },
@@ -25,10 +25,10 @@ pub(super) fn verification_failure(error: &TypedRequestError) -> UserVerificatio
     let message = match details {
         Some(UserVerificationErrorDetails::InvalidRequest {
             reason: UserVerificationInvalidRequestReason::InvalidParams,
-        }) => "The local Codex binary could not verify this request.",
+        }) => "The local Steve binary could not verify this request.",
         Some(UserVerificationErrorDetails::Unavailable {
             reason: UserVerificationUnavailableReason::CredentialMissing,
-        }) => "No user-verification credential is available in the local Codex binary.",
+        }) => "No user-verification credential is available in the local Steve binary.",
         Some(UserVerificationErrorDetails::Unavailable {
             reason: UserVerificationUnavailableReason::BiometricsUnavailable,
         }) => "Biometric verification is currently unavailable on this device.",
@@ -53,7 +53,7 @@ pub(super) fn verification_failure(error: &TypedRequestError) -> UserVerificatio
         | Some(UserVerificationErrorDetails::Failed {
             reason: UserVerificationFailureReason::ServiceError,
         })
-        | None => "The local Codex binary could not complete user verification.",
+        | None => "The local Steve binary could not complete user verification.",
     };
     UserVerificationFailure {
         message,

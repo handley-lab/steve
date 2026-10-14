@@ -8,7 +8,7 @@ use pretty_assertions::assert_eq;
 fn exec_help_documents_cyber_access_program() {
     let help = MultitoolCli::command()
         .term_width(80)
-        .try_get_matches_from(["codex", "exec", "--help"])
+        .try_get_matches_from(["steve", "exec", "--help"])
         .expect_err("help should short-circuit");
     assert_eq!(help.kind(), clap::error::ErrorKind::DisplayHelp);
     let program_help = help

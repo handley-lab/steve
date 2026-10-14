@@ -850,8 +850,8 @@ mod tests {
     #[tokio::test]
     async fn shared_bedrock_auth_refresh_is_reused_only_for_matching_configuration() {
         const TEST_NAME: &str = "provider::tests::shared_bedrock_auth_refresh_is_reused_only_for_matching_configuration";
-        const HELPER_ARG: &str = "CODEX_BEDROCK_SHARED_AUTH_REFRESH_COMMAND";
-        const SUBPROCESS_ARG: &str = "CODEX_BEDROCK_SHARED_AUTH_REFRESH_SUBPROCESS";
+        const HELPER_ARG: &str = "STEVE_BEDROCK_SHARED_AUTH_REFRESH_COMMAND";
+        const SUBPROCESS_ARG: &str = "STEVE_BEDROCK_SHARED_AUTH_REFRESH_SUBPROCESS";
         let arguments = std::env::args().collect::<Vec<_>>();
         if let Some(index) = arguments.iter().position(|argument| argument == HELPER_ARG) {
             let counter = &arguments[index + 2];

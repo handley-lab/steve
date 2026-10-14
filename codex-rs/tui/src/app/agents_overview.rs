@@ -115,7 +115,7 @@ impl App {
                     (!workload_identity_selected).then(|| SelectionItem {
                         name: "Start background server".to_string(),
                         description: Some(
-                            "Open `codex agents` in another terminal afterward".to_string(),
+                            "Open `steve agents` in another terminal afterward".to_string(),
                         ),
                         actions: vec![Box::new(|tx| tx.send(AppEvent::StartAgentsDaemon))],
                         dismiss_on_select: true,
@@ -1183,15 +1183,15 @@ impl App {
                     .and_then(std::ffi::OsStr::to_str)
                     .is_some_and(|name| {
                         if cfg!(windows) {
-                            name.eq_ignore_ascii_case("codex-tui")
+                            name.eq_ignore_ascii_case("steve-tui")
                         } else {
-                            name == "codex-tui"
+                            name == "steve-tui"
                         }
                     }) {
                     current_executable.with_file_name(if cfg!(windows) {
-                        "codex.exe"
+                        "steve.exe"
                     } else {
-                        "codex"
+                        "steve"
                     })
                 } else {
                     current_executable

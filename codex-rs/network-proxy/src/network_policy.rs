@@ -984,7 +984,7 @@ mod tests {
             app_version: Some("1.2.3".to_string()),
             user_account_id: Some("acct-1".to_string()),
             auth_mode: Some("Chatgpt".to_string()),
-            originator: Some("codex_cli_rs".to_string()),
+            originator: Some("steve_cli_rs".to_string()),
             user_email: Some("test@example.com".to_string()),
             terminal_type: Some("iTerm.app/3.6.5".to_string()),
             model: Some("gpt-5.3-codex".to_string()),
@@ -1039,7 +1039,7 @@ mod tests {
             );
             assert_eq!(event.field("app.version"), Some("1.2.3"));
             assert_eq!(event.field("auth_mode"), Some("Chatgpt"));
-            assert_eq!(event.field("originator"), Some("codex_cli_rs"));
+            assert_eq!(event.field("originator"), Some("steve_cli_rs"));
             assert_eq!(event.field("user.account_id"), Some("acct-1"));
             assert_eq!(event.field("user.email"), Some("test@example.com"));
             assert_eq!(event.field("terminal.type"), Some("iTerm.app/3.6.5"));

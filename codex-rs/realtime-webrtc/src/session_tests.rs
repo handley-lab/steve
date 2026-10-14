@@ -151,9 +151,9 @@ fn package_availability_requires_helper_and_native_runtime() {
     std::fs::create_dir_all(voice.join("lib")).unwrap();
     assert!(!package_has_runtime(&root));
     let helper = voice.join(if cfg!(windows) {
-        "bin/codex-voice-host.exe"
+        "bin/steve-voice-host.exe"
     } else {
-        "bin/codex-voice-host"
+        "bin/steve-voice-host"
     });
     std::fs::write(&helper, b"synthetic helper").unwrap();
     assert!(!package_has_runtime(&root));

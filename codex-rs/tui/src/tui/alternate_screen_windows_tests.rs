@@ -12,7 +12,7 @@ use windows_sys::Win32::System::Console::GetConsoleMode;
 use windows_sys::Win32::System::Console::SetConsoleMode;
 use windows_sys::Win32::System::Threading::CREATE_NEW_CONSOLE;
 
-const CHILD_ENV: &str = "CODEX_TUI_MOUSE_CAPTURE_TEST_CHILD";
+const CHILD_ENV: &str = "STEVE_TUI_MOUSE_CAPTURE_TEST_CHILD";
 
 fn console_mode(input: &File) -> u32 {
     let mut mode = 0;

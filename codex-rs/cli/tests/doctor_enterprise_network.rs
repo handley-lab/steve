@@ -53,9 +53,9 @@ trust_level = "trusted"
             ),
         )?;
         // Cloud authentication must use the project selected by --cd.
-        std::fs::create_dir(workspace.path().join(".codex"))?;
+        std::fs::create_dir(workspace.path().join(".steve"))?;
         std::fs::write(
-            workspace.path().join(".codex/config.toml"),
+            workspace.path().join(".steve/config.toml"),
             "cli_auth_credentials_store = \"file\"\n",
         )?;
         write_chatgpt_auth(
@@ -82,13 +82,13 @@ trust_level = "trusted"
             .mount(&server)
             .await;
 
-        let output = Command::new(codex_utils_cargo_bin::cargo_bin("codex")?)
+        let output = Command::new(codex_utils_cargo_bin::cargo_bin("steve")?)
             .current_dir(codex_home.path())
-            .env("CODEX_HOME", codex_home.path())
+            .env("STEVE_HOME", codex_home.path())
             .env("NO_PROXY", "127.0.0.1,localhost")
             .env("no_proxy", "127.0.0.1,localhost")
-            .env_remove("CODEX_ACCESS_TOKEN")
-            .env_remove("CODEX_API_KEY")
+            .env_remove("STEVE_ACCESS_TOKEN")
+            .env_remove("STEVE_API_KEY")
             .env_remove("OPENAI_API_KEY")
             .arg("--cd")
             .arg(workspace.path())
@@ -159,15 +159,15 @@ async fn invalid_custom_ca_falls_back_to_system_roots() -> Result<()> {
         ),
     )?;
     for sandbox in [None, Some("seatbelt")] {
-        let mut command = Command::new(codex_utils_cargo_bin::cargo_bin("codex")?);
+        let mut command = Command::new(codex_utils_cargo_bin::cargo_bin("steve")?);
         command
             .args(["doctor", "--json"])
-            .env("CODEX_HOME", codex_home.path())
-            .env("CODEX_CA_CERTIFICATE", &certificate)
+            .env("STEVE_HOME", codex_home.path())
+            .env("STEVE_CA_CERTIFICATE", &certificate)
             .stdin(Stdio::null());
         if let Some(sandbox) = sandbox {
             command
-                .env("CODEX_SANDBOX", sandbox)
+                .env("STEVE_SANDBOX", sandbox)
                 .env("HTTP_PROXY", "http://127.0.0.1:1")
                 .env("http_proxy", "http://127.0.0.1:1")
                 .env("HTTPS_PROXY", "http://127.0.0.1:1")
@@ -223,9 +223,9 @@ fn doctor_reports_macos_system_proxy_configuration_and_policy() -> Result<()> {
 
 #[cfg(target_os = "macos")]
 fn doctor_report(codex_home: &Path) -> Result<Value> {
-    let output = Command::new(codex_utils_cargo_bin::cargo_bin("codex")?)
+    let output = Command::new(codex_utils_cargo_bin::cargo_bin("steve")?)
         .args(["doctor", "--json"])
-        .env("CODEX_HOME", codex_home)
+        .env("STEVE_HOME", codex_home)
         .stdin(Stdio::null())
         .output()
         .context("failed to run the doctor")?;

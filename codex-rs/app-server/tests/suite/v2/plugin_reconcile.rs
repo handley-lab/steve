@@ -289,7 +289,7 @@ async fn start_app_server(server: &MockServer) -> Result<(TestAppServer, TempDir
         .with_codex_home(codex_home.path())
         .without_managed_config()
         .with_env_overrides(&[(
-            "CODEX_TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS",
+            "STEVE_TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS",
             Some("1"),
         )])
         .build_initialized_with_timeout(DEFAULT_TIMEOUT)

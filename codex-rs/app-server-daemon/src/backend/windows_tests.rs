@@ -18,8 +18,8 @@ use windows_sys::Win32::System::Threading::TerminateProcess;
 #[tokio::test]
 async fn captured_stdio_closes_while_child_is_alive() {
     const TEST: &str = "backend::windows::tests::captured_stdio_closes_while_child_is_alive";
-    const ROLE: &str = "CODEX_TEST_STDIO_ROLE";
-    const HOME: &str = "CODEX_TEST_STDIO_HOME";
+    const ROLE: &str = "STEVE_TEST_STDIO_ROLE";
+    const HOME: &str = "STEVE_TEST_STDIO_HOME";
     let executable = std::env::current_exe().expect("test executable");
 
     if let Ok(role) = std::env::var(ROLE) {
@@ -133,7 +133,7 @@ async fn captured_stdio_closes_while_child_is_alive() {
 
 #[test]
 fn detached_launch_preflight_rejects_restrictive_job() {
-    const CHILD: &str = "CODEX_TEST_RESTRICTIVE_LAUNCH_JOB";
+    const CHILD: &str = "STEVE_TEST_RESTRICTIVE_LAUNCH_JOB";
     let executable = std::env::current_exe().expect("test executable");
     if std::env::var_os(CHILD).is_some() {
         let job = unsafe { super::CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
@@ -180,7 +180,7 @@ fn detached_launch_preflight_rejects_restrictive_job() {
 
 #[test]
 fn detached_launch_preflight_allows_residual_job() {
-    const CHILD: &str = "CODEX_TEST_RESIDUAL_LAUNCH_JOB";
+    const CHILD: &str = "STEVE_TEST_RESIDUAL_LAUNCH_JOB";
     let executable = std::env::current_exe().expect("test executable");
     if std::env::var_os(CHILD).is_some() {
         let mut jobs = Vec::new();

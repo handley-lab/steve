@@ -411,7 +411,7 @@ async fn run_command_under_sandbox(
             .map_err(|err| anyhow::anyhow!(err))?;
             // This CLI inherits the user's controlling terminal. Keep this deny
             // after every shared policy allowance so the child cannot queue input
-            // for the unsandboxed shell that resumes when Codex exits.
+            // for the unsandboxed shell that resumes when Steve exits.
             match args.as_mut_slice() {
                 [flag, policy, ..] if flag.as_str() == "-p" => {
                     // Older macOS policy compilers do not define the TIOCSTI symbol.
@@ -442,7 +442,7 @@ async fn run_command_under_sandbox(
             #[expect(clippy::expect_used)]
             let codex_linux_sandbox_exe = config
                 .codex_linux_sandbox_exe
-                .expect("codex-linux-sandbox executable not found");
+                .expect("steve-linux-sandbox executable not found");
             let network_sandbox_policy = runtime_permission_profile.network_sandbox_policy();
             let (env, managed_network) = if let Some(network) = network.as_ref() {
                 let prepared =
@@ -462,7 +462,7 @@ async fn run_command_under_sandbox(
             spawn_debug_sandbox_child(
                 codex_linux_sandbox_exe,
                 args,
-                Some("codex-linux-sandbox"),
+                Some("steve-linux-sandbox"),
                 cwd.to_path_buf(),
                 network_sandbox_policy,
                 env,
@@ -689,7 +689,7 @@ async fn load_debug_sandbox_config_with_codex_home(
         ));
     }
 
-    // For legacy configs, `codex sandbox` historically defaulted to read-only
+    // For legacy configs, `steve sandbox` historically defaulted to read-only
     // instead of inheriting ambient `sandbox_mode` settings from user/system
     // config. Keep that behavior unless this invocation explicitly passes a
     // legacy `sandbox_mode` CLI override for compatibility with older callers.

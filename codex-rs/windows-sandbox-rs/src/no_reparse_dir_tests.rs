@@ -171,20 +171,20 @@ fn open_existing_does_not_create_missing_directory() -> Result<()> {
 
 #[test]
 fn local_directory_path_accepts_drive_and_verbatim_drive_paths() {
-    assert!(validate_local_directory_path(Path::new(r"C:\Users\alice\.codex")).is_ok());
+    assert!(validate_local_directory_path(Path::new(r"C:\Users\alice\.steve")).is_ok());
     assert!(validate_local_directory_path(Path::new(r"\\?\D:\Codex Data\home")).is_ok());
 }
 
 #[test]
 fn local_directory_path_rejects_relative_network_parent_and_stream_paths() {
     for path in [
-        r"relative\.codex",
-        r"C:relative\.codex",
-        r"\\server\share\.codex",
-        r"\\?\UNC\server\share\.codex",
+        r"relative\.steve",
+        r"C:relative\.steve",
+        r"\\server\share\.steve",
+        r"\\?\UNC\server\share\.steve",
         r"\\.\C:\Users\alice",
         r"C:\Users\alice\..\other",
-        r"C:\Users\alice\.codex:stream",
+        r"C:\Users\alice\.steve:stream",
     ] {
         assert!(
             validate_local_directory_path(Path::new(path)).is_err(),

@@ -20,7 +20,7 @@ fn recovery_message_names_checkout_and_safe_manual_action() {
 
 #[tokio::test]
 async fn explicit_remote_worktree_rejection_is_snapshotted() -> anyhow::Result<()> {
-    let cli = Cli::parse_from(["codex", "--worktree"]);
+    let cli = Cli::parse_from(["steve", "--worktree"]);
     let endpoint = RemoteAppServerEndpoint::UnixSocket {
         socket_path: AbsolutePathBuf::relative_to_current_dir("remote.sock")?,
     };
@@ -69,7 +69,7 @@ async fn latest_directory_uses_turn_context_and_preserves_fallback() -> anyhow::
 async fn refreshed_bundle_rechecks_source_during_config_reload() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let source = dir.path().join("source");
-    let nested = source.join(".codex");
+    let nested = source.join(".steve");
     let destination = dir.path().join("checkout");
     for path in [&nested, &destination] {
         std::fs::create_dir_all(path)?;

@@ -19,7 +19,7 @@ use test_case::test_case;
 use tokio::time::timeout;
 
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
-const PROVIDER_RESIDENCY_ENV_VAR: &str = "CODEX_TEST_RESIDENCY_HEADER";
+const PROVIDER_RESIDENCY_ENV_VAR: &str = "STEVE_TEST_RESIDENCY_HEADER";
 
 #[derive(Clone, Copy)]
 enum ModelTransport {
@@ -108,7 +108,7 @@ async fn managed_residency_overrides_provider_headers(transport: ModelTransport)
         .with_codex_home(codex_home.path())
         .with_env_overrides(&[
             ("OPENAI_API_KEY", Some("sk-test")),
-            ("CODEX_ACCESS_TOKEN", None),
+            ("STEVE_ACCESS_TOKEN", None),
             (PROVIDER_RESIDENCY_ENV_VAR, Some("eu-environment")),
         ])
         .build_initialized_with_timeout(READ_TIMEOUT)

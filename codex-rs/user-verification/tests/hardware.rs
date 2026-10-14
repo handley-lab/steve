@@ -40,7 +40,7 @@ fn persisted_key_signing_cancellation_and_retry() {
     provider
         .delete(&UserVerificationRequestGuard::default())
         .expect("clear any previous test credential");
-    if std::env::var_os("CODEX_HARDWARE_TEST_CLEANUP").is_some() {
+    if std::env::var_os("STEVE_HARDWARE_TEST_CLEANUP").is_some() {
         return;
     }
     let cleanup = TestKey(Arc::clone(&provider));
@@ -92,7 +92,7 @@ fn persisted_key_signing_cancellation_and_retry() {
                 == Err(mpsc::RecvTimeoutError::Timeout)
             {
                 eprintln!(
-                    "Cancellation did not finish. Run with CODEX_HARDWARE_TEST_CLEANUP=1 to remove the test key."
+                    "Cancellation did not finish. Run with STEVE_HARDWARE_TEST_CLEANUP=1 to remove the test key."
                 );
                 std::process::exit(/* code */ 1);
             }

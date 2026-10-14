@@ -32,14 +32,14 @@ async fn path_search_stops_at_invalid_candidates() -> anyhow::Result<()> {
 async fn empty_path_entries_preserve_script_argv0() -> anyhow::Result<()> {
     // A sibling test can fork while the script is open for writing, retaining
     // the writable descriptor and making exec fail with ETXTBSY.
-    if std::env::var_os("CODEX_TEST_PATH_ARGV0").is_none() {
+    if std::env::var_os("STEVE_TEST_PATH_ARGV0").is_none() {
         let output = std::process::Command::new(std::env::current_exe()?)
             .args([
                 "--exact",
                 "child_command::linux_tests::empty_path_entries_preserve_script_argv0",
                 "--nocapture",
             ])
-            .env("CODEX_TEST_PATH_ARGV0", "1")
+            .env("STEVE_TEST_PATH_ARGV0", "1")
             .output()?;
         assert!(output.status.success(), "{output:?}");
         return Ok(());

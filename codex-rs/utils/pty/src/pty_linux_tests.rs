@@ -11,14 +11,14 @@ use pretty_assertions::assert_eq;
 
 #[tokio::test]
 async fn portable_fallback_releases_native_pty_descriptors() -> anyhow::Result<()> {
-    if std::env::var_os("CODEX_TEST_PTY_FALLBACK_PRESSURE").is_none() {
+    if std::env::var_os("STEVE_TEST_PTY_FALLBACK_PRESSURE").is_none() {
         let output = std::process::Command::new(std::env::current_exe()?)
             .args([
                 "--exact",
                 "pty::linux_tests::portable_fallback_releases_native_pty_descriptors",
                 "--nocapture",
             ])
-            .env("CODEX_TEST_PTY_FALLBACK_PRESSURE", "1")
+            .env("STEVE_TEST_PTY_FALLBACK_PRESSURE", "1")
             .output()?;
         assert!(output.status.success(), "{output:?}");
         return Ok(());

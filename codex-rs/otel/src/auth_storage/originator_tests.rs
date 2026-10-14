@@ -16,7 +16,7 @@ async fn concurrent_clients_keep_their_originator_across_awaits_and_blocking_wor
             barrier.wait().await;
             tokio::task::yield_now().await;
             let before = AuthStorageOriginator::current();
-            let nested = AuthStorageOriginator::from_client_name("codex_cli_rs")
+            let nested = AuthStorageOriginator::from_client_name("steve_cli_rs")
                 .scope(async {
                     tokio::task::yield_now().await;
                     AuthStorageOriginator::current().as_str()
@@ -42,7 +42,7 @@ async fn concurrent_clients_keep_their_originator_across_awaits_and_blocking_wor
     assert_eq!(
         actual,
         ["codex_desktop", "codex_vscode", "other"]
-            .map(|originator| (originator, "codex_cli_rs", originator, originator))
+            .map(|originator| (originator, "steve_cli_rs", originator, originator))
             .to_vec()
     );
     assert_eq!(AuthStorageOriginator::current().as_str(), "none");

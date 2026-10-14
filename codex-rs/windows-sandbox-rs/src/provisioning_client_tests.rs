@@ -30,7 +30,7 @@ fn workload_identity_selects_helper_fallback_except_for_registered_core() -> Res
                 .env_remove(OPENAI_FEDERATION_RULE_ID_ENV_VAR)
                 .env_remove(OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR)
                 .env(variable, "test-only")
-                .env("CODEX_WINDOWS_REGISTERED_CORE", registered_core)
+                .env("STEVE_WINDOWS_REGISTERED_CORE", registered_core)
                 .output()?;
             assert!(
                 output.status.success(),

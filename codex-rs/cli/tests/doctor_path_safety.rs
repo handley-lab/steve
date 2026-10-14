@@ -41,8 +41,8 @@ impl Fixture {
         // target/ so this fixture also exercises the packaged-install checks.
         let program = root
             .path()
-            .join(format!("codex{}", std::env::consts::EXE_SUFFIX));
-        let source = codex_utils_cargo_bin::cargo_bin("codex")?;
+            .join(format!("steve{}", std::env::consts::EXE_SUFFIX));
+        let source = codex_utils_cargo_bin::cargo_bin("steve")?;
         // Hard-link setup and teardown invalidate other tests' Rosetta translations.
         #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
         {
@@ -50,7 +50,7 @@ impl Fixture {
             // Translate the fixture before the timed diagnostic command.
             anyhow::ensure!(
                 std::process::Command::new(&program)
-                    .env("CODEX_HOME", &home)
+                    .env("STEVE_HOME", &home)
                     .arg("--version")
                     .output()?
                     .status
@@ -89,13 +89,13 @@ wire_api = "responses"
                 let executable = bin.join(name);
                 codex_utils_cargo_bin::write_executable(
                     &executable,
-                    "#!/bin/sh\nprintf 'helper ran\\n' >> \"$CODEX_TEST_HELPER_MARKER\"\nexit 0\n",
+                    "#!/bin/sh\nprintf 'helper ran\\n' >> \"$STEVE_TEST_HELPER_MARKER\"\nexit 0\n",
                 )?;
             }
             #[cfg(windows)]
             std::fs::write(
                 bin.join(format!("{name}.cmd")),
-                "@echo helper ran>>\"%CODEX_TEST_HELPER_MARKER%\"\r\n@exit /b 0\r\n",
+                "@echo helper ran>>\"%STEVE_TEST_HELPER_MARKER%\"\r\n@exit /b 0\r\n",
             )?;
         }
         // Windows selects rg.exe explicitly, so rg.cmd cannot satisfy discovery.
@@ -119,17 +119,17 @@ wire_api = "responses"
         let mut command = assert_cmd::Command::new(&self.program);
         command
             .current_dir(&self.workspace)
-            .env("CODEX_HOME", &self.home)
+            .env("STEVE_HOME", &self.home)
             .env("HOME", self.root.path())
             .env("PATH", &self.path)
-            .env("CODEX_TEST_HELPER_MARKER", &self.marker)
-            .env("CODEX_MANAGED_BY_NPM", "1")
+            .env("STEVE_TEST_HELPER_MARKER", &self.marker)
+            .env("STEVE_MANAGED_BY_NPM", "1")
             .env(
-                "CODEX_MANAGED_PACKAGE_ROOT",
+                "STEVE_MANAGED_PACKAGE_ROOT",
                 self.workspace.join("node_modules/@openai/codex"),
             )
             .env(
-                "CODEX_APP_SERVER_MANAGED_CONFIG_PATH",
+                "STEVE_APP_SERVER_MANAGED_CONFIG_PATH",
                 self.home.join("managed_config.toml"),
             )
             .env("HTTPS_PROXY", "http://127.0.0.1:9")
@@ -348,7 +348,7 @@ fn doctor_reports_only_safe_config_error_metadata() -> Result<()> {
     // macOS temp directories can use a symlinked path; trust the canonical workspace.
     let project_key = toml::Value::String(project_trust_key(&fixture.workspace));
     let original = format!("{original}\n[projects.{project_key}]\ntrust_level = \"trusted\"\n");
-    let project_config_dir = fixture.workspace.join(".codex");
+    let project_config_dir = fixture.workspace.join(".steve");
     std::fs::create_dir(&project_config_dir)?;
     for (snapshot_name, config_file, config) in [
         (
@@ -510,7 +510,7 @@ fn filesystem_probe_does_not_load_configuration() -> Result<()> {
 #[tokio::test]
 async fn interactive_tmux_startup_does_not_execute_workspace_helpers() -> Result<()> {
     let fixture = Fixture::new()?;
-    std::fs::create_dir(fixture.workspace.join(".codex"))?;
+    std::fs::create_dir(fixture.workspace.join(".steve"))?;
     let command = fixture.command()?;
     let mut env: std::collections::HashMap<String, String> = std::env::vars().collect();
     for (key, value) in command.get_envs() {
@@ -525,7 +525,7 @@ async fn interactive_tmux_startup_does_not_execute_workspace_helpers() -> Result
     env.insert("TERM_PROGRAM".to_string(), "tmux".to_string());
     env.insert("TMUX".to_string(), "test-tmux".to_string());
     env.insert(
-        "CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT".to_string(),
+        "STEVE_TUI_DISABLE_KEYBOARD_ENHANCEMENT".to_string(),
         "0".to_string(),
     );
     env.insert(
@@ -642,9 +642,9 @@ async fn feedback_with_logs_does_not_execute_path_helpers() -> Result<()> {
         .with_env_overrides(&[
             ("PATH", Some(path.as_ref())),
             ("HOME", Some(home.as_ref())),
-            ("CODEX_TEST_HELPER_MARKER", Some(marker.as_ref())),
-            ("CODEX_MANAGED_BY_NPM", Some("1")),
-            ("CODEX_MANAGED_PACKAGE_ROOT", Some(package_root.as_ref())),
+            ("STEVE_TEST_HELPER_MARKER", Some(marker.as_ref())),
+            ("STEVE_MANAGED_BY_NPM", Some("1")),
+            ("STEVE_MANAGED_PACKAGE_ROOT", Some(package_root.as_ref())),
             ("ZELLIJ", Some("0")),
             ("ZELLIJ_VERSION", None),
             ("TMUX", None),

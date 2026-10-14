@@ -51,7 +51,7 @@ fn filter_request_plugin_install_discoverable_tools_for_codex_tui_omits_plugins(
     assert_eq!(
         filter_request_plugin_install_discoverable_tools_for_client(
             discoverable_tools,
-            Some("codex-tui"),
+            Some("steve-tui"),
         ),
         vec![DiscoverableTool::Connector(Box::new(AppInfo {
             id: "connector_google_calendar".to_string(),

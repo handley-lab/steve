@@ -28,8 +28,8 @@ use wiremock::matchers::method;
 use wiremock::matchers::path;
 
 fn codex_command(codex_home: &Path) -> Result<assert_cmd::Command> {
-    let mut cmd = assert_cmd::Command::new(codex_utils_cargo_bin::cargo_bin("codex")?);
-    cmd.env("CODEX_HOME", codex_home);
+    let mut cmd = assert_cmd::Command::new(codex_utils_cargo_bin::cargo_bin("steve")?);
+    cmd.env("STEVE_HOME", codex_home);
     Ok(cmd)
 }
 
@@ -221,7 +221,7 @@ async fn logout_survives_enterprise_cleanup_failure_with_xaa_disabled() -> Resul
             .current_dir(home.path())
             .env("NO_PROXY", "127.0.0.1,localhost")
             .env("no_proxy", "127.0.0.1,localhost")
-            .env_remove("CODEX_API_KEY")
+            .env_remove("STEVE_API_KEY")
             .env_remove("OPENAI_API_KEY")
             .env_remove(CODEX_ACCESS_TOKEN_ENV_VAR)
             .args([
@@ -244,7 +244,7 @@ async fn logout_survives_enterprise_cleanup_failure_with_xaa_disabled() -> Resul
             REVOKE_TOKEN_URL_OVERRIDE_ENV_VAR,
             format!("{}/oauth/revoke", server.uri()),
         )
-        .env_remove("CODEX_API_KEY")
+        .env_remove("STEVE_API_KEY")
         .env_remove("OPENAI_API_KEY")
         .env_remove(CODEX_ACCESS_TOKEN_ENV_VAR)
         .args(["logout"])
@@ -305,14 +305,14 @@ async fn debug_prompt_input_follows_authenticated_attribution_setting() -> Resul
         let output = codex_command(codex_home.path())?
             .env("NO_PROXY", "127.0.0.1,localhost")
             .env("no_proxy", "127.0.0.1,localhost")
-            .env_remove("CODEX_ACCESS_TOKEN")
+            .env_remove("STEVE_ACCESS_TOKEN")
             .env_remove("OPENAI_API_KEY")
             .args(["debug", "prompt-input"])
             .output()?;
         assert!(output.status.success());
         let prompt = String::from_utf8(output.stdout)?;
         assert_eq!(
-            prompt.contains("Co-authored-by: Codex <noreply@openai.com>"),
+            prompt.contains("Co-authored-by: Steve <noreply@openai.com>"),
             enabled
         );
         assert!(!prompt.contains("attribution is disabled for the current workspace"));
@@ -385,7 +385,7 @@ async fn device_login_revokes_existing_auth_before_requesting_new_tokens() -> Re
     )
     .env("NO_PROXY", "127.0.0.1,localhost")
     .env("no_proxy", "127.0.0.1,localhost")
-    .env_remove("CODEX_ACCESS_TOKEN")
+    .env_remove("STEVE_ACCESS_TOKEN")
     .env_remove("OPENAI_API_KEY")
     .args(["login", "--device-auth", "--experimental_issuer", &issuer])
     .assert()

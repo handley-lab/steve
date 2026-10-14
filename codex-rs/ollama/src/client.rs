@@ -505,7 +505,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_try_from_provider_handles_invalid_custom_ca_by_proxy_policy() {
-        const CHILD_POLICY_ENV: &str = "CODEX_OLLAMA_INVALID_CA_TEST_POLICY";
+        const CHILD_POLICY_ENV: &str = "STEVE_OLLAMA_INVALID_CA_TEST_POLICY";
 
         if std::env::var(codex_core::spawn::CODEX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
             tracing::info!(
@@ -523,7 +523,7 @@ mod tests {
             std::fs::write(&invalid_ca_path, "not a PEM certificate")
                 .expect("invalid CA fixture should be written");
 
-            for ca_env in ["CODEX_CA_CERTIFICATE", "SSL_CERT_FILE"] {
+            for ca_env in ["STEVE_CA_CERTIFICATE", "SSL_CERT_FILE"] {
                 for policy_name in ["reqwest-default", "respect-system-proxy"] {
                     let output = std::process::Command::new(
                         std::env::current_exe().expect("test executable should be available"),
@@ -531,7 +531,7 @@ mod tests {
                     .arg("--exact")
                     .arg("client::tests::test_try_from_provider_handles_invalid_custom_ca_by_proxy_policy")
                     .arg("--nocapture")
-                    .env_remove("CODEX_CA_CERTIFICATE")
+                    .env_remove("STEVE_CA_CERTIFICATE")
                     .env_remove("SSL_CERT_FILE")
                     .env(ca_env, &invalid_ca_path)
                     .env(CHILD_POLICY_ENV, policy_name)
@@ -586,8 +586,8 @@ mod tests {
                 let error = result
                     .err()
                     .expect("system-proxy Ollama should reject invalid custom CAs");
-                let ca_env = if std::env::var_os("CODEX_CA_CERTIFICATE").is_some() {
-                    "CODEX_CA_CERTIFICATE"
+                let ca_env = if std::env::var_os("STEVE_CA_CERTIFICATE").is_some() {
+                    "STEVE_CA_CERTIFICATE"
                 } else {
                     "SSL_CERT_FILE"
                 };

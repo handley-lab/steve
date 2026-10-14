@@ -16,8 +16,8 @@ async fn main() -> anyhow::Result<()> {
         .next()
         .ok_or_else(|| anyhow::anyhow!("expected existing thread ID"))?;
     let credentials = Credentials::new(
-        &std::env::var("CODEX_CLOUD_ACCESS_TOKEN")?,
-        &std::env::var("CODEX_CLOUD_ACCOUNT_ID")?,
+        &std::env::var("STEVE_CLOUD_ACCESS_TOKEN")?,
+        &std::env::var("STEVE_CLOUD_ACCOUNT_ID")?,
     )?;
     let client = Client::new(
         &HttpClientFactory::new(OutboundProxyPolicy::RespectSystemProxy),

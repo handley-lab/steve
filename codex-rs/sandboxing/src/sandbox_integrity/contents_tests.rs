@@ -125,8 +125,8 @@ fn contents_follow_links_and_resolved_write_grants() -> io::Result<()> {
 fn protected_metadata_contents_remain_read_only() -> io::Result<()> {
     let directory = tempfile::tempdir()?;
     let root = AbsolutePathBuf::from_absolute_path(directory.path())?.canonicalize()?;
-    let target = root.join(".codex/config.toml");
-    fs::create_dir(root.join(".codex"))?;
+    let target = root.join(".steve/config.toml");
+    fs::create_dir(root.join(".steve"))?;
     fs::write(&target, "fixture")?;
     let checker = FileContentsChecker::new(&policy(&[(&root, Write)]), &root)?;
     assert_eq!(checker.check(&target)?, None);

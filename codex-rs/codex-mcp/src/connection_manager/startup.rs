@@ -98,7 +98,7 @@ pub(super) fn mcp_init_error_display(
         && http_headers.as_ref().map(HashMap::is_empty).unwrap_or(true)
     {
         format!(
-            "GitHub MCP does not support OAuth. Log in by adding a personal access token (https://github.com/settings/personal-access-tokens) to your environment and config.toml:\n[mcp_servers.{server_key}]\nbearer_token_env_var = CODEX_GITHUB_PERSONAL_ACCESS_TOKEN"
+            "GitHub MCP does not support OAuth. Log in by adding a personal access token (https://github.com/settings/personal-access-tokens) to your environment and config.toml:\n[mcp_servers.{server_key}]\nbearer_token_env_var = STEVE_GITHUB_PERSONAL_ACCESS_TOKEN"
         )
     } else if error.is_authentication_required() {
         let recovery_hint = if config.is_some_and(|config| !config.is_local_environment()) {

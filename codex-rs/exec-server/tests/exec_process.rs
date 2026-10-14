@@ -118,12 +118,12 @@ async fn codex_home_symlink_opt_out_respects_host_config_and_scope() -> Result<(
     let home = TempDir::new()?;
     let target = TempDir::new()?;
     let alias = home.path().join("visualizations");
-    let other_alias = workspace.path().join(".codex/visualizations");
-    std::fs::create_dir(workspace.path().join(".codex"))?;
+    let other_alias = workspace.path().join(".steve/visualizations");
+    std::fs::create_dir(workspace.path().join(".steve"))?;
     symlink(target.path(), &alias)?;
     symlink(target.path(), &other_alias)?;
     std::fs::write(
-        workspace.path().join(".codex/config.toml"),
+        workspace.path().join(".steve/config.toml"),
         "allow_symlinked_codex_home = true\n",
     )?;
 
@@ -134,7 +134,7 @@ async fn codex_home_symlink_opt_out_respects_host_config_and_scope() -> Result<(
                 format!("allow_symlinked_codex_home = {enabled}\n")
             }),
         )?;
-        let mut server = exec_server_with_env([("CODEX_HOME", home.path())], &[]).await?;
+        let mut server = exec_server_with_env([("STEVE_HOME", home.path())], &[]).await?;
         let environment = Environment::create_for_tests(Some(server.websocket_url().to_string()))?;
         for root in [alias.as_path(), other_alias.as_path(), workspace.path()] {
             let mut policy = FileSystemSandboxPolicy::read_only();
@@ -401,7 +401,7 @@ async fn exec_metadata_overrides_policy_and_cached_snapshot(
     let cwd = PathUri::from_host_native_path(home.path())?;
     std::fs::write(
         home.path().join(".bashrc"),
-        "printf '%s|%s\n' \"${CODEX_THREAD_ID-unset}\" \"${CODEX_TOOL_CALL_ID-unset}\" >> \"$HOME/capture-env\"\nexport CODEX_THREAD_ID=snapshot-thread\nexport CODEX_TOOL_CALL_ID=snapshot-call\n",
+        "printf '%s|%s\n' \"${STEVE_THREAD_ID-unset}\" \"${STEVE_TOOL_CALL_ID-unset}\" >> \"$HOME/capture-env\"\nexport STEVE_THREAD_ID=snapshot-thread\nexport STEVE_TOOL_CALL_ID=snapshot-call\n",
     )?;
     let policy = ExecEnvPolicy {
         inherit: ShellEnvironmentPolicyInherit::None,
@@ -410,8 +410,8 @@ async fn exec_metadata_overrides_policy_and_cached_snapshot(
         r#set: HashMap::from([
             ("HOME".into(), home.path().to_string_lossy().into_owned()),
             ("PATH".into(), "/usr/bin:/bin".into()),
-            ("CODEX_THREAD_ID".into(), "policy-thread".into()),
-            ("CODEX_TOOL_CALL_ID".into(), "policy-call".into()),
+            ("STEVE_THREAD_ID".into(), "policy-thread".into()),
+            ("STEVE_TOOL_CALL_ID".into(), "policy-call".into()),
         ]),
         include_only: Vec::new(),
     };
@@ -441,7 +441,7 @@ async fn exec_metadata_overrides_policy_and_cached_snapshot(
                 argv: vec![
                     "/bin/bash".into(),
                     "-lc".into(),
-                    "printf '%s|%s' \"$CODEX_THREAD_ID\" \"${CODEX_TOOL_CALL_ID-unset}\""
+                    "printf '%s|%s' \"$STEVE_THREAD_ID\" \"${STEVE_TOOL_CALL_ID-unset}\""
                         .to_string(),
                 ],
                 cwd: cwd.clone(),
@@ -454,8 +454,8 @@ async fn exec_metadata_overrides_policy_and_cached_snapshot(
                     },
                 }),
                 env: HashMap::from([
-                    ("CODEX_THREAD_ID".into(), "overlay-thread".into()),
-                    ("CODEX_TOOL_CALL_ID".into(), "overlay-call".into()),
+                    ("STEVE_THREAD_ID".into(), "overlay-thread".into()),
+                    ("STEVE_TOOL_CALL_ID".into(), "overlay-call".into()),
                 ]),
                 tty,
                 pipe_stdin: false,
@@ -500,7 +500,7 @@ async fn shell_snapshot_v2_remote_managed_proxy_uses_prepared_execution_context(
     let cwd = PathUri::from_host_native_path(home.path())?;
     std::fs::write(
         home.path().join(".bashrc"),
-        "printf '%s\\n' \"$HTTP_PROXY\" >> \"$HOME/captures\"\ntest \"$CODEX_NETWORK_PROXY_ACTIVE\" = 1 || exit 41\nexport PROFILE_ALLOWED=profile\nprofile_helper() { printf helper; }\n",
+        "printf '%s\\n' \"$HTTP_PROXY\" >> \"$HOME/captures\"\ntest \"$STEVE_NETWORK_PROXY_ACTIVE\" = 1 || exit 41\nexport PROFILE_ALLOWED=profile\nprofile_helper() { printf helper; }\n",
     )?;
     let policy = ExecEnvPolicy {
         inherit: ShellEnvironmentPolicyInherit::All,
@@ -531,7 +531,7 @@ async fn shell_snapshot_v2_remote_managed_proxy_uses_prepared_execution_context(
                 argv: vec![
                     "/bin/bash".to_string(),
                     "-lc".to_string(),
-                    "profile_helper; printf '|%s|%s|%s' \"$PROFILE_ALLOWED\" \"$CODEX_NETWORK_PROXY_ACTIVE\" \"$HTTP_PROXY\"".to_string(),
+                    "profile_helper; printf '|%s|%s|%s' \"$PROFILE_ALLOWED\" \"$STEVE_NETWORK_PROXY_ACTIVE\" \"$HTTP_PROXY\"".to_string(),
                 ],
                 cwd: cwd.clone(),
                 env_policy: Some(policy.clone()),
@@ -800,7 +800,7 @@ async fn remote_sandboxed_process_preserves_custom_arg0() -> Result<()> {
             argv: vec![
                 "/bin/sh".to_string(),
                 "-c".to_string(),
-                "printf '%s' \"$0\"; if /bin/cat \"$CODEX_TEST_DENIED_FILE\" >/dev/null 2>&1; then exit 42; fi"
+                "printf '%s' \"$0\"; if /bin/cat \"$STEVE_TEST_DENIED_FILE\" >/dev/null 2>&1; then exit 42; fi"
                     .to_string(),
             ],
             cwd,
@@ -809,7 +809,7 @@ async fn remote_sandboxed_process_preserves_custom_arg0() -> Result<()> {
             env: HashMap::from([
                 ("PATH".to_string(), std::env::var("PATH")?),
                 (
-                    "CODEX_TEST_DENIED_FILE".to_string(),
+                    "STEVE_TEST_DENIED_FILE".to_string(),
                     denied_file.to_string_lossy().into_owned(),
                 ),
             ]),
@@ -839,7 +839,7 @@ async fn assert_exec_process_starts_and_exits(use_remote: bool) -> Result<()> {
     let argv = vec![
         "/bin/sh".into(),
         "-c".into(),
-        "printf '%s|%s|%s' \"$CODEX_THREAD_ID\" \"$CODEX_TOOL_CALL_ID\" \"$CUSTOM_ENV_VAR\""
+        "printf '%s|%s|%s' \"$STEVE_THREAD_ID\" \"$STEVE_TOOL_CALL_ID\" \"$CUSTOM_ENV_VAR\""
             .to_string(),
     ];
     #[cfg(windows)]
@@ -847,13 +847,13 @@ async fn assert_exec_process_starts_and_exits(use_remote: bool) -> Result<()> {
         "powershell.exe".into(),
         "-NoProfile".into(),
         "-Command".into(),
-        "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); [Console]::Write($env:CODEX_THREAD_ID + '|' + $env:CODEX_TOOL_CALL_ID + '|' + $env:CUSTOM_ENV_VAR)".into(),
+        "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); [Console]::Write($env:STEVE_THREAD_ID + '|' + $env:STEVE_TOOL_CALL_ID + '|' + $env:CUSTOM_ENV_VAR)".into(),
     ];
     let mut env = std::env::vars().collect::<HashMap<_, _>>();
     env.extend([
-        ("CODEX_THREAD_ID".into(), "stale-thread".into()),
+        ("STEVE_THREAD_ID".into(), "stale-thread".into()),
         ("Codex_Thread_Id".into(), "mixed-case-thread".into()),
-        ("CODEX_TOOL_CALL_ID".into(), "stale-call".into()),
+        ("STEVE_TOOL_CALL_ID".into(), "stale-call".into()),
         ("Codex_Tool_Call_Id".into(), "mixed-case-call".into()),
         ("CUSTOM_ENV_VAR".into(), "caller-owned".into()),
     ]);
@@ -980,7 +980,7 @@ async fn remote_tty_process_uses_configured_sandbox_helper_with_hostile_path() -
     let workspace = TempDir::new()?;
     let file = workspace.path().join("allowed.txt");
     std::fs::write(&file, b"allowed")?;
-    let hostile_helper = workspace.path().join("codex-linux-sandbox");
+    let hostile_helper = workspace.path().join("steve-linux-sandbox");
     codex_utils_cargo_bin::write_executable(&hostile_helper, "#!/bin/sh\nprintf hostile")?;
     let path = std::env::var_os("PATH").context("PATH is not set")?;
     let hostile_path = std::env::join_paths(

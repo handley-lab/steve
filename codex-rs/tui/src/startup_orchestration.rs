@@ -45,7 +45,7 @@ pub(super) async fn run_main_inner(
         }
         if cli.fork_picker || cli.fork_last {
             return Err(std::io::Error::other(
-                "`codex fork --worktree` requires an explicit session ID",
+                "`steve fork --worktree` requires an explicit session ID",
             ));
         }
     }
@@ -101,7 +101,7 @@ pub(super) async fn run_main_inner(
     let codex_home = match find_codex_home() {
         Ok(codex_home) => codex_home.to_path_buf(),
         Err(err) => {
-            eprintln!("Error finding codex home: {err}");
+            eprintln!("Error finding steve home: {err}");
             std::process::exit(1);
         }
     };
@@ -732,7 +732,7 @@ pub(super) async fn run_main_inner(
             ("terminal_name", terminal_name),
             ("multiplexer", multiplexer),
         ]);
-        let _ = metrics.counter("codex.tui.start", /*inc*/ 1, &launch_tags);
+        let _ = metrics.counter("steve.tui.start", /*inc*/ 1, &launch_tags);
     };
     let launch_telemetry = daemon_telemetry::Launch(Some(launch_telemetry));
     let state_db = startup_draft
@@ -936,7 +936,7 @@ pub(super) async fn run_main_inner(
             ),
             ("outcome", "handoff_requested"),
         ]);
-        let _ = metrics.counter("codex.daemon.update", /*inc*/ 1, &tags);
+        let _ = metrics.counter("steve.daemon.update", /*inc*/ 1, &tags);
     }
 
     if let Some(otel) = otel

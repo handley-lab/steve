@@ -483,7 +483,7 @@ fn wsl1_allows_non_bubblewrap_linux_paths() {
 #[cfg(target_os = "linux")]
 #[test]
 fn transform_linux_seccomp_preserves_helper_path_in_arg0_when_available() {
-    let codex_linux_sandbox_exe = std::path::PathBuf::from("/tmp/codex-linux-sandbox");
+    let codex_linux_sandbox_exe = std::path::PathBuf::from("/tmp/steve-linux-sandbox");
     let exec_request = transform_linux_seccomp_request(
         &codex_linux_sandbox_exe,
         crate::LinuxSandboxPidNamespace::default(),
@@ -510,7 +510,7 @@ fn transform_linux_seccomp_uses_helper_alias_when_launcher_is_not_helper_path() 
         ),
     ] {
         let exec_request = transform_linux_seccomp_request(&codex_linux_sandbox_exe, mode);
-        assert_eq!(exec_request.arg0, Some("codex-linux-sandbox".to_string()));
+        assert_eq!(exec_request.arg0, Some("steve-linux-sandbox".to_string()));
         assert_eq!(exec_request.command[1], first_helper_arg);
     }
 }
@@ -625,7 +625,7 @@ async fn linux_unix_socket_grant_uses_effective_managed_policy() -> anyhow::Resu
             environment_id: None,
             network: live_proxy.then_some(&network),
             sandbox_policy_cwd: &cwd_uri,
-            sandbox_exe: Some(std::path::Path::new("/tmp/codex-linux-sandbox")),
+            sandbox_exe: Some(std::path::Path::new("/tmp/steve-linux-sandbox")),
             use_legacy_landlock: false,
             windows_sandbox_level: WindowsSandboxLevel::Disabled,
         })?;
@@ -686,13 +686,13 @@ fn wrapper_runtime_selection_uses_the_parent_not_environment_overrides() {
         let mut env = HashMap::from([("codex_windows_registered_core".into(), "1".into())]);
         super::add_windows_sandbox_wrapper_setup_env_from_vars(
             &mut env,
-            [("CODEX_WINDOWS_REGISTERED_CORE".into(), "0".into())],
+            [("STEVE_WINDOWS_REGISTERED_CORE".into(), "0".into())],
             registered_core,
         );
         assert_eq!(
             env,
             if registered_core {
-                HashMap::from([("CODEX_WINDOWS_REGISTERED_CORE".into(), "1".into())])
+                HashMap::from([("STEVE_WINDOWS_REGISTERED_CORE".into(), "1".into())])
             } else {
                 HashMap::new()
             }

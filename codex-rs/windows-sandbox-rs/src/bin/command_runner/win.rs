@@ -81,7 +81,7 @@ use windows_sys::Win32::System::Threading::PROCESS_INFORMATION;
 use windows_sys::Win32::System::Threading::TerminateProcess;
 use windows_sys::Win32::System::Threading::WaitForSingleObject;
 
-const READ_ACL_MUTEX_NAME: &str = "Local\\CodexSandboxReadAcl";
+const READ_ACL_MUTEX_NAME: &str = "Local\\SteveSandboxReadAcl";
 const TERMINATION_WAIT_MS: u32 = 5_000;
 const WAIT_TIMEOUT: u32 = 0x0000_0102;
 

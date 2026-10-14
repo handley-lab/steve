@@ -31,12 +31,12 @@ fn initialize_spawn_helper() {
         }
     }
     #[cfg(target_env = "gnu")]
-    if std::env::var_os("CODEX_TEST_PARENT_LOADER_ENV").is_some() {
+    if std::env::var_os("STEVE_TEST_PARENT_LOADER_ENV").is_some() {
         // SAFETY: This isolated fixture is still single-threaded, before the test
         // harness starts. Simulate .env loading after the dynamic loader ran.
         unsafe { std::env::set_var("LD_TRACE_LOADED_OBJECTS", "1") };
     }
-    if std::env::var_os("CODEX_TEST_EARLY_HELPER_ARGV").is_some() {
+    if std::env::var_os("STEVE_TEST_EARLY_HELPER_ARGV").is_some() {
         crate::init_spawn_helper(std::iter::empty());
     } else {
         crate::init_spawn_helper(std::env::args_os());
@@ -622,7 +622,7 @@ fn helper_dispatch_before_rust_initializes_argv() -> anyhow::Result<()> {
             "spawn_helper_tests::helper_preserves_cwd_env_arg0_and_streams",
             "--nocapture",
         ])
-        .env("CODEX_TEST_EARLY_HELPER_ARGV", "1")
+        .env("STEVE_TEST_EARLY_HELPER_ARGV", "1")
         .output()?;
     assert!(output.status.success(), "{output:?}");
     Ok(())
@@ -655,14 +655,14 @@ async fn helper_control_socket_survives_closed_stdio() -> anyhow::Result<()> {
     use std::os::fd::AsRawFd;
     use std::os::fd::BorrowedFd;
 
-    if std::env::var_os("CODEX_TEST_HELPER_CLOSED_STDIO").is_none() {
+    if std::env::var_os("STEVE_TEST_HELPER_CLOSED_STDIO").is_none() {
         let output = std::process::Command::new(std::env::current_exe()?)
             .args([
                 "--exact",
                 "spawn_helper_tests::helper_control_socket_survives_closed_stdio",
                 "--nocapture",
             ])
-            .env("CODEX_TEST_HELPER_CLOSED_STDIO", "1")
+            .env("STEVE_TEST_HELPER_CLOSED_STDIO", "1")
             .output()?;
         assert!(output.status.success(), "{output:?}");
         return Ok(());
@@ -705,14 +705,14 @@ async fn helper_descriptor_pressure_falls_back_to_direct_spawn() -> anyhow::Resu
     use std::os::fd::AsRawFd;
     use std::os::fd::FromRawFd;
     use std::os::fd::OwnedFd;
-    if std::env::var_os("CODEX_TEST_HELPER_FD_PRESSURE").is_none() {
+    if std::env::var_os("STEVE_TEST_HELPER_FD_PRESSURE").is_none() {
         let output = std::process::Command::new(std::env::current_exe()?)
             .args([
                 "--exact",
                 "spawn_helper_tests::helper_descriptor_pressure_falls_back_to_direct_spawn",
                 "--nocapture",
             ])
-            .env("CODEX_TEST_HELPER_FD_PRESSURE", "1")
+            .env("STEVE_TEST_HELPER_FD_PRESSURE", "1")
             .output()?;
         assert!(output.status.success(), "{output:?}");
         return Ok(());
@@ -778,14 +778,14 @@ async fn parent_loader_environment_does_not_disable_helper_dispatch() -> anyhow:
         eprintln!("skipping loader isolation test: procfs is unavailable");
         return Ok(());
     }
-    if std::env::var_os("CODEX_TEST_PARENT_LOADER_ENV").is_none() {
+    if std::env::var_os("STEVE_TEST_PARENT_LOADER_ENV").is_none() {
         let output = std::process::Command::new(std::env::current_exe()?)
             .args([
                 "--exact",
                 "spawn_helper_tests::parent_loader_environment_does_not_disable_helper_dispatch",
                 "--nocapture",
             ])
-            .env("CODEX_TEST_PARENT_LOADER_ENV", "1")
+            .env("STEVE_TEST_PARENT_LOADER_ENV", "1")
             .env_remove("LD_TRACE_LOADED_OBJECTS")
             .output()?;
         assert!(output.status.success(), "{output:?}");

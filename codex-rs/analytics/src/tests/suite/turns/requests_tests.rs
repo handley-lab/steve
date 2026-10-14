@@ -251,7 +251,7 @@ async fn accepted_turn_steer_emits_expected_event() {
     );
     assert_eq!(
         payload["event_params"]["app_server_client"]["product_client_id"],
-        json!("codex-tui")
+        json!("steve-tui")
     );
     assert_eq!(
         payload["event_params"]["runtime"]["codex_rs_version"],
@@ -282,7 +282,7 @@ async fn rejected_turn_steer_uses_request_connection_metadata() {
     assert_eq!(payload["event_params"]["num_input_images"], json!(1));
     assert_eq!(
         payload["event_params"]["app_server_client"]["product_client_id"],
-        json!("codex-tui")
+        json!("steve-tui")
     );
     assert_eq!(
         payload["event_params"]["runtime"]["codex_rs_version"],

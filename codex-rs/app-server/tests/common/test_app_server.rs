@@ -159,7 +159,7 @@ pub struct TestAppServer {
     auto_env: Option<TestEnv>,
     json_logs: JsonLogCapture,
     // Fields drop in declaration order. Tear down the delayed child before
-    // removing an owned CODEX_HOME that may still be its cwd on Windows.
+    // removing an owned STEVE_HOME that may still be its cwd on Windows.
     _delayed_exec_server: Option<(LocalWebsocketExecServer, WebsocketDelayInterposer)>,
     _attribution_settings_server: Option<MockServer>,
     _owned_install_dir: Option<TempDir>,
@@ -168,14 +168,14 @@ pub struct TestAppServer {
 
 pub const DEFAULT_CLIENT_NAME: &str = "codex-app-server-tests";
 pub const DISABLE_PLUGIN_STARTUP_TASKS_ARG: &str = "--disable-plugin-startup-tasks-for-tests";
-const DISABLE_MANAGED_CONFIG_ENV_VAR: &str = "CODEX_APP_SERVER_DISABLE_MANAGED_CONFIG";
+const DISABLE_MANAGED_CONFIG_ENV_VAR: &str = "STEVE_APP_SERVER_DISABLE_MANAGED_CONFIG";
 #[cfg(windows)]
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(25);
 #[cfg(not(windows))]
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 impl TestAppServer {
-    /// Starts building a server with a temporary CODEX_HOME and the standard
+    /// Starts building a server with a temporary STEVE_HOME and the standard
     /// automatic test environment.
     pub fn builder() -> TestAppServerBuilder {
         TestAppServerBuilder {
@@ -265,11 +265,11 @@ impl TestAppServer {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
         cmd.current_dir(codex_home);
-        cmd.env("CODEX_HOME", codex_home);
+        cmd.env("STEVE_HOME", codex_home);
         cmd.env("RUST_LOG", "warn");
         // Keep integration tests isolated from host managed configuration.
         cmd.env(
-            "CODEX_APP_SERVER_MANAGED_CONFIG_PATH",
+            "STEVE_APP_SERVER_MANAGED_CONFIG_PATH",
             codex_home.join("managed_config.toml"),
         );
         cmd.env_remove(CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR);
@@ -1882,7 +1882,7 @@ impl TestAppServerBuilder {
         self
     }
 
-    /// Uses this existing CODEX_HOME instead of a temporary one.
+    /// Uses this existing STEVE_HOME instead of a temporary one.
     pub fn with_codex_home(mut self, codex_home: &Path) -> Self {
         self.codex_home = Some(codex_home.to_path_buf());
         self
@@ -1966,7 +1966,7 @@ impl TestAppServerBuilder {
         Ok(server)
     }
 
-    /// Builds a server with a temporary CODEX_HOME and automatic environment
+    /// Builds a server with a temporary STEVE_HOME and automatic environment
     /// by default.
     pub async fn build(self) -> anyhow::Result<TestAppServer> {
         let Self {
@@ -2100,14 +2100,14 @@ impl TestAppServerBuilder {
         let custom_program = program.is_some();
         let mut program = match program {
             Some(program) => program,
-            None => codex_utils_cargo_bin::cargo_bin("codex-app-server")
-                .context("should find binary for codex-app-server")?,
+            None => codex_utils_cargo_bin::cargo_bin("steve-app-server")
+                .context("should find binary for steve-app-server")?,
         };
         let mut owned_install_dir = None;
         if !custom_program
             && codex_utils_cargo_bin::runfiles_available()
             && let Ok(code_mode_host_program) =
-                codex_utils_cargo_bin::cargo_bin("codex-code-mode-host")
+                codex_utils_cargo_bin::cargo_bin("steve-code-mode-host")
         {
             // Bazel keeps binary targets in separate package directories.
             // Recreate the installed sibling layout without a path override.
@@ -2161,7 +2161,7 @@ impl TestAppServerBuilder {
 
 impl Drop for TestAppServer {
     fn drop(&mut self) {
-        // These tests spawn a `codex-app-server` child process.
+        // These tests spawn a `steve-app-server` child process.
         //
         // We keep that child alive for the test and rely on Tokio's `kill_on_drop(true)` when this
         // helper is dropped. Tokio documents kill-on-drop as best-effort: dropping requests

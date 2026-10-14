@@ -108,7 +108,7 @@ impl ToolServices {
         if self.task_tools {
             dynamic_tools::NAMESPACE
         } else {
-            "codex_worktrees"
+            "steve_worktrees"
         }
     }
 }

@@ -1848,7 +1848,7 @@ async fn apply_patch_full_flow_integration_like() {
     chat.submit_op(op);
     let forwarded = op_rx
         .try_recv()
-        .expect("expected op forwarded to codex channel");
+        .expect("expected op forwarded to steve channel");
     match forwarded {
         Op::PatchApproval { id, decision } => {
             assert_eq!(id, "call-1");

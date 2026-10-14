@@ -159,7 +159,7 @@ async fn migrated_requests_preserve_query_auth_and_json_body() {
 const BLOCKED_ORIGIN: &str = "http://127.0.0.1:0";
 
 fn run_without_environment_proxies(test_name: &str) -> bool {
-    const CHILD: &str = "CODEX_BOOTSTRAP_PROXY_TEST_CHILD";
+    const CHILD: &str = "STEVE_BOOTSTRAP_PROXY_TEST_CHILD";
     if std::env::var_os(CHILD).is_some() {
         return false;
     }

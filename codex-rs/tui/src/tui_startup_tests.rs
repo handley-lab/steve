@@ -70,7 +70,7 @@ fn startup_preserves_typeahead_and_discards_buffered_action_key_after_first_draw
         .arg(STARTUP_INPUT_CHILD_TEST)
         .arg("--ignored")
         .arg("--nocapture")
-        .env("CODEX_TUI_STARTUP_INPUT_PTY_DIR", signals.path())
+        .env("STEVE_TUI_STARTUP_INPUT_PTY_DIR", signals.path())
         .stdin(Stdio::from(slave.try_clone().expect("clone pty slave")))
         .stdout(Stdio::from(slave))
         .stderr(Stdio::piped())
@@ -198,7 +198,7 @@ fn startup_preserves_typeahead_and_discards_buffered_action_key_after_first_draw
 #[tokio::test(flavor = "current_thread")]
 #[ignore]
 async fn startup_typeahead_pty_child() {
-    let Some(signals) = std::env::var_os("CODEX_TUI_STARTUP_INPUT_PTY_DIR") else {
+    let Some(signals) = std::env::var_os("STEVE_TUI_STARTUP_INPUT_PTY_DIR") else {
         return;
     };
     let signals = PathBuf::from(signals);

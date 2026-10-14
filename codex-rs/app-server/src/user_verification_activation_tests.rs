@@ -13,19 +13,19 @@ use serde_json::json;
 #[tokio::test]
 async fn user_verification_initialize_owns_advertisement_and_eligibility() -> Result<()> {
     for (origin, name, opt_in, supported, expected) in [
-        (ConnectionOrigin::InProcess, "codex-tui", true, true, true),
-        (ConnectionOrigin::WebSocket, "codex-tui", true, true, false),
+        (ConnectionOrigin::InProcess, "steve-tui", true, true, true),
+        (ConnectionOrigin::WebSocket, "steve-tui", true, true, false),
         (
             ConnectionOrigin::RemoteControl,
-            "codex-tui",
+            "steve-tui",
             true,
             true,
             false,
         ),
-        (ConnectionOrigin::Stdio, "codex-tui", true, true, false),
+        (ConnectionOrigin::Stdio, "steve-tui", true, true, false),
         (ConnectionOrigin::InProcess, "other-ui", true, true, false),
-        (ConnectionOrigin::InProcess, "codex-tui", false, true, false),
-        (ConnectionOrigin::InProcess, "codex-tui", true, false, false),
+        (ConnectionOrigin::InProcess, "steve-tui", false, true, false),
+        (ConnectionOrigin::InProcess, "steve-tui", true, false, false),
         (ConnectionOrigin::Stdio, "Codex Desktop", true, true, true),
         (
             ConnectionOrigin::InProcess,

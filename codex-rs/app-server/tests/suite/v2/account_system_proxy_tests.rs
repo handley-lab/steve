@@ -49,7 +49,7 @@ use wiremock::matchers::path;
 
 const TEST_NAME: &str =
     "suite::v2::account_system_proxy::browser_login_bootstraps_through_system_proxy";
-const TEST_MODE: &str = "CODEX_APP_SERVER_SYSTEM_PROXY_TEST_MODE";
+const TEST_MODE: &str = "STEVE_APP_SERVER_SYSTEM_PROXY_TEST_MODE";
 const BLOCKED_ORIGIN: &str = "http://127.0.0.1:0";
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -72,9 +72,9 @@ async fn browser_login_bootstraps_through_system_proxy() -> Result<()> {
                 command
                     .kill_on_drop(true)
                     .env(TEST_MODE, mode)
-                    .env("CODEX_APP_SERVER_LOGIN_ISSUER", BLOCKED_ORIGIN)
+                    .env("STEVE_APP_SERVER_LOGIN_ISSUER", BLOCKED_ORIGIN)
                     .env_remove("OPENAI_API_KEY")
-                    .env_remove("CODEX_API_KEY")
+                    .env_remove("STEVE_API_KEY")
                     .output(),
             )
             .await??;

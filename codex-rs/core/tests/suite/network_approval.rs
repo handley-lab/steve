@@ -3235,7 +3235,7 @@ async fn agent_started_proxy_denies_brokered_provider_alias() -> Result<()> {
         .network_proxy
         .as_ref()
         .context("agent did not start its managed network proxy")?;
-    let command = r#"printf 'BROKERED:%s\nACTIVE:%s\n' "$ALIAS_TEST_TOKEN" "$CODEX_NETWORK_PROXY_CREDENTIAL_BROKER_ACTIVE""#;
+    let command = r#"printf 'BROKERED:%s\nACTIVE:%s\n' "$ALIAS_TEST_TOKEN" "$STEVE_NETWORK_PROXY_CREDENTIAL_BROKER_ACTIVE""#;
     let call_id = "exec-brokered-provider-alias";
     let mut args = network_exec_args(command);
     args["yield_time_ms"] = json!(30_000);

@@ -2087,13 +2087,13 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let invalid_ca = temp.path().join("invalid.pem");
         std::fs::write(&invalid_ca, "not a certificate").unwrap();
-        for variable in ["CODEX_CA_CERTIFICATE", "SSL_CERT_FILE"] {
+        for variable in ["STEVE_CA_CERTIFICATE", "SSL_CERT_FILE"] {
             let output = std::process::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
                     "transport::remote_control::websocket::tests::connect_remote_control_websocket_includes_http_error_details",
                 ])
-                .env_remove("CODEX_CA_CERTIFICATE")
+                .env_remove("STEVE_CA_CERTIFICATE")
                 .env_remove("SSL_CERT_FILE")
                 .env(variable, &invalid_ca)
                 .output()

@@ -1,4 +1,4 @@
-//! Link hover owns the mouse shape only while Codex captures pointer input.
+//! Link hover owns the mouse shape only while Steve captures pointer input.
 //! Remember motion across repaints, but discard coordinates across focus and geometry changes.
 //! Cleanup is independent of Tui so panic, suspend, and editor handoffs also restore the shape.
 //! Kitty releases its override; Ghostty retains its existing text-cursor fallback.

@@ -97,17 +97,17 @@ fn experimental_precomputed_exports_match_generated() -> Result<()> {
 #[test]
 #[ignore = "invoked by `just write-app-server-schema`"]
 fn write_schema_fixtures_from_env() -> Result<()> {
-    let schema_root = std::env::var_os("CODEX_APP_SERVER_SCHEMA_ROOT")
+    let schema_root = std::env::var_os("STEVE_APP_SERVER_SCHEMA_ROOT")
         .map(PathBuf::from)
-        .context("CODEX_APP_SERVER_SCHEMA_ROOT must be set")?;
-    let prettier = std::env::var_os("CODEX_APP_SERVER_SCHEMA_PRETTIER").map(PathBuf::from);
-    let experimental = std::env::var("CODEX_APP_SERVER_SCHEMA_EXPERIMENTAL")
-        .context("CODEX_APP_SERVER_SCHEMA_EXPERIMENTAL must be set")?;
+        .context("STEVE_APP_SERVER_SCHEMA_ROOT must be set")?;
+    let prettier = std::env::var_os("STEVE_APP_SERVER_SCHEMA_PRETTIER").map(PathBuf::from);
+    let experimental = std::env::var("STEVE_APP_SERVER_SCHEMA_EXPERIMENTAL")
+        .context("STEVE_APP_SERVER_SCHEMA_EXPERIMENTAL must be set")?;
     let experimental_api = match experimental.as_str() {
         "0" => false,
         "1" => true,
         value => {
-            anyhow::bail!("CODEX_APP_SERVER_SCHEMA_EXPERIMENTAL must be 0 or 1, got {value:?}")
+            anyhow::bail!("STEVE_APP_SERVER_SCHEMA_EXPERIMENTAL must be 0 or 1, got {value:?}")
         }
     };
 

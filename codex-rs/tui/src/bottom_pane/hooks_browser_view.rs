@@ -733,7 +733,7 @@ fn event_description(event_name: HookEventName) -> &'static str {
         HookEventName::UserPromptSubmit => "When the user submits a prompt",
         HookEventName::SubagentStart => "When a subagent is created",
         HookEventName::SubagentStop => "Right before a subagent ends its turn",
-        HookEventName::Stop => "Right before Codex ends its turn",
+        HookEventName::Stop => "Right before Steve ends its turn",
         HookEventName::Interrupt => "Right before an interrupted turn is aborted",
     }
 }
@@ -890,7 +890,7 @@ mod tests {
                     HookEventName::PreToolUse,
                     HookSource::Plugin,
                     Some("superpowers@openai-curated"),
-                    "${CODEX_PLUGIN_ROOT}/hooks/pre-tool-use-check.sh",
+                    "${STEVE_PLUGIN_ROOT}/hooks/pre-tool-use-check.sh",
                     /*enabled*/ true,
                     /*is_managed*/ false,
                     /*display_order*/ 0,

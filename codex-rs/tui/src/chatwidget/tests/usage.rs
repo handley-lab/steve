@@ -313,7 +313,7 @@ async fn rate_limit_reset_popup_states_snapshot() {
     let first_expiry = expiry_timestamp(/*day*/ 18, /*hour*/ 9, /*minute*/ 39);
     let second_expiry = expiry_timestamp(/*day*/ 27, /*hour*/ 8, /*minute*/ 59);
     let mut rate_limit_snapshot = snapshot(/*percent*/ 50.0);
-    rate_limit_snapshot.limit_id = Some("codex".to_string());
+    rate_limit_snapshot.limit_id = Some("steve".to_string());
     rate_limit_snapshot
         .primary
         .as_mut()

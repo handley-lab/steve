@@ -180,7 +180,7 @@ fn linux_sandbox_command(
     args.push("--".to_string());
     args.extend(command.iter().map(|entry| (*entry).to_string()));
 
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_codex-linux-sandbox"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_steve-linux-sandbox"));
     cmd.args(args)
         .current_dir(cwd)
         .env_clear()
@@ -334,7 +334,7 @@ for arg in "$@"; do
         exit 1
     fi
 done
-exec "$CODEX_TEST_REAL_BWRAP" "$@"
+exec "$STEVE_TEST_REAL_BWRAP" "$@"
 "#,
     )
     .expect("write proc-denying bubblewrap wrapper");
@@ -346,16 +346,16 @@ set -eu
 printf 'command started\n'
 IFS=' ' read -r proc_pid rest < /proc/self/stat
 test "$$" = "$proc_pid"
-test "$(readlink /proc/self/ns/pid)" = "$CODEX_TEST_PID_NAMESPACE"
+test "$(readlink /proc/self/ns/pid)" = "$STEVE_TEST_PID_NAMESPACE"
 sleep 30 &
 child=$!
 trap 'kill "$child"; wait "$child" || :' EXIT
 IFS=' ' read -r proc_pid rest < "/proc/$child/stat"
 test "$child" = "$proc_pid"
-if (printf changed > "$CODEX_TEST_PROTECTED_FILE") 2>/dev/null; then exit 1; fi
-test "$(readlink /proc/self/ns/user)" != "$CODEX_TEST_USER_NAMESPACE"
-test "$(readlink /proc/self/ns/ipc)" != "$CODEX_TEST_IPC_NAMESPACE"
-test "$(readlink /proc/self/ns/net)" != "$CODEX_TEST_NET_NAMESPACE"
+if (printf changed > "$STEVE_TEST_PROTECTED_FILE") 2>/dev/null; then exit 1; fi
+test "$(readlink /proc/self/ns/user)" != "$STEVE_TEST_USER_NAMESPACE"
+test "$(readlink /proc/self/ns/ipc)" != "$STEVE_TEST_IPC_NAMESPACE"
+test "$(readlink /proc/self/ns/net)" != "$STEVE_TEST_NET_NAMESPACE"
 while read -r key value rest; do
     case "$key" in
         CapEff:) test "$value" = 0000000000000000 ;;
@@ -385,18 +385,18 @@ printf 'legacy proc fallback\n'
             format!("{}:{original_path}", tempdir.path().display()),
         );
         env.insert(
-            "CODEX_TEST_REAL_BWRAP".to_string(),
+            "STEVE_TEST_REAL_BWRAP".to_string(),
             system_bwrap.display().to_string(),
         );
         env.insert(
-            "CODEX_TEST_PID_NAMESPACE".to_string(),
+            "STEVE_TEST_PID_NAMESPACE".to_string(),
             pid_namespace.display().to_string(),
         );
         env.insert(
-            "CODEX_TEST_PROTECTED_FILE".to_string(),
+            "STEVE_TEST_PROTECTED_FILE".to_string(),
             protected_file.display().to_string(),
         );
-        let mut command = Command::new(env!("CARGO_BIN_EXE_codex-linux-sandbox"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_steve-linux-sandbox"));
         command
             .arg("--sandbox-policy-cwd")
             .arg(std::env::current_dir().expect("current directory should exist"))
@@ -404,7 +404,7 @@ printf 'legacy proc fallback\n'
             .arg(serde_json::to_string(&PermissionProfile::read_only()).unwrap());
         for namespace in ["user", "ipc", "net"] {
             env.insert(
-                format!("CODEX_TEST_{}_NAMESPACE", namespace.to_uppercase()),
+                format!("STEVE_TEST_{}_NAMESPACE", namespace.to_uppercase()),
                 std::fs::read_link(format!("/proc/self/ns/{namespace}"))
                     .unwrap()
                     .display()
@@ -452,7 +452,7 @@ printf 'legacy proc fallback\n'
 
 #[tokio::test]
 async fn unsupported_system_bwrap_falls_back_to_bundled_bwrap() {
-    if option_env!("CODEX_BWRAP_SHA256")
+    if option_env!("STEVE_BWRAP_SHA256")
         .is_some_and(|digest| digest.chars().any(|character| character != '0'))
     {
         eprintln!("skipping system bwrap fallback test: bundled binaries require a release digest");
@@ -473,8 +473,8 @@ async fn unsupported_system_bwrap_falls_back_to_bundled_bwrap() {
     };
 
     let tempdir = tempfile::tempdir().expect("create isolated sandbox installation");
-    let sandbox_executable = tempdir.path().join("codex-linux-sandbox");
-    let original_executable = env!("CARGO_BIN_EXE_codex-linux-sandbox");
+    let sandbox_executable = tempdir.path().join("steve-linux-sandbox");
+    let original_executable = env!("CARGO_BIN_EXE_steve-linux-sandbox");
     if std::fs::hard_link(original_executable, &sandbox_executable).is_err() {
         codex_utils_cargo_bin::copy_executable(Path::new(original_executable), &sandbox_executable)
             .expect("copy sandbox executable");
@@ -561,7 +561,7 @@ async fn managed_proxy_full_filesystem_uses_minimal_dev_nodes() {
     env.insert("HTTP_PROXY".to_string(), "http://127.0.0.1:9".to_string());
     if let Some(file) = &shared_memory_file {
         env.insert(
-            "CODEX_TEST_SHM_PATH".to_string(),
+            "STEVE_TEST_SHM_PATH".to_string(),
             file.path().to_string_lossy().into_owned(),
         );
     }
@@ -579,9 +579,9 @@ async fn managed_proxy_full_filesystem_uses_minimal_dev_nodes() {
                 "if command -v python3 >/dev/null 2>&1; then ",
                 "python3 -c 'import os; assert len(os.urandom(16)) == 16'; ",
                 "fi; ",
-                "if [ -n \"${CODEX_TEST_SHM_PATH:-}\" ]; then ",
-                "test \"$(cat \"$CODEX_TEST_SHM_PATH\")\" = host-before; ",
-                "printf sandbox-after >\"$CODEX_TEST_SHM_PATH\"; ",
+                "if [ -n \"${STEVE_TEST_SHM_PATH:-}\" ]; then ",
+                "test \"$(cat \"$STEVE_TEST_SHM_PATH\")\" = host-before; ",
+                "printf sandbox-after >\"$STEVE_TEST_SHM_PATH\"; ",
                 "fi; ",
                 "stat -c '%d:%i' /dev",
             ),
@@ -667,20 +667,20 @@ async fn approved_command_with_denied_reads_preserves_standard_devices() {
     let mut env = create_env_from_core_vars();
     strip_proxy_env(&mut env);
     env.insert(
-        "CODEX_TEST_DENIED".into(),
+        "STEVE_TEST_DENIED".into(),
         denied.to_string_lossy().into_owned(),
     );
     env.insert(
-        "CODEX_TEST_OUTPUT".into(),
+        "STEVE_TEST_OUTPUT".into(),
         output_file.to_string_lossy().into_owned(),
     );
     let output = run_linux_sandbox_direct(
         &["bash", "-c", concat!(
             "set -e; printf test >/dev/null; ",
             "head -c 1 /dev/zero >/dev/null; head -c 1 /dev/urandom >/dev/null; ",
-            "printf sink >\"$CODEX_TEST_OUTPUT\"; test \"$(cat \"$CODEX_TEST_OUTPUT\")\" = sink; ",
-            "if cat \"$CODEX_TEST_DENIED\" >\"$CODEX_TEST_OUTPUT\" 2>&1; then exit 1; fi; ",
-            "grep -q 'Permission denied' \"$CODEX_TEST_OUTPUT\"",
+            "printf sink >\"$STEVE_TEST_OUTPUT\"; test \"$(cat \"$STEVE_TEST_OUTPUT\")\" = sink; ",
+            "if cat \"$STEVE_TEST_DENIED\" >\"$STEVE_TEST_OUTPUT\" 2>&1; then exit 1; fi; ",
+            "grep -q 'Permission denied' \"$STEVE_TEST_OUTPUT\"",
         )],
         &profile, /*allow_network_for_proxy*/ false, env, NETWORK_TIMEOUT_MS,
     ).await;
@@ -795,7 +795,7 @@ async fn managed_proxy_mode_routes_through_bridge_and_blocks_direct_egress() {
         format!("http://127.0.0.1:{proxy_port}"),
     );
 
-    let sandbox_helper_dir = std::path::Path::new(env!("CARGO_BIN_EXE_codex-linux-sandbox"))
+    let sandbox_helper_dir = std::path::Path::new(env!("CARGO_BIN_EXE_steve-linux-sandbox"))
         .parent()
         .expect("sandbox helper should have a parent");
     let file_system_sandbox_policy =
@@ -913,7 +913,7 @@ async fn managed_proxy_mode_denies_af_unix_socket_but_allows_socketpair() {
 #[test]
 #[ignore = "invoked inside the managed proxy sandbox"]
 fn handoff_client() {
-    let Ok(label) = std::env::var("CODEX_TEST_HANDOFF_LABEL") else {
+    let Ok(label) = std::env::var("STEVE_TEST_HANDOFF_LABEL") else {
         return;
     };
     assert!(std::env::var_os(PROXY_ATTRIBUTION_TOKEN_ENV_KEY).is_none());
@@ -937,9 +937,9 @@ fn handoff_client() {
         Err(error) => panic!("enumerate inherited descriptors: {error}"),
     }
 
-    let shared = std::env::var("CODEX_TEST_HANDOFF_SHARED").expect("shared directory");
+    let shared = std::env::var("STEVE_TEST_HANDOFF_SHARED").expect("shared directory");
     let shared = Path::new(&shared);
-    let peer = std::env::var("CODEX_TEST_HANDOFF_PEER").expect("peer label");
+    let peer = std::env::var("STEVE_TEST_HANDOFF_PEER").expect("peer label");
     std::fs::write(shared.join(&label), b"ready").expect("announce sandbox readiness");
     let deadline = Instant::now() + OPERATION_TIMEOUT;
     while !shared.join(&peer).exists() {
@@ -1007,10 +1007,10 @@ async fn handoff_isolates_concurrent_endpoints_and_closes_privileged_descriptors
             PROXY_ATTRIBUTION_TOKEN_ENV_KEY.to_string(),
             format!("handoff-{label}"),
         );
-        env.insert("CODEX_TEST_HANDOFF_LABEL".to_string(), label.to_string());
-        env.insert("CODEX_TEST_HANDOFF_PEER".to_string(), peer.to_string());
+        env.insert("STEVE_TEST_HANDOFF_LABEL".to_string(), label.to_string());
+        env.insert("STEVE_TEST_HANDOFF_PEER".to_string(), peer.to_string());
         env.insert(
-            "CODEX_TEST_HANDOFF_SHARED".to_string(),
+            "STEVE_TEST_HANDOFF_SHARED".to_string(),
             shared.path().to_string_lossy().into_owned(),
         );
 

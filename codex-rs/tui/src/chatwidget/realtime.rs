@@ -312,7 +312,7 @@ impl ChatWidget {
         };
 
         self.session_telemetry
-            .counter("codex.voice.session.start", /*inc*/ 1, &[]);
+            .counter("steve.voice.session.start", /*inc*/ 1, &[]);
         self.start_realtime_conversation(thread_id);
     }
 
@@ -544,7 +544,7 @@ impl ChatWidget {
         self.realtime_conversation.phase = RealtimeConversationPhase::Active;
         self.realtime_conversation.active_since = Some(Instant::now());
         self.session_telemetry
-            .counter("codex.voice.session.connected", /*inc*/ 1, &[]);
+            .counter("steve.voice.session.connected", /*inc*/ 1, &[]);
         let running_delegation =
             self.turn_lifecycle
                 .last_turn_id
@@ -1804,9 +1804,9 @@ impl ChatWidget {
                 "success"
             };
             self.session_telemetry
-                .counter("codex.voice.session.ended", /*inc*/ 1, &[]);
+                .counter("steve.voice.session.ended", /*inc*/ 1, &[]);
             self.session_telemetry.record_duration(
-                "codex.voice.session.duration",
+                "steve.voice.session.duration",
                 duration,
                 &[("outcome", outcome)],
             );

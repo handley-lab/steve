@@ -7,14 +7,14 @@ use pretty_assertions::assert_eq;
 
 #[test]
 fn model_theme_files_preview_select_and_restore() {
-    if std::env::var_os("CODEX_MODEL_THEME_TEST_CHILD").is_none() {
+    if std::env::var_os("STEVE_MODEL_THEME_TEST_CHILD").is_none() {
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
                 "theme_picker::model_tests::model_theme_files_preview_select_and_restore",
                 "--nocapture",
             ])
-            .env("CODEX_MODEL_THEME_TEST_CHILD", "1")
+            .env("STEVE_MODEL_THEME_TEST_CHILD", "1")
             .env("FORCE_COLOR", "3")
             .output()
             .unwrap();

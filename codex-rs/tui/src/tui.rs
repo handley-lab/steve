@@ -397,7 +397,7 @@ pub(super) fn reapply_raw_mode_after_resume() -> Result<()> {
     enable_raw_mode()
 }
 
-/// Restore the terminal after Codex is exiting.
+/// Restore the terminal after Steve is exiting.
 ///
 /// Uses a stronger keyboard reset than `restore` so the parent shell recovers even if a
 /// terminal missed the stack pop that normally pairs with [`set_modes`].
@@ -927,7 +927,7 @@ impl Tui {
     /// Temporarily restore terminal state to run an external interactive program `f`.
     ///
     /// This pauses crossterm's stdin polling by dropping the underlying event stream, restores
-    /// terminal modes and stderr while keeping raw mode enabled, then re-applies Codex TUI modes
+    /// terminal modes and stderr while keeping raw mode enabled, then re-applies Steve TUI modes
     /// and stderr suppression before resuming events.
     pub(crate) async fn with_restored<R, F, Fut>(&mut self, handoff: TerminalHandoff, f: F) -> R
     where
@@ -938,7 +938,7 @@ impl Tui {
         self.pause_events();
 
         // Restore both screens' input modes before giving the terminal to an editor. Repaint the
-        // last frame on the alternate screen so separate-window editors leave Codex visible.
+        // last frame on the alternate screen so separate-window editors leave Steve visible.
         let was_alt_screen = self.is_alt_screen_active();
         let visible_frame = (was_alt_screen && matches!(handoff, TerminalHandoff::KeepScreen))
             .then(|| self.terminal.previous_buffer().clone());

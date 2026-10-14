@@ -323,7 +323,7 @@ async fn replayed_delegated_tool_output_is_attributed_without_seeding_composer_h
     let item = AppServerThreadItem::FunctionCallOutput {
         id: "delegation-1".to_string(),
         name: "send_message_to_thread".to_string(),
-        namespace: Some("codex_tui".to_string()),
+        namespace: Some("steve_tui".to_string()),
         output: FunctionCallOutputBody::Text(
             "<codex_delegation>\n  <source_thread_id>source-task</source_thread_id>\n  <input>Follow &lt;up&gt; &amp; report</input>\n</codex_delegation>".to_string(),
         ),
@@ -1087,7 +1087,7 @@ async fn app_server_forked_thread_history_line_uses_app_server_title_snapshot() 
     assert!(combined.contains("app-server-parent-thread"));
     assert!(
         !combined.contains("stale-local-thread"),
-        "app-server fork title lookup should not read local CODEX_HOME"
+        "app-server fork title lookup should not read local STEVE_HOME"
     );
     assert_chatwidget_snapshot!("app_server_forked_thread_history_line", combined);
 }
@@ -1126,7 +1126,7 @@ async fn app_server_forked_thread_history_line_without_app_server_name_ignores_l
 
     assert!(
         !combined.contains("stale-local-thread"),
-        "app-server fork title lookup should not read local CODEX_HOME"
+        "app-server fork title lookup should not read local STEVE_HOME"
     );
     assert_chatwidget_snapshot!(
         "app_server_forked_thread_history_line_without_app_server_name",

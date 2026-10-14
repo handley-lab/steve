@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 #[cfg(windows)]
-pub const DAEMON_SHUTDOWN_FILE_ENV: &str = "CODEX_DAEMON_SHUTDOWN_FILE";
+pub const DAEMON_SHUTDOWN_FILE_ENV: &str = "STEVE_DAEMON_SHUTDOWN_FILE";
 
 /// Waits for and consumes one updater shutdown request.
 #[cfg(windows)]

@@ -202,7 +202,7 @@ fn explicit_wslg_alias_paths_are_rejected(source: &str) {
 fn glob_ancestor_mask_in_no_rg_fallback() {
     // Isolate PATH in a child test process instead of mutating the test runner's
     // environment. This exercises the supported missing-rg branch end to end.
-    const CHILD: &str = "CODEX_WSLG_GLOB_TEST_CHILD";
+    const CHILD: &str = "STEVE_WSLG_GLOB_TEST_CHILD";
     if std::env::var_os(CHILD).is_none() {
         let output = Command::new(std::env::current_exe().expect("test executable"))
             .args([

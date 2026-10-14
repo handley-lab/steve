@@ -2058,7 +2058,7 @@ async fn realtime_mode_uses_client_instructions_on_entry_and_exit() -> Result<()
     Ok(())
 }
 
-const PROVIDER_RESIDENCY_ENV_VAR: &str = "CODEX_TEST_REALTIME_RESIDENCY_HEADER";
+const PROVIDER_RESIDENCY_ENV_VAR: &str = "STEVE_TEST_REALTIME_RESIDENCY_HEADER";
 
 #[derive(Clone, Copy, Debug)]
 enum RealtimeTransport {

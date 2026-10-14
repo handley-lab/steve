@@ -47,7 +47,7 @@ async fn exec_server_accepts_initialize(version: Option<&str>) -> anyhow::Result
             "ffffffffffffffffffffffffffffffffffffffff",
         ),
         ("GITHUB_SHA", "ffffffffffffffffffffffffffffffffffffffff"),
-        ("CODEX_BUILD_TARGET", "runtime-override"),
+        ("STEVE_BUILD_TARGET", "runtime-override"),
     ]);
     let mut server = ExecServerHarness::start(command).await?;
 
@@ -125,7 +125,7 @@ async fn discovery_prewarms_before_initialize_and_recovers_without_client_opt_in
     let helper_paths = common::exec_server::test_codex_helper_paths()?;
     let mut command = Command::new(helper_paths.codex_exe);
     command.args(["exec-server", "--listen", "ws://127.0.0.1:0"]);
-    command.env("CODEX_HOME", &discovery_home);
+    command.env("STEVE_HOME", &discovery_home);
     command.env("HOME", &user_home);
     command.env("USERPROFILE", &user_home);
     command.env("RUST_LOG", "codex_exec_server=warn");

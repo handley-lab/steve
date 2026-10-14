@@ -79,7 +79,7 @@ use codex_core_api::thread_store_from_config;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "codex-thread-manager-sample",
+    name = "steve-thread-manager-sample",
     about = "Run one Codex turn through ThreadManager and print mapped notifications as newline-delimited JSON."
 )]
 struct Args {

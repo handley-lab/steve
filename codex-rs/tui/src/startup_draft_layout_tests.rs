@@ -77,7 +77,7 @@ async fn configured_welcome_opt_out_disables_blossom_and_clicks() -> anyhow::Res
     use crossterm::event::MouseEvent;
     use crossterm::event::MouseEventKind;
     let codex_home = tempfile::tempdir()?;
-    let cli = crate::Cli::try_parse_from(["codex"])?;
+    let cli = crate::Cli::try_parse_from(["steve"])?;
     let area = Rect::new(
         /*x*/ 0, /*y*/ 0, /*width*/ 80, /*height*/ 44,
     );

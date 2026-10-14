@@ -480,7 +480,7 @@ fn directory_app_to_app_info(app: DirectoryApp) -> AppInfo {
 }
 
 fn connector_install_url(name: &str, connector_id: &str) -> String {
-    let chatgpt_base_url = std::env::var("CODEX_APP_SERVER_CHATGPT_BASE_URL")
+    let chatgpt_base_url = std::env::var("STEVE_APP_SERVER_CHATGPT_BASE_URL")
         .unwrap_or_else(|_| "https://chatgpt.com".to_string());
     let chatgpt_origin = chatgpt_base_url
         .trim_end_matches('/')
@@ -576,7 +576,7 @@ mod tests {
 
     #[test]
     fn connector_install_url_uses_configured_origin() {
-        let chatgpt_base_url = std::env::var("CODEX_APP_SERVER_CHATGPT_BASE_URL")
+        let chatgpt_base_url = std::env::var("STEVE_APP_SERVER_CHATGPT_BASE_URL")
             .unwrap_or_else(|_| "https://chatgpt.com".to_string());
         let chatgpt_origin = chatgpt_base_url
             .trim_end_matches('/')
