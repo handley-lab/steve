@@ -3,8 +3,6 @@
 use super::*;
 use crate::CodexFeedback;
 use pretty_assertions::assert_eq;
-use sentry::protocol::Envelope;
-use sentry::protocol::EnvelopeItem;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -35,7 +33,7 @@ fn refreshing_logs_preserves_captured_metadata() {
 }
 
 #[test]
-fn dynamic_tags_survive_upload_alongside_static_fields() {
+fn dynamic_tags_remain_on_the_local_snapshot() {
     let feedback = CodexFeedback::new();
     let _guard = tracing_subscriber::registry()
         .with(feedback.metadata_layer())
@@ -57,22 +55,6 @@ fn dynamic_tags_survive_upload_alongside_static_fields() {
     expected.insert("model".to_string(), "test-model".to_string());
     let snapshot = feedback.snapshot(/*session_id*/ None);
     assert_eq!(snapshot.tags, expected);
-    let event = snapshot.feedback_event(
-        "bug", /*reason*/ None, /*tags*/ None, /*session_source*/ None,
-    );
-    expected.extend([
-        ("thread_id".to_string(), snapshot.thread_id),
-        ("classification".to_string(), "bug".to_string()),
-        (
-            "cli_version".to_string(),
-            env!("CARGO_PKG_VERSION").to_string(),
-        ),
-    ]);
-    assert_eq!(event.tags, expected);
-    let mut envelope = Envelope::new();
-    envelope.add_item(EnvelopeItem::Event(event));
-    let (_, size) = crate::upload::encode_envelope(&envelope).unwrap();
-    assert!(size < crate::MAX_EVENT_BYTES);
 }
 
 #[test]

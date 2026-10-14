@@ -293,6 +293,7 @@ impl MessageProcessor {
             remote_control_handle,
             plugin_startup_tasks,
         } = args;
+        let _ = feedback;
         // Startup credential reads must not open a browser before initialize selects the policy.
         let gateway_login_control =
             codex_login::GatewayLoginControl::for_runtime(&auth_manager.runtime_config());
@@ -448,14 +449,7 @@ impl MessageProcessor {
             outgoing.clone(),
             Arc::clone(&environment_manager_for_requests),
         );
-        let feedback_processor = FeedbackRequestProcessor::new(
-            auth_manager.clone(),
-            Arc::clone(&thread_manager),
-            Arc::clone(&config),
-            feedback,
-            log_db.clone(),
-            state_db.clone(),
-        );
+        let feedback_processor = FeedbackRequestProcessor::new();
         let git_processor = GitRequestProcessor::new();
         let initialize_processor = InitializeRequestProcessor::new(
             gateway_login_control,

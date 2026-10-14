@@ -198,7 +198,7 @@ Sources: `codex-rs/cloud-tasks/src/lib.rs`,
 | Built-in Statsig metrics | none | A configured `statsig` metrics exporter does not create a client or send metrics. | The config value still parses. Explicit OTLP collectors are unchanged. |
 | Explicit OTLP | Configured HTTP/gRPC endpoints | Configured metrics, logs or traces and resource attributes; content depends on instrumentation and logging settings | Configure the individual exporters. Analytics consent does not override these explicitly configured collectors. |
 | App-server analytics | none | Steve does not POST `{chatgpt_base_url}/codex/analytics-events/events`. | `[analytics].enabled` still parses. A debug capture file can record events locally. |
-| Feedback | OpenAI project's Sentry DSN-derived envelope endpoint | User report and diagnostic/identity tags; requested attachments can include logs, rollouts, tool caches and history. Explicit extra files are handled separately from the include-logs flag. | `[feedback].enabled = false` blocks TUI feedback and app-server feedback upload. Low-level upload code relies on its caller to enforce consent. |
+| Feedback | none | Steve does not submit feedback envelopes to the Sentry DSN. | `[feedback].enabled` still parses. Local feedback log capture remains. |
 | OpenAI docs MCP | Configured `https://developers.openai.com/mcp`, attributed as `?source=codex` | Initialization identity/capabilities, tool names/arguments, configured authentication and MCP metadata; receives documentation and protocol results | This wrapper does not register the server. Leaving it unconfigured prevents this configured path. Analytics/feedback settings do not disable MCP metadata. |
 
 A documentation request is still an outbound request. MCP metadata can include
@@ -208,10 +208,8 @@ removes some agent lineage and harness inventory fields; host-owned Apps have a
 separate lineage path. A read-only tool is not a guarantee that no session
 information leaves the client.
 
-Feedback may enrich metadata from a rollout even when log attachments are not
-requested. Explicit additional attachments must also be considered when
-assessing a report's contents. The configured app-server feedback gate executes
-before that upload work.
+Steve does not build or submit a Sentry feedback envelope. Local log capture
+remains on the process.
 
 ## Source evidence
 
@@ -229,9 +227,7 @@ Paths are relative to the repository root.
 - Analytics queue, authentication eligibility and payload schemas:
   `codex-rs/app-server/src/analytics_utils.rs`,
   `codex-rs/analytics/src/client.rs` and `codex-rs/analytics/src/events.rs`.
-- Feedback upload and gates: `codex-rs/feedback/src/lib.rs`,
-  `codex-rs/feedback/src/upload.rs`,
-  `codex-rs/tui/src/chatwidget/slash_dispatch.rs` and
+- Feedback log capture: `codex-rs/feedback/src/lib.rs` and
   `codex-rs/app-server/src/request_processors/feedback_processor.rs`.
 - MCP attribution and metadata:
   `codex-rs/codex-mcp/src/openai_docs_source_attribution.rs`,
@@ -241,9 +237,9 @@ Paths are relative to the repository root.
   `codex-rs/core/src/mcp_tool_call.rs`, `codex-rs/core/src/turn_metadata.rs` and
   `codex-rs/core/src/responses_metadata.rs`.
 
-A Cambridge profile with an explicit Cambridge base URL and disabled analytics
-and feedback redirects ordinary inference/model discovery and disables built-in
-analytics and feedback uploads. These settings do not disable plugin acquisition
+A Cambridge profile with an explicit Cambridge base URL redirects ordinary
+inference and model discovery to that URL. Steve does not POST analytics events
+or submit a Sentry feedback envelope. These settings do not disable plugin acquisition
 or the other independently controlled paths described above. Effective
 configuration, registered transports and observed requests must be checked for
 the assembled executable; these settings do not prove absence of OpenAI traffic.
