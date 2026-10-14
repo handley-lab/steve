@@ -183,7 +183,7 @@ pub(crate) async fn managed_codex_version(codex_bin: &Path) -> Result<String> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ExecutableIdentity {
-    digest: [u8; 32],
+    pub(crate) digest: [u8; 32],
     // Distinguish release generations whose executable bytes are identical.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) path_digest: Option<[u8; 32]>,

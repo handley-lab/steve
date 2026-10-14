@@ -230,6 +230,7 @@ mod temporary_structured_request;
 mod terminal_hyperlinks;
 mod terminal_palette;
 mod terminal_probe;
+mod terminal_size_telemetry;
 mod terminal_title;
 mod terminal_visualization_instructions;
 mod text_formatting;
@@ -1159,7 +1160,9 @@ async fn run_ratatui_app(
     managed_worktree: Option<ManagedTuiWorktree>,
     daemon_startup_warning: Option<String>,
     managed_daemon: bool,
-    launch_telemetry: daemon_telemetry::Launch<impl FnOnce(&AppServerTarget, bool)>,
+    launch_telemetry: daemon_telemetry::Launch<
+        impl FnOnce(&AppServerTarget, bool) -> terminal_size_telemetry::LaunchTags,
+    >,
     startup_draft: startup_draft::StartupDraft,
 ) -> color_eyre::Result<AppExitInfo> {
     let uses_remote_workspace = app_server_target.uses_remote_workspace();
@@ -1226,7 +1229,8 @@ async fn run_ratatui_app(
             ),
         )
         .await;
-    launch_telemetry.record(&app_server_target, matches!(&startup_app_server, Ok(Ok(_))));
+    tui.terminal_size_tags =
+        launch_telemetry.record(&app_server_target, matches!(&startup_app_server, Ok(Ok(_))));
     let mut app_server_session = match startup_app_server {
         Ok(Ok(app_server)) => {
             AppServerSession::new(app_server, app_server_target.thread_params_mode())

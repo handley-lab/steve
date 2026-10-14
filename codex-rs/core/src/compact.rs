@@ -280,6 +280,16 @@ async fn run_compact_task_inner_impl(
         &[initial_input_for_turn.into()],
         turn_context.model_info().truncation_policy.into(),
     );
+    let mut fallback_instructions = sess.get_prompt_base_instructions().await;
+    if let Some(text) = history
+        .raw_items()
+        .find_map(BaseInstructionsFragment::text_from_item)
+    {
+        fallback_instructions.text = text.to_owned();
+    } else if history.has_tool_declarations() {
+        // An incremental window has no recorded base item when its instructions are empty.
+        fallback_instructions.text.clear();
+    }
 
     let max_retries = turn_context.provider.info().stream_max_retries();
     let mut retries = 0;
@@ -297,14 +307,14 @@ async fn run_compact_task_inner_impl(
         let turn_input_len = turn_input.len();
         let base_instructions = if turn_input
             .iter()
-            .any(BaseInstructionsFragment::matches_item)
+            .any(|item| BaseInstructionsFragment::text_from_item(item).is_some())
         {
             BaseInstructions {
                 text: String::new(),
                 provenance: None,
             }
         } else {
-            sess.get_prompt_base_instructions().await
+            fallback_instructions.clone()
         };
         let prompt = Prompt {
             input: turn_input,

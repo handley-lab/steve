@@ -1,5 +1,7 @@
 //! Covers complete-package staging, conservative selection, and legacy preservation.
 #![cfg(unix)]
+use std::collections::BTreeMap;
+
 use super::InstallMode;
 use super::prepare_from_package;
 use super::validate_package;
@@ -86,7 +88,8 @@ async fn seeds_full_package() {
     let target = super::platform_target().unwrap();
     // Reinstall the seed's exact package after partially deleting an older copy.
     let original = old;
-    let digest = super::package_tree(&original, /*destination*/ None).unwrap();
+    let digest =
+        super::package_tree(&original, /*destination*/ None, &mut BTreeMap::new()).unwrap();
     let old = releases.join(format!("local-{digest}-{target}"));
     let previous = releases.join(format!("0.151.0-{target}"));
     package(&old, "0.152.0");
@@ -418,6 +421,25 @@ async fn explicit_selection_requires_unchanged_cli_and_pins_all_versions() {
             assert!(daemon.running_backend(&settings).await.unwrap().is_none());
             previous = selected;
         }
+
+        // Reusing a release must still validate its current contents from disk.
+        std::fs::write(previous.join("codex-package.json"), b"corrupt manifest").unwrap();
+        let error = prepare_from_package(
+            &daemon(&home),
+            &settings,
+            InstallMode::Replace,
+            Some(&source),
+            &bin,
+            |_| Ok(true),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("existing daemon release has different contents")
+        );
+        assert_eq!(root.join("current").canonicalize().unwrap(), previous);
     }
 }
 

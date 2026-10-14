@@ -105,6 +105,9 @@ mod incremental_tools;
 #[path = "scenarios_incremental_tools_resume.rs"]
 mod incremental_tools_resume;
 
+#[path = "scenarios_model_instructions.rs"]
+mod model_instructions;
+
 #[path = "scenarios_code_mode_settled_helpers_tests.rs"]
 mod code_mode_settled_helpers;
 

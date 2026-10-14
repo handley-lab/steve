@@ -1,5 +1,8 @@
 //! App-level orchestration tests for the TUI.
 
+#[path = "tests/terminal_size_telemetry_tests.rs"]
+mod terminal_size_telemetry_tests;
+
 #[path = "tests/copy_mode_tests.rs"]
 mod copy_mode_tests;
 #[path = "tests/mcp_login_tests.rs"]
@@ -6264,6 +6267,7 @@ async fn make_test_app() -> Box<App> {
         config_notification_test_pending: None,
         model_catalog: chat_widget.model_catalog(),
         session_telemetry,
+        terminal_size_tags: Vec::new(),
         app_event_tx,
         chat_widget,
         workspace_command_runner: None,
@@ -6389,6 +6393,7 @@ pub(super) async fn make_test_app_with_channels() -> (
             config_notification_test_pending: None,
             model_catalog: chat_widget.model_catalog(),
             session_telemetry,
+            terminal_size_tags: Vec::new(),
             app_event_tx,
             chat_widget,
             workspace_command_runner: None,

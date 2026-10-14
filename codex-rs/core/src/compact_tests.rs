@@ -27,7 +27,7 @@ use test_case::test_case;
 #[test_case(true; "metadata enabled")]
 #[test_case(false; "metadata disabled after capture")]
 #[tokio::test]
-async fn local_compaction_respects_tool_metadata_state(
+async fn local_compaction_retries_preserve_instructions_and_tool_metadata(
     metadata_enabled: bool,
 ) -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
@@ -48,7 +48,13 @@ async fn local_compaction_respects_tool_metadata_state(
     )
     .await;
 
-    let mut items = vec![user_message("Update the plan")];
+    // Retries trim the original prefix and early user messages.
+    let mut items = vec![
+        ContextualUserFragment::into(BaseInstructionsFragment("Window A".to_string())),
+        user_message("First turn"),
+        user_message("Rebuilt context"),
+        user_message("Update the plan"),
+    ];
     for index in 0..300 {
         let call_id = format!("direct-{index}");
         let arguments = json!({"plan": [{"step": "x".repeat(7 * 1024), "status": "completed"}]});
@@ -152,12 +158,17 @@ async fn local_compaction_respects_tool_metadata_state(
         let _ = session.refresh_runtime_config(current_config, config).await;
     }
 
-    let mock = responses::mount_sse_once(
+    let failed = responses::sse_failed("failed", "context_length_exceeded", "Context too long");
+    let mock = responses::mount_sse_sequence(
         &server,
-        responses::sse(vec![
-            responses::ev_assistant_message("summary", "The prior calls finished."),
-            responses::ev_completed("compact-response"),
-        ]),
+        vec![
+            failed.clone(),
+            failed,
+            responses::sse(vec![
+                responses::ev_assistant_message("summary", "The prior calls finished."),
+                responses::ev_completed("compact-response"),
+            ]),
+        ],
     )
     .await;
     let step = session
@@ -180,16 +191,26 @@ async fn local_compaction_respects_tool_metadata_state(
     )
     .await?;
 
-    let request = mock.single_request();
-    assert!(request.inputs_of_type("compaction_trigger").is_empty());
+    let requests = mock.requests();
     assert_eq!(
-        request.custom_tool_call_output("exec"),
-        serde_json::to_value(expected_code_mode_output)?,
+        requests
+            .iter()
+            .map(|request| request.message_input_texts("developer").into_iter().next())
+            .collect::<Vec<_>>(),
+        [
+            Some("Window A".to_string()),
+            Some("Window A".to_string()),
+            Some("Window A".to_string())
+        ],
     );
+    for request in &requests {
+        assert!(request.inputs_of_type("compaction_trigger").is_empty());
+        assert_eq!(
+            request.custom_tool_call_output("exec"),
+            serde_json::to_value(&expected_code_mode_output)?,
+        );
+    }
     for mut output in outputs {
-        let call_id = output["call_id"].as_str().expect("source call id");
-        let compact_output = request.function_call_output(call_id);
-        assert_eq!(compact_output["output"], json!("Plan updated"));
         if !metadata_enabled {
             let metadata = output["internal_chat_message_metadata_passthrough"]
                 .as_object_mut()
@@ -197,10 +218,15 @@ async fn local_compaction_respects_tool_metadata_state(
             metadata.remove("executed_tool_calls");
             metadata.remove("tool_calls_complete");
         }
-        assert_eq!(
-            compact_output["internal_chat_message_metadata_passthrough"],
-            output["internal_chat_message_metadata_passthrough"]
-        );
+        let call_id = output["call_id"].as_str().expect("source call id");
+        for request in &requests {
+            let compact_output = request.function_call_output(call_id);
+            assert_eq!(compact_output["output"], json!("Plan updated"));
+            assert_eq!(
+                compact_output["internal_chat_message_metadata_passthrough"],
+                output["internal_chat_message_metadata_passthrough"]
+            );
+        }
     }
     let compacted_history = session.clone_history().await;
     let expected_summary = format!("{SUMMARY_PREFIX}\nThe prior calls finished.");

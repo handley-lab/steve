@@ -2059,6 +2059,23 @@ impl App {
     }
 
     pub(super) fn handle_thread_event_now(&mut self, event: ThreadBufferedEvent) {
+        // Replay has its own handler; suppress repeated notifications for the current turn.
+        if crate::terminal_size_telemetry::enabled(&self.config)
+            && !self.terminal_size_tags.is_empty()
+            && let ThreadBufferedEvent::Notification(notification) = &event
+            && let ServerNotification::TurnStarted(started) = notification.as_ref()
+            && self
+                .active_thread_id
+                .is_some_and(|id| id.to_string() == started.thread_id)
+            && self.chat_widget.last_turn_id() != Some(started.turn.id.as_str())
+        {
+            crate::terminal_size_telemetry::record(
+                &self.terminal_size_tags,
+                &self.config,
+                "turn_start",
+                crate::terminal_size_telemetry::read_size(),
+            );
+        }
         let needs_refresh = matches!(
             &event,
             ThreadBufferedEvent::Notification(notification)

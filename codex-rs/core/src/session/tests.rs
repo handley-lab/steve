@@ -11388,6 +11388,10 @@ async fn build_initial_context_uses_retained_step_after_model_change() {
         let messages = model_info.model_messages.as_mut().unwrap();
         messages.instructions_template = Some("A instructions".to_string());
     });
+    session.state.lock().await.base_instructions_provenance =
+        Some(codex_protocol::models::BaseInstructionsProvenance::Model {
+            model: "base-model".to_string(),
+        });
     session
         .set_previous_turn_settings(Some(PreviousTurnSettings {
             model: "base-model".to_string(),
