@@ -3804,5 +3804,3 @@ async fn cached_score_publication_rejects_delayed_results_without_changing_cover
     Ok(())
 }
 
-#[path = "decisions_lifecycle_tests.rs"]
-mod decisions_lifecycle_tests;

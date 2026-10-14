@@ -270,26 +270,15 @@ behavior is outside this source audit. Avoid invoking this command when
 external desktop participation is unwanted; a Cambridge inference provider
 does not change this integration. Source: `codex-rs/cli/src/desktop_app/mac.rs`.
 
-## Optional guardian Decisions comparison
+## Guardian Decisions comparison
 
-`features.guardianv2_decisions_comparison` is disabled by default. When the
-guardian classifier initializes with this feature enabled and usable credentials,
-it can POST to the fixed `https://api.openai.com/v1/decisions` endpoint. This
-destination is independent of the main inference base. The request contains the
-guardian rubric, host-annotated trusted-tool evidence, user evidence text and
-supported inline images, with model `gpt-6-luna` and bearer authentication.
-The response is a low/high risk classification. Unsupported evidence aborts that
-comparison request; harness annotations and IDs are omitted from this body.
-
-Credentials come from `STEVE_GUARDIAN_DECISIONS_API_KEY`, or first-party API-key
-auth only when the provider is `openai` with no explicit base URL. A Cambridge
-provider therefore prevents that credential fallback, but an explicit Decisions
-key can still enable this fixed OpenAI destination. Keep the comparison feature
-disabled to prevent this path; analytics and feedback flags are not its gate.
-Sources: `codex-rs/ext/guardian-v2/src/async_scorer/decisions.rs`, `startup.rs`,
-`extension.rs` and `codex-rs/features/src/lib.rs`. This is source evidence only;
-no request was made during this audit. The baseline guardian sampler uses the
-configured model provider and is a separate path.
+Guardian scoring does not build or send a request to
+`https://api.openai.com/v1/decisions`. The feature key
+`guardianv2_decisions_comparison` remains so older configuration files parse;
+its stage is removed and no code reads it. Baseline Guardian classification
+still uses the configured model provider. Source:
+`codex-rs/features/src/lib.rs` and
+`codex-rs/ext/guardian-v2/src/async_scorer/`.
 
 ## Built-in pet assets
 

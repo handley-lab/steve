@@ -380,9 +380,6 @@ impl GuardianV2Extension {
             reservation,
             classification_started_at,
             sampler,
-            decisions_sampler: input
-                .thread_store
-                .get::<super::decisions::DecisionsSampler>(),
             guardian_config,
             score_progress,
             parent_model,
