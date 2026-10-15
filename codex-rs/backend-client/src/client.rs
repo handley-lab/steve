@@ -2,7 +2,6 @@ use crate::types::CodeTaskDetailsResponse;
 use crate::types::CodexUserSettingsResponse;
 use crate::types::CodexWorkspaceMessagesResponse;
 use crate::types::PaginatedListTaskListItem;
-use crate::types::TokenUsageProfile;
 use crate::types::TurnAttemptsSiblingTurnsResponse;
 use anyhow::Result;
 use codex_api::SharedAuthProvider;
@@ -323,20 +322,6 @@ impl Client {
     }
 
 
-    pub async fn get_token_usage_profile(&self) -> Result<TokenUsageProfile> {
-        let url = self.token_usage_profile_url();
-        let req = self.request(Method::GET, &url).headers(self.headers());
-        let (body, ct) = self.exec_request(req, "GET", &url).await?;
-        self.decode_json(&url, &ct, &body)
-    }
-
-    fn token_usage_profile_url(&self) -> String {
-        match self.path_style {
-            PathStyle::CodexApi => format!("{}/api/codex/profiles/me", self.base_url),
-            PathStyle::ChatGptApi => format!("{}/wham/profiles/me", self.base_url),
-        }
-    }
-
     pub async fn list_tasks(
         &self,
         limit: Option<i32>,
@@ -522,21 +507,6 @@ mod tests {
     use wiremock::matchers::method;
     use wiremock::matchers::path;
 
-
-    #[test]
-    fn token_usage_profile_uses_expected_paths() {
-        let codex_client = test_client("https://example.test", PathStyle::CodexApi);
-        assert_eq!(
-            codex_client.token_usage_profile_url(),
-            "https://example.test/api/codex/profiles/me"
-        );
-
-        let chatgpt_client = test_client("https://chatgpt.com/backend-api", PathStyle::ChatGptApi);
-        assert_eq!(
-            chatgpt_client.token_usage_profile_url(),
-            "https://chatgpt.com/backend-api/wham/profiles/me"
-        );
-    }
 
     #[test]
     fn workspace_messages_uses_expected_paths() {

@@ -831,6 +831,3 @@ async fn plan_history_rejects_account_change_during_response() {
         );
     }
 }
-
-#[path = "profile_identity_tests.rs"]
-mod profile_identity;

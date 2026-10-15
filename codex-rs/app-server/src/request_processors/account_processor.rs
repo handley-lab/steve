@@ -21,7 +21,6 @@ mod workspace_routing;
 pub(super) use enterprise_login::EnterpriseLoginCompletion;
 pub(super) use enterprise_login::EnterpriseLoginTarget;
 
-const ACCOUNT_TOKEN_USAGE_FETCH_TIMEOUT: Duration = Duration::from_secs(/*secs*/ 10);
 const THREAD_USAGE_FETCH_TIMEOUT: Duration = Duration::from_secs(/*secs*/ 60);
 const ACCOUNT_WORKSPACE_MESSAGES_FETCH_TIMEOUT: Duration =
     Duration::from_millis(/*millis*/ 1000);
@@ -893,12 +892,12 @@ impl AccountRequestProcessor {
             ));
         }
 
-        let client = BackendClient::from_auth(
-            self.config.chatgpt_base_url.clone(),
-            &auth,
-            http_client_factory,
-        );
         if let Some(thread_id) = thread_id {
+            let client = BackendClient::from_auth(
+                self.config.chatgpt_base_url.clone(),
+                &auth,
+                http_client_factory,
+            );
             let thread_id = thread_id.to_string();
             let usage = tokio::time::timeout(
                 THREAD_USAGE_FETCH_TIMEOUT,
@@ -953,14 +952,17 @@ impl AccountRequestProcessor {
                 thread_usage,
             });
         }
-        let profile = tokio::time::timeout(
-            ACCOUNT_TOKEN_USAGE_FETCH_TIMEOUT,
-            client.get_token_usage_profile(),
-        )
-        .await
-        .map_err(|_| internal_error("token usage profile fetch timed out"))?
-        .map_err(|err| internal_error(format!("failed to fetch token usage profile: {err}")))?;
-        Ok(Self::account_token_usage_response(profile))
+        Ok(GetAccountTokenUsageResponse {
+            summary: AccountTokenUsageSummary {
+                lifetime_tokens: None,
+                peak_daily_tokens: None,
+                longest_running_turn_sec: None,
+                current_streak_days: None,
+                longest_streak_days: None,
+            },
+            daily_usage_buckets: None,
+            thread_usage: None,
+        })
     }
 
     async fn get_workspace_messages_response(
@@ -1007,29 +1009,6 @@ impl AccountRequestProcessor {
             Err(err) => Err(internal_error(format!(
                 "failed to fetch workspace messages: {err}"
             ))),
-        }
-    }
-
-    fn account_token_usage_response(profile: TokenUsageProfile) -> GetAccountTokenUsageResponse {
-        let stats = profile.stats;
-        GetAccountTokenUsageResponse {
-            summary: AccountTokenUsageSummary {
-                lifetime_tokens: stats.lifetime_tokens,
-                peak_daily_tokens: stats.peak_daily_tokens,
-                longest_running_turn_sec: stats.longest_running_turn_sec,
-                current_streak_days: stats.current_streak_days,
-                longest_streak_days: stats.longest_streak_days,
-            },
-            daily_usage_buckets: stats.daily_usage_buckets.map(|buckets| {
-                buckets
-                    .into_iter()
-                    .map(|bucket| AccountTokenUsageDailyBucket {
-                        start_date: bucket.start_date,
-                        tokens: bucket.tokens,
-                    })
-                    .collect()
-            }),
-            thread_usage: None,
         }
     }
 
@@ -1094,45 +1073,8 @@ fn workspace_messages_feature_disabled(err: &BackendRequestError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codex_backend_client::TokenUsageProfileDailyBucket;
-    use codex_backend_client::TokenUsageProfileStats;
     use http::StatusCode;
     use pretty_assertions::assert_eq;
-
-    #[test]
-    fn account_token_usage_response_maps_profile_stats_and_daily_buckets() {
-        let response = AccountRequestProcessor::account_token_usage_response(TokenUsageProfile {
-            stats: TokenUsageProfileStats {
-                lifetime_tokens: Some(123),
-                peak_daily_tokens: Some(45),
-                longest_running_turn_sec: Some(67),
-                current_streak_days: Some(8),
-                longest_streak_days: Some(9),
-                daily_usage_buckets: Some(vec![TokenUsageProfileDailyBucket {
-                    start_date: "2026-05-29".to_string(),
-                    tokens: 10,
-                }]),
-            },
-        });
-
-        assert_eq!(
-            response,
-            GetAccountTokenUsageResponse {
-                summary: AccountTokenUsageSummary {
-                    lifetime_tokens: Some(123),
-                    peak_daily_tokens: Some(45),
-                    longest_running_turn_sec: Some(67),
-                    current_streak_days: Some(8),
-                    longest_streak_days: Some(9),
-                },
-                daily_usage_buckets: Some(vec![AccountTokenUsageDailyBucket {
-                    start_date: "2026-05-29".to_string(),
-                    tokens: 10,
-                }]),
-                thread_usage: None,
-            }
-        );
-    }
 
     #[test]
     fn workspace_messages_response_maps_backend_messages() {

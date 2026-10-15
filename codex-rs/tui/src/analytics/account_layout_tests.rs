@@ -199,14 +199,6 @@ async fn account_reports_request_only_eligible_endpoints_and_refresh() {
         ),
     ] {
         let server = test_support::server().await;
-        wiremock::Mock::given(wiremock::matchers::method("GET"))
-            .and(wiremock::matchers::path("/backend-api/wham/profiles/me"))
-            .respond_with(
-                wiremock::ResponseTemplate::new(/*s*/ 200)
-                    .set_body_json(serde_json::json!({"stats":{}})),
-            )
-            .mount(&server)
-            .await;
         let (_home, _app_server, mut view) = client::tests::connected_view(&server, plan).await;
         test_support::settle(&mut view).await;
         let mut expected = [
@@ -214,7 +206,6 @@ async fn account_reports_request_only_eligible_endpoints_and_refresh() {
             activity,
             "analytics/daily-plugin-usage-metrics",
             "analytics/daily-skill-usage-metrics",
-            "profiles/me",
         ]
         .map(|endpoint| format!("/backend-api/wham/{endpoint}"));
         expected.sort();
@@ -258,7 +249,7 @@ async fn account_reports_request_only_eligible_endpoints_and_refresh() {
                 .iter()
                 .filter(|request| request.url.path().starts_with("/backend-api/wham/"))
                 .count(),
-            10
+            8
         );
         view.cancel_loads();
     }
@@ -373,43 +364,6 @@ async fn unsupported_workspace_plans_hide_top_chats_and_skip_loading() {
         press(&mut view, KeyCode::Char('6'));
         assert_eq!(view.section, Section::Chats);
     }
-}
-
-#[tokio::test]
-async fn unknown_plan_keeps_summary_available_without_billing_reports() {
-    let server = test_support::server().await;
-    wiremock::Mock::given(wiremock::matchers::method("GET"))
-        .and(wiremock::matchers::path("/backend-api/wham/profiles/me"))
-        .respond_with(
-            wiremock::ResponseTemplate::new(/*s*/ 200)
-                .set_body_json(serde_json::json!({"stats":{"lifetime_tokens":12345}})),
-        )
-        .expect(/*r*/ 1)
-        .mount(&server)
-        .await;
-    let (_home, _app_server, mut view) =
-        client::tests::connected_view(&server, "future-plan").await;
-    test_support::settle(&mut view).await;
-    assert_eq!(view.visible_sections(), &[Section::Summary]);
-    assert_eq!(
-        view.profile.ready().unwrap().stats.tokens.lifetime_tokens,
-        Some(12345)
-    );
-    assert!(
-        view.sections
-            .0
-            .iter()
-            .all(|section| matches!(section.history, Load::Unavailable))
-    );
-    let paths = server
-        .received_requests()
-        .await
-        .unwrap()
-        .into_iter()
-        .filter(|request| request.url.path().starts_with("/backend-api/wham/"))
-        .map(|request| request.url.path().to_owned())
-        .collect::<Vec<_>>();
-    assert_eq!(paths, ["/backend-api/wham/profiles/me"]);
 }
 
 #[test]

@@ -1,31 +1,16 @@
-//! Account profile loading and the Summary's year-view interaction.
+//! Summary year-view interaction.
 //! Aggregation changes reuse the loaded profile; account refresh replaces all profile data.
 
 use super::AnalyticsView;
 use super::activity_chart::TokenActivityView;
-use super::client::Live;
-use super::data::Load;
 use super::sections::Section;
 use crate::keymap::ListAction;
-use codex_backend_client::AccountProfile;
 
 pub(super) const VIEWS: [TokenActivityView; 3] = [
     TokenActivityView::Daily,
     TokenActivityView::Weekly,
     TokenActivityView::Cumulative,
 ];
-
-impl Live {
-    pub(super) async fn profile(&self) -> Result<Option<AccountProfile>, String> {
-        let session = self.session().await?;
-        let profile = session
-            .backend
-            .request(|client| async move { client.get_account_profile().await })
-            .await;
-        self.ensure_identity().await?;
-        profile.map(Some).map_err(super::client::request_error)
-    }
-}
 
 impl AnalyticsView {
     pub(crate) fn select_summary(&mut self, view: Option<TokenActivityView>) {
@@ -38,13 +23,6 @@ impl AnalyticsView {
                 .iter()
                 .position(|item| *item == view)
                 .unwrap_or_default();
-        }
-    }
-
-    pub(super) fn load_summary(&mut self) {
-        if let (Some((_, _, frame)), Some(live)) = (&self.connection, &self.live) {
-            let live = std::sync::Arc::clone(live);
-            self.profile = Load::start(async move { live.profile().await }, frame.clone());
         }
     }
 

@@ -450,11 +450,6 @@ pub struct TurnAttemptsSiblingTurnsResponse {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-pub struct TokenUsageProfile {
-    pub stats: TokenUsageProfileStats,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct TokenUsageProfileStats {
     pub lifetime_tokens: Option<i64>,
     pub peak_daily_tokens: Option<i64>,

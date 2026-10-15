@@ -14,11 +14,6 @@ use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
-use wiremock::Mock;
-use wiremock::ResponseTemplate;
-use wiremock::matchers::header;
-use wiremock::matchers::method;
-
 async fn read(socket: &mut WebSocketStream<TcpStream>) -> Value {
     let frame = socket.next().await.unwrap().unwrap();
     serde_json::from_str(frame.to_text().unwrap()).unwrap()
@@ -66,19 +61,11 @@ async fn remote() -> (RemoteAppServerClient, tokio::task::JoinHandle<()>) {
 #[tokio::test]
 async fn local_reports_share_an_account_and_recover_profile_errors() {
     use crate::analytics::AnalyticsView;
-    use crate::analytics::data::Load;
     use crate::analytics::sections::Section;
 
     let http = crate::analytics::test_support::server().await;
     let (home, local) = live(&http, "enterprise").await;
     let (client, server) = remote().await;
-    let failed_profile = Mock::given(method("GET"))
-        .and(wiremock::matchers::path("/backend-api/wham/profiles/me"))
-        .and(header("chatgpt-account-id", "account-a"))
-        .respond_with(ResponseTemplate::new(/*s*/ 503))
-        .expect(/*r*/ 1)
-        .mount_as_scoped(&http)
-        .await;
     let mut view = AnalyticsView::new(crate::keymap::RuntimeKeymap::defaults().list);
     view.open(
         AppServerRequestHandle::Remote(client.request_handle()),
@@ -97,32 +84,13 @@ async fn local_reports_share_an_account_and_recover_profile_errors() {
             Section::Skills,
         ]
     );
-    assert!(matches!(view.profile, Load::Error(_)));
     for section in view.visible_sections() {
         if section.report().is_some() {
             assert!(view.sections[*section].history.ready().is_some());
         }
     }
-    drop(failed_profile);
-
-    let profile = json!({
-        "profile":{"display_name":"Local account","username":"local-user"},
-        "stats":{"lifetime_tokens":12345,"peak_daily_tokens":12345,
-            "daily_usage_buckets":[{"start_date":"2026-09-09","tokens":12345}]}
-    });
-    Mock::given(method("GET"))
-        .and(wiremock::matchers::path("/backend-api/wham/profiles/me"))
-        .and(header("chatgpt-account-id", "account-a"))
-        .respond_with(ResponseTemplate::new(/*s*/ 200).set_body_json(profile.clone()))
-        .expect(/*r*/ 1)
-        .mount(&http)
-        .await;
     view.refresh();
     crate::analytics::test_support::settle(&mut view).await;
-    assert_eq!(
-        view.profile.ready(),
-        Some(&serde_json::from_value(profile).unwrap())
-    );
     for request in http.received_requests().await.unwrap() {
         assert_eq!(
             request.headers.get("chatgpt-account-id").unwrap(),

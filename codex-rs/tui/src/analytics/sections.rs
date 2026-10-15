@@ -233,7 +233,6 @@ impl AnalyticsView {
         {
             self.sections[Section::Credits].group = live.credit_groups()[0];
         }
-        self.load_summary();
         for section in visible {
             if section.report().is_some() {
                 self.load_report(*section);
