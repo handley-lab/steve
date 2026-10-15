@@ -515,7 +515,11 @@ async fn build_report(
             ]);
         }
         Err(err) => {
-            let reachability_plan = default_reachability_plan();
+            let reachability_plan = ReachabilityPlan {
+                description: "config unavailable".to_string(),
+                endpoints: Vec::new(),
+                http_client_factory: HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+            };
             let (
                 config_check,
                 network_check,
@@ -2580,18 +2584,6 @@ fn provider_reachability_plan(config: &Config) -> ReachabilityPlan {
     plan
 }
 
-fn default_reachability_plan() -> ReachabilityPlan {
-    provider_reachability_plan_from_parts(
-        ProviderAuthReachabilityMode::Chatgpt,
-        "openai",
-        "OpenAI",
-        /*provider_base_url*/ None,
-        /*provider_query_params*/ None,
-        /*is_amazon_bedrock*/ false,
-        "https://chatgpt.com/backend-api/",
-    )
-}
-
 fn provider_auth_reachability_mode_from_auth(
     requires_openai_auth: bool,
     provider_env_key: Option<&str>,
@@ -2636,32 +2628,27 @@ fn provider_reachability_plan_from_parts(
     is_amazon_bedrock: bool,
     chatgpt_base_url: &str,
 ) -> ReachabilityPlan {
-    let provider_route_probe_url = provider_base_url
-        .or_else(|| {
-            (mode == ProviderAuthReachabilityMode::ApiKey).then_some("https://api.openai.com/v1")
-        })
-        .and_then(|url| {
-            should_probe_models_route(provider_name, url, is_amazon_bedrock)
-                .then(|| provider_url_for_path(url, "models", provider_query_params))
-        });
+    let provider_route_probe_url = provider_base_url.and_then(|url| {
+        should_probe_models_route(provider_name, url, is_amazon_bedrock)
+            .then(|| provider_url_for_path(url, "models", provider_query_params))
+    });
     let endpoints = match (mode, provider_base_url) {
-        (ProviderAuthReachabilityMode::ApiKey, _) | (_, Some(_)) => vec![ReachabilityEndpoint {
+        (_, Some(url)) => vec![ReachabilityEndpoint {
             label: format!("{provider_id} API"),
-            url: provider_url_for_path(
-                provider_base_url.unwrap_or("https://api.openai.com/v1"),
-                "responses",
-                provider_query_params,
-            ),
+            url: provider_url_for_path(url, "responses", provider_query_params),
             required: true,
             route_probe_url: provider_route_probe_url,
         }],
+        (
+            ProviderAuthReachabilityMode::ApiKey | ProviderAuthReachabilityMode::NotRequired,
+            None,
+        ) => Vec::new(),
         (ProviderAuthReachabilityMode::Chatgpt, None) => vec![ReachabilityEndpoint {
             label: "ChatGPT".to_string(),
             url: provider_url_for_path(chatgpt_base_url, "codex/responses", provider_query_params),
             required: true,
             route_probe_url: None,
         }],
-        (ProviderAuthReachabilityMode::NotRequired, None) => Vec::new(),
     };
     ReachabilityPlan {
         description: mode.description().to_string(),
@@ -3711,42 +3698,6 @@ mod tests {
         );
 
         assert_eq!(plan.endpoints[0].route_probe_url, None);
-    }
-
-    #[test]
-    fn provider_reachability_api_key_does_not_require_chatgpt() {
-        let plan = provider_reachability_plan_from_parts(
-            ProviderAuthReachabilityMode::ApiKey,
-            "openai",
-            "OpenAI",
-            /*provider_base_url*/ None,
-            /*provider_query_params*/ None,
-            /*is_amazon_bedrock*/ false,
-            "https://chatgpt.com/backend-api/",
-        );
-
-        assert_eq!(
-            plan.endpoints,
-            vec![ReachabilityEndpoint {
-                label: "openai API".to_string(),
-                url: "https://api.openai.com/v1/responses".to_string(),
-                required: true,
-                route_probe_url: Some("https://api.openai.com/v1/models".to_string()),
-            }]
-        );
-    }
-
-    #[test]
-    fn provider_reachability_chatgpt_uses_inference_endpoint() {
-        assert_eq!(
-            default_reachability_plan().endpoints,
-            vec![ReachabilityEndpoint {
-                label: "ChatGPT".to_string(),
-                url: "https://chatgpt.com/backend-api/codex/responses".to_string(),
-                required: true,
-                route_probe_url: None,
-            }]
-        );
     }
 
     #[test]

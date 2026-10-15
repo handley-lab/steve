@@ -266,8 +266,12 @@ and `codex-rs/cli/src/desktop_installer_url.rs`.
 Doctor does not GET a desktop update manifest. It does not request an
 appcast or Windows store file from `persistent.oaistatic.com`, and it does
 not request `https://chatgpt.com/backend-api/wham/app/appcast`. A locally
-staged macOS Sparkle bundle can still be reported. Source:
-`codex-rs/cli/src/doctor/updates.rs`.
+staged macOS Sparkle bundle can still be reported. When configuration fails
+to load, doctor does not probe `https://chatgpt.com/backend-api/codex/responses`.
+An API-key provider with no base URL is not probed at `https://api.openai.com/v1`.
+An explicit provider base URL is still probed. A loaded configuration's
+`chatgpt_base_url` is still used for the ChatGPT reachability probe. Source:
+`codex-rs/cli/src/doctor/updates.rs` and `codex-rs/cli/src/doctor.rs`.
 
 ## Guardian Decisions comparison
 
