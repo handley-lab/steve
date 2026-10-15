@@ -81,7 +81,7 @@ An explicit `mcp_servers` URL stays in use, including a user-configured
 `codex_apps` server. `features.apps=false` still omits the server named
 `codex_apps`. This does not prove that every explicitly configured or
 plugin-registered MCP endpoint is suppressed. Sources:
-`codex-rs/chatgpt/src/connectors.rs`, `chatgpt_client.rs`,
+`codex-rs/chatgpt/src/connectors.rs`,
 `codex-rs/connectors/src/lib.rs`, `codex-rs/codex-mcp/src/mcp/mod.rs` and
 `codex-rs/features/src/lib.rs`.
 
@@ -153,7 +153,8 @@ daemon diagnostic wording changes. Sources:
 Cloud-task initialization does not default to
 `https://chatgpt.com/backend-api`. `STEVE_CLOUD_TASKS_BASE_URL` is required,
 and an explicit value is used after the existing host check. Cambridge
-inference configuration does not select this backend.
+inference configuration does not select this backend. The CLI apply command is gone. Steve does not GET
+`{chatgpt_base_url}/wham/tasks/{task_id}` from that command.
 Environment discovery sends GitHub repository owner/name in request paths and
 uses configured authentication headers. Task creation sends the user prompt,
 environment ID, branch, QA setting and optional best-of-N metadata. A nonempty

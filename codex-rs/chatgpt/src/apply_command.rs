@@ -1,39 +1,11 @@
 use std::path::PathBuf;
 
-use clap::Parser;
-use codex_core::config::Config;
 use codex_git_utils::ApplyGitRequest;
 use codex_git_utils::apply_git_patch;
-use codex_utils_cli::CliConfigOverrides;
 
 use crate::get_task::GetTaskResponse;
 use crate::get_task::OutputItem;
 use crate::get_task::PrOutputItem;
-use crate::get_task::get_task;
-
-/// Applies the latest diff from a Codex agent task.
-#[derive(Debug, Parser)]
-pub struct ApplyCommand {
-    pub task_id: String,
-
-    #[clap(flatten)]
-    pub config_overrides: CliConfigOverrides,
-}
-pub async fn run_apply_command(
-    apply_cli: ApplyCommand,
-    cwd: Option<PathBuf>,
-) -> anyhow::Result<()> {
-    let config = Config::load_with_cli_overrides(
-        apply_cli
-            .config_overrides
-            .parse_overrides()
-            .map_err(anyhow::Error::msg)?,
-    )
-    .await?;
-
-    let task_response = get_task(&config, apply_cli.task_id).await?;
-    apply_diff_from_task(task_response, cwd).await
-}
 
 pub async fn apply_diff_from_task(
     task_response: GetTaskResponse,
