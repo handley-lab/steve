@@ -22,17 +22,16 @@ verify release-build update behavior. Sources:
 ## Remote plugin catalogue and account mutations
 
 The reviewed remote plugin-service requests use `chatgpt_base_url` and require
-first-party backend authentication. Catalogue GETs include plugin-specific detail paths. Steve does not GET
-`/ps/plugins/workspace/shared` or `/ps/plugins/installed`. Query parameters identify pagination and
-whether download URLs are requested. Authentication
-and product SKU accompany these downloads.
+first-party backend authentication. Steve does not GET `/ps/plugins/{plugin_id}`
+for plugin detail, `/ps/plugins/workspace/shared`, or `/ps/plugins/installed`.
+Skill detail still GETs `/ps/plugins/{plugin_id}/skills/{skill_name}`.
+Authentication and product SKU accompany the remaining plugin-service requests.
 
 Installing and uninstalling remote plugins POST to
 `/ps/plugins/{plugin_id}/install` and `/uninstall`. Installation can include an
 attempt ID and requests Apps requiring authentication. These operations change
-remote account state; they are not just local package installation. The
-catalogue can return bundle download URLs, whose acquisition and runtime
-behavior are not established by this section. Local plugin interoperability
+remote account state; they are not just local package installation. Skill
+detail, share, and bundle clients are separate. Local plugin interoperability
 does not require mechanically renaming the external service paths. Avoid
 first-party remote plugin operations and inspect installed plugin transports
 when preventing OpenAI traffic. Analytics and feedback flags do not gate the
@@ -173,8 +172,10 @@ stays. Plugin recommendations do not GET
 GET `{chatgpt_base_url}/ps/plugins/list`. A cached directory may still be
 read. Installed plugins do not GET `{chatgpt_base_url}/ps/plugins/installed`.
 An in-memory installed snapshot may still be read. Shared workspace plugins
-do not GET `{chatgpt_base_url}/ps/plugins/workspace/shared`. Detail, install,
-uninstall, share, and bundle clients are separate.
+do not GET `{chatgpt_base_url}/ps/plugins/workspace/shared`. Plugin detail does
+not GET `{chatgpt_base_url}/ps/plugins/{plugin_id}`. Skill detail still GETs
+`/ps/plugins/{plugin_id}/skills/{skill_name}`. Install, uninstall, share, and
+bundle clients are separate.
 
 Raw local evidence: `~/.cache/codex-cambridge-build/steve-network-smoke-n05wyupc/`
 and `steve-network-smoke-cey30wqi/` contain configuration, structured model

@@ -966,7 +966,8 @@ pub struct PluginInstallParams {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct PluginInstallResponse {
-    pub auth_policy: PluginAuthPolicy,
+    #[ts(optional = nullable)]
+    pub auth_policy: Option<PluginAuthPolicy>,
     pub apps_needing_auth: Vec<AppSummary>,
 }
 

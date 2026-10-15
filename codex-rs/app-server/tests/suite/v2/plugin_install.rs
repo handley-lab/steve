@@ -33,7 +33,6 @@ use codex_app_server_protocol::McpServerOauthLoginResponse;
 use codex_app_server_protocol::McpServerToolCallParams;
 use codex_app_server_protocol::McpServerToolCallResponse;
 use codex_app_server_protocol::PluginAuthPolicy;
-use codex_app_server_protocol::PluginAvailability;
 use codex_app_server_protocol::PluginInstallParams;
 use codex_app_server_protocol::PluginInstallResponse;
 use codex_app_server_protocol::RequestId;
@@ -45,8 +44,6 @@ use codex_rmcp_client::McpOAuthCallbackMode;
 use codex_rmcp_client::resolve_mcp_oauth_callback_url;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use core_test_support::stdio_server_bin;
-use flate2::Compression;
-use flate2::write::GzEncoder;
 use pretty_assertions::assert_eq;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::JsonObject;
@@ -67,10 +64,8 @@ use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use url::Url;
-use wiremock::Match;
 use wiremock::Mock;
 use wiremock::MockServer;
-use wiremock::Request;
 use wiremock::ResponseTemplate;
 use wiremock::matchers::header;
 use wiremock::matchers::method;
@@ -82,8 +77,6 @@ use wiremock::matchers::query_param;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 const REMOTE_PLUGIN_ID: &str = "plugins~Plugin_00000000000000000000000000000000";
 const INSTALL_ATTEMPT_ID: &str = "94c79f7b-cceb-4415-9a3e-b51b2f718d43";
-const TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS: &str =
-    "STEVE_TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS";
 
 #[tokio::test]
 async fn plugin_install_rejects_relative_marketplace_paths() -> Result<()> {
@@ -222,44 +215,11 @@ plugins = false
 async fn plugin_install_writes_remote_plugin_to_cloud_and_cache() -> Result<()> {
     let codex_home = TempDir::new()?;
     let server = MockServer::start().await;
-    let installed_path = codex_home
-        .path()
-        .join("plugins/cache/openai-curated-remote/linear/1.2.3");
-    let remote_app_manifest = json!({
-        "apps": {
-            "linear-remote": {
-                "id": "remote-linear-app"
-            }
-        }
-    });
-    let bundle_url = mount_remote_plugin_bundle(
-        &server,
-        /*status_code*/ 200,
-        remote_plugin_bundle_tar_gz_bytes_with_contents(
-            r#"{"name":"linear","version":"0.0.1"}"#,
-            Some(r#"{"apps":{"linear-bundled":{"id":"bundled-linear-app"}}}"#),
-        )?,
-    )
-    .await;
     configure_remote_plugin_test(codex_home.path(), &server)?;
-    mount_remote_plugin_detail_with_app_manifest(
-        &server,
-        REMOTE_PLUGIN_ID,
-        "1.2.3",
-        Some(&bundle_url),
-        remote_app_manifest.clone(),
-    )
-    .await;
-    mount_remote_plugin_install_after_cache_write(
-        &server,
-        REMOTE_PLUGIN_ID,
-        installed_path.join(".codex-plugin/plugin.json"),
-    )
-    .await;
+    mount_remote_plugin_install(&server, REMOTE_PLUGIN_ID).await;
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
-        .with_env_overrides(&[(TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS, Some("1"))])
         .build_initialized_with_timeout(DEFAULT_TIMEOUT)
         .await?;
 
@@ -270,7 +230,7 @@ async fn plugin_install_writes_remote_plugin_to_cloud_and_cache() -> Result<()> 
     assert_eq!(
         response,
         PluginInstallResponse {
-            auth_policy: PluginAuthPolicy::OnUse,
+            auth_policy: None,
             apps_needing_auth: Vec::new(),
         }
     );
@@ -285,31 +245,6 @@ async fn plugin_install_writes_remote_plugin_to_cloud_and_cache() -> Result<()> 
         wait_for_remote_plugin_install_request_body(&server, REMOTE_PLUGIN_ID).await?,
         Vec::<u8>::new()
     );
-    wait_for_remote_plugin_request_count(
-        &server,
-        "GET",
-        "/bundles/linear.tar.gz",
-        /*expected_count*/ 1,
-    )
-    .await?;
-    assert!(installed_path.join(".codex-plugin/plugin.json").is_file());
-    let installed_plugin_manifest: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(installed_path.join(".codex-plugin/plugin.json"))?,
-    )?;
-    assert_eq!(installed_plugin_manifest["name"], json!("linear"));
-    assert_eq!(installed_plugin_manifest["version"], json!("1.2.3"));
-    let installed_app_manifest: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(installed_path.join(".app.json"))?)?;
-    assert_eq!(installed_app_manifest, remote_app_manifest);
-    assert!(installed_path.join("skills/plan-work/SKILL.md").is_file());
-    assert!(
-        !codex_home
-            .path()
-            .join(format!(
-                "plugins/cache/openai-curated-remote/{REMOTE_PLUGIN_ID}/1.2.3"
-            ))
-            .exists()
-    );
     Ok(())
 }
 
@@ -317,29 +252,7 @@ async fn plugin_install_writes_remote_plugin_to_cloud_and_cache() -> Result<()> 
 async fn plugin_install_uses_remote_apps_needing_auth_response() -> Result<()> {
     let codex_home = TempDir::new()?;
     let server = MockServer::start().await;
-    let remote_app_manifest = json!({
-        "apps": {
-            "alpha": {
-                "id": "alpha",
-                "category": "Developer Tools"
-            }
-        }
-    });
-    let bundle_url = mount_remote_plugin_bundle(
-        &server,
-        /*status_code*/ 200,
-        remote_plugin_bundle_tar_gz_bytes("linear")?,
-    )
-    .await;
     configure_remote_plugin_with_apps_test(codex_home.path(), &server)?;
-    mount_remote_plugin_detail_with_app_manifest(
-        &server,
-        REMOTE_PLUGIN_ID,
-        "1.2.3",
-        Some(&bundle_url),
-        remote_app_manifest,
-    )
-    .await;
     mount_remote_plugin_install_with_apps_needing_auth(&server, REMOTE_PLUGIN_ID, &["alpha"]).await;
     Mock::given(method("POST"))
         .and(path("/backend-api/ps/apps/batch"))
@@ -360,7 +273,6 @@ async fn plugin_install_uses_remote_apps_needing_auth_response() -> Result<()> {
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
-        .with_env_overrides(&[(TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS, Some("1"))])
         .build_initialized_with_timeout(DEFAULT_TIMEOUT)
         .await?;
 
@@ -371,13 +283,13 @@ async fn plugin_install_uses_remote_apps_needing_auth_response() -> Result<()> {
     assert_eq!(
         response,
         PluginInstallResponse {
-            auth_policy: PluginAuthPolicy::OnUse,
+            auth_policy: None,
             apps_needing_auth: vec![AppSummary {
                 id: "alpha".to_string(),
                 name: "Alpha".to_string(),
                 description: Some("Alpha connector".to_string()),
                 install_url: Some("https://chatgpt.com/apps/alpha/alpha".to_string()),
-                category: Some("Developer Tools".to_string()),
+                category: None,
             }],
         }
     );
@@ -398,137 +310,8 @@ async fn plugin_install_uses_remote_apps_needing_auth_response() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn plugin_install_rejects_missing_remote_bundle_url() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    configure_remote_plugin_test(codex_home.path(), &server)?;
-    mount_remote_plugin_detail(
-        &server,
-        REMOTE_PLUGIN_ID,
-        "1.2.3",
-        /*bundle_download_url*/ None,
-    )
-    .await;
 
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
 
-    let request_id = send_remote_plugin_install_request(&mut mcp, REMOTE_PLUGIN_ID).await?;
-    let err = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_error_message(RequestId::Integer(request_id)),
-    )
-    .await??;
-
-    assert_eq!(err.error.code, -32603);
-    assert!(
-        err.error
-            .message
-            .contains("backend did not return a download URL")
-    );
-    wait_for_remote_plugin_request_count(
-        &server,
-        "POST",
-        &format!("/ps/plugins/{REMOTE_PLUGIN_ID}/install"),
-        /*expected_count*/ 0,
-    )
-    .await?;
-    assert!(
-        !codex_home
-            .path()
-            .join("plugins/cache/openai-curated-remote/linear")
-            .exists()
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn plugin_install_rejects_plain_http_remote_bundle_url() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    let bundle_url = format!("{}/bundles/linear.tar.gz", server.uri());
-    configure_remote_plugin_test(codex_home.path(), &server)?;
-    mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let request_id = send_remote_plugin_install_request(&mut mcp, REMOTE_PLUGIN_ID).await?;
-    let err = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_error_message(RequestId::Integer(request_id)),
-    )
-    .await??;
-
-    assert_eq!(err.error.code, -32603);
-    assert!(
-        err.error
-            .message
-            .contains("unsupported download URL scheme")
-    );
-    wait_for_remote_plugin_request_count(
-        &server,
-        "POST",
-        &format!("/ps/plugins/{REMOTE_PLUGIN_ID}/install"),
-        /*expected_count*/ 0,
-    )
-    .await?;
-    assert!(
-        !codex_home
-            .path()
-            .join("plugins/cache/openai-curated-remote/linear")
-            .exists()
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn plugin_install_rejects_invalid_remote_release_version() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    configure_remote_plugin_test(codex_home.path(), &server)?;
-    mount_remote_plugin_detail(
-        &server,
-        REMOTE_PLUGIN_ID,
-        "../1.2.3",
-        Some("https://127.0.0.1:1/bundles/linear.tar.gz"),
-    )
-    .await;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let request_id = send_remote_plugin_install_request(&mut mcp, REMOTE_PLUGIN_ID).await?;
-    let err = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_error_message(RequestId::Integer(request_id)),
-    )
-    .await??;
-
-    assert_eq!(err.error.code, -32603);
-    assert!(err.error.message.contains("invalid release version"));
-    wait_for_remote_plugin_request_count(
-        &server,
-        "POST",
-        &format!("/ps/plugins/{REMOTE_PLUGIN_ID}/install"),
-        /*expected_count*/ 0,
-    )
-    .await?;
-    assert!(
-        !codex_home
-            .path()
-            .join("plugins/cache/openai-curated-remote/linear")
-            .exists()
-    );
-    Ok(())
-}
 
 #[tokio::test]
 async fn plugin_install_rejects_invalid_remote_plugin_name() -> Result<()> {
@@ -559,59 +342,12 @@ async fn plugin_install_rejects_invalid_remote_plugin_name() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn plugin_install_tracks_analytics_when_remote_detail_fetch_fails() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    configure_remote_plugin_test(codex_home.path(), &server)?;
-    mount_backend_analytics_events(&server).await;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let request_id = send_remote_plugin_install_request(&mut mcp, REMOTE_PLUGIN_ID).await?;
-    let err = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_error_message(RequestId::Integer(request_id)),
-    )
-    .await??;
-
-    assert_eq!(err.error.code, -32600);
-    assert!(err.error.message.contains("failed with status 404"));
-
-    let payload = wait_for_plugin_analytics_payload(&server, "codex_plugin_install_failed").await?;
-    let event_params = &payload["events"][0]["event_params"];
-    assert_eq!(
-        payload["events"][0]["event_type"],
-        "codex_plugin_install_failed"
-    );
-    assert_eq!(event_params["plugin_id"], json!(null));
-    assert_eq!(event_params["remote_plugin_id"], REMOTE_PLUGIN_ID);
-    assert_eq!(event_params["plugin_name"], json!(null));
-    assert_eq!(event_params["marketplace_name"], json!(null));
-    assert_eq!(event_params["source"], "manual");
-    assert_eq!(
-        event_params["error_type"],
-        "remote_catalog_unexpected_status"
-    );
-    assert_eq!(event_params["sub_error_type"], "http_404");
-    Ok(())
-}
 
 #[tokio::test]
 async fn plugin_install_tracks_analytics_when_remote_install_is_rate_limited() -> Result<()> {
     let codex_home = TempDir::new()?;
     let server = MockServer::start().await;
-    let bundle_url = mount_remote_plugin_bundle(
-        &server,
-        /*status_code*/ 200,
-        remote_plugin_bundle_tar_gz_bytes("linear")?,
-    )
-    .await;
     configure_remote_plugin_test(codex_home.path(), &server)?;
-    mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
     Mock::given(method("POST"))
         .and(path(format!(
             "/backend-api/ps/plugins/{REMOTE_PLUGIN_ID}/install"
@@ -625,7 +361,6 @@ async fn plugin_install_tracks_analytics_when_remote_install_is_rate_limited() -
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
-        .with_env_overrides(&[(TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS, Some("1"))])
         .build_initialized_with_timeout(DEFAULT_TIMEOUT)
         .await?;
 
@@ -640,13 +375,6 @@ async fn plugin_install_tracks_analytics_when_remote_install_is_rate_limited() -
     assert!(err.error.message.contains("failed with status 429"));
     wait_for_remote_plugin_request_count(
         &server,
-        "GET",
-        "/bundles/linear.tar.gz",
-        /*expected_count*/ 1,
-    )
-    .await?;
-    wait_for_remote_plugin_request_count(
-        &server,
         "POST",
         &format!("/ps/plugins/{REMOTE_PLUGIN_ID}/install"),
         /*expected_count*/ 1,
@@ -658,9 +386,9 @@ async fn plugin_install_tracks_analytics_when_remote_install_is_rate_limited() -
         payload["events"][0]["event_type"],
         "codex_plugin_install_failed"
     );
-    assert_eq!(event_params["plugin_id"], "linear@openai-curated-remote");
+    assert_eq!(event_params["plugin_id"], json!(null));
     assert_eq!(event_params["remote_plugin_id"], REMOTE_PLUGIN_ID);
-    assert_eq!(event_params["marketplace_name"], "openai-curated-remote");
+    assert_eq!(event_params["marketplace_name"], json!(null));
     assert_eq!(event_params["source"], "manual");
     assert_eq!(
         event_params["error_type"],
@@ -670,125 +398,7 @@ async fn plugin_install_tracks_analytics_when_remote_install_is_rate_limited() -
     Ok(())
 }
 
-#[tokio::test]
-async fn plugin_install_rejects_remote_plugin_disabled_by_admin_before_download() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    let bundle_url = mount_remote_plugin_bundle(
-        &server,
-        /*status_code*/ 200,
-        remote_plugin_bundle_tar_gz_bytes("linear")?,
-    )
-    .await;
-    configure_remote_plugin_test(codex_home.path(), &server)?;
-    mount_remote_plugin_detail_with_status(
-        &server,
-        REMOTE_PLUGIN_ID,
-        "1.2.3",
-        Some(&bundle_url),
-        PluginAvailability::DisabledByAdmin,
-    )
-    .await;
-    mount_backend_analytics_events(&server).await;
 
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .with_env_overrides(&[(TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS, Some("1"))])
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let request_id = send_remote_plugin_install_request(&mut mcp, REMOTE_PLUGIN_ID).await?;
-    let err = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_error_message(RequestId::Integer(request_id)),
-    )
-    .await??;
-
-    assert_eq!(err.error.code, -32600);
-    assert!(err.error.message.contains("disabled by admin"));
-    wait_for_remote_plugin_request_count(
-        &server,
-        "GET",
-        "/bundles/linear.tar.gz",
-        /*expected_count*/ 0,
-    )
-    .await?;
-    wait_for_remote_plugin_request_count(
-        &server,
-        "POST",
-        &format!("/ps/plugins/{REMOTE_PLUGIN_ID}/install"),
-        /*expected_count*/ 0,
-    )
-    .await?;
-    assert!(
-        !codex_home
-            .path()
-            .join("plugins/cache/openai-curated-remote/linear")
-            .exists()
-    );
-    let payload = wait_for_plugin_analytics_payload(&server, "codex_plugin_install_failed").await?;
-    let event_params = &payload["events"][0]["event_params"];
-    assert_eq!(
-        payload["events"][0]["event_type"],
-        "codex_plugin_install_failed"
-    );
-    assert_eq!(event_params["plugin_id"], "linear@openai-curated-remote");
-    assert_eq!(event_params["remote_plugin_id"], REMOTE_PLUGIN_ID);
-    assert_eq!(event_params["error_type"], "remote_plugin_not_available");
-    assert_eq!(event_params["sub_error_type"], "disabled_by_admin");
-    Ok(())
-}
-
-#[tokio::test]
-async fn plugin_install_rejects_remote_plugin_not_available() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    configure_remote_plugin_test(codex_home.path(), &server)?;
-    mount_remote_plugin_detail_with_install_policy(
-        &server,
-        REMOTE_PLUGIN_ID,
-        "1.2.3",
-        /*install_policy*/ "NOT_AVAILABLE",
-    )
-    .await;
-    mount_backend_analytics_events(&server).await;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let request_id = send_remote_plugin_install_request(&mut mcp, REMOTE_PLUGIN_ID).await?;
-    let err = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_error_message(RequestId::Integer(request_id)),
-    )
-    .await??;
-
-    assert_eq!(err.error.code, -32600);
-    assert!(err.error.message.contains("not available for install"));
-    wait_for_remote_plugin_request_count(
-        &server,
-        "POST",
-        &format!("/ps/plugins/{REMOTE_PLUGIN_ID}/install"),
-        /*expected_count*/ 0,
-    )
-    .await?;
-    let payload = wait_for_plugin_analytics_payload(&server, "codex_plugin_install_failed").await?;
-    let event_params = &payload["events"][0]["event_params"];
-    assert_eq!(
-        payload["events"][0]["event_type"],
-        "codex_plugin_install_failed"
-    );
-    assert_eq!(event_params["plugin_id"], "linear@openai-curated-remote");
-    assert_eq!(event_params["remote_plugin_id"], REMOTE_PLUGIN_ID);
-    assert_eq!(event_params["error_type"], "remote_plugin_not_available");
-    assert_eq!(
-        event_params["sub_error_type"],
-        "install_policy_not_available"
-    );
-    Ok(())
-}
 
 #[tokio::test]
 async fn plugin_install_returns_invalid_request_for_missing_marketplace_file() -> Result<()> {
@@ -1111,20 +721,12 @@ async fn plugin_install_failure_tracks_analytics_event() -> Result<()> {
 async fn plugin_install_tracks_remote_plugin_analytics_event() -> Result<()> {
     let codex_home = TempDir::new()?;
     let server = MockServer::start().await;
-    let bundle_url = mount_remote_plugin_bundle(
-        &server,
-        /*status_code*/ 200,
-        remote_plugin_bundle_tar_gz_bytes("linear")?,
-    )
-    .await;
     configure_remote_plugin_test(codex_home.path(), &server)?;
-    mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
     mount_remote_plugin_install(&server, REMOTE_PLUGIN_ID).await;
     mount_backend_analytics_events(&server).await;
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
-        .with_env_overrides(&[(TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS, Some("1"))])
         .build_initialized_with_timeout(DEFAULT_TIMEOUT)
         .await?;
 
@@ -1151,13 +753,13 @@ async fn plugin_install_tracks_remote_plugin_analytics_event() -> Result<()> {
             "events": [{
                 "event_type": "codex_plugin_installed",
                 "event_params": {
-                    "plugin_id": "linear@openai-curated-remote",
+                    "plugin_id": null,
                     "remote_plugin_id": REMOTE_PLUGIN_ID,
-                    "plugin_name": "linear",
-                    "marketplace_name": "openai-curated-remote",
-                    "has_skills": true,
-                    "mcp_server_count": 0,
-                    "connector_ids": [],
+                    "plugin_name": null,
+                    "marketplace_name": null,
+                    "has_skills": null,
+                    "mcp_server_count": null,
+                    "connector_ids": null,
                     "product_client_id": DEFAULT_CLIENT_NAME,
                 }
             }]
@@ -1166,81 +768,6 @@ async fn plugin_install_tracks_remote_plugin_analytics_event() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn plugin_install_preserves_status_when_remote_bundle_error_body_is_too_large() -> Result<()>
-{
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    let bundle_url =
-        mount_remote_plugin_bundle(&server, /*status_code*/ 503, vec![b'x'; 8 * 1024 + 1]).await;
-    configure_remote_plugin_test(codex_home.path(), &server)?;
-    mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
-    mount_remote_plugin_install(&server, REMOTE_PLUGIN_ID).await;
-    mount_backend_analytics_events(&server).await;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .with_env_overrides(&[(TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS, Some("1"))])
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let request_id = send_remote_plugin_install_request(&mut mcp, REMOTE_PLUGIN_ID).await?;
-    let err = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_error_message(RequestId::Integer(request_id)),
-    )
-    .await??;
-
-    assert_eq!(err.error.code, -32603);
-    assert!(err.error.message.contains("failed with status 503"));
-    assert!(
-        err.error
-            .message
-            .contains("[response body truncated after 8192 bytes]")
-    );
-    assert_eq!(
-        err.error
-            .message
-            .bytes()
-            .filter(|byte| *byte == b'x')
-            .count(),
-        8192
-    );
-    assert!(!err.error.message.contains("exceeded maximum size"));
-    wait_for_remote_plugin_request_count(
-        &server,
-        "GET",
-        "/bundles/linear.tar.gz",
-        /*expected_count*/ 1,
-    )
-    .await?;
-    wait_for_remote_plugin_request_count(
-        &server,
-        "POST",
-        &format!("/ps/plugins/{REMOTE_PLUGIN_ID}/install"),
-        /*expected_count*/ 0,
-    )
-    .await?;
-    let payload = wait_for_plugin_analytics_payload(&server, "codex_plugin_install_failed").await?;
-    let event_params = &payload["events"][0]["event_params"];
-    assert_eq!(
-        payload["events"][0]["event_type"],
-        "codex_plugin_install_failed"
-    );
-    assert_eq!(event_params["plugin_id"], "linear@openai-curated-remote");
-    assert_eq!(event_params["remote_plugin_id"], REMOTE_PLUGIN_ID);
-    assert_eq!(event_params["marketplace_name"], "openai-curated-remote");
-    assert_eq!(event_params["source"], "manual");
-    assert_eq!(event_params["error_type"], "remote_bundle_download_status");
-    assert_eq!(event_params["sub_error_type"], "http_5xx");
-    assert!(
-        !codex_home
-            .path()
-            .join("plugins/cache/openai-curated-remote/linear")
-            .exists()
-    );
-    Ok(())
-}
 
 #[tokio::test]
 async fn plugin_install_returns_apps_needing_auth() -> Result<()> {
@@ -1333,7 +860,7 @@ async fn plugin_install_returns_apps_needing_auth() -> Result<()> {
     assert_eq!(
         response,
         PluginInstallResponse {
-            auth_policy: PluginAuthPolicy::OnInstall,
+            auth_policy: Some(PluginAuthPolicy::OnInstall),
             apps_needing_auth: vec![AppSummary {
                 id: "alpha".to_string(),
                 name: "Alpha".to_string(),
@@ -1421,7 +948,7 @@ async fn plugin_install_skips_mcp_oauth_for_chatgpt_dual_surface_plugin() -> Res
     let response: PluginInstallResponse =
         timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
 
-    assert_eq!(response.auth_policy, PluginAuthPolicy::OnInstall);
+    assert_eq!(response.auth_policy, Some(PluginAuthPolicy::OnInstall));
     assert_eq!(oauth_discovery_request_count(&oauth_server).await, 0);
 
     apps_server_handle.abort();
@@ -1694,7 +1221,7 @@ async fn plugin_install_starts_mcp_oauth_with_formerly_disallowed_plugin_app() -
     assert_eq!(
         response,
         PluginInstallResponse {
-            auth_policy: PluginAuthPolicy::OnInstall,
+            auth_policy: Some(PluginAuthPolicy::OnInstall),
             apps_needing_auth: vec![AppSummary {
                 id: "asdk_app_6938a94a61d881918ef32cb999ff937c".to_string(),
                 name: "asdk_app_6938a94a61d881918ef32cb999ff937c".to_string(),
@@ -2095,244 +1622,14 @@ connectors = true
     let response: PluginInstallResponse =
         timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
 
-    assert_eq!(response.auth_policy, PluginAuthPolicy::OnInstall);
+    assert_eq!(response.auth_policy, Some(PluginAuthPolicy::OnInstall));
     assert!(oauth_discovery_request_count(&oauth_server).await > 0);
     Ok(())
 }
 
-#[test_case("", None, true; "legacy activation")]
-#[test_case("[plugins._default]\nenabled = false", None, false; "default disabled")]
-#[test_case("[plugins._default]\nenabled = false\n[plugins.\"linear@openai-curated-remote\"]\nenabled = true", None, true; "explicitly enabled overrides default")]
-#[test_case("", Some("[plugins._default]\nenabled = false"), false; "default disabled during install")]
-#[test_case("", Some("[plugins._default]\nenabled = \"invalid\""), false; "invalid policy during install skips auth")]
-#[tokio::test]
-async fn plugin_install_remote_auth_setup_respects_activation_policy(
-    plugin_config: &str,
-    plugin_config_after_install: Option<&str>,
-    expected_auth: bool,
-) -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    let oauth_server = MockServer::start().await;
-    let bundle_url = mount_remote_plugin_bundle(
-        &server,
-        /*status_code*/ 200,
-        remote_plugin_bundle_tar_gz_bytes_with_mcp_config("linear", &oauth_server.uri())?,
-    )
-    .await;
-    configure_remote_plugin_with_apps_test(codex_home.path(), &server)?;
-    let config_path = codex_home.path().join("config.toml");
-    let original_config = std::fs::read_to_string(&config_path)?;
-    let config_contents = format!("{original_config}\n{plugin_config}\n");
-    std::fs::write(&config_path, &config_contents)?;
-    mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
-    let updated_config = plugin_config_after_install
-        .map(|plugin_config| format!("{original_config}\n{plugin_config}\n"));
-    let expected_config = updated_config.as_ref().unwrap_or(&config_contents).clone();
-    let install_config_path = config_path.clone();
-    Mock::given(method("POST"))
-        .and(path(format!(
-            "/backend-api/ps/plugins/{REMOTE_PLUGIN_ID}/install"
-        )))
-        .and(query_param("includeAppsNeedingAuth", "true"))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(move |_request: &Request| {
-            if let Some(updated_config) = &updated_config {
-                std::fs::write(&install_config_path, updated_config)
-                    .expect("install responder should update config");
-            }
-            ResponseTemplate::new(/*s*/ 200).set_body_json(json!({
-                "id": REMOTE_PLUGIN_ID,
-                "enabled": true,
-                "app_ids_needing_auth": ["alpha"],
-            }))
-        })
-        .mount(&server)
-        .await;
 
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .with_env_overrides(&[(TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS, Some("1"))])
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
 
-    let request_id = send_remote_plugin_install_request(&mut mcp, REMOTE_PLUGIN_ID).await?;
-    let response: PluginInstallResponse =
-        timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
 
-    assert_eq!(
-        response,
-        PluginInstallResponse {
-            auth_policy: PluginAuthPolicy::OnUse,
-            apps_needing_auth: if expected_auth {
-                vec![AppSummary {
-                    id: "alpha".to_string(),
-                    name: "alpha".to_string(),
-                    description: None,
-                    install_url: Some("https://chatgpt.com/apps/alpha/alpha".to_string()),
-                    category: None,
-                }]
-            } else {
-                Vec::new()
-            },
-        }
-    );
-    if expected_auth {
-        assert!(oauth_discovery_request_count(&oauth_server).await > 0);
-    } else {
-        assert!(
-            oauth_server
-                .received_requests()
-                .await
-                .unwrap_or_default()
-                .is_empty()
-        );
-    }
-    wait_for_remote_plugin_request_count(
-        &server,
-        "POST",
-        &format!("/ps/plugins/{REMOTE_PLUGIN_ID}/install"),
-        /*expected_count*/ 1,
-    )
-    .await?;
-    assert!(
-        codex_home
-            .path()
-            .join("plugins/cache/openai-curated-remote/linear/1.2.3/.codex-plugin/plugin.json")
-            .is_file()
-    );
-    assert_eq!(std::fs::read_to_string(config_path)?, expected_config);
-    Ok(())
-}
-
-#[tokio::test]
-async fn plugin_install_skips_remote_mcp_oauth_disabled_by_requirements() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    let oauth_server = MockServer::start().await;
-    let bundle_url = mount_remote_plugin_bundle(
-        &server,
-        /*status_code*/ 200,
-        remote_plugin_bundle_tar_gz_bytes_with_mcp_config("linear", &oauth_server.uri())?,
-    )
-    .await;
-    configure_remote_plugin_with_apps_test(codex_home.path(), &server)?;
-    std::fs::write(
-        codex_home.path().join("requirements.toml"),
-        "[mcp_servers]\n",
-    )?;
-    mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
-    mount_remote_plugin_install_with_apps_needing_auth(&server, REMOTE_PLUGIN_ID, &["alpha"]).await;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .with_env_overrides(&[(TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS, Some("1"))])
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let request_id = send_remote_plugin_install_request(&mut mcp, REMOTE_PLUGIN_ID).await?;
-    let _: PluginInstallResponse =
-        timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
-
-    assert!(
-        oauth_server
-            .received_requests()
-            .await
-            .unwrap_or_default()
-            .is_empty()
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn plugin_install_skips_remote_mcp_oauth_disabled_by_plugin_config() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    let oauth_server = MockServer::start().await;
-    let bundle_url = mount_remote_plugin_bundle(
-        &server,
-        /*status_code*/ 200,
-        remote_plugin_bundle_tar_gz_bytes_with_mcp_config("linear", &oauth_server.uri())?,
-    )
-    .await;
-    configure_remote_plugin_with_apps_test(codex_home.path(), &server)?;
-    let config_path = codex_home.path().join("config.toml");
-    let existing_config = std::fs::read_to_string(&config_path)?;
-    std::fs::write(
-        config_path,
-        format!(
-            "{existing_config}\n[plugins.\"linear@openai-curated-remote\".mcp_servers.sample-mcp]\nenabled = false\n"
-        ),
-    )?;
-    mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
-    mount_remote_plugin_install_with_apps_needing_auth(&server, REMOTE_PLUGIN_ID, &["alpha"]).await;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .with_env_overrides(&[(TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS, Some("1"))])
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let request_id = send_remote_plugin_install_request(&mut mcp, REMOTE_PLUGIN_ID).await?;
-    let _: PluginInstallResponse =
-        timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
-
-    assert!(
-        oauth_server
-            .received_requests()
-            .await
-            .unwrap_or_default()
-            .is_empty()
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn plugin_install_skips_remote_mcp_oauth_for_bundled_same_name_app() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    let oauth_server = MockServer::start().await;
-    let bundle_url = mount_remote_plugin_bundle(
-        &server,
-        /*status_code*/ 200,
-        remote_plugin_bundle_tar_gz_bytes_with_app_and_mcp_config(
-            "linear",
-            r#"{"apps":{"sample-mcp":{"id":"alpha"}}}"#,
-            &oauth_server.uri(),
-        )?,
-    )
-    .await;
-    configure_remote_plugin_with_apps_test(codex_home.path(), &server)?;
-    mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
-    mount_remote_plugin_install_with_apps_needing_auth(&server, REMOTE_PLUGIN_ID, &["alpha"]).await;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .with_env_overrides(&[(TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS, Some("1"))])
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let request_id = send_remote_plugin_install_request(&mut mcp, REMOTE_PLUGIN_ID).await?;
-    let response: PluginInstallResponse =
-        timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
-
-    assert_eq!(
-        response,
-        PluginInstallResponse {
-            auth_policy: PluginAuthPolicy::OnUse,
-            apps_needing_auth: vec![AppSummary {
-                id: "alpha".to_string(),
-                name: "alpha".to_string(),
-                description: None,
-                install_url: Some("https://chatgpt.com/apps/alpha/alpha".to_string()),
-                category: None,
-            }],
-        }
-    );
-    assert_eq!(oauth_discovery_request_count(&oauth_server).await, 0);
-    Ok(())
-}
 
 #[tokio::test]
 async fn plugin_install_includes_formerly_disallowed_apps_needing_auth() -> Result<()> {
@@ -2407,7 +1704,7 @@ async fn plugin_install_includes_formerly_disallowed_apps_needing_auth() -> Resu
     assert_eq!(
         response,
         PluginInstallResponse {
-            auth_policy: PluginAuthPolicy::OnUse,
+            auth_policy: Some(PluginAuthPolicy::OnUse),
             apps_needing_auth: vec![AppSummary {
                 id: "alpha".to_string(),
                 name: "Alpha".to_string(),
@@ -2945,164 +2242,12 @@ connectors = true
     )
 }
 
-async fn mount_remote_plugin_bundle(
-    server: &MockServer,
-    status_code: u16,
-    body: Vec<u8>,
-) -> String {
-    Mock::given(method("GET"))
-        .and(path("/bundles/linear.tar.gz"))
-        .respond_with(
-            ResponseTemplate::new(status_code)
-                .insert_header("content-type", "application/gzip")
-                .set_body_bytes(body),
-        )
-        .mount(server)
-        .await;
-    format!("{}/bundles/linear.tar.gz", server.uri())
-}
 
-async fn mount_remote_plugin_detail(
-    server: &MockServer,
-    remote_plugin_id: &str,
-    release_version: &str,
-    bundle_download_url: Option<&str>,
-) {
-    mount_remote_plugin_detail_with_status(
-        server,
-        remote_plugin_id,
-        release_version,
-        bundle_download_url,
-        PluginAvailability::Available,
-    )
-    .await;
-}
 
-async fn mount_remote_plugin_detail_with_app_manifest(
-    server: &MockServer,
-    remote_plugin_id: &str,
-    release_version: &str,
-    bundle_download_url: Option<&str>,
-    app_manifest: serde_json::Value,
-) {
-    mount_remote_plugin_detail_with_status_and_app_manifest(
-        server,
-        remote_plugin_id,
-        release_version,
-        bundle_download_url,
-        PluginAvailability::Available,
-        Some(app_manifest),
-    )
-    .await;
-}
 
-async fn mount_remote_plugin_detail_with_status(
-    server: &MockServer,
-    remote_plugin_id: &str,
-    release_version: &str,
-    bundle_download_url: Option<&str>,
-    status: PluginAvailability,
-) {
-    mount_remote_plugin_detail_with_status_and_app_manifest(
-        server,
-        remote_plugin_id,
-        release_version,
-        bundle_download_url,
-        status,
-        /*app_manifest*/ None,
-    )
-    .await;
-}
 
-async fn mount_remote_plugin_detail_with_status_and_app_manifest(
-    server: &MockServer,
-    remote_plugin_id: &str,
-    release_version: &str,
-    bundle_download_url: Option<&str>,
-    status: PluginAvailability,
-    app_manifest: Option<serde_json::Value>,
-) {
-    mount_remote_plugin_detail_with_options(
-        server,
-        remote_plugin_id,
-        release_version,
-        bundle_download_url,
-        status,
-        "AVAILABLE",
-        app_manifest,
-    )
-    .await;
-}
 
-async fn mount_remote_plugin_detail_with_install_policy(
-    server: &MockServer,
-    remote_plugin_id: &str,
-    release_version: &str,
-    install_policy: &str,
-) {
-    mount_remote_plugin_detail_with_options(
-        server,
-        remote_plugin_id,
-        release_version,
-        /*bundle_download_url*/ None,
-        PluginAvailability::Available,
-        install_policy,
-        /*app_manifest*/ None,
-    )
-    .await;
-}
 
-async fn mount_remote_plugin_detail_with_options(
-    server: &MockServer,
-    remote_plugin_id: &str,
-    release_version: &str,
-    bundle_download_url: Option<&str>,
-    status: PluginAvailability,
-    install_policy: &str,
-    app_manifest: Option<serde_json::Value>,
-) {
-    let status = match status {
-        PluginAvailability::Available => "ENABLED",
-        PluginAvailability::DisabledByAdmin => "DISABLED_BY_ADMIN",
-    };
-    let bundle_download_url_field = bundle_download_url
-        .map(|url| format!(r#"    "bundle_download_url": "{url}","#))
-        .unwrap_or_default();
-    let app_manifest_field = app_manifest
-        .map(|manifest| format!(r#"    "app_manifest": {manifest},"#))
-        .unwrap_or_default();
-    let detail_body = format!(
-        r#"{{
-  "id": "{remote_plugin_id}",
-  "name": "linear",
-  "scope": "GLOBAL",
-  "installation_policy": "{install_policy}",
-  "authentication_policy": "ON_USE",
-  "status": "{status}",
-  "release": {{
-    "version": "{release_version}",
-{bundle_download_url_field}
-    "display_name": "Linear",
-    "description": "Track work in Linear",
-    "app_ids": [],
-{app_manifest_field}
-    "interface": {{
-      "short_description": "Plan and track work"
-    }},
-    "skills": []
-  }}
-}}"#
-    );
-
-    Mock::given(method("GET"))
-        .and(path(format!("/backend-api/ps/plugins/{remote_plugin_id}")))
-        .and(query_param("includeDownloadUrls", "true"))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(detail_body))
-        .mount(server)
-        .await;
-}
 
 
 async fn mount_remote_plugin_install(server: &MockServer, remote_plugin_id: &str) {
@@ -3141,36 +2286,8 @@ async fn mount_remote_plugin_install_with_apps_needing_auth(
         .await;
 }
 
-#[derive(Debug, Clone)]
-struct CacheManifestExists {
-    manifest_path: std::path::PathBuf,
-}
 
-impl Match for CacheManifestExists {
-    fn matches(&self, _request: &Request) -> bool {
-        self.manifest_path.is_file()
-    }
-}
 
-async fn mount_remote_plugin_install_after_cache_write(
-    server: &MockServer,
-    remote_plugin_id: &str,
-    manifest_path: std::path::PathBuf,
-) {
-    Mock::given(method("POST"))
-        .and(path(format!(
-            "/backend-api/ps/plugins/{remote_plugin_id}/install"
-        )))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .and(CacheManifestExists { manifest_path })
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_string(format!(r#"{{"id":"{remote_plugin_id}","enabled":true}}"#)),
-        )
-        .mount(server)
-        .await;
-}
 
 async fn send_remote_plugin_install_request(
     mcp: &mut TestAppServer,
@@ -3341,101 +2458,4 @@ fn write_plugin_mcp_config(
         ),
     )?;
     Ok(())
-}
-
-fn remote_plugin_bundle_tar_gz_bytes(plugin_name: &str) -> Result<Vec<u8>> {
-    let manifest = format!(r#"{{"name":"{plugin_name}"}}"#);
-    remote_plugin_bundle_tar_gz_bytes_with_contents(&manifest, /*app_manifest*/ None)
-}
-
-fn remote_plugin_bundle_tar_gz_bytes_with_mcp_config(
-    plugin_name: &str,
-    mcp_base_url: &str,
-) -> Result<Vec<u8>> {
-    let manifest = format!(r#"{{"name":"{plugin_name}"}}"#);
-    let mcp_config = format!(
-        r#"{{
-  "mcpServers": {{
-    "sample-mcp": {{
-      "type": "http",
-      "url": "{mcp_base_url}/mcp"
-    }}
-  }}
-}}"#
-    );
-    remote_plugin_bundle_tar_gz_bytes_with_entries(
-        &manifest,
-        /*app_manifest*/ None,
-        Some(mcp_config.as_str()),
-    )
-}
-
-fn remote_plugin_bundle_tar_gz_bytes_with_app_and_mcp_config(
-    plugin_name: &str,
-    app_manifest: &str,
-    mcp_base_url: &str,
-) -> Result<Vec<u8>> {
-    let manifest = format!(r#"{{"name":"{plugin_name}"}}"#);
-    let mcp_config = format!(
-        r#"{{
-  "mcpServers": {{
-    "sample-mcp": {{
-      "type": "http",
-      "url": "{mcp_base_url}/mcp"
-    }}
-  }}
-}}"#
-    );
-    remote_plugin_bundle_tar_gz_bytes_with_entries(
-        &manifest,
-        Some(app_manifest),
-        Some(mcp_config.as_str()),
-    )
-}
-
-fn remote_plugin_bundle_tar_gz_bytes_with_contents(
-    plugin_manifest: &str,
-    app_manifest: Option<&str>,
-) -> Result<Vec<u8>> {
-    remote_plugin_bundle_tar_gz_bytes_with_entries(
-        plugin_manifest,
-        app_manifest,
-        /*mcp_config*/ None,
-    )
-}
-
-fn remote_plugin_bundle_tar_gz_bytes_with_entries(
-    plugin_manifest: &str,
-    app_manifest: Option<&str>,
-    mcp_config: Option<&str>,
-) -> Result<Vec<u8>> {
-    let skill = "---\nname: plan-work\ndescription: Track work in Linear.\n---\n\n# Plan Work\n";
-    let encoder = GzEncoder::new(Vec::new(), Compression::default());
-    let mut tar = tar::Builder::new(encoder);
-    let mut entries = vec![
-        (
-            ".codex-plugin/plugin.json",
-            plugin_manifest.as_bytes(),
-            /*mode*/ 0o644,
-        ),
-        (
-            "skills/plan-work/SKILL.md",
-            skill.as_bytes(),
-            /*mode*/ 0o644,
-        ),
-    ];
-    if let Some(app_manifest) = app_manifest {
-        entries.push((".app.json", app_manifest.as_bytes(), /*mode*/ 0o644));
-    }
-    if let Some(mcp_config) = mcp_config {
-        entries.push((".mcp.json", mcp_config.as_bytes(), /*mode*/ 0o644));
-    }
-    for (path, contents, mode) in entries {
-        let mut header = tar::Header::new_gnu();
-        header.set_size(contents.len() as u64);
-        header.set_mode(mode);
-        header.set_cksum();
-        tar.append_data(&mut header, path, contents)?;
-    }
-    Ok(tar.into_inner()?.finish()?)
 }

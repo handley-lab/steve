@@ -8,8 +8,6 @@ use codex_config::MarketplaceConfigUpdate;
 use codex_config::record_user_marketplace;
 use codex_config::types::AuthCredentialsStoreMode;
 use codex_utils_absolute_path::canonicalize_existing_preserving_symlinks;
-use flate2::Compression;
-use flate2::write::GzEncoder;
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use pretty_assertions::assert_eq;
@@ -1188,31 +1186,10 @@ const REMOTE_ID: &str = "b1234567-89ab-4cde-8f01-234567890abc";
 const MARKETPLACE: &str = "openai-curated-remote";
 const PLUGIN_KEY: &str = "sample@openai-curated-remote";
 
-fn sample_remote_plugin_bundle() -> Result<Vec<u8>> {
-    let mut archive = tar::Builder::new(GzEncoder::new(Vec::new(), Compression::default()));
-    for (path, contents) in [
-        (
-            ".codex-plugin/plugin.json",
-            r#"{"name":"sample","version":"1.2.3"}"#,
-        ),
-        (
-            "skills/sample/SKILL.md",
-            "---\nname: sample\ndescription: Sample remote skill\n---\nSample instructions.\n",
-        ),
-    ] {
-        let mut header = tar::Header::new_gnu();
-        header.set_size(contents.len() as u64);
-        header.set_mode(/*mode*/ 0o644);
-        header.set_cksum();
-        archive.append_data(&mut header, path, contents.as_bytes())?;
-    }
-    Ok(archive.into_inner()?.finish()?)
-}
 
 struct RemoteMarketplaceFixture {
     home: TempDir,
     server: MockServer,
-    plugin: Value,
 }
 
 impl RemoteMarketplaceFixture {
@@ -1233,17 +1210,7 @@ impl RemoteMarketplaceFixture {
                 .chatgpt_account_id("account-123"),
             AuthCredentialsStoreMode::File,
         )?;
-        let plugin = json!({
-            "id": REMOTE_ID, "name": "sample", "scope": "GLOBAL",
-            "installation_policy": "AVAILABLE", "authentication_policy": "ON_USE",
-            "release": {"version": "1.2.3", "display_name": "Sample", "description": "Remote sample",
-                "interface": {}, "bundle_download_url": format!("{}/bundle.tar.gz", server.uri())}
-        });
-        Ok(Self {
-            home,
-            server,
-            plugin,
-        })
+        Ok(Self { home, server })
     }
 
     fn write_local_curated_marketplace(&self) -> Result<Value> {
@@ -1331,33 +1298,11 @@ async fn remote_plugin_listing_replaces_local_curated_catalog() -> Result<()> {
 #[tokio::test]
 async fn remote_plugin_add_list_and_remove() -> Result<()> {
     let fixture = RemoteMarketplaceFixture::new().await?;
-    Mock::given(path(format!("/backend-api/ps/plugins/{REMOTE_ID}")))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&fixture.plugin))
-        .mount(&fixture.server)
-        .await;
-    Mock::given(path("/bundle.tar.gz"))
-        .respond_with(ResponseTemplate::new(200).set_body_bytes(sample_remote_plugin_bundle()?))
-        .expect(1)
-        .mount(&fixture.server)
-        .await;
-    let installed_root = canonicalize_existing_preserving_symlinks(fixture.home.path())?
-        .join("plugins")
-        .join("cache")
-        .join(MARKETPLACE)
-        .join("sample")
-        .join("1.2.3");
-    let manifest = installed_root.join(".codex-plugin/plugin.json");
     Mock::given(method("POST"))
         .and(path(format!("/backend-api/ps/plugins/{REMOTE_ID}/install")))
         .and(query_param("includeAppsNeedingAuth", "true"))
         .and(header("authorization", "Bearer chatgpt-token"))
-        .respond_with(move |_: &wiremock::Request| {
-            assert!(
-                manifest.is_file(),
-                "cache must exist before backend install"
-            );
-            ResponseTemplate::new(200).set_body_json(json!({"id": REMOTE_ID, "enabled": true}))
-        })
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": REMOTE_ID, "enabled": true})))
         .expect(1)
         .mount(&fixture.server)
         .await;
@@ -1377,11 +1322,10 @@ async fn remote_plugin_add_list_and_remove() -> Result<()> {
     assert_eq!(
         serde_json::from_str::<Value>(&added)?,
         json!({
-            "pluginId": PLUGIN_KEY, "name": "sample", "marketplaceName": MARKETPLACE,
-            "version": "1.2.3", "installedPath": installed_root, "authPolicy": "ON_USE"
+            "name": "sample",
+            "marketplaceName": MARKETPLACE,
         })
     );
-    assert!(installed_root.join("skills/sample/SKILL.md").is_file());
     let removed = fixture
         .success(&[
             "-c",
@@ -1398,7 +1342,6 @@ async fn remote_plugin_add_list_and_remove() -> Result<()> {
         serde_json::from_str::<Value>(&removed)?,
         json!({"pluginId": PLUGIN_KEY, "name": "sample", "marketplaceName": MARKETPLACE})
     );
-    assert!(!installed_root.exists());
     let listed = fixture.success(&["plugin", "list", "--json"]).await?;
     assert_eq!(
         serde_json::from_str::<Value>(&listed)?,
@@ -1407,39 +1350,6 @@ async fn remote_plugin_add_list_and_remove() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn remote_plugin_install_checks_policy_and_bundle_before_mutation() -> Result<()> {
-    let fixture = RemoteMarketplaceFixture::new().await?;
-    for (field, value, error) in [
-        ("status", "DISABLED_BY_ADMIN", "disabled by admin"),
-        (
-            "installation_policy",
-            "NOT_AVAILABLE",
-            "not available for install",
-        ),
-        ("status", "ENABLED", "failed to read plugin bundle tar"),
-    ] {
-        let mut plugin = fixture.plugin.clone();
-        plugin[field] = json!(value);
-        let _detail = Mock::given(path(format!("/backend-api/ps/plugins/{REMOTE_ID}")))
-            .respond_with(ResponseTemplate::new(200).set_body_json(plugin))
-            .mount_as_scoped(&fixture.server)
-            .await;
-        let _bundle = Mock::given(path("/bundle.tar.gz"))
-            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"bad gzip"))
-            .mount_as_scoped(&fixture.server)
-            .await;
-        let output = fixture
-            .run(&["plugin", "add", "sample", "-m", MARKETPLACE])
-            .await?;
-        assert!(!output.status.success());
-        let stderr = String::from_utf8(output.stderr)?;
-        assert!(stderr.contains(error), "{stderr}");
-    }
-    let requests = fixture.server.received_requests().await.unwrap();
-    assert!(requests.iter().all(|request| request.method != "POST"));
-    Ok(())
-}
 
 #[tokio::test]
 async fn remote_plugin_listing_uses_collection_when_remote_catalog_is_disabled() -> Result<()> {

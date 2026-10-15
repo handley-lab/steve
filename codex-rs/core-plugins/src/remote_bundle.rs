@@ -271,7 +271,7 @@ pub async fn download_and_install_remote_plugin_bundle(
     })?
 }
 
-pub(crate) async fn download_and_extract_remote_plugin_bundle_to_path(
+pub async fn download_and_extract_remote_plugin_bundle_to_path(
     config: &RemotePluginServiceConfig,
     bundle: ValidatedRemotePluginBundle,
     destination: AbsolutePathBuf,

@@ -176,14 +176,28 @@ pub async fn run_plugin_add(
                 &context.plugins_input,
                 context.auth.as_ref(),
                 RemotePluginInstallRequest {
-                    marketplace_name: selection.marketplace_name,
+                    marketplace_name: selection.marketplace_name.clone(),
                     remote_plugin_id: plugin.remote_plugin_id,
                     install_attempt_id: None,
                 },
                 /*on_effective_plugins_changed*/ None,
             )
-            .await?
-            .installed
+            .await?;
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&JsonRemotePluginAddOutput {
+                    name: selection.plugin_name,
+                    marketplace_name: selection.marketplace_name,
+                })?
+            );
+            return Ok(());
+        }
+        println!(
+            "Added plugin `{}` from marketplace `{}`.",
+            selection.plugin_name, selection.marketplace_name
+        );
+        return Ok(());
     } else {
         let marketplace = find_marketplace_for_plugin(
             &context.manager,
@@ -217,6 +231,13 @@ pub async fn run_plugin_add(
     println!("Installed plugin root: {}", output.installed_path);
 
     Ok(())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JsonRemotePluginAddOutput {
+    name: String,
+    marketplace_name: String,
 }
 
 #[derive(Debug, Serialize)]

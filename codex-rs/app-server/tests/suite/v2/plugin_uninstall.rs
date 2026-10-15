@@ -181,8 +181,6 @@ async fn plugin_uninstall_writes_remote_plugin_to_cloud_when_remote_plugin_enabl
         AuthCredentialsStoreMode::File,
     )?;
 
-    mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.0.0", "GLOBAL").await;
-
     Mock::given(method("POST"))
         .and(path(format!(
             "/backend-api/ps/plugins/{REMOTE_PLUGIN_ID}/uninstall"
@@ -201,32 +199,10 @@ async fn plugin_uninstall_writes_remote_plugin_to_cloud_when_remote_plugin_enabl
         .mount(&server)
         .await;
 
-    let remote_plugin_cache_root = codex_home
-        .path()
-        .join("plugins/cache/openai-curated-remote/linear");
-    std::fs::create_dir_all(remote_plugin_cache_root.join("1.0.0/.codex-plugin"))?;
-    std::fs::write(
-        remote_plugin_cache_root.join("1.0.0/.codex-plugin/plugin.json"),
-        r#"{"name":"linear","version":"1.0.0"}"#,
-    )?;
-    std::fs::create_dir_all(remote_plugin_cache_root.join("1.0.0/skills/plan-work"))?;
-    std::fs::write(
-        remote_plugin_cache_root.join("1.0.0/skills/plan-work/SKILL.md"),
-        "---\nname: plan-work\ndescription: Plan work\n---\n",
-    )?;
-    let legacy_remote_plugin_cache_root = codex_home.path().join(format!(
-        "plugins/cache/openai-curated-remote/{REMOTE_PLUGIN_ID}"
-    ));
-    std::fs::create_dir_all(legacy_remote_plugin_cache_root.join("local/.codex-plugin"))?;
-
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .build_initialized_with_timeout(DEFAULT_TIMEOUT)
         .await?;
-
-    // Simulate a background remote-cache refresh removing the local bundle
-    // before the uninstall request captures its telemetry metadata.
-    std::fs::remove_dir_all(remote_plugin_cache_root.join("1.0.0"))?;
 
     let response = uninstall_plugin(&mut mcp, REMOTE_PLUGIN_ID).await?;
 
@@ -238,8 +214,6 @@ async fn plugin_uninstall_writes_remote_plugin_to_cloud_when_remote_plugin_enabl
         /*expected_count*/ 1,
     )
     .await?;
-    assert!(!remote_plugin_cache_root.exists());
-    assert!(!legacy_remote_plugin_cache_root.exists());
     let payload = wait_for_plugin_analytics_payload(&server).await?;
     assert_eq!(
         payload,
@@ -247,13 +221,13 @@ async fn plugin_uninstall_writes_remote_plugin_to_cloud_when_remote_plugin_enabl
             "events": [{
                 "event_type": "codex_plugin_uninstalled",
                 "event_params": {
-                    "plugin_id": "linear@openai-curated-remote",
+                    "plugin_id": null,
                     "remote_plugin_id": REMOTE_PLUGIN_ID,
-                    "plugin_name": "linear",
-                    "marketplace_name": "openai-curated-remote",
-                    "has_skills": true,
-                    "mcp_server_count": 0,
-                    "connector_ids": [],
+                    "plugin_name": null,
+                    "marketplace_name": null,
+                    "has_skills": null,
+                    "mcp_server_count": null,
+                    "connector_ids": null,
                     "product_client_id": DEFAULT_CLIENT_NAME,
                 }
             }]
@@ -262,69 +236,6 @@ async fn plugin_uninstall_writes_remote_plugin_to_cloud_when_remote_plugin_enabl
     Ok(())
 }
 
-#[tokio::test]
-async fn plugin_uninstall_uses_detail_scope_for_cache_namespace() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    write_remote_plugin_catalog_config(
-        codex_home.path(),
-        &format!("{}/backend-api/", server.uri()),
-    )?;
-    write_chatgpt_auth(
-        codex_home.path(),
-        ChatGptAuthFixture::new("chatgpt-token")
-            .account_id("account-123")
-            .chatgpt_user_id("user-123")
-            .chatgpt_account_id("account-123"),
-        AuthCredentialsStoreMode::File,
-    )?;
-    mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.0.0", "WORKSPACE").await;
-
-    Mock::given(method("POST"))
-        .and(path(format!(
-            "/backend-api/ps/plugins/{REMOTE_PLUGIN_ID}/uninstall"
-        )))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_string(format!(r#"{{"id":"{REMOTE_PLUGIN_ID}","enabled":false}}"#)),
-        )
-        .mount(&server)
-        .await;
-
-    let workspace_cache_root = codex_home
-        .path()
-        .join("plugins/cache/workspace-directory/linear");
-    std::fs::create_dir_all(workspace_cache_root.join("1.0.0/.codex-plugin"))?;
-    std::fs::write(
-        workspace_cache_root.join("1.0.0/.codex-plugin/plugin.json"),
-        r#"{"name":"linear","version":"1.0.0"}"#,
-    )?;
-    let global_cache_root = codex_home
-        .path()
-        .join("plugins/cache/openai-curated-remote/linear");
-    std::fs::create_dir_all(global_cache_root.join("1.0.0/.codex-plugin"))?;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let response = uninstall_plugin(&mut mcp, REMOTE_PLUGIN_ID).await?;
-
-    assert_eq!(response, PluginUninstallResponse {});
-    wait_for_remote_plugin_request_count(
-        &server,
-        "POST",
-        &format!("/ps/plugins/{REMOTE_PLUGIN_ID}/uninstall"),
-        /*expected_count*/ 1,
-    )
-    .await?;
-    assert!(!workspace_cache_root.exists());
-    assert!(global_cache_root.exists());
-    Ok(())
-}
 
 #[tokio::test]
 async fn plugin_uninstall_accepts_workspace_remote_plugin_id_shape() -> Result<()> {
@@ -342,15 +253,6 @@ async fn plugin_uninstall_accepts_workspace_remote_plugin_id_shape() -> Result<(
             .chatgpt_account_id("account-123"),
         AuthCredentialsStoreMode::File,
     )?;
-    mount_remote_plugin_detail_with_name(
-        &server,
-        WORKSPACE_REMOTE_PLUGIN_ID,
-        "skill-improver",
-        "1.0.0",
-        "WORKSPACE",
-    )
-    .await;
-
     Mock::given(method("POST"))
         .and(path(format!(
             "/backend-api/ps/plugins/{WORKSPACE_REMOTE_PLUGIN_ID}/uninstall"
@@ -362,15 +264,6 @@ async fn plugin_uninstall_accepts_workspace_remote_plugin_id_shape() -> Result<(
         )))
         .mount(&server)
         .await;
-
-    let remote_plugin_cache_root = codex_home
-        .path()
-        .join("plugins/cache/workspace-directory/skill-improver");
-    std::fs::create_dir_all(remote_plugin_cache_root.join("1.0.0/.codex-plugin"))?;
-    std::fs::write(
-        remote_plugin_cache_root.join("1.0.0/.codex-plugin/plugin.json"),
-        r#"{"name":"skill-improver","version":"1.0.0"}"#,
-    )?;
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
@@ -387,67 +280,9 @@ async fn plugin_uninstall_accepts_workspace_remote_plugin_id_shape() -> Result<(
         /*expected_count*/ 1,
     )
     .await?;
-    assert!(!remote_plugin_cache_root.exists());
     Ok(())
 }
 
-#[tokio::test]
-async fn plugin_uninstall_rejects_before_post_when_remote_detail_fetch_fails() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    write_remote_plugin_catalog_config(
-        codex_home.path(),
-        &format!("{}/backend-api/", server.uri()),
-    )?;
-    write_chatgpt_auth(
-        codex_home.path(),
-        ChatGptAuthFixture::new("chatgpt-token")
-            .account_id("account-123")
-            .chatgpt_user_id("user-123")
-            .chatgpt_account_id("account-123"),
-        AuthCredentialsStoreMode::File,
-    )?;
-
-    let legacy_remote_plugin_cache_root = codex_home.path().join(format!(
-        "plugins/cache/openai-curated-remote/{REMOTE_PLUGIN_ID}"
-    ));
-    std::fs::create_dir_all(legacy_remote_plugin_cache_root.join("local/.codex-plugin"))?;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let request_id = mcp
-        .send_plugin_uninstall_request(PluginUninstallParams {
-            plugin_id: REMOTE_PLUGIN_ID.to_string(),
-        })
-        .await?;
-    let err = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_error_message(RequestId::Integer(request_id)),
-    )
-    .await??;
-
-    assert_eq!(err.error.code, -32600);
-    assert!(err.error.message.contains("remote plugin catalog request"));
-    wait_for_remote_plugin_request_count(
-        &server,
-        "GET",
-        &format!("/ps/plugins/{REMOTE_PLUGIN_ID}"),
-        /*expected_count*/ 1,
-    )
-    .await?;
-    wait_for_remote_plugin_request_count(
-        &server,
-        "POST",
-        &format!("/ps/plugins/{REMOTE_PLUGIN_ID}/uninstall"),
-        /*expected_count*/ 0,
-    )
-    .await?;
-    assert!(legacy_remote_plugin_cache_root.exists());
-    Ok(())
-}
 
 #[tokio::test]
 async fn plugin_uninstall_rejects_remote_plugin_id_with_spaces_before_network_call() -> Result<()> {
@@ -601,67 +436,7 @@ plugins = true
     )
 }
 
-async fn mount_remote_plugin_detail(
-    server: &MockServer,
-    remote_plugin_id: &str,
-    release_version: &str,
-    scope: &str,
-) {
-    mount_remote_plugin_detail_with_name(
-        server,
-        remote_plugin_id,
-        "linear",
-        release_version,
-        scope,
-    )
-    .await;
-}
 
-async fn mount_remote_plugin_detail_with_name(
-    server: &MockServer,
-    remote_plugin_id: &str,
-    plugin_name: &str,
-    release_version: &str,
-    scope: &str,
-) {
-    let discoverability = if scope == "WORKSPACE" {
-        r#"
-  "discoverability": "LISTED","#
-    } else {
-        ""
-    };
-    let detail_body = format!(
-        r#"{{
-  "id": "{remote_plugin_id}",
-  "name": "{plugin_name}",
-  "scope": "{scope}",{discoverability}
-  "installation_policy": "AVAILABLE",
-  "authentication_policy": "ON_USE",
-  "release": {{
-    "version": "{release_version}",
-    "display_name": "Linear",
-    "description": "Track work in Linear",
-    "app_ids": [],
-    "interface": {{
-      "short_description": "Plan and track work"
-    }},
-    "skills": [{{
-      "name": "plan-work",
-      "description": "Plan work",
-      "interface": null
-    }}]
-  }}
-}}"#
-    );
-
-    Mock::given(method("GET"))
-        .and(path(format!("/backend-api/ps/plugins/{remote_plugin_id}")))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(detail_body))
-        .mount(server)
-        .await;
-}
 
 async fn wait_for_plugin_analytics_payload(server: &MockServer) -> Result<serde_json::Value> {
     timeout(DEFAULT_TIMEOUT, async {

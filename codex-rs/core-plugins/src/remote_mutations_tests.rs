@@ -43,13 +43,6 @@ async fn uninstall_serializes_backend_mutations_and_preserves_cache_on_failure()
             cache.join("1.0.0/.codex-plugin/plugin.json").as_path(),
             r#"{"name":"sample","version":"1.0.0"}"#,
         );
-        Mock::given(method("GET"))
-            .and(path(format!("/backend-api/ps/plugins/{remote_id}")))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "id": remote_id, "name": "sample", "scope": "GLOBAL",
-                "installation_policy": "AVAILABLE", "authentication_policy": "ON_USE",
-                "release": {"display_name": "Sample", "description": "Sample plugin", "interface": {}}
-            }))).mount(&server).await;
         let gate_held = Arc::new(AtomicBool::new(false));
         let gate_held_at_post = Arc::clone(&gate_held);
         let manager_at_post = Arc::clone(&manager);
@@ -88,7 +81,7 @@ async fn uninstall_serializes_backend_mutations_and_preserves_cache_on_failure()
                 cache.as_path().exists(),
                 outcome.is_err()
             ),
-            (true, 1, uninstall_fails, uninstall_fails),
+            (true, 1, true, uninstall_fails),
         );
     }
 }
