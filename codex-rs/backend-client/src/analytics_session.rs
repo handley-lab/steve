@@ -1,5 +1,4 @@
-//! Local analytics authentication, server plan discovery, and account/user identity checks.
-//! Each new session fetches its plan once; token plan claims do not select reports.
+//! Local analytics authentication and account/user identity checks.
 
 use crate::Client;
 use crate::RequestError;
@@ -18,7 +17,7 @@ pub struct AnalyticsAccount {
     pub plan_type: Option<PlanType>,
 }
 
-/// A backend client bound to its initial ChatGPT account and user, with a server plan snapshot.
+/// A backend client bound to its initial ChatGPT account and user.
 pub struct AnalyticsSession {
     client: Client,
     auth_manager: Arc<AuthManager>,
@@ -27,7 +26,7 @@ pub struct AnalyticsSession {
 }
 
 impl AnalyticsSession {
-    /// Load local ChatGPT credentials and the current server plan using the configured HTTP policy.
+    /// Load local ChatGPT credentials using the configured HTTP policy.
     pub async fn from_config(
         config: &impl AuthManagerConfig,
         http_client_factory: HttpClientFactory,
@@ -56,32 +55,13 @@ impl AnalyticsSession {
                 Arc::clone(&auth_manager),
                 &auth,
             ));
-        let mut session = Self {
+        let session = Self {
             client,
             auth_manager,
             auth,
             account,
         };
-        let accounts = session
-            .request(|client| async move { client.get_accounts_check().await })
-            .await;
-        // Preserve account-switch guidance even when it interrupts account discovery.
         session.ensure_identity().await?;
-        let accounts = accounts.map_err(|error| {
-            if error.is_unauthorized() {
-                "Sign in again to load Analytics."
-            } else {
-                "Couldn't load account plan. Press R to retry Analytics."
-            }
-        })?;
-        session.account.plan_type = Some(
-            accounts
-                .accounts
-                .into_iter()
-                .find(|account| account.id == session.account.id)
-                .and_then(|account| account.plan_type)
-                .ok_or("Couldn't load account plan. Press R to retry Analytics.")?,
-        );
         Ok(session)
     }
 

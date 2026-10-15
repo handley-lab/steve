@@ -54,15 +54,6 @@ pub(in crate::analytics) async fn live(
     config.chatgpt_base_url = format!("{}/backend-api", server.uri());
     config.cli_auth_credentials_store_mode = codex_login::AuthCredentialsStoreMode::File;
     sign_in(home.path(), "account-a", "user-a", plan);
-    Mock::given(method("GET"))
-        .and(path("/backend-api/wham/accounts/check"))
-        .respond_with(ResponseTemplate::new(/*s*/ 200).set_body_json(json!({
-            "accounts": [{"id": "account-a", "plan_type": plan}],
-            "account_ordering": ["account-a"]
-        })))
-        .with_priority(/*p*/ 2)
-        .mount(server)
-        .await;
     (
         home,
         Live::new(Arc::new(config), "2026-01-15".parse().unwrap()),
@@ -70,13 +61,7 @@ pub(in crate::analytics) async fn live(
 }
 
 async fn report_requests(server: &MockServer) -> Vec<wiremock::Request> {
-    server
-        .received_requests()
-        .await
-        .unwrap()
-        .into_iter()
-        .filter(|request| request.url.path() != "/backend-api/wham/accounts/check")
-        .collect()
+    server.received_requests().await.unwrap()
 }
 
 #[tokio::test]

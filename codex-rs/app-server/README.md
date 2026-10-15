@@ -476,22 +476,7 @@ use the saved grant.
 
 # Selected workspace routing
 
-The experimental `account/read.workspaceRouting` response field returns the selected ChatGPT workspace's `chatgptAccountId`, resolved HTTPS `backendOrigin`, and backend-provided `accountRoutingOverride`. The routing value is `us`, `us_cr`, or the explicit `NO_CONSTRAINT` value. API-only and signed-out accounts return `null` and do not need `accounts/check`.
-
-App-server discovers routing for saved ChatGPT logins at startup and for new logins or workspace switches. After requirements and routing are ready, it sends the existing `account/updated` notification. Newly initialized connections also receive this notification once saved-workspace routing is ready, including when discovery finished before the connection initialized. Clients then reread `configRequirements/read` and `account/read`. Saved ChatGPT credentials without a selected workspace ID retain their account information and return `workspaceRouting: null`; app-server does not guess a workspace from the backend's default account. Discovery failures for a selected workspace, including missing or null fields from older backends, return an `account/read` error. They never produce a successful unrestricted result. A later read retries failed discovery. Logout clears the cached routing, and results from earlier authentication owners are discarded. Token refreshes for the same known user and workspace invalidate cached routing without cancelling discovery or failing sign-in. Configuration is reloaded after discovery; a changed backend, model provider, or required backend rejects the result so the next read discovers against current configuration. Account notifications recheck the auth owner generation after waiting for outbound queue capacity. Superseded sign-in attempts emit a failed `account/login/completed` event instead of silently dropping completion. Notifications remain snapshots: clients reread current account and requirements state rather than treating a queued notification as authorization.
-
-Routing compares origins by scheme, host, and effective port, ignoring API paths. A required
-`chatgpt_base_url` must match discovery; if neither provides an origin, `NO_CONSTRAINT` uses the
-configured base URL.
-
-Responses HTTP (including compaction) and WebSockets wait for discovery and preserve API paths.
-Guardian v2 classifier HTTP and pooled WebSockets use the same routing.
-HTTP redirects are rejected. `us` and `us_cr` set `X-OpenAI-Account-Routing-Override`;
-`NO_CONSTRAINT` omits it.
-
-API-key and explicitly external-auth providers bypass discovery. Custom ChatGPT-auth destinations
-require discovery before being treated as independent. Changing a workspace-bound thread's
-bootstrap origin requires a new thread.
+`account/read` returns `workspaceRouting: null`. Steve does not GET `/wham/accounts/check` or `/api/codex/accounts/check`. Local account reads stay. An explicit configured base URL stays in use.
 
 ## Windows sandbox implementation selection
 

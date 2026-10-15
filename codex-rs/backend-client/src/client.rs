@@ -1,4 +1,3 @@
-use crate::types::AccountsCheckResponse;
 use crate::types::CodeTaskDetailsResponse;
 use crate::types::CodexUserSettingsResponse;
 use crate::types::CodexWorkspaceMessagesResponse;
@@ -9,10 +8,8 @@ use anyhow::Result;
 use codex_api::SharedAuthProvider;
 use codex_http_client::ClientRouteClass;
 use codex_http_client::HttpClientFactory;
-use codex_http_client::OutboundProxyPolicy;
 use codex_http_client::RequestBuilder;
 use codex_http_client::RouteAwareClientPool;
-use codex_http_client::RouteAwareRequestError;
 use codex_login::CodexAuth;
 use codex_login::default_client::get_codex_user_agent;
 use http::Method;
@@ -26,7 +23,6 @@ use http::header::USER_AGENT;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::fmt;
-use std::time::Duration;
 
 pub(crate) mod analytics;
 mod chatgpt_turn_cost;
@@ -331,41 +327,6 @@ impl Client {
         Ok((body, content_type))
     }
 
-    async fn exec_bootstrap_get(
-        &self,
-        url: &str,
-    ) -> std::result::Result<(String, String), RequestError> {
-        let request = self.request(Method::GET, url).headers(self.headers());
-        if !self.http.allows_system_proxy_fallback() {
-            return self.exec_request_detailed(request, "GET", url).await;
-        }
-
-        // Bound the complete GET, including its body, to leave time for proxy discovery and retry
-        // within the cloud loader's startup budget. GETs are safe to retry after a response timeout.
-        match tokio::time::timeout(
-            Duration::from_secs(5),
-            self.exec_request_detailed(request, "GET", url),
-        )
-        .await
-        {
-            Ok(Err(RequestError::Other(error)))
-                if error
-                    .downcast_ref::<RouteAwareRequestError>()
-                    .is_some_and(|error| {
-                        error.is_connect() || error.is_timeout() || error.is_request()
-                    }) => {}
-            Err(_) => {}
-            Ok(response) => return response,
-        }
-
-        let http = self
-            .http
-            .clone()
-            .with_outbound_proxy_policy(OutboundProxyPolicy::RespectSystemProxy);
-        let request = http.get(url).headers(self.headers());
-        self.exec_request_detailed(request, "GET", url).await
-    }
-
     fn decode_json<T: DeserializeOwned>(&self, url: &str, ct: &str, body: &str) -> Result<T> {
         match serde_json::from_str::<T>(body) {
             Ok(v) => Ok(v),
@@ -375,18 +336,6 @@ impl Client {
         }
     }
 
-
-    pub async fn get_accounts_check(
-        &self,
-    ) -> std::result::Result<AccountsCheckResponse, RequestError> {
-        let url = match self.path_style {
-            PathStyle::CodexApi => format!("{}/api/codex/accounts/check", self.base_url),
-            PathStyle::ChatGptApi => format!("{}/wham/accounts/check", self.base_url),
-        };
-        let (body, _) = self.exec_bootstrap_get(&url).await?;
-        serde_json::from_str(&body)
-            .map_err(|_| RequestError::Other(anyhow::anyhow!("Invalid accounts response.")))
-    }
 
     pub async fn get_token_usage_profile(&self) -> Result<TokenUsageProfile> {
         let url = self.token_usage_profile_url();

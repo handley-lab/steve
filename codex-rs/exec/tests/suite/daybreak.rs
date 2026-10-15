@@ -143,14 +143,6 @@ async fn configured_daybreak_exec() -> anyhow::Result<(TestCodexExecBuilder, wir
         })))
         .mount(&server)
         .await;
-    wiremock::Mock::given(wiremock::matchers::method("GET"))
-        .and(wiremock::matchers::path("/backend-api/wham/accounts/check"))
-        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
-            "accounts": [{"id": "workspace", "workspace_backend_origin": "https://chatgpt.com",
-                "account_routing_override": "NO_CONSTRAINT"}]
-        })))
-        .mount(&server)
-        .await;
     Ok((test, server))
 }
 

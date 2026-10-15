@@ -1,7 +1,6 @@
 //! Exercise local Analytics plan discovery and report recovery while connected to an app-server.
 
 use super::tests::live;
-use super::tests::sign_in;
 use codex_app_server_client::AppServerRequestHandle;
 use codex_app_server_client::RemoteAppServerClient;
 use codex_app_server_client::RemoteAppServerConnectArgs;
@@ -129,128 +128,6 @@ async fn local_reports_share_an_account_and_recover_profile_errors() {
             request.headers.get("chatgpt-account-id").unwrap(),
             "account-a"
         );
-    }
-    Mock::given(method("GET"))
-        .and(wiremock::matchers::path("/backend-api/wham/accounts/check"))
-        .and(header("chatgpt-account-id", "account-b"))
-        .respond_with(ResponseTemplate::new(/*s*/ 200).set_body_json(json!({
-            "accounts": [{"id": "account-b", "plan_type": "enterprise"}]
-        })))
-        .with_priority(/*p*/ 1)
-        .expect(/*r*/ 1)
-        .mount(&http)
-        .await;
-    sign_in(home.path(), "account-b", "user-b", "enterprise");
-    assert!(
-        view.live
-            .as_ref()
-            .unwrap()
-            .history(
-                super::Report::Usage,
-                /*days*/ 7,
-                super::Grouping::Surface
-            )
-            .await
-            .is_err()
-    );
-    view.poll_reports();
-    assert!(matches!(view.account, Load::Loading(_)));
-    assert!(matches!(view.profile, Load::Unavailable));
-    assert!(
-        view.sections
-            .0
-            .iter()
-            .all(|section| matches!(section.history, Load::Unavailable))
-    );
-    crate::analytics::test_support::settle(&mut view).await;
-    assert_eq!(
-        view.account.ready(),
-        Some(&codex_protocol::account::PlanType::Enterprise)
-    );
-    for section in view.visible_sections() {
-        if section.report().is_some() {
-            assert!(view.sections[*section].history.ready().is_some());
-        }
-    }
-    http.verify().await;
-    view.cancel_loads();
-    client.shutdown().await.unwrap();
-    server.await.unwrap();
-}
-
-#[tokio::test]
-async fn account_lookup_failure_recovers_on_refresh_with_the_server_plan() {
-    use crate::analytics::AnalyticsView;
-    use crate::analytics::data::Load;
-    use crate::analytics::sections::Section;
-
-    let http = crate::analytics::test_support::server().await;
-    let (_home, local) = live(&http, "plus").await;
-    let (client, server) = remote().await;
-    Mock::given(method("GET"))
-        .and(wiremock::matchers::path("/backend-api/wham/accounts/check"))
-        .respond_with(ResponseTemplate::new(/*s*/ 503))
-        .with_priority(/*p*/ 1)
-        .expect(/*r*/ 1)
-        .up_to_n_times(/*n*/ 1)
-        .mount(&http)
-        .await;
-    let mut view = AnalyticsView::new(crate::keymap::RuntimeKeymap::defaults().list);
-    view.open(
-        AppServerRequestHandle::Remote(client.request_handle()),
-        crate::tui::FrameRequester::test_dummy(),
-        Vec::new(),
-        std::sync::Arc::clone(&local.config),
-    );
-    crate::analytics::test_support::settle(&mut view).await;
-    assert!(matches!(view.account, Load::Error(_)));
-    assert_eq!(
-        http.received_requests()
-            .await
-            .unwrap()
-            .iter()
-            .map(|request| request.url.path())
-            .collect::<Vec<_>>(),
-        ["/backend-api/wham/accounts/check"]
-    );
-    Mock::given(method("GET"))
-        .and(wiremock::matchers::path("/backend-api/wham/accounts/check"))
-        .and(header("chatgpt-account-id", "account-a"))
-        .respond_with(ResponseTemplate::new(/*s*/ 200).set_body_json(json!({
-            "accounts": [{"id": "account-a", "plan_type": "enterprise"}]
-        })))
-        .with_priority(/*p*/ 1)
-        .expect(/*r*/ 1)
-        .mount(&http)
-        .await;
-    Mock::given(method("GET"))
-        .and(wiremock::matchers::path("/backend-api/wham/profiles/me"))
-        .respond_with(ResponseTemplate::new(/*s*/ 200).set_body_json(json!({"stats": {}})))
-        .mount(&http)
-        .await;
-    view.handle_key(crossterm::event::KeyEvent::new(
-        crossterm::event::KeyCode::Char('R'),
-        crossterm::event::KeyModifiers::NONE,
-    ));
-    crate::analytics::test_support::settle(&mut view).await;
-    assert_eq!(
-        view.visible_sections(),
-        &[
-            Section::Summary,
-            Section::Credits,
-            Section::Usage,
-            Section::Plugins,
-            Section::Skills,
-        ]
-    );
-    assert_eq!(
-        view.account.ready(),
-        Some(&codex_protocol::account::PlanType::Enterprise)
-    );
-    for section in view.visible_sections() {
-        if section.report().is_some() {
-            assert!(view.sections[*section].history.ready().is_some());
-        }
     }
     http.verify().await;
     view.cancel_loads();

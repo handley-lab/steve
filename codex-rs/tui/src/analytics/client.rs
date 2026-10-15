@@ -276,7 +276,3 @@ pub(super) mod tests;
 #[cfg(test)]
 #[path = "connection_tests.rs"]
 mod connection_tests;
-
-#[cfg(test)]
-#[path = "account_plan_tests.rs"]
-mod account_plan_tests;

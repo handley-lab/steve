@@ -160,6 +160,12 @@ Steve does not GET `/wham/usage` or `/api/codex/usage`. Longer usage paths,
 including thread usage, turn cost, and plan history, are separate requests.
 Reset-credit list and consume stay on `/wham/rate-limit-reset-credits`.
 
+## Accounts check
+
+Steve does not GET `/wham/accounts/check` or `/api/codex/accounts/check`.
+Account reads still return the local account. An explicit configured base URL
+stays in use.
+
 ## Cloud-task submission
 
 Cloud-task initialization does not default to

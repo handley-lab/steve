@@ -5,7 +5,6 @@ use anyhow::Result;
 use app_test_support::ChatGptIdTokenClaims;
 use app_test_support::MockResponsesConfig;
 use app_test_support::encode_id_token;
-use app_test_support::mount_workspace_routing;
 use codex_app_server::in_process;
 use codex_app_server::in_process::InProcessServerEvent;
 use codex_app_server::in_process::InProcessStartArgs;
@@ -152,11 +151,9 @@ async fn browser_login_bootstraps_through_system_proxy() -> Result<()> {
         .respond_with(ResponseTemplate::new(200).set_body_json(cloud_config))
         .mount(&proxy)
         .await;
-    mount_workspace_routing(&proxy).await;
     for route in [
         "/oauth/token",
         "/backend-api/wham/config/bundle",
-        "/backend-api/wham/accounts/check",
         "/v1/responses",
     ] {
         cache_system_proxy_route_for_test(&format!("{BLOCKED_ORIGIN}{route}"), proxy.uri());

@@ -210,7 +210,6 @@ async fn account_reports_request_only_eligible_endpoints_and_refresh() {
         let (_home, _app_server, mut view) = client::tests::connected_view(&server, plan).await;
         test_support::settle(&mut view).await;
         let mut expected = [
-            "accounts/check",
             usage,
             activity,
             "analytics/daily-plugin-usage-metrics",
@@ -259,7 +258,7 @@ async fn account_reports_request_only_eligible_endpoints_and_refresh() {
                 .iter()
                 .filter(|request| request.url.path().starts_with("/backend-api/wham/"))
                 .count(),
-            12
+            10
         );
         view.cancel_loads();
     }
@@ -410,13 +409,7 @@ async fn unknown_plan_keeps_summary_available_without_billing_reports() {
         .filter(|request| request.url.path().starts_with("/backend-api/wham/"))
         .map(|request| request.url.path().to_owned())
         .collect::<Vec<_>>();
-    assert_eq!(
-        paths,
-        [
-            "/backend-api/wham/accounts/check",
-            "/backend-api/wham/profiles/me"
-        ]
-    );
+    assert_eq!(paths, ["/backend-api/wham/profiles/me"]);
 }
 
 #[test]
