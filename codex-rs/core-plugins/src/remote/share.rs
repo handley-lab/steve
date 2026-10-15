@@ -219,12 +219,6 @@ pub async fn list_remote_plugin_shares(
         return Ok(Vec::new());
     }
 
-    let installed_by_id =
-        fetch_installed_plugins_for_scope(config, auth, RemotePluginScope::Workspace)
-            .await?
-            .into_iter()
-            .map(|plugin| (plugin.plugin.id.clone(), plugin))
-            .collect::<BTreeMap<_, _>>();
     let local_plugin_paths =
         local_paths::load_plugin_share_local_paths(codex_home).map_err(|err| {
             RemotePluginCatalogError::UnexpectedResponse(format!(
@@ -235,7 +229,7 @@ pub async fn list_remote_plugin_shares(
     created_plugins
         .into_iter()
         .map(|plugin| {
-            let summary = build_remote_plugin_summary(&plugin, installed_by_id.get(&plugin.id))?;
+            let summary = build_remote_plugin_summary(&plugin, None)?;
             if summary
                 .share_context
                 .as_ref()

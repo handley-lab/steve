@@ -3,9 +3,11 @@
 //! Display metadata (including image URLs and store capability badges) is excluded. Callers must
 //! still publish the unmodified payload so display consumers receive fresh metadata.
 
+#[cfg(test)]
 use crate::remote::RemoteInstalledPlugin;
 use crate::remote::RemoteMarketplace;
 
+#[cfg(test)]
 pub(crate) fn installed_plugin_metadata_eq(
     previous: &[RemoteInstalledPlugin],
     current: &[RemoteInstalledPlugin],

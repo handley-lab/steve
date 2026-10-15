@@ -128,16 +128,6 @@ fn remote_plugin_json_with_share_url_and_principals(
     plugin
 }
 
-fn installed_remote_plugin_json(plugin_id: &str) -> serde_json::Value {
-    let mut plugin = remote_plugin_json(plugin_id);
-    let serde_json::Value::Object(fields) = &mut plugin else {
-        unreachable!("plugin json should be an object");
-    };
-    fields.insert("enabled".to_string(), json!(true));
-    fields.insert("disabled_skill_names".to_string(), json!([]));
-    plugin
-}
-
 fn empty_pagination_json() -> serde_json::Value {
     json!({
         "next_page_token": null
@@ -615,16 +605,6 @@ async fn list_remote_plugin_shares_fetches_created_workspace_plugins() {
         .expect(1)
         .mount(&server)
         .await;
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/installed"))
-        .and(query_param("scope", "WORKSPACE"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "plugins": [installed_remote_plugin_json("plugins_456")],
-            "pagination": empty_pagination_json(),
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
 
     let result = list_remote_plugin_shares(&config, Some(&auth), codex_home.path())
         .await
@@ -685,7 +665,7 @@ async fn list_remote_plugin_shares_fetches_created_workspace_plugins() {
                     id: "demo-plugin@workspace-shared-with-me".to_string(),
                     remote_plugin_id: "plugins_456".to_string(),
                     version: Some("0.1.0".to_string()),
-                    local_version: Some("0.1.0".to_string()),
+                    local_version: None,
                     name: "demo-plugin".to_string(),
                     share_context: Some(RemotePluginShareContext {
                         remote_plugin_id: "plugins_456".to_string(),
@@ -710,9 +690,9 @@ async fn list_remote_plugin_shares_fetches_created_workspace_plugins() {
                         ]),
                         can_publish_to_workspace: None,
                     }),
-                    installed: true,
+                    installed: false,
                     installed_at: None,
-                    enabled: true,
+                    enabled: false,
                     install_policy: PluginInstallPolicy::Available,
                     install_policy_source: None,
                     must_show_installation_interstitial: None,

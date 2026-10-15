@@ -834,12 +834,6 @@ impl PluginRequestProcessor {
             && auth_mode.is_some_and(DomainAuthMode::uses_codex_backend);
         let remote_installed_plugin_visible_marketplaces =
             remote_installed_plugin_visible_marketplaces(&config, use_remote_global_catalog);
-        plugins_manager.maybe_start_remote_installed_plugin_bundle_sync(
-            &context.global_config,
-            auth.clone(),
-            Some(self.effective_plugins_changed_callback()),
-        );
-
         let (mut data, marketplace_load_errors) = self
             .load_local_installed_and_suggested_plugins(
                 plugins_manager.clone(),
@@ -954,39 +948,14 @@ impl PluginRequestProcessor {
         visible_marketplaces: &[&str],
         auth: Option<&CodexAuth>,
     ) -> Vec<PluginMarketplaceEntry> {
+        let _ = (plugins_input, auth);
         let plugin_policy = &plugins_input.plugins;
-        let remote_marketplaces = if let Some(remote_marketplaces) = plugins_manager
+        plugins_manager
             .build_remote_installed_plugin_marketplaces_from_cache(visible_marketplaces)
-        {
-            Ok(remote_marketplaces)
-        } else {
-            plugins_manager
-                .build_and_cache_remote_installed_plugin_marketplaces(
-                    plugins_input,
-                    auth,
-                    visible_marketplaces,
-                    Some(self.effective_plugins_changed_callback()),
-                )
-                .await
-        };
-
-        match remote_marketplaces {
-            Ok(remote_marketplaces) => remote_marketplaces
-                .into_iter()
-                .map(|marketplace| remote_marketplace_to_info(marketplace, plugin_policy))
-                .collect(),
-            Err(
-                RemotePluginCatalogError::AuthRequired
-                | RemotePluginCatalogError::UnsupportedAuthMode,
-            ) => Vec::new(),
-            Err(err) => {
-                warn!(
-                    error = %err,
-                    "plugin/installed remote installed plugin fetch failed; returning local marketplaces only"
-                );
-                Vec::new()
-            }
-        }
+            .unwrap_or_default()
+            .into_iter()
+            .map(|marketplace| remote_marketplace_to_info(marketplace, plugin_policy))
+            .collect()
     }
 
     async fn plugin_read_response(

@@ -191,11 +191,7 @@ impl PluginsManager {
                 source,
             })
         })?;
-        self.maybe_start_remote_installed_plugins_cache_refresh_after_mutation(
-            config,
-            auth.cloned(),
-            on_effective_plugins_changed,
-        );
+        let _ = on_effective_plugins_changed;
         Ok(RemotePluginInstallOutcome {
             installed: PluginInstallOutcome {
                 plugin_id: installed.plugin_id,
@@ -284,11 +280,7 @@ impl PluginsManager {
                 }
             };
         let effective_plugins_changed = self.clear_remote_installed_plugins_cache();
-        self.maybe_start_remote_installed_plugins_cache_refresh_after_mutation(
-            config,
-            auth.cloned(),
-            on_effective_plugins_changed,
-        );
+        let _ = on_effective_plugins_changed;
         Ok(RemotePluginUninstallOutcome {
             telemetry,
             effective_plugins_changed,

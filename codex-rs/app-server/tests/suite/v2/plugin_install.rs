@@ -250,7 +250,6 @@ async fn plugin_install_writes_remote_plugin_to_cloud_and_cache() -> Result<()> 
         remote_app_manifest.clone(),
     )
     .await;
-    mount_empty_remote_installed_plugins(&server).await;
     mount_remote_plugin_install_after_cache_write(
         &server,
         REMOTE_PLUGIN_ID,
@@ -341,7 +340,6 @@ async fn plugin_install_uses_remote_apps_needing_auth_response() -> Result<()> {
         remote_app_manifest,
     )
     .await;
-    mount_empty_remote_installed_plugins(&server).await;
     mount_remote_plugin_install_with_apps_needing_auth(&server, REMOTE_PLUGIN_ID, &["alpha"]).await;
     Mock::given(method("POST"))
         .and(path("/backend-api/ps/apps/batch"))
@@ -412,7 +410,6 @@ async fn plugin_install_rejects_missing_remote_bundle_url() -> Result<()> {
         /*bundle_download_url*/ None,
     )
     .await;
-    mount_empty_remote_installed_plugins(&server).await;
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
@@ -455,7 +452,6 @@ async fn plugin_install_rejects_plain_http_remote_bundle_url() -> Result<()> {
     let bundle_url = format!("{}/bundles/linear.tar.gz", server.uri());
     configure_remote_plugin_test(codex_home.path(), &server)?;
     mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
-    mount_empty_remote_installed_plugins(&server).await;
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
@@ -503,7 +499,6 @@ async fn plugin_install_rejects_invalid_remote_release_version() -> Result<()> {
         Some("https://127.0.0.1:1/bundles/linear.tar.gz"),
     )
     .await;
-    mount_empty_remote_installed_plugins(&server).await;
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
@@ -569,7 +564,6 @@ async fn plugin_install_tracks_analytics_when_remote_detail_fetch_fails() -> Res
     let codex_home = TempDir::new()?;
     let server = MockServer::start().await;
     configure_remote_plugin_test(codex_home.path(), &server)?;
-    mount_empty_remote_installed_plugins(&server).await;
     mount_backend_analytics_events(&server).await;
 
     let mut mcp = TestAppServer::builder()
@@ -618,7 +612,6 @@ async fn plugin_install_tracks_analytics_when_remote_install_is_rate_limited() -
     .await;
     configure_remote_plugin_test(codex_home.path(), &server)?;
     mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
-    mount_empty_remote_installed_plugins(&server).await;
     Mock::given(method("POST"))
         .and(path(format!(
             "/backend-api/ps/plugins/{REMOTE_PLUGIN_ID}/install"
@@ -696,7 +689,6 @@ async fn plugin_install_rejects_remote_plugin_disabled_by_admin_before_download(
         PluginAvailability::DisabledByAdmin,
     )
     .await;
-    mount_empty_remote_installed_plugins(&server).await;
     mount_backend_analytics_events(&server).await;
 
     let mut mcp = TestAppServer::builder()
@@ -759,7 +751,6 @@ async fn plugin_install_rejects_remote_plugin_not_available() -> Result<()> {
         /*install_policy*/ "NOT_AVAILABLE",
     )
     .await;
-    mount_empty_remote_installed_plugins(&server).await;
     mount_backend_analytics_events(&server).await;
 
     let mut mcp = TestAppServer::builder()
@@ -1128,7 +1119,6 @@ async fn plugin_install_tracks_remote_plugin_analytics_event() -> Result<()> {
     .await;
     configure_remote_plugin_test(codex_home.path(), &server)?;
     mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
-    mount_empty_remote_installed_plugins(&server).await;
     mount_remote_plugin_install(&server, REMOTE_PLUGIN_ID).await;
     mount_backend_analytics_events(&server).await;
 
@@ -1185,7 +1175,6 @@ async fn plugin_install_preserves_status_when_remote_bundle_error_body_is_too_la
         mount_remote_plugin_bundle(&server, /*status_code*/ 503, vec![b'x'; 8 * 1024 + 1]).await;
     configure_remote_plugin_test(codex_home.path(), &server)?;
     mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
-    mount_empty_remote_installed_plugins(&server).await;
     mount_remote_plugin_install(&server, REMOTE_PLUGIN_ID).await;
     mount_backend_analytics_events(&server).await;
 
@@ -2137,7 +2126,6 @@ async fn plugin_install_remote_auth_setup_respects_activation_policy(
     let config_contents = format!("{original_config}\n{plugin_config}\n");
     std::fs::write(&config_path, &config_contents)?;
     mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
-    mount_empty_remote_installed_plugins(&server).await;
     let updated_config = plugin_config_after_install
         .map(|plugin_config| format!("{original_config}\n{plugin_config}\n"));
     let expected_config = updated_config.as_ref().unwrap_or(&config_contents).clone();
@@ -2235,7 +2223,6 @@ async fn plugin_install_skips_remote_mcp_oauth_disabled_by_requirements() -> Res
         "[mcp_servers]\n",
     )?;
     mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
-    mount_empty_remote_installed_plugins(&server).await;
     mount_remote_plugin_install_with_apps_needing_auth(&server, REMOTE_PLUGIN_ID, &["alpha"]).await;
 
     let mut mcp = TestAppServer::builder()
@@ -2279,7 +2266,6 @@ async fn plugin_install_skips_remote_mcp_oauth_disabled_by_plugin_config() -> Re
         ),
     )?;
     mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
-    mount_empty_remote_installed_plugins(&server).await;
     mount_remote_plugin_install_with_apps_needing_auth(&server, REMOTE_PLUGIN_ID, &["alpha"]).await;
 
     let mut mcp = TestAppServer::builder()
@@ -2319,7 +2305,6 @@ async fn plugin_install_skips_remote_mcp_oauth_for_bundled_same_name_app() -> Re
     .await;
     configure_remote_plugin_with_apps_test(codex_home.path(), &server)?;
     mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
-    mount_empty_remote_installed_plugins(&server).await;
     mount_remote_plugin_install_with_apps_needing_auth(&server, REMOTE_PLUGIN_ID, &["alpha"]).await;
 
     let mut mcp = TestAppServer::builder()
@@ -3119,24 +3104,6 @@ async fn mount_remote_plugin_detail_with_options(
         .await;
 }
 
-async fn mount_empty_remote_installed_plugins(server: &MockServer) {
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/installed"))
-        .and(query_param("scope", "GLOBAL"))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(
-            r#"{
-  "plugins": [],
-  "pagination": {
-    "limit": 50,
-    "next_page_token": null
-  }
-}"#,
-        ))
-        .mount(server)
-        .await;
-}
 
 async fn mount_remote_plugin_install(server: &MockServer, remote_plugin_id: &str) {
     Mock::given(method("POST"))

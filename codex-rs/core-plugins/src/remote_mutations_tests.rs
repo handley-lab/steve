@@ -12,7 +12,6 @@ use serde_json::json;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use tempfile::TempDir;
-use tokio::sync::Notify;
 use wiremock::Mock;
 use wiremock::MockServer;
 use wiremock::ResponseTemplate;
@@ -51,15 +50,6 @@ async fn uninstall_serializes_backend_mutations_and_preserves_cache_on_failure()
                 "installation_policy": "AVAILABLE", "authentication_policy": "ON_USE",
                 "release": {"display_name": "Sample", "description": "Sample plugin", "interface": {}}
             }))).mount(&server).await;
-        Mock::given(method("GET"))
-            .and(path("/backend-api/ps/plugins/installed"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(json!({"plugins": [], "pagination": {"next_page_token": null}})),
-            )
-            .expect(if uninstall_fails { 0 } else { 1 })
-            .mount(&server)
-            .await;
         let gate_held = Arc::new(AtomicBool::new(false));
         let gate_held_at_post = Arc::clone(&gate_held);
         let manager_at_post = Arc::clone(&manager);
@@ -81,14 +71,12 @@ async fn uninstall_serializes_backend_mutations_and_preserves_cache_on_failure()
             .expect(1)
             .mount(&server)
             .await;
-        let refreshed = Arc::new(Notify::new());
-        let refreshed_callback = Arc::clone(&refreshed);
         let outcome = manager
             .uninstall_remote_plugin(
                 &config,
                 auth.as_ref(),
                 remote_id,
-                Some(Arc::new(move |_| refreshed_callback.notify_one())),
+                /*on_effective_plugins_changed*/ None,
             )
             .await;
         assert_eq!(
@@ -102,10 +90,5 @@ async fn uninstall_serializes_backend_mutations_and_preserves_cache_on_failure()
             ),
             (true, 1, uninstall_fails, uninstall_fails),
         );
-        if !uninstall_fails {
-            tokio::time::timeout(std::time::Duration::from_secs(5), refreshed.notified())
-                .await
-                .expect("successful uninstall should refresh installed state");
-        }
     }
 }

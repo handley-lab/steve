@@ -1,7 +1,9 @@
 //! Verify connection reuse without retaining request metadata or crossing config lifetimes.
 
 use super::PluginsConfigInput;
-use crate::remote::fetch_remote_installed_plugins;
+use crate::remote::RemoteMarketplaceSource;
+use crate::remote::RemotePluginCatalogCacheMode;
+use crate::remote::fetch_remote_marketplaces;
 use crate::test_support::test_http_client_factory;
 use codex_config::ConfigLayerStack;
 use codex_login::CodexAuth;
@@ -73,7 +75,7 @@ async fn reused_pool_uses_current_endpoint_product_and_authentication() {
         ),
     ] {
         Mock::given(method("GET"))
-            .and(path("/backend-api/ps/plugins/installed"))
+            .and(path("/backend-api/ps/plugins/workspace/shared"))
             .and(header("authorization", format!("Bearer {token}")))
             .and(header("chatgpt-account-id", account))
             .and(header("oai-product-sku", product_sku))
@@ -102,9 +104,15 @@ async fn reused_pool_uses_current_endpoint_product_and_authentication() {
         /*chatgpt_plan_type*/ None,
     )
     .unwrap();
-    let first_result = fetch_remote_installed_plugins(&first, Some(&first_auth))
-        .await
-        .unwrap();
+    let first_result = fetch_remote_marketplaces(
+        &first,
+        Some(&first_auth),
+        &[RemoteMarketplaceSource::SharedWithMe],
+        None,
+        RemotePluginCatalogCacheMode::PreferCache,
+    )
+    .await
+    .unwrap();
 
     input.chatgpt_base_url = format!("{}/backend-api", second_server.uri());
     input.product_sku = Some("updated".to_string());
@@ -115,9 +123,15 @@ async fn reused_pool_uses_current_endpoint_product_and_authentication() {
         /*chatgpt_plan_type*/ None,
     )
     .unwrap();
-    let second_result = fetch_remote_installed_plugins(&second, Some(&second_auth))
-        .await
-        .unwrap();
+    let second_result = fetch_remote_marketplaces(
+        &second,
+        Some(&second_auth),
+        &[RemoteMarketplaceSource::SharedWithMe],
+        None,
+        RemotePluginCatalogCacheMode::PreferCache,
+    )
+    .await
+    .unwrap();
     assert_eq!(
         (
             first_result,

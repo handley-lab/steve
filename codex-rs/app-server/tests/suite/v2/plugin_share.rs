@@ -140,18 +140,6 @@ async fn plugin_share_save_uploads_local_plugin() -> Result<()> {
         .expect(1)
         .mount(&server)
         .await;
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/installed"))
-        .and(query_param("scope", "WORKSPACE"))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "plugins": [installed_remote_plugin_json("plugins_123")],
-            "pagination": empty_pagination_json(),
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
 
     let request_id = mcp
         .send_raw_request("plugin/share/list", Some(json!({})))
@@ -555,18 +543,6 @@ async fn plugin_share_list_returns_created_workspace_plugins() -> Result<()> {
         .expect(1)
         .mount(&server)
         .await;
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/installed"))
-        .and(query_param("scope", "WORKSPACE"))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "plugins": [installed_remote_plugin_json("plugins_123")],
-            "pagination": empty_pagination_json(),
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
@@ -641,7 +617,6 @@ async fn plugin_share_checkout_adds_personal_marketplace_entry() -> Result<()> {
         "WORKSPACE",
     )
     .await;
-    mount_empty_remote_installed_plugins(&server, "WORKSPACE").await;
 
     let home_env = home.path().to_string_lossy().into_owned();
     let mut mcp = TestAppServer::builder()
@@ -793,7 +768,6 @@ async fn plugin_share_checkout_rejects_non_share_remote_plugin() -> Result<()> {
         "GLOBAL",
     )
     .await;
-    mount_empty_remote_installed_plugins(&server, "GLOBAL").await;
 
     let home_env = home.path().to_string_lossy().into_owned();
     let mut mcp = TestAppServer::builder()
@@ -884,7 +858,6 @@ async fn plugin_share_checkout_cleans_up_path_when_marketplace_update_fails() ->
         "WORKSPACE",
     )
     .await;
-    mount_empty_remote_installed_plugins(&server, "WORKSPACE").await;
 
     let home_env = home.path().to_string_lossy().into_owned();
     let mut mcp = TestAppServer::builder()
@@ -1224,18 +1197,6 @@ async fn plugin_share_delete_removes_created_workspace_plugin() -> Result<()> {
         .expect(1)
         .mount(&server)
         .await;
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/installed"))
-        .and(query_param("scope", "WORKSPACE"))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "plugins": [installed_remote_plugin_json("plugins_123")],
-            "pagination": empty_pagination_json(),
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
 
     let request_id = mcp
         .send_raw_request("plugin/share/list", Some(json!({})))
@@ -1352,21 +1313,6 @@ async fn mount_remote_plugin_detail_with_bundle(
         .await;
 }
 
-async fn mount_empty_remote_installed_plugins(server: &MockServer, scope: &str) {
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/installed"))
-        .and(query_param("scope", scope))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "plugins": [],
-            "pagination": {
-                "next_page_token": null,
-            },
-        })))
-        .mount(server)
-        .await;
-}
 
 fn remote_plugin_json(plugin_id: &str) -> serde_json::Value {
     json!({
@@ -1404,16 +1350,6 @@ fn remote_plugin_json(plugin_id: &str) -> serde_json::Value {
             "skills": []
         }
     })
-}
-
-fn installed_remote_plugin_json(plugin_id: &str) -> serde_json::Value {
-    let mut plugin = remote_plugin_json(plugin_id);
-    let serde_json::Value::Object(fields) = &mut plugin else {
-        unreachable!("plugin json should be an object");
-    };
-    fields.insert("enabled".to_string(), json!(true));
-    fields.insert("disabled_skill_names".to_string(), json!([]));
-    plugin
 }
 
 fn empty_pagination_json() -> serde_json::Value {

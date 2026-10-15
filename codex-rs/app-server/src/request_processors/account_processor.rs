@@ -221,29 +221,12 @@ impl AccountRequestProcessor {
             .load_latest_config(/*fallback_cwd*/ None)
             .await
         {
-            Ok(config) => {
+            Ok(_config) => {
+                let _ = auth;
                 Self::spawn_effective_plugins_changed_task(
                     Arc::clone(thread_manager),
                     config_manager.clone(),
                 );
-                let plugins_config = config.plugins_config_input();
-                let refresh_thread_manager = Arc::clone(thread_manager);
-                let refresh_config_manager = config_manager.clone();
-                let on_effective_plugins_changed: Arc<
-                    dyn Fn(codex_core_plugins::EffectivePluginsChange) + Send + Sync,
-                > = Arc::new(move |_change| {
-                    Self::spawn_effective_plugins_changed_task(
-                        Arc::clone(&refresh_thread_manager),
-                        refresh_config_manager.clone(),
-                    );
-                });
-                thread_manager
-                    .plugins_manager()
-                    .maybe_start_remote_plugin_caches_refresh(
-                        &plugins_config,
-                        auth,
-                        Some(on_effective_plugins_changed),
-                    );
             }
             Err(err) => {
                 warn!(

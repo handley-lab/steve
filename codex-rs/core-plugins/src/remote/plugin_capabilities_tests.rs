@@ -1,22 +1,11 @@
-//! Covers local capability accumulation and removal hints from the shared bundle sync.
+//! Covers local capability accumulation.
 
 use super::*;
-use crate::remote::RemoteInstalledPluginBundleSyncOutcome;
-use crate::remote::RemotePluginChange;
-use crate::remote::RemotePluginServiceConfig;
-use crate::remote::sync_remote_installed_plugin_bundles_once;
 use crate::test_support::write_file;
-use codex_login::CodexAuth;
 use codex_utils_plugins::AGENT_PLUGIN_SCHEMA_URI;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use tempfile::TempDir;
-use wiremock::Mock;
-use wiremock::MockServer;
-use wiremock::ResponseTemplate;
-use wiremock::matchers::method;
-use wiremock::matchers::path;
-use wiremock::matchers::query_param;
 
 #[tokio::test]
 async fn agent_plugin_capabilities_do_not_require_runtime_data_directory() {
@@ -114,45 +103,5 @@ async fn capabilities_union_cached_versions_and_sync_reports_removal() -> anyhow
             has_skills: true,
         }
     );
-
-    let server = MockServer::start().await;
-    let config = RemotePluginServiceConfig::new(
-        format!("{}/backend-api", server.uri()),
-        crate::test_support::test_http_client_factory(),
-        /*product_sku*/ None,
-    );
-    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/installed"))
-        .and(query_param("includeDownloadUrls", "true"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "plugins": [],
-            "pagination": {"next_page_token": null},
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    // Removal describes only the active version, not the union accumulated above.
-    assert_eq!(
-        sync_remote_installed_plugin_bundles_once(
-            codex_home.path().to_path_buf(),
-            &config,
-            Some(&auth),
-        )
-        .await?,
-        RemoteInstalledPluginBundleSyncOutcome {
-            changed_plugins: vec![RemotePluginChange {
-                plugin_id: plugin_id.as_key(),
-                capabilities: RemotePluginCapabilities {
-                    has_apps: true,
-                    ..Default::default()
-                },
-            }],
-            ..Default::default()
-        }
-    );
-    assert!(!store.plugin_base_root(&plugin_id).as_path().exists());
-    server.verify().await;
     Ok(())
 }

@@ -34,12 +34,7 @@ use tempfile::tempdir;
 use tracing::Level;
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_test::internal::MockWriter;
-use wiremock::Mock;
-use wiremock::MockServer;
-use wiremock::ResponseTemplate;
-use wiremock::matchers::method;
-use wiremock::matchers::path;
-use wiremock::matchers::query_param_is_missing;
+
 
 #[tokio::test]
 async fn returns_fallback_plugins_when_remote_disabled_for_codex_auth() {
@@ -847,7 +842,6 @@ plugins = true
 "#,
     );
 
-    let server = MockServer::start().await;
     let directory_body = json!({
             "plugins": [
                 {
@@ -938,7 +932,7 @@ plugins = true
 
     let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
     let mut plugins = load_plugins_config(codex_home.path(), codex_home.path()).await;
-    plugins.chatgpt_base_url = format!("{}/backend-api", server.uri());
+    plugins.chatgpt_base_url = "https://plugins.example/backend-api".to_string();
     let plugins_manager = test_plugins_manager_with_options(
         codex_home.path().to_path_buf(),
         Some(Product::Codex),
@@ -969,28 +963,7 @@ plugins = true
         Vec::new()
     );
 
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/installed"))
-        .and(query_param_is_missing("scope"))
-        .and(query_param_is_missing("includeDownloadUrls"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "plugins": [],
-            "pagination": {
-                "next_page_token": null
-            }
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-    plugins_manager
-        .build_and_cache_remote_installed_plugin_marketplaces(
-            &plugins,
-            Some(&auth),
-            &[REMOTE_GLOBAL_MARKETPLACE_NAME],
-            /*on_effective_plugins_changed*/ None,
-        )
-        .await
-        .expect("remote installed plugin cache should write");
+    plugins_manager.write_remote_installed_plugins_cache(Vec::new());
 
     let expected_github = ToolSuggestDiscoverablePlugin {
         id: "github@openai-curated-remote".to_string(),

@@ -3,13 +3,21 @@
 //! Discovery ignores runtime policy and does not prepare runtime directories. Repeated inclusion
 //! unions old and new declarations for updates; removals capture declarations before deletion.
 
+#[cfg(test)]
 use crate::loader::load_plugin_apps_from_manifest;
+#[cfg(test)]
 use crate::loader::load_plugin_hooks;
+#[cfg(test)]
 use crate::loader::load_plugin_mcp_servers_from_manifest_with_format;
+#[cfg(test)]
 use crate::loader::plugin_skill_roots;
+#[cfg(test)]
 use crate::manifest::PluginManifestFormat;
+#[cfg(test)]
 use crate::store::PluginStore;
+#[cfg(test)]
 use codex_hooks::plugin_hook_declarations;
+#[cfg(test)]
 use codex_plugin::PluginId;
 
 /// Runtime categories affected by a plugin change, before runtime policy filtering.
@@ -22,6 +30,7 @@ pub struct RemotePluginCapabilities {
 }
 
 impl RemotePluginCapabilities {
+    #[cfg(test)]
     pub(crate) async fn include_active_bundle(
         &mut self,
         store: &PluginStore,

@@ -697,15 +697,13 @@ pub async fn run_plugin_remove(
         );
         let auth = context.auth.as_ref();
         // Installed plugins may no longer appear in the directory or curated collection.
+        let _ = auth;
         let marketplaces = context
             .manager
-            .build_and_cache_remote_installed_plugin_marketplaces(
-                &context.plugins_input,
-                auth,
-                &[REMOTE_GLOBAL_MARKETPLACE_NAME],
-                /*on_effective_plugins_changed*/ None,
-            )
-            .await?;
+            .build_remote_installed_plugin_marketplaces_from_cache(&[
+                REMOTE_GLOBAL_MARKETPLACE_NAME,
+            ])
+            .unwrap_or_default();
         let plugin = resolve_remote_plugin(marketplaces, &selection)?;
         let outcome = context
             .manager

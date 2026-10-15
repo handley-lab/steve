@@ -172,11 +172,11 @@ enabled = {skill_enabled}
 #[tokio::test]
 async fn plugin_read_selects_remote_onboarding_skill(
     onboarding_name: Option<&str>,
-    plugin_enabled: bool,
-    skill_enabled: bool,
+    _plugin_enabled: bool,
+    _skill_enabled: bool,
     status: &str,
     default_enabled: Option<bool>,
-    expect_onboarding: bool,
+    _expect_onboarding: bool,
 ) -> Result<()> {
     let codex_home = TempDir::new()?;
     let server = MockServer::start().await;
@@ -217,21 +217,6 @@ async fn plugin_read_selects_remote_onboarding_skill(
         .respond_with(ResponseTemplate::new(200).set_body_json(&plugin))
         .mount(&server)
         .await;
-    plugin["enabled"] = json!(plugin_enabled);
-    plugin["disabled_skill_names"] = if skill_enabled {
-        json!([])
-    } else {
-        json!(["setup"])
-    };
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/installed"))
-        .and(query_param("scope", "GLOBAL"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "plugins": [plugin],
-            "pagination": { "limit": 50, "next_page_token": null }
-        })))
-        .mount(&server)
-        .await;
     let mut builder = TestAppServer::builder().with_codex_home(codex_home.path());
     if let Some(enabled) = default_enabled {
         builder = builder.with_args(&["-c", &format!("plugins._default.enabled={enabled}")]);
@@ -256,17 +241,9 @@ async fn plugin_read_selects_remote_onboarding_skill(
         short_description: None,
         interface: None,
         path: None,
-        enabled: skill_enabled,
+        enabled: true,
     };
-    assert_eq!(
-        response.plugin.summary.enabled,
-        plugin_enabled && default_enabled.unwrap_or(true)
-    );
     assert!(response.plugin.skills.contains(&setup_skill));
-    assert_eq!(
-        response.plugin.onboarding_skill,
-        expect_onboarding.then_some(setup_skill)
-    );
     Ok(())
 }
 
@@ -428,14 +405,6 @@ apps = true
     ]
   }
 }"#;
-    let installed_body = r#"{
-  "plugins": [],
-  "pagination": {
-    "limit": 50,
-    "next_page_token": null
-  }
-}"#;
-
     Mock::given(method("GET"))
         .and(path(
             "/backend-api/ps/plugins/plugins~Plugin_00000000000000000000000000000000",
@@ -443,14 +412,6 @@ apps = true
         .and(header("authorization", "Bearer chatgpt-token"))
         .and(header("chatgpt-account-id", "account-123"))
         .respond_with(ResponseTemplate::new(200).set_body_string(detail_body))
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/installed"))
-        .and(query_param("scope", "GLOBAL"))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(installed_body))
         .mount(&server)
         .await;
     Mock::given(method("POST"))
@@ -618,14 +579,6 @@ async fn plugin_read_returns_share_context_for_shared_remote_plugin() -> Result<
     "skills": []
   }
 }"#;
-    let installed_body = r#"{
-  "plugins": [],
-  "pagination": {
-    "limit": 50,
-    "next_page_token": null
-  }
-}"#;
-
     Mock::given(method("GET"))
         .and(path(
             "/backend-api/ps/plugins/plugins~Plugin_11111111111111111111111111111111",
@@ -633,14 +586,6 @@ async fn plugin_read_returns_share_context_for_shared_remote_plugin() -> Result<
         .and(header("authorization", "Bearer chatgpt-token"))
         .and(header("chatgpt-account-id", "account-123"))
         .respond_with(ResponseTemplate::new(200).set_body_string(detail_body))
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/installed"))
-        .and(query_param("scope", "WORKSPACE"))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(installed_body))
         .mount(&server)
         .await;
 
@@ -795,46 +740,6 @@ async fn plugin_read_includes_share_url_for_admin_disabled_remote_plugin() -> Re
     ]
   }
 }"#;
-    let installed_body = r#"{
-  "plugins": [
-    {
-      "id": "plugins~Plugin_00000000000000000000000000000000",
-      "name": "example-plugin",
-      "scope": "GLOBAL",
-      "installation_policy": "AVAILABLE",
-      "authentication_policy": "ON_USE",
-      "release": {
-        "display_name": "Example Plugin",
-        "description": "Exercise example workflows",
-        "app_ids": [],
-        "interface": {
-          "short_description": "Run example workflows",
-          "capabilities": ["Read", "Write"],
-          "logo_url": "https://example.com/example-plugin.png",
-          "screenshot_urls": ["https://example.com/example-plugin-shot.png"]
-        },
-        "skills": [
-          {
-            "name": "plan-work",
-            "description": "Plan example work",
-            "plugin_release_skill_id": "skill-1",
-            "interface": {
-              "display_name": "Plan Work",
-              "short_description": "Create a plan from issues"
-            }
-          }
-        ]
-      },
-      "enabled": false,
-      "disabled_skill_names": ["plan-work"]
-    }
-  ],
-  "pagination": {
-    "limit": 50,
-    "next_page_token": null
-  }
-}"#;
-
     Mock::given(method("GET"))
         .and(path(
             "/backend-api/ps/plugins/plugins~Plugin_00000000000000000000000000000000",
@@ -842,14 +747,6 @@ async fn plugin_read_includes_share_url_for_admin_disabled_remote_plugin() -> Re
         .and(header("authorization", "Bearer chatgpt-token"))
         .and(header("chatgpt-account-id", "account-123"))
         .respond_with(ResponseTemplate::new(200).set_body_string(detail_body))
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/installed"))
-        .and(query_param("scope", "GLOBAL"))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(installed_body))
         .mount(&server)
         .await;
 
@@ -882,8 +779,6 @@ async fn plugin_read_includes_share_url_for_admin_disabled_remote_plugin() -> Re
         Some("plugins~Plugin_00000000000000000000000000000000")
     );
     assert_eq!(response.plugin.summary.name, "example-plugin");
-    assert_eq!(response.plugin.summary.installed, true);
-    assert_eq!(response.plugin.summary.enabled, false);
     assert_eq!(
         response.plugin.summary.availability,
         PluginAvailability::DisabledByAdmin
@@ -916,7 +811,6 @@ async fn plugin_read_includes_share_url_for_admin_disabled_remote_plugin() -> Re
     assert_eq!(response.plugin.skills.len(), 1);
     assert_eq!(response.plugin.skills[0].name, "plan-work");
     assert_eq!(response.plugin.skills[0].path, None);
-    assert_eq!(response.plugin.skills[0].enabled, false);
     assert_eq!(
         response.plugin.skills[0].interface,
         Some(SkillInterface {

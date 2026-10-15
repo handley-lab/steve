@@ -104,7 +104,6 @@ pub use marketplace_upgrade::ConfigLayerReload;
 pub use marketplace_upgrade::ConfiguredMarketplaceUpgradeError as PluginMarketplaceUpgradeError;
 pub use marketplace_upgrade::ConfiguredMarketplaceUpgradeOutcome as PluginMarketplaceUpgradeOutcome;
 pub use plugin_measurement_references::PluginMeasurementReference;
-pub use plugin_measurement_references::RemotePluginMeasurementCache;
 pub use plugin_metrics::PluginMeasurementDefinition;
 pub use plugin_metrics::PluginMetricsOperation;
 pub use plugin_metrics::ResolvedPluginMetricsOperation;
