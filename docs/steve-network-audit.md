@@ -27,10 +27,9 @@ for plugin detail, `/ps/plugins/workspace/shared`, or `/ps/plugins/installed`.
 Skill detail still GETs `/ps/plugins/{plugin_id}/skills/{skill_name}`.
 Authentication and product SKU accompany the remaining plugin-service requests.
 
-Installing and uninstalling remote plugins POST to
-`/ps/plugins/{plugin_id}/install` and `/uninstall`. Installation can include an
-attempt ID and requests Apps requiring authentication. These operations change
-remote account state; they are not just local package installation. Skill
+Steve does not POST `/ps/plugins/{plugin_id}/install`. Uninstalling a remote
+plugin still POSTs to `/ps/plugins/{plugin_id}/uninstall`. That operation
+changes remote account state; it is not just local package removal. Skill
 detail, share, and bundle clients are separate. Local plugin interoperability
 does not require mechanically renaming the external service paths. Avoid
 first-party remote plugin operations and inspect installed plugin transports
@@ -174,7 +173,8 @@ read. Installed plugins do not GET `{chatgpt_base_url}/ps/plugins/installed`.
 An in-memory installed snapshot may still be read. Shared workspace plugins
 do not GET `{chatgpt_base_url}/ps/plugins/workspace/shared`. Plugin detail does
 not GET `{chatgpt_base_url}/ps/plugins/{plugin_id}`. Skill detail still GETs
-`/ps/plugins/{plugin_id}/skills/{skill_name}`. Install, uninstall, share, and
+`/ps/plugins/{plugin_id}/skills/{skill_name}`. Steve does not POST
+`{chatgpt_base_url}/ps/plugins/{plugin_id}/install`. Uninstall, share, and
 bundle clients are separate.
 
 Raw local evidence: `~/.cache/codex-cambridge-build/steve-network-smoke-n05wyupc/`

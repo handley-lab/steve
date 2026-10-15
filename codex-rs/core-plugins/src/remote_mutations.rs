@@ -1,6 +1,5 @@
 //! Shared remote plugin mutations for the CLI and app-server.
-//! The sync gate covers cache/backend changes and refresh scheduling. An install outcome keeps
-//! its bundle protected from pruning until the caller finishes downstream setup and drops it.
+//! The sync gate covers cache and backend changes.
 
 use super::EffectivePluginsChangedCallback;
 use super::PluginsConfigInput;
@@ -18,11 +17,6 @@ use std::sync::Arc;
 #[path = "remote_mutations_tests.rs"]
 mod tests;
 
-pub struct RemotePluginInstallRequest {
-    pub marketplace_name: String,
-    pub remote_plugin_id: String,
-    pub install_attempt_id: Option<String>,
-}
 
 pub struct RemotePluginUninstallOutcome {
     pub telemetry: PluginTelemetryMetadata,
@@ -64,63 +58,6 @@ pub enum RemotePluginOperationErrorKind {
 }
 
 impl PluginsManager {
-    /// POST the remote plugin install.
-    pub async fn install_remote_plugin(
-        self: &Arc<Self>,
-        config: &PluginsConfigInput,
-        auth: Option<&CodexAuth>,
-        request: RemotePluginInstallRequest,
-        on_effective_plugins_changed: Option<EffectivePluginsChangedCallback>,
-    ) -> Result<remote::RemotePluginInstallResult, RemotePluginOperationError> {
-        use RemotePluginOperationErrorKind as Error;
-        let unresolved = |kind| RemotePluginOperationError {
-            plugin_id: None,
-            kind: Box::new(kind),
-        };
-        let RemotePluginInstallRequest {
-            marketplace_name,
-            remote_plugin_id,
-            install_attempt_id,
-        } = request;
-        if !config.plugins_enabled {
-            return Err(unresolved(Error::InvalidRequest(format!(
-                "remote plugin install is not enabled for marketplace {marketplace_name}"
-            ))));
-        }
-        remote::validate_remote_plugin_id(&remote_plugin_id)
-            .map_err(|err| unresolved(Error::InvalidRequest(err.message)))?;
-        let service = config.remote_plugin_service_config();
-        let _sync_guard = self
-            .acquire_remote_installed_plugin_sync_guard()
-            .await
-            .map_err(|source| {
-                unresolved(Error::Sync {
-                    context: "failed to coordinate remote plugin install",
-                    source,
-                })
-            })?;
-        let install_result = if let Some(install_attempt_id) = install_attempt_id.as_deref() {
-            remote::install_remote_plugin_with_install_attempt_id(
-                &service,
-                auth,
-                &marketplace_name,
-                &remote_plugin_id,
-                install_attempt_id,
-            )
-            .await
-        } else {
-            remote::install_remote_plugin(&service, auth, &marketplace_name, &remote_plugin_id)
-                .await
-        }
-        .map_err(|source| {
-            unresolved(Error::Catalog {
-                context: "install remote plugin",
-                source,
-            })
-        })?;
-        let _ = on_effective_plugins_changed;
-        Ok(install_result)
-    }
 
     /// POST the remote plugin uninstall.
     pub async fn uninstall_remote_plugin(

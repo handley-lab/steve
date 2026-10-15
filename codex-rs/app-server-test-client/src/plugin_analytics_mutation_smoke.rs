@@ -12,9 +12,7 @@ use anyhow::anyhow;
 use anyhow::bail;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::PluginAvailability;
-use codex_app_server_protocol::PluginInstallParams;
 use codex_app_server_protocol::PluginInstallPolicy;
-use codex_app_server_protocol::PluginInstallResponse;
 use codex_app_server_protocol::PluginReadParams;
 use codex_app_server_protocol::PluginReadResponse;
 use codex_app_server_protocol::PluginUninstallParams;
@@ -171,7 +169,7 @@ impl AccountMutationConfirmation {
 fn require_confirmation(confirmation: AccountMutationConfirmation) -> Result<()> {
     if matches!(confirmation, AccountMutationConfirmation::Missing) {
         bail!(
-            "this command installs and uninstalls a plugin on the active account; rerun with --confirm-account-mutation"
+            "this command uninstalls a plugin on the active account; rerun with --confirm-account-mutation"
         );
     }
     Ok(())
@@ -179,13 +177,14 @@ fn require_confirmation(confirmation: AccountMutationConfirmation) -> Result<()>
 
 #[derive(Clone, Copy, Debug)]
 enum ExpectedInstalledState {
-    Installed,
     Uninstalled,
 }
 
 impl ExpectedInstalledState {
     fn is_installed(self) -> bool {
-        matches!(self, Self::Installed)
+        match self {
+            Self::Uninstalled => false,
+        }
     }
 }
 
@@ -284,18 +283,6 @@ fn run_mutation_sequence(
 ) -> MutationSequenceResult {
     let mut uninstall_rpc_failed = false;
     let result = (|| {
-        install_remote_plugin(client, expected)?;
-        wait_for_installed_state(
-            client,
-            &expected.remote_plugin_id,
-            ExpectedInstalledState::Installed,
-        )?;
-        wait_for_remote_plugin_event(
-            capture_path,
-            &expected.remote_plugin_id,
-            "codex_plugin_installed",
-        )?;
-
         let uninstall_error = uninstall_remote_plugin(client, &expected.remote_plugin_id).err();
         uninstall_rpc_failed = uninstall_error.is_some();
         wait_for_installed_state(
@@ -341,23 +328,6 @@ fn run_mutation_sequence(
     }
 }
 
-fn install_remote_plugin(client: &mut CodexClient, plugin: &RemotePluginExpectation) -> Result<()> {
-    let request_id = client.request_id();
-    let _: PluginInstallResponse = client.send_request(
-        ClientRequest::PluginInstall {
-            request_id: request_id.clone(),
-            params: PluginInstallParams {
-                marketplace_path: None,
-                remote_marketplace_name: Some(plugin.marketplace_name.clone()),
-                install_attempt_id: None,
-                plugin_name: plugin.remote_plugin_id.clone(),
-            },
-        },
-        request_id,
-        "plugin/install",
-    )?;
-    Ok(())
-}
 
 fn uninstall_remote_plugin(client: &mut CodexClient, remote_plugin_id: &str) -> Result<()> {
     let request_id = client.request_id();

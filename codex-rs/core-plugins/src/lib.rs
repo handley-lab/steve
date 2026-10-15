@@ -93,7 +93,6 @@ pub use manager::PluginUninstallError;
 pub use manager::PluginsConfigInput;
 pub use manager::PluginsManager;
 pub use manager::RecommendedPluginCandidatesInput;
-pub use manager::RemotePluginInstallRequest;
 pub use manager::RemotePluginOperationError;
 pub use manager::RemotePluginOperationErrorKind;
 pub use manager::RemotePluginUninstallOutcome;

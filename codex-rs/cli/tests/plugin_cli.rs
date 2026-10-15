@@ -25,7 +25,6 @@ use wiremock::ResponseTemplate;
 use wiremock::matchers::header;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
-use wiremock::matchers::query_param;
 
 const MARKETPLACE_HEADER: &str = "MARKETPLACE";
 const MARKETPLACE_LIST_HEADER: &str = "MARKETPLACE  ROOT";
@@ -1299,14 +1298,6 @@ async fn remote_plugin_listing_replaces_local_curated_catalog() -> Result<()> {
 async fn remote_plugin_add_list_and_remove() -> Result<()> {
     let fixture = RemoteMarketplaceFixture::new().await?;
     Mock::given(method("POST"))
-        .and(path(format!("/backend-api/ps/plugins/{REMOTE_ID}/install")))
-        .and(query_param("includeAppsNeedingAuth", "true"))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": REMOTE_ID, "enabled": true})))
-        .expect(1)
-        .mount(&fixture.server)
-        .await;
-    Mock::given(method("POST"))
         .and(path(format!(
             "/backend-api/ps/plugins/{REMOTE_ID}/uninstall"
         )))
@@ -1316,16 +1307,6 @@ async fn remote_plugin_add_list_and_remove() -> Result<()> {
         .mount(&fixture.server)
         .await;
 
-    let added = fixture
-        .success(&["plugin", "add", PLUGIN_KEY, "--json"])
-        .await?;
-    assert_eq!(
-        serde_json::from_str::<Value>(&added)?,
-        json!({
-            "name": "sample",
-            "marketplaceName": MARKETPLACE,
-        })
-    );
     let removed = fixture
         .success(&[
             "-c",

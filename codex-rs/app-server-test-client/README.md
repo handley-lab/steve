@@ -91,18 +91,16 @@ remote enabled state. It prints the events and leaves the JSONL file in place
 for inspection. It does not install or uninstall plugins and does not modify
 the profile's persistent config.
 
-### Testing remote install and uninstall analytics
+### Testing remote uninstall analytics
 
 `plugin-analytics-mutation-smoke` is a manually invoked live smoke test. It
-contacts the configured remote plugin API and temporarily changes the active
-account's installed-plugin state. It is not run by `cargo test`, `just test`,
-or CI.
+contacts the configured remote plugin API through uninstall. It does not
+install a plugin. It is not run by `cargo test`, `just test`, or CI.
 
 Choose a remote plugin that is available to the active account and is not
 currently installed. The command refuses to run when the plugin is already
-installed, installs it, validates `codex_plugin_installed`, uninstalls it, and
-validates `codex_plugin_uninstalled`, and verifies that the original
-uninstalled state was restored.
+installed, uninstalls it, validates `codex_plugin_uninstalled`, and verifies
+that the original uninstalled state was restored.
 
 The mutation events include the local Codex ID in `plugin_id` and the backend ID
 in `remote_plugin_id`.

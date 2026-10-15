@@ -1,7 +1,7 @@
 //! Verify connection reuse without retaining request metadata or crossing config lifetimes.
 
 use super::PluginsConfigInput;
-use crate::remote::install_remote_plugin;
+use crate::remote::uninstall_remote_plugin;
 use crate::test_support::test_http_client_factory;
 use codex_config::ConfigLayerStack;
 use codex_login::CodexAuth;
@@ -73,13 +73,13 @@ async fn reused_pool_uses_current_endpoint_product_and_authentication() {
         ),
     ] {
         Mock::given(method("POST"))
-            .and(path("/backend-api/ps/plugins/plugins_pool/install"))
+            .and(path("/backend-api/ps/plugins/plugins_pool/uninstall"))
             .and(header("authorization", format!("Bearer {token}")))
             .and(header("chatgpt-account-id", account))
             .and(header("oai-product-sku", product_sku))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "id": "plugins_pool",
-                "enabled": true
+                "enabled": false
             })))
             .expect(1)
             .mount(server)
@@ -102,14 +102,9 @@ async fn reused_pool_uses_current_endpoint_product_and_authentication() {
         /*chatgpt_plan_type*/ None,
     )
     .unwrap();
-    let first_result = install_remote_plugin(
-        &first,
-        Some(&first_auth),
-        "openai-curated",
-        "plugins_pool",
-    )
-    .await
-    .unwrap();
+    let first_result = uninstall_remote_plugin(&first, Some(&first_auth), "plugins_pool")
+        .await
+        .unwrap();
 
     input.chatgpt_base_url = format!("{}/backend-api", second_server.uri());
     input.product_sku = Some("updated".to_string());
@@ -120,14 +115,9 @@ async fn reused_pool_uses_current_endpoint_product_and_authentication() {
         /*chatgpt_plan_type*/ None,
     )
     .unwrap();
-    let second_result = install_remote_plugin(
-        &second,
-        Some(&second_auth),
-        "openai-curated",
-        "plugins_pool",
-    )
-    .await
-    .unwrap();
+    let second_result = uninstall_remote_plugin(&second, Some(&second_auth), "plugins_pool")
+        .await
+        .unwrap();
     assert_eq!(
         (
             first_result,

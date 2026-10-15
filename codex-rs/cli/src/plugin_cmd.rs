@@ -14,7 +14,6 @@ use codex_core_plugins::PluginInstallOutcome;
 use codex_core_plugins::PluginInstallRequest;
 use codex_core_plugins::PluginsConfigInput;
 use codex_core_plugins::PluginsManager;
-use codex_core_plugins::RemotePluginInstallRequest;
 use codex_core_plugins::allowed_configured_marketplace_names;
 use codex_core_plugins::installed_marketplaces::marketplace_install_root;
 use codex_core_plugins::installed_marketplaces::resolve_configured_marketplace_root;
@@ -147,76 +146,29 @@ pub async fn run_plugin_add(
         json,
     } = args;
     let selection = parse_plugin_selection(plugin, marketplace_name)?;
-    let outcome = if selection.marketplace_name == REMOTE_GLOBAL_MARKETPLACE_NAME {
-        let mut listing = fetch_remote_marketplaces(
-            &context,
-            Some(&selection.marketplace_name),
-            RemotePluginCatalogCacheMode::PreferFreshCache,
+    if selection.marketplace_name == REMOTE_GLOBAL_MARKETPLACE_NAME {
+        bail!(
+            "remote plugin install is not available for marketplace {}",
+            selection.marketplace_name
+        );
+    }
+    let marketplace = find_marketplace_for_plugin(
+        &context.manager,
+        context.codex_home.as_path(),
+        &context.plugins_input,
+        &selection.marketplace_name,
+        &selection.plugin_name,
+    )?;
+    let outcome = context
+        .manager
+        .install_plugin(
+            &context.plugins_input.config_layer_stack,
+            PluginInstallRequest {
+                plugin_name: selection.plugin_name,
+                marketplace_path: marketplace.path,
+            },
         )
         .await?;
-        // A newly published plugin may be missing from an otherwise fresh catalog cache.
-        if listing.catalog_cache_used
-            && !listing
-                .marketplaces
-                .iter()
-                .flat_map(|marketplace| &marketplace.plugins)
-                .any(|plugin| plugin.name == selection.plugin_name)
-        {
-            listing = fetch_remote_marketplaces(
-                &context,
-                Some(&selection.marketplace_name),
-                RemotePluginCatalogCacheMode::ForceRefetch,
-            )
-            .await?;
-        }
-        let plugin = resolve_remote_plugin(listing.marketplaces, &selection)?;
-        context
-            .manager
-            .install_remote_plugin(
-                &context.plugins_input,
-                context.auth.as_ref(),
-                RemotePluginInstallRequest {
-                    marketplace_name: selection.marketplace_name.clone(),
-                    remote_plugin_id: plugin.remote_plugin_id,
-                    install_attempt_id: None,
-                },
-                /*on_effective_plugins_changed*/ None,
-            )
-            .await?;
-        if json {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&JsonRemotePluginAddOutput {
-                    name: selection.plugin_name,
-                    marketplace_name: selection.marketplace_name,
-                })?
-            );
-            return Ok(());
-        }
-        println!(
-            "Added plugin `{}` from marketplace `{}`.",
-            selection.plugin_name, selection.marketplace_name
-        );
-        return Ok(());
-    } else {
-        let marketplace = find_marketplace_for_plugin(
-            &context.manager,
-            context.codex_home.as_path(),
-            &context.plugins_input,
-            &selection.marketplace_name,
-            &selection.plugin_name,
-        )?;
-        context
-            .manager
-            .install_plugin(
-                &context.plugins_input.config_layer_stack,
-                PluginInstallRequest {
-                    plugin_name: selection.plugin_name,
-                    marketplace_path: marketplace.path,
-                },
-            )
-            .await?
-    };
     let output = JsonPluginAddOutput::from_outcome(outcome);
 
     if json {
@@ -233,12 +185,6 @@ pub async fn run_plugin_add(
     Ok(())
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct JsonRemotePluginAddOutput {
-    name: String,
-    marketplace_name: String,
-}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -857,7 +803,6 @@ struct RemoteMarketplaceListing {
     marketplaces: Vec<RemoteMarketplace>,
     // A successful global catalog replaces the local curated catalog even when it is empty.
     uses_global_catalog: bool,
-    catalog_cache_used: bool,
 }
 
 async fn fetch_remote_marketplaces(
@@ -893,7 +838,6 @@ async fn fetch_remote_marketplaces(
         .map(|outcome| RemoteMarketplaceListing {
             marketplaces: outcome.marketplaces,
             uses_global_catalog: true,
-            catalog_cache_used: outcome.catalog_cache_used,
         })
     } else {
         remote::fetch_openai_curated_remote_collection_marketplace(
@@ -906,7 +850,6 @@ async fn fetch_remote_marketplaces(
         .map(|outcome| RemoteMarketplaceListing {
             marketplaces: outcome.marketplace.into_iter().collect(),
             uses_global_catalog: false,
-            catalog_cache_used: outcome.catalog_cache_used,
         })
     };
     match result {

@@ -37,24 +37,27 @@ fn reads_and_validates_remote_plugin_mutation_events() {
     let validated =
         validate_mutation_events(events, expected_identity()).expect("validate mutation events");
 
-    assert_eq!(validated, vec![installed, uninstalled]);
+    assert_eq!(validated, vec![uninstalled]);
     fs::remove_file(path).expect("remove capture file");
 }
 
 #[test]
 fn rejects_duplicate_mutation_events() {
-    let installed = mutation_event("codex_plugin_installed");
-    let error = validate_mutation_events(vec![installed.clone(), installed], expected_identity())
-        .expect_err("duplicate install events should fail validation");
+    let uninstalled = mutation_event("codex_plugin_uninstalled");
+    let error = validate_mutation_events(
+        vec![uninstalled.clone(), uninstalled],
+        expected_identity(),
+    )
+    .expect_err("duplicate uninstall events should fail validation");
 
     assert!(error.to_string().contains("found 2"));
 }
 
 #[test]
 fn rejects_missing_capability_metadata() {
-    let mut installed = mutation_event("codex_plugin_installed");
-    installed["event_params"]["has_skills"] = Value::Null;
-    let error = validate_mutation_events(vec![installed], expected_identity())
+    let mut uninstalled = mutation_event("codex_plugin_uninstalled");
+    uninstalled["event_params"]["has_skills"] = Value::Null;
+    let error = validate_mutation_events(vec![uninstalled], expected_identity())
         .expect_err("missing capability metadata should fail validation");
 
     assert!(error.to_string().contains("has_skills"));

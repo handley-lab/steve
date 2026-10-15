@@ -70,13 +70,10 @@ use wiremock::ResponseTemplate;
 use wiremock::matchers::header;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
-use wiremock::matchers::query_param;
 
 // Plugin install tests wait on connector discovery after the install response path
 // starts, which is noticeably slower on Windows CI.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
-const REMOTE_PLUGIN_ID: &str = "plugins~Plugin_00000000000000000000000000000000";
-const INSTALL_ATTEMPT_ID: &str = "94c79f7b-cceb-4415-9a3e-b51b2f718d43";
 
 #[tokio::test]
 async fn plugin_install_rejects_relative_marketplace_paths() -> Result<()> {
@@ -211,104 +208,7 @@ plugins = false
     Ok(())
 }
 
-#[tokio::test]
-async fn plugin_install_writes_remote_plugin_to_cloud_and_cache() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    configure_remote_plugin_test(codex_home.path(), &server)?;
-    mount_remote_plugin_install(&server, REMOTE_PLUGIN_ID).await;
 
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let request_id = send_remote_plugin_install_request(&mut mcp, REMOTE_PLUGIN_ID).await?;
-    let response: PluginInstallResponse =
-        timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
-
-    assert_eq!(
-        response,
-        PluginInstallResponse {
-            auth_policy: None,
-            apps_needing_auth: Vec::new(),
-        }
-    );
-    wait_for_remote_plugin_request_count(
-        &server,
-        "POST",
-        &format!("/ps/plugins/{REMOTE_PLUGIN_ID}/install"),
-        /*expected_count*/ 1,
-    )
-    .await?;
-    assert_eq!(
-        wait_for_remote_plugin_install_request_body(&server, REMOTE_PLUGIN_ID).await?,
-        Vec::<u8>::new()
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn plugin_install_uses_remote_apps_needing_auth_response() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    configure_remote_plugin_with_apps_test(codex_home.path(), &server)?;
-    mount_remote_plugin_install_with_apps_needing_auth(&server, REMOTE_PLUGIN_ID, &["alpha"]).await;
-    Mock::given(method("POST"))
-        .and(path("/backend-api/ps/apps/batch"))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .and(header("oai-product-sku", "codex"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "apps": [{
-                "id": "alpha",
-                "name": "Alpha",
-                "description": "Alpha connector",
-                "icon_url": null,
-                "tools": null
-            }]
-        })))
-        .mount(&server)
-        .await;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let request_id = send_remote_plugin_install_request(&mut mcp, REMOTE_PLUGIN_ID).await?;
-    let response: PluginInstallResponse =
-        timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
-
-    assert_eq!(
-        response,
-        PluginInstallResponse {
-            auth_policy: None,
-            apps_needing_auth: vec![AppSummary {
-                id: "alpha".to_string(),
-                name: "Alpha".to_string(),
-                description: Some("Alpha connector".to_string()),
-                install_url: Some("https://chatgpt.com/apps/alpha/alpha".to_string()),
-                category: None,
-            }],
-        }
-    );
-    wait_for_remote_plugin_request_count(
-        &server,
-        "POST",
-        "/backend-api/ps/apps/batch",
-        /*expected_count*/ 1,
-    )
-    .await?;
-    wait_for_remote_plugin_request_count(
-        &server,
-        "GET",
-        "/backend-api/connectors/directory/list",
-        /*expected_count*/ 0,
-    )
-    .await?;
-    Ok(())
-}
 
 
 
@@ -343,60 +243,6 @@ async fn plugin_install_rejects_invalid_remote_plugin_name() -> Result<()> {
 }
 
 
-#[tokio::test]
-async fn plugin_install_tracks_analytics_when_remote_install_is_rate_limited() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    configure_remote_plugin_test(codex_home.path(), &server)?;
-    Mock::given(method("POST"))
-        .and(path(format!(
-            "/backend-api/ps/plugins/{REMOTE_PLUGIN_ID}/install"
-        )))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(ResponseTemplate::new(/*status_code*/ 429).set_body_string("rate limited"))
-        .mount(&server)
-        .await;
-    mount_backend_analytics_events(&server).await;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let request_id = send_remote_plugin_install_request(&mut mcp, REMOTE_PLUGIN_ID).await?;
-    let err = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_error_message(RequestId::Integer(request_id)),
-    )
-    .await??;
-
-    assert_eq!(err.error.code, -32603);
-    assert!(err.error.message.contains("failed with status 429"));
-    wait_for_remote_plugin_request_count(
-        &server,
-        "POST",
-        &format!("/ps/plugins/{REMOTE_PLUGIN_ID}/install"),
-        /*expected_count*/ 1,
-    )
-    .await?;
-    let payload = wait_for_plugin_analytics_payload(&server, "codex_plugin_install_failed").await?;
-    let event_params = &payload["events"][0]["event_params"];
-    assert_eq!(
-        payload["events"][0]["event_type"],
-        "codex_plugin_install_failed"
-    );
-    assert_eq!(event_params["plugin_id"], json!(null));
-    assert_eq!(event_params["remote_plugin_id"], REMOTE_PLUGIN_ID);
-    assert_eq!(event_params["marketplace_name"], json!(null));
-    assert_eq!(event_params["source"], "manual");
-    assert_eq!(
-        event_params["error_type"],
-        "remote_catalog_unexpected_status"
-    );
-    assert_eq!(event_params["sub_error_type"], "http_429");
-    Ok(())
-}
 
 
 
@@ -717,56 +563,6 @@ async fn plugin_install_failure_tracks_analytics_event() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn plugin_install_tracks_remote_plugin_analytics_event() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    configure_remote_plugin_test(codex_home.path(), &server)?;
-    mount_remote_plugin_install(&server, REMOTE_PLUGIN_ID).await;
-    mount_backend_analytics_events(&server).await;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let request_id = send_remote_plugin_install_request_with_attempt_id(
-        &mut mcp,
-        REMOTE_PLUGIN_ID,
-        INSTALL_ATTEMPT_ID,
-    )
-    .await?;
-    let response: PluginInstallResponse =
-        timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
-    assert_eq!(response.apps_needing_auth, Vec::<AppSummary>::new());
-    let request_body =
-        wait_for_remote_plugin_install_request_body(&server, REMOTE_PLUGIN_ID).await?;
-    assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&request_body)?,
-        json!({"install_attempt_id": INSTALL_ATTEMPT_ID})
-    );
-
-    let payload = wait_for_plugin_analytics_payload(&server, "codex_plugin_installed").await?;
-    assert_eq!(
-        payload,
-        json!({
-            "events": [{
-                "event_type": "codex_plugin_installed",
-                "event_params": {
-                    "plugin_id": null,
-                    "remote_plugin_id": REMOTE_PLUGIN_ID,
-                    "plugin_name": null,
-                    "marketplace_name": null,
-                    "has_skills": null,
-                    "mcp_server_count": null,
-                    "connector_ids": null,
-                    "product_client_id": DEFAULT_CLIENT_NAME,
-                }
-            }]
-        })
-    );
-    Ok(())
-}
 
 
 #[tokio::test]
@@ -2203,44 +1999,6 @@ plugins = true
     )
 }
 
-fn configure_remote_plugin_test(codex_home: &std::path::Path, server: &MockServer) -> Result<()> {
-    write_remote_plugin_catalog_config(codex_home, &format!("{}/backend-api/", server.uri()))?;
-    write_chatgpt_auth(
-        codex_home,
-        ChatGptAuthFixture::new("chatgpt-token")
-            .account_id("account-123")
-            .chatgpt_user_id("user-123")
-            .chatgpt_account_id("account-123"),
-        AuthCredentialsStoreMode::File,
-    )
-}
-
-fn configure_remote_plugin_with_apps_test(
-    codex_home: &std::path::Path,
-    server: &MockServer,
-) -> Result<()> {
-    std::fs::write(
-        codex_home.join("config.toml"),
-        format!(
-            r#"
-chatgpt_base_url = "{}/backend-api/"
-
-[features]
-plugins = true
-connectors = true
-"#,
-            server.uri()
-        ),
-    )?;
-    write_chatgpt_auth(
-        codex_home,
-        ChatGptAuthFixture::new("chatgpt-token")
-            .account_id("account-123")
-            .chatgpt_user_id("user-123")
-            .chatgpt_account_id("account-123"),
-        AuthCredentialsStoreMode::File,
-    )
-}
 
 
 
@@ -2250,92 +2008,14 @@ connectors = true
 
 
 
-async fn mount_remote_plugin_install(server: &MockServer, remote_plugin_id: &str) {
-    Mock::given(method("POST"))
-        .and(path(format!(
-            "/backend-api/ps/plugins/{remote_plugin_id}/install"
-        )))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_string(format!(r#"{{"id":"{remote_plugin_id}","enabled":true}}"#)),
-        )
-        .mount(server)
-        .await;
-}
-
-async fn mount_remote_plugin_install_with_apps_needing_auth(
-    server: &MockServer,
-    remote_plugin_id: &str,
-    app_ids_needing_auth: &[&str],
-) {
-    Mock::given(method("POST"))
-        .and(path(format!(
-            "/backend-api/ps/plugins/{remote_plugin_id}/install"
-        )))
-        .and(query_param("includeAppsNeedingAuth", "true"))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "id": remote_plugin_id,
-            "enabled": true,
-            "app_ids_needing_auth": app_ids_needing_auth,
-        })))
-        .mount(server)
-        .await;
-}
 
 
 
 
-async fn send_remote_plugin_install_request(
-    mcp: &mut TestAppServer,
-    remote_plugin_id: &str,
-) -> Result<i64> {
-    mcp.send_plugin_install_request(PluginInstallParams {
-        marketplace_path: None,
-        remote_marketplace_name: Some("caller-marketplace-is-ignored".to_string()),
-        install_attempt_id: None,
-        plugin_name: remote_plugin_id.to_string(),
-    })
-    .await
-}
 
-async fn send_remote_plugin_install_request_with_attempt_id(
-    mcp: &mut TestAppServer,
-    remote_plugin_id: &str,
-    install_attempt_id: &str,
-) -> Result<i64> {
-    mcp.send_plugin_install_request(PluginInstallParams {
-        marketplace_path: None,
-        remote_marketplace_name: Some("caller-marketplace-is-ignored".to_string()),
-        install_attempt_id: Some(install_attempt_id.to_string()),
-        plugin_name: remote_plugin_id.to_string(),
-    })
-    .await
-}
 
-async fn wait_for_remote_plugin_install_request_body(
-    server: &MockServer,
-    remote_plugin_id: &str,
-) -> Result<Vec<u8>> {
-    let path_suffix = format!("/ps/plugins/{remote_plugin_id}/install");
-    timeout(DEFAULT_TIMEOUT, async {
-        loop {
-            let Some(requests) = server.received_requests().await else {
-                bail!("wiremock did not record requests");
-            };
-            if let Some(request) = requests.iter().find(|request| {
-                request.method == "POST" && request.url.path().ends_with(&path_suffix)
-            }) {
-                return Ok::<Vec<u8>, anyhow::Error>(request.body.clone());
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await?
-}
+
+
 
 async fn wait_for_remote_plugin_request_count(
     server: &MockServer,

@@ -1,6 +1,5 @@
 #[path = "remote_mutations.rs"]
 mod remote_mutations;
-pub use remote_mutations::RemotePluginInstallRequest;
 pub use remote_mutations::RemotePluginOperationError;
 pub use remote_mutations::RemotePluginOperationErrorKind;
 pub use remote_mutations::RemotePluginUninstallOutcome;

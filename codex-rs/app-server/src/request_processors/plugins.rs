@@ -3,7 +3,6 @@ use super::config_processor::reload_user_config;
 use super::*;
 use crate::error_code::internal_error;
 use crate::error_code::invalid_request;
-use codex_analytics::PluginInstallSource;
 use codex_app_server_protocol::PluginAvailability;
 use codex_app_server_protocol::PluginSharePrincipalRole;
 use codex_app_server_protocol::PluginShareTargetRole;
@@ -12,7 +11,6 @@ use codex_config::types::PluginsConfigToml;
 use codex_core_plugins::OPENAI_CURATED_MARKETPLACE_NAME;
 use codex_core_plugins::PluginListBackgroundTaskOptions;
 use codex_core_plugins::PluginMarketplaceContext;
-use codex_core_plugins::RemotePluginInstallRequest;
 use codex_core_plugins::RemotePluginOperationError;
 use codex_core_plugins::RemotePluginOperationErrorKind;
 use codex_core_plugins::is_openai_curated_marketplace_name;
@@ -28,14 +26,12 @@ use codex_core_plugins::remote::RemotePluginCatalogCacheMode;
 use codex_core_plugins::remote::RemotePluginScope;
 use codex_core_plugins::remote::is_valid_remote_plugin_id;
 use codex_core_plugins::remote::validate_remote_plugin_id;
-use codex_core_plugins::remote_bundle::RemotePluginBundleInstallError;
 use codex_mcp::McpOAuthLoginSupport;
 use codex_mcp::McpRuntimeContext;
 use codex_mcp::oauth_login_support;
 use codex_mcp::resolve_oauth_callback;
 use codex_mcp::should_retry_without_scopes;
 use codex_plugin::PluginId;
-use codex_plugin::PluginTelemetryMetadata;
 use codex_protocol::auth::AuthMode as DomainAuthMode;
 use codex_rmcp_client::McpOAuthClientRegistration;
 use codex_rmcp_client::OAuthDiscoveryTimeout;
@@ -1352,19 +1348,22 @@ impl PluginRequestProcessor {
         let PluginInstallParams {
             marketplace_path,
             remote_marketplace_name,
-            install_attempt_id,
+            install_attempt_id: _,
             plugin_name,
         } = params;
         let marketplace_path = match (marketplace_path, remote_marketplace_name) {
             (Some(marketplace_path), None) => marketplace_path,
             (None, Some(remote_marketplace_name)) => {
-                return self
-                    .remote_plugin_install_response(
-                        remote_marketplace_name,
-                        plugin_name,
-                        install_attempt_id,
-                    )
-                    .await;
+                let config = self.load_latest_config(/*fallback_cwd*/ None).await?;
+                if !config.features.enabled(Feature::Plugins) {
+                    return Err(invalid_request(format!(
+                        "remote plugin install is not enabled for marketplace {remote_marketplace_name}"
+                    )));
+                }
+                validate_remote_plugin_id(&plugin_name)?;
+                return Err(invalid_request(format!(
+                    "remote plugin install is not available for marketplace {remote_marketplace_name}"
+                )));
             }
             (Some(_), Some(_)) | (None, None) => {
                 return Err(invalid_request(
@@ -1458,139 +1457,7 @@ impl PluginRequestProcessor {
         })
     }
 
-    async fn remote_plugin_install_response(
-        &self,
-        remote_marketplace_name: String,
-        remote_plugin_id: String,
-        install_attempt_id: Option<String>,
-    ) -> Result<PluginInstallResponse, JSONRPCErrorError> {
-        let mut config = self.load_latest_config(/*fallback_cwd*/ None).await?;
-        let auth = match self.auth_manager.auth_with_http_client_factory().await {
-            Some((auth, factory)) => {
-                config.application_network_policy = factory.network_policy().clone();
-                Some(auth)
-            }
-            None => None,
-        };
-        let plugins_manager = self.thread_manager.plugins_manager();
-        let installation = plugins_manager
-            .install_remote_plugin(
-                &config.plugins_config_input(),
-                auth.as_ref(),
-                RemotePluginInstallRequest {
-                    marketplace_name: remote_marketplace_name.clone(),
-                    remote_plugin_id: remote_plugin_id.clone(),
-                    install_attempt_id,
-                },
-                Some(self.effective_plugins_changed_callback()),
-            )
-            .await
-            .map_err(|err| {
-                let classification = match err.kind.as_ref() {
-                    RemotePluginOperationErrorKind::Catalog { source, .. } => Some((
-                        remote_plugin_catalog_error_type(source),
-                        source.sub_error_type(),
-                    )),
-                    RemotePluginOperationErrorKind::Bundle(source) => Some((
-                        remote_plugin_bundle_install_error_type(source),
-                        source.sub_error_type(),
-                    )),
-                    RemotePluginOperationErrorKind::DisabledByAdmin(_) => Some((
-                        "remote_plugin_not_available",
-                        Some("disabled_by_admin".to_string()),
-                    )),
-                    RemotePluginOperationErrorKind::NotAvailable(_) => Some((
-                        "remote_plugin_not_available",
-                        Some("install_policy_not_available".to_string()),
-                    )),
-                    RemotePluginOperationErrorKind::Sync { .. }
-                    | RemotePluginOperationErrorKind::InvalidRequest(_)
-                    | RemotePluginOperationErrorKind::Internal(_) => None,
-                };
-                if let Some((error_type, sub_error_type)) = classification {
-                    let marketplace = err
-                        .plugin_id
-                        .as_ref()
-                        .map(|id| id.marketplace_name.as_str())
-                        .unwrap_or(&remote_marketplace_name);
-                    self.track_plugin_install_failed_for_remote_plugin(
-                        &remote_plugin_id,
-                        marketplace,
-                        err.plugin_id.as_ref(),
-                        error_type,
-                        sub_error_type,
-                        err.to_string(),
-                    );
-                }
-                remote_plugin_operation_error_to_jsonrpc(err)
-            })?;
-        self.analytics_events_client
-            .track_plugin_installed(PluginTelemetryMetadata {
-                plugin_id: None,
-                remote_plugin_id: Some(remote_plugin_id),
-                capability_summary: None,
-            });
-        let is_chatgpt_auth = auth.as_ref().is_some_and(CodexAuth::is_chatgpt_auth);
-        let apps_needing_auth = match installation.app_ids_needing_auth {
-            Some(app_ids_needing_auth)
-                if !app_ids_needing_auth.is_empty()
-                    && config.features.apps_enabled_for_auth(is_chatgpt_auth) =>
-            {
-                let plugin_apps = app_ids_needing_auth
-                    .into_iter()
-                    .map(codex_plugin::AppConnectorId)
-                    .collect::<Vec<_>>();
-                load_plugin_app_summaries(
-                    &config,
-                    auth.as_ref(),
-                    &plugin_apps,
-                    &std::collections::HashMap::new(),
-                )
-                .await
-            }
-            _ => Vec::new(),
-        };
-        Ok(PluginInstallResponse {
-            auth_policy: None,
-            apps_needing_auth,
-        })
-    }
 
-    fn track_plugin_install_failed_for_remote_plugin(
-        &self,
-        remote_plugin_id: &str,
-        marketplace_name: &str,
-        plugin_id: Option<&PluginId>,
-        error_type: &'static str,
-        sub_error_type: Option<String>,
-        error_message: String,
-    ) {
-        tracing::warn!(
-            remote_plugin_id = %remote_plugin_id,
-            marketplace_name = %marketplace_name,
-            error_type = %error_type,
-            sub_error_type = sub_error_type.as_deref(),
-            error = %error_message,
-            "remote plugin install failed"
-        );
-        let plugin = if let Some(plugin_id) = plugin_id {
-            self.thread_manager
-                .plugins_manager()
-                .telemetry_metadata_for_plugin_id_with_remote_id(plugin_id, remote_plugin_id)
-        } else {
-            PluginTelemetryMetadata {
-                plugin_id: None,
-                remote_plugin_id: Some(remote_plugin_id.to_string()),
-                capability_summary: None,
-            }
-        };
-        self.analytics_events_client.track_plugin_install_failed(
-            plugin,
-            PluginInstallSource::Manual,
-            error_type.to_string(),
-            sub_error_type,
-        );
-    }
 
     async fn plugin_apps_needing_auth_for_install(
         &self,
@@ -2085,74 +1952,7 @@ fn remote_plugin_share_discoverability_to_info(
 }
 
 
-fn remote_plugin_catalog_error_type(err: &RemotePluginCatalogError) -> &'static str {
-    match err {
-        RemotePluginCatalogError::AuthRequired => "remote_catalog_auth_required",
-        RemotePluginCatalogError::UnsupportedAuthMode => "remote_catalog_unsupported_auth_mode",
-        RemotePluginCatalogError::AuthToken(_) => "remote_catalog_auth_token",
-        RemotePluginCatalogError::Request { .. } => "remote_catalog_request",
-        RemotePluginCatalogError::UnexpectedStatus { .. } => "remote_catalog_unexpected_status",
-        RemotePluginCatalogError::Decode { .. } => "remote_catalog_decode",
-        RemotePluginCatalogError::InvalidBaseUrl(_) => "remote_catalog_invalid_base_url",
-        RemotePluginCatalogError::InvalidBaseUrlPath => "remote_catalog_invalid_base_url_path",
-        RemotePluginCatalogError::UnknownMarketplace { .. } => "remote_catalog_unknown_marketplace",
-        RemotePluginCatalogError::UnexpectedPluginId { .. } => {
-            "remote_catalog_unexpected_plugin_id"
-        }
-        RemotePluginCatalogError::UnexpectedSkillName { .. } => {
-            "remote_catalog_unexpected_skill_name"
-        }
-        RemotePluginCatalogError::UnexpectedEnabledState { .. } => {
-            "remote_catalog_unexpected_enabled_state"
-        }
-        RemotePluginCatalogError::InvalidPluginPath { .. } => "remote_catalog_invalid_plugin_path",
-        RemotePluginCatalogError::PluginShareCheckoutNotAvailable { .. } => {
-            "remote_catalog_plugin_share_checkout_not_available"
-        }
-        RemotePluginCatalogError::Archive { .. } => "remote_catalog_archive",
-        RemotePluginCatalogError::ArchiveJoin(_) => "remote_catalog_archive_join",
-        RemotePluginCatalogError::ArchiveTooLarge { .. } => "remote_catalog_archive_too_large",
-        RemotePluginCatalogError::MissingUploadEtag => "remote_catalog_missing_upload_etag",
-        RemotePluginCatalogError::UnexpectedResponse(_) => "remote_catalog_unexpected_response",
-        RemotePluginCatalogError::CacheRemove(_) => "remote_catalog_cache_remove",
-    }
-}
 
-fn remote_plugin_bundle_install_error_type(err: &RemotePluginBundleInstallError) -> &'static str {
-    match err {
-        RemotePluginBundleInstallError::MissingReleaseVersion { .. } => {
-            "remote_bundle_missing_release_version"
-        }
-        RemotePluginBundleInstallError::InvalidReleaseVersion { .. } => {
-            "remote_bundle_invalid_release_version"
-        }
-        RemotePluginBundleInstallError::MissingBundleDownloadUrl { .. } => {
-            "remote_bundle_missing_download_url"
-        }
-        RemotePluginBundleInstallError::InvalidBundleDownloadUrl { .. } => {
-            "remote_bundle_invalid_download_url"
-        }
-        RemotePluginBundleInstallError::UnsupportedBundleDownloadUrlScheme { .. } => {
-            "remote_bundle_unsupported_download_url_scheme"
-        }
-        RemotePluginBundleInstallError::InvalidPluginId { .. } => "remote_bundle_invalid_plugin_id",
-        RemotePluginBundleInstallError::DownloadRequest { .. } => "remote_bundle_download_request",
-        RemotePluginBundleInstallError::DownloadStatus { .. } => "remote_bundle_download_status",
-        RemotePluginBundleInstallError::DownloadBody { .. } => "remote_bundle_download_body",
-        RemotePluginBundleInstallError::DownloadTooLarge { .. } => {
-            "remote_bundle_download_too_large"
-        }
-        RemotePluginBundleInstallError::UnsupportedBundleDownloadFinalUrl { .. } => {
-            "remote_bundle_unsupported_download_final_url"
-        }
-        RemotePluginBundleInstallError::ExtractedBundleTooLarge { .. } => {
-            "remote_bundle_extracted_too_large"
-        }
-        RemotePluginBundleInstallError::Io { .. } => "remote_bundle_io",
-        RemotePluginBundleInstallError::InvalidBundle(_) => "remote_bundle_invalid_bundle",
-        RemotePluginBundleInstallError::Store(_) => "remote_bundle_store",
-    }
-}
 
 fn remote_plugin_catalog_error_to_jsonrpc(
     err: RemotePluginCatalogError,
