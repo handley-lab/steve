@@ -269,6 +269,12 @@ behavior is outside this source audit. Avoid invoking this command when
 external desktop participation is unwanted; a Cambridge inference provider
 does not change this integration. Source: `codex-rs/cli/src/desktop_app/mac.rs`.
 
+Doctor does not GET a desktop update manifest. It does not request an
+appcast or Windows store file from `persistent.oaistatic.com`, and it does
+not request `https://chatgpt.com/backend-api/wham/app/appcast`. A locally
+staged macOS Sparkle bundle can still be reported. Source:
+`codex-rs/cli/src/doctor/updates.rs`.
+
 ## Guardian Decisions comparison
 
 Guardian scoring does not build or send a request to
