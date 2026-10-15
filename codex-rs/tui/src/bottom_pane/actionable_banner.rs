@@ -184,10 +184,6 @@ impl BottomPane {
         self.request_redraw();
     }
 
-    pub(crate) fn show_actionable_banner(&mut self, banner: ActionableBanner) {
-        self.show_selection_view(banner.into());
-    }
-
     /// Display a banner above the composer without interrupting active dialogs or losing a draft.
     pub(crate) fn set_inline_banner(&mut self, banner: Option<ActionableBanner>) {
         self.inline_banner = banner.map(|banner| {

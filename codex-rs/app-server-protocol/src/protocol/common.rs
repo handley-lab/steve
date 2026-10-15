@@ -1273,12 +1273,6 @@ client_request_definitions! {
         response: v2::GetWorkspaceMessagesResponse,
     },
 
-    SendAddCreditsNudgeEmail => "account/sendAddCreditsNudgeEmail" {
-        params: v2::SendAddCreditsNudgeEmailParams,
-        serialization: global("account-auth"),
-        response: v2::SendAddCreditsNudgeEmailResponse,
-    },
-
     FeedbackUpload => "feedback/upload" {
         params: v2::FeedbackUploadParams,
         serialization: None,
@@ -2497,17 +2491,6 @@ mod tests {
         assert_eq!(
             marketplace_remove.serialization_scope(),
             Some(ClientRequestSerializationScope::Global("config"))
-        );
-
-        let add_credits_nudge = ClientRequest::SendAddCreditsNudgeEmail {
-            request_id: request_id(),
-            params: v2::SendAddCreditsNudgeEmailParams {
-                credit_type: v2::AddCreditsNudgeCreditType::Credits,
-            },
-        };
-        assert_eq!(
-            add_credits_nudge.serialization_scope(),
-            Some(ClientRequestSerializationScope::Global("account-auth"))
         );
 
         let environment_add = ClientRequest::EnvironmentAdd {

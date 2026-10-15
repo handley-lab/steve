@@ -374,16 +374,13 @@ impl ChatWidget {
             content
         });
         self.backend_banner_state.presented = banner.cloned();
-        if content.is_some() {
-            self.bottom_pane
-                .dismiss_view_by_id(super::rate_limits::WORKSPACE_NUDGE_VIEW_ID);
-            if self
+        if content.is_some()
+            && self
                 .bottom_pane
                 .dismiss_view_by_id(super::rate_limits::RATE_LIMIT_SWITCH_PROMPT_VIEW_ID)
-            {
-                // Replacing the view is not the user's decision to dismiss the prompt.
-                self.rate_limit_switch_prompt = super::RateLimitSwitchPromptState::Pending;
-            }
+        {
+            // Replacing the view is not the user's decision to dismiss the prompt.
+            self.rate_limit_switch_prompt = super::RateLimitSwitchPromptState::Pending;
         }
         self.bottom_pane
             .dismiss_view_by_id(LUNA_RESERVE_RECOVERY_VIEW_ID);

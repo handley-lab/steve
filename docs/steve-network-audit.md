@@ -166,7 +166,9 @@ Steve does not GET `/wham/rate-limit-reset-credits` or
 
 Steve does not GET `/wham/accounts/check` or `/api/codex/accounts/check`.
 Account reads still return the local account. An explicit configured base URL
-stays in use.
+stays in use. Steve does not POST
+`/wham/accounts/send_add_credits_nudge_email` or
+`/api/codex/accounts/send_add_credits_nudge_email`.
 
 ## Cloud-task submission
 

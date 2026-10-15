@@ -463,29 +463,21 @@ impl ChatWidget {
         }
         self.codex_rate_limit_reached_type = rate_limit_reached_type;
         // Keep owner remediation in history even when the optional backend banner is unavailable.
-        let (message, nudge) = match rate_limit_reached_type {
-            Some(RateLimitReachedType::WorkspaceOwnerCreditsDepleted) => (
-                    "You're out of credits. Your workspace is out of credits. Add credits to continue using Steve."
-                        .to_string(),
-                    None,
-            ),
-            Some(RateLimitReachedType::WorkspaceOwnerUsageLimitReached) => (
-                    "Usage limit reached. You've reached your usage limit. Increase your limits to continue using steve."
-                        .to_string(),
-                    None,
-            ),
-            Some(RateLimitReachedType::WorkspaceMemberCreditsDepleted) =>
-                (message, Some(AddCreditsNudgeCreditType::Credits)),
-            Some(RateLimitReachedType::WorkspaceMemberUsageLimitReached) =>
-                (message, Some(AddCreditsNudgeCreditType::UsageLimit)),
-            Some(RateLimitReachedType::RateLimitReached) | None => (message, None),
+        let message = match rate_limit_reached_type {
+            Some(RateLimitReachedType::WorkspaceOwnerCreditsDepleted) => {
+                "You're out of credits. Your workspace is out of credits. Add credits to continue using Steve."
+                    .to_string()
+            }
+            Some(RateLimitReachedType::WorkspaceOwnerUsageLimitReached) => {
+                "Usage limit reached. You've reached your usage limit. Increase your limits to continue using steve."
+                    .to_string()
+            }
+            Some(RateLimitReachedType::WorkspaceMemberCreditsDepleted)
+            | Some(RateLimitReachedType::WorkspaceMemberUsageLimitReached)
+            | Some(RateLimitReachedType::RateLimitReached)
+            | None => message,
         };
         self.on_error(message);
-        if !self.has_applicable_backend_banner()
-            && let Some(credit_type) = nudge
-        {
-            self.open_workspace_owner_nudge_prompt(credit_type);
-        }
     }
 
     pub(super) fn handle_non_retry_error(

@@ -154,15 +154,6 @@ impl AccountRequestProcessor {
             .map(|response| Some(response.into()))
     }
 
-    pub(crate) async fn send_add_credits_nudge_email(
-        &self,
-        params: SendAddCreditsNudgeEmailParams,
-    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        self.send_add_credits_nudge_email_response(params)
-            .await
-            .map(|response| Some(response.into()))
-    }
-
     pub(crate) async fn cancel_active_login(&self) {
         self.cancel_gateway_login();
         self.enterprise_login.cancel(/*login_id*/ None).await;
@@ -1056,59 +1047,6 @@ impl AccountRequestProcessor {
         })
     }
 
-    async fn send_add_credits_nudge_email_response(
-        &self,
-        params: SendAddCreditsNudgeEmailParams,
-    ) -> Result<SendAddCreditsNudgeEmailResponse, JSONRPCErrorError> {
-        self.send_add_credits_nudge_email_inner(params)
-            .await
-            .map(|status| SendAddCreditsNudgeEmailResponse { status })
-    }
-
-    async fn send_add_credits_nudge_email_inner(
-        &self,
-        params: SendAddCreditsNudgeEmailParams,
-    ) -> Result<AddCreditsNudgeEmailStatus, JSONRPCErrorError> {
-        let Some((auth, http_client_factory)) =
-            self.auth_manager.auth_with_http_client_factory().await
-        else {
-            return Err(invalid_request(
-                "codex account authentication required to notify workspace owner",
-            ));
-        };
-
-        if !auth.uses_codex_backend() {
-            return Err(invalid_request(
-                "chatgpt authentication required to notify workspace owner",
-            ));
-        }
-
-        let client = BackendClient::from_auth(
-            self.config.chatgpt_base_url.clone(),
-            &auth,
-            http_client_factory,
-        );
-
-        match client
-            .send_add_credits_nudge_email(Self::backend_credit_type(params.credit_type))
-            .await
-        {
-            Ok(()) => Ok(AddCreditsNudgeEmailStatus::Sent),
-            Err(err) if err.status().is_some_and(|status| status.as_u16() == 429) => {
-                Ok(AddCreditsNudgeEmailStatus::CooldownActive)
-            }
-            Err(err) => Err(internal_error(format!(
-                "failed to notify workspace owner: {err}"
-            ))),
-        }
-    }
-
-    fn backend_credit_type(value: AddCreditsNudgeCreditType) -> BackendAddCreditsNudgeCreditType {
-        match value {
-            AddCreditsNudgeCreditType::Credits => BackendAddCreditsNudgeCreditType::Credits,
-            AddCreditsNudgeCreditType::UsageLimit => BackendAddCreditsNudgeCreditType::UsageLimit,
-        }
-    }
 }
 
 fn workspace_message_from_backend(

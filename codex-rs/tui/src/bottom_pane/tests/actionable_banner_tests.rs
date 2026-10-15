@@ -15,7 +15,7 @@ fn promoted_banner_uses_picker_hints_and_preserves_the_draft() {
         pane.set_composer_text("draft in progress".into(), Vec::new(), Vec::new());
         pane.handle_key_event(KeyEvent::from(KeyCode::Left));
         let draft = pane.composer.draft_snapshot();
-        pane.show_actionable_banner(ActionableBanner {
+        pane.show_selection_view(ActionableBanner {
             title: "Usage limit reached".into(),
             description: "Review your usage or keep working with another model.".into(),
             actions: vec![SelectionItem {
@@ -29,7 +29,7 @@ fn promoted_banner_uses_picker_hints_and_preserves_the_draft() {
                 ..Default::default()
             }],
             ..Default::default()
-        });
+        }.into());
         let area = Rect::new(
             /*x*/ 0,
             /*y*/ 0,

@@ -102,7 +102,6 @@ mod plugin_search;
 mod plugin_uninstall;
 mod process_exec;
 mod projects;
-mod rate_limits;
 mod realtime_conversation;
 #[cfg(debug_assertions)]
 mod remote_thread_store;

@@ -1807,18 +1807,6 @@ impl App {
             AppEvent::ClearThreadGoal { thread_id } => {
                 self.clear_thread_goal(app_server, thread_id).await;
             }
-            AppEvent::SendAddCreditsNudgeEmail { credit_type } => {
-                if let Some(request_id) = self
-                    .chat_widget
-                    .start_add_credits_nudge_email_request(credit_type)
-                {
-                    self.send_add_credits_nudge_email(app_server, request_id, credit_type);
-                }
-            }
-            AppEvent::AddCreditsNudgeEmailFinished { request_id, result } => {
-                self.chat_widget
-                    .finish_add_credits_nudge_email_request(request_id, result);
-            }
             AppEvent::OpenAnalytics { view: summary_view } => {
                 tui.enter_alt_screen()?;
                 let mut view = self.retained_analytics.take().unwrap_or_else(|| {

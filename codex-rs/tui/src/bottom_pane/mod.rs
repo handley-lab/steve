@@ -2819,10 +2819,7 @@ mod tests {
 
     #[test]
     fn backend_banner_snapshots_and_numbered_actions() {
-        for (kind, action, label) in [
-            ("personal_limit", "view_usage", "View usage"),
-            ("workspace_member_credits", "notify_owner", "Notify owner"),
-        ] {
+        for (kind, action, label) in [("personal_limit", "view_usage", "View usage")] {
             let banner = serde_json::from_value::<crate::backend_banners::BackendBanner>(serde_json::json!({
                 "banner_type": kind,
                 "presentation": "dismissible",
@@ -2855,17 +2852,9 @@ mod tests {
             pane.handle_key_event(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
             let selected = match rx.try_recv().expect("numbered CTA dispatch") {
                 AppEvent::OpenUrlInBrowser { url } => url,
-                AppEvent::SendAddCreditsNudgeEmail { credit_type } => format!("{credit_type:?}"),
                 other => panic!("unexpected banner action: {other:?}"),
             };
-            assert_eq!(
-                selected,
-                if action == "view_usage" {
-                    "https://chatgpt.com/settings/usage"
-                } else {
-                    "Credits"
-                }
-            );
+            assert_eq!(selected, "https://chatgpt.com/settings/usage");
             assert!(pane.inline_banner.is_some());
         }
     }

@@ -4,7 +4,6 @@ pub(crate) mod types;
 
 pub use analytics_session::AnalyticsAccount;
 pub use analytics_session::AnalyticsSession;
-pub use client::AddCreditsNudgeCreditType;
 pub use client::ChatgptThreadTurnCosts;
 pub use client::ChatgptTurnCost;
 pub use client::Client;

@@ -1,7 +1,7 @@
 //! Background app-server requests launched by the TUI app.
 //!
 //! This module owns fire-and-forget fetch/write helpers for MCP inventory, skills, plugins, rate
-//! limits, add-credit nudges, and feedback uploads. Results are routed back through `AppEvent` so
+//! limits, and feedback uploads. Results are routed back through `AppEvent` so
 //! the main event loop remains single-threaded.
 
 use super::feedback_upload::fetch_feedback_upload;
@@ -138,22 +138,6 @@ impl App {
                     .map_err(|err| err.to_string())
             });
             app_event_tx.send(AppEvent::StatusLineWorkspaceHeadlineUpdated { request_id, result });
-        });
-    }
-
-    pub(super) fn send_add_credits_nudge_email(
-        &mut self,
-        app_server: &AppServerSession,
-        request_id: Uuid,
-        credit_type: AddCreditsNudgeCreditType,
-    ) {
-        let request_handle = app_server.request_handle();
-        let app_event_tx = self.app_event_tx.clone();
-        tokio::spawn(async move {
-            let result = send_add_credits_nudge_email(request_handle, credit_type)
-                .await
-                .map_err(|err| err.to_string());
-            app_event_tx.send(AppEvent::AddCreditsNudgeEmailFinished { request_id, result });
         });
     }
 
@@ -756,22 +740,6 @@ pub(super) async fn fetch_workspace_messages(
         })
         .await
         .wrap_err("account/workspaceMessages/read failed in TUI")
-}
-
-pub(super) async fn send_add_credits_nudge_email(
-    request_handle: AppServerRequestHandle,
-    credit_type: AddCreditsNudgeCreditType,
-) -> Result<codex_app_server_protocol::AddCreditsNudgeEmailStatus> {
-    let request_id = RequestId::String(format!("add-credits-nudge-{}", Uuid::new_v4()));
-    let response: codex_app_server_protocol::SendAddCreditsNudgeEmailResponse = request_handle
-        .request_typed(ClientRequest::SendAddCreditsNudgeEmail {
-            request_id,
-            params: SendAddCreditsNudgeEmailParams { credit_type },
-        })
-        .await
-        .wrap_err("account/sendAddCreditsNudgeEmail failed in TUI")?;
-
-    Ok(response.status)
 }
 
 pub(super) async fn fetch_skills_list(

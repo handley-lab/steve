@@ -48,15 +48,10 @@ impl BackendBanner {
                     name: cta.label.clone(),
                     actions: vec![Box::new(move |tx| {
                         tx.send(match &action {
-                            BannerAction::OpenUrl(url) => {
-                                AppEvent::OpenUrlInBrowser { url: url.clone() }
-                            }
-                            BannerAction::NotifyOwner(credit_type) => {
-                                AppEvent::SendAddCreditsNudgeEmail {
-                                    credit_type: *credit_type,
-                                }
-                            }
-                        })
+                            BannerAction::OpenUrl(url) => AppEvent::OpenUrlInBrowser {
+                                url: url.clone(),
+                            },
+                        });
                     })],
                     dismiss_on_select: false,
                     ..Default::default()

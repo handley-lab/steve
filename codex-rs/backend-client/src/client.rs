@@ -20,7 +20,6 @@ use http::header::HeaderMap;
 use http::header::HeaderName;
 use http::header::HeaderValue;
 use http::header::USER_AGENT;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::fmt;
 
@@ -110,18 +109,6 @@ impl From<codex_http_client::HttpError> for RequestError {
             | codex_http_client::HttpError::Timeout) => Self::Other(error.into()),
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AddCreditsNudgeCreditType {
-    Credits,
-    UsageLimit,
-}
-
-#[derive(Serialize)]
-struct SendAddCreditsNudgeEmailRequest {
-    credit_type: AddCreditsNudgeCreditType,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -350,20 +337,6 @@ impl Client {
         }
     }
 
-    pub async fn send_add_credits_nudge_email(
-        &self,
-        credit_type: AddCreditsNudgeCreditType,
-    ) -> std::result::Result<(), RequestError> {
-        let url = self.send_add_credits_nudge_email_url();
-        let req = self
-            .request(Method::POST, &url)
-            .headers(self.headers())
-            .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
-            .json(&SendAddCreditsNudgeEmailRequest { credit_type });
-        self.exec_request_detailed(req, "POST", &url).await?;
-        Ok(())
-    }
-
     pub async fn list_tasks(
         &self,
         limit: Option<i32>,
@@ -518,21 +491,6 @@ impl Client {
     }
 
 
-    fn send_add_credits_nudge_email_url(&self) -> String {
-        match self.path_style {
-            PathStyle::CodexApi => format!(
-                "{}/api/codex/accounts/send_add_credits_nudge_email",
-                self.base_url
-            ),
-            PathStyle::ChatGptApi => {
-                format!(
-                    "{}/wham/accounts/send_add_credits_nudge_email",
-                    self.base_url
-                )
-            }
-        }
-    }
-
     fn workspace_messages_url(&self) -> String {
         match self.path_style {
             PathStyle::CodexApi => format!("{}/api/codex/workspace-messages", self.base_url),
@@ -564,36 +522,6 @@ mod tests {
     use wiremock::matchers::method;
     use wiremock::matchers::path;
 
-
-    #[test]
-    fn add_credits_nudge_email_uses_expected_paths_and_bodies() {
-        let codex_client = test_client("https://example.test", PathStyle::CodexApi);
-        assert_eq!(
-            codex_client.send_add_credits_nudge_email_url(),
-            "https://example.test/api/codex/accounts/send_add_credits_nudge_email"
-        );
-
-        let chatgpt_client = test_client("https://chatgpt.com/backend-api", PathStyle::ChatGptApi);
-        assert_eq!(
-            chatgpt_client.send_add_credits_nudge_email_url(),
-            "https://chatgpt.com/backend-api/wham/accounts/send_add_credits_nudge_email"
-        );
-
-        assert_eq!(
-            serde_json::to_value(SendAddCreditsNudgeEmailRequest {
-                credit_type: AddCreditsNudgeCreditType::Credits,
-            })
-            .unwrap(),
-            serde_json::json!({ "credit_type": "credits" })
-        );
-        assert_eq!(
-            serde_json::to_value(SendAddCreditsNudgeEmailRequest {
-                credit_type: AddCreditsNudgeCreditType::UsageLimit,
-            })
-            .unwrap(),
-            serde_json::json!({ "credit_type": "usage_limit" })
-        );
-    }
 
     #[test]
     fn token_usage_profile_uses_expected_paths() {
