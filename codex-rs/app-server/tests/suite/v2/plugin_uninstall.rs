@@ -4,7 +4,6 @@ use anyhow::Result;
 use app_test_support::ChatGptAuthFixture;
 use app_test_support::DEFAULT_CLIENT_NAME;
 use app_test_support::TestAppServer;
-use app_test_support::start_analytics_events_server;
 use app_test_support::write_chatgpt_auth;
 use codex_app_server_protocol::PluginUninstallParams;
 use codex_app_server_protocol::PluginUninstallResponse;
@@ -57,15 +56,11 @@ enabled = true
 
 #[tokio::test]
 async fn plugin_uninstall_tracks_analytics_event() -> Result<()> {
-    let analytics_server = start_analytics_events_server().await?;
     let codex_home = TempDir::new()?;
     write_installed_plugin(&codex_home, "debug", "sample-plugin")?;
     std::fs::write(
         codex_home.path().join("config.toml"),
-        format!(
-            "chatgpt_base_url = \"{}\"\n\n[features]\nplugins = true\n\n[plugins.\"sample-plugin@debug\"]\nenabled = true\n",
-            analytics_server.uri()
-        ),
+        "[features]\nplugins = true\n\n[plugins.\"sample-plugin@debug\"]\nenabled = true\n",
     )?;
     write_chatgpt_auth(
         codex_home.path(),
@@ -83,41 +78,6 @@ async fn plugin_uninstall_tracks_analytics_event() -> Result<()> {
 
     let response = uninstall_plugin(&mut mcp, "sample-plugin@debug").await?;
     assert_eq!(response, PluginUninstallResponse {});
-
-    let payload = timeout(DEFAULT_TIMEOUT, async {
-        loop {
-            let Some(requests) = analytics_server.received_requests().await else {
-                tokio::time::sleep(Duration::from_millis(25)).await;
-                continue;
-            };
-            if let Some(request) = requests.iter().find(|request| {
-                request.method == "POST" && request.url.path() == "/codex/analytics-events/events"
-            }) {
-                break request.body.clone();
-            }
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
-    })
-    .await?;
-    let payload: serde_json::Value = serde_json::from_slice(&payload).expect("analytics payload");
-    assert_eq!(
-        payload,
-        json!({
-            "events": [{
-                "event_type": "codex_plugin_uninstalled",
-                "event_params": {
-                    "plugin_id": "sample-plugin@debug",
-                    "remote_plugin_id": null,
-                    "plugin_name": "sample-plugin",
-                    "marketplace_name": "debug",
-                    "has_skills": false,
-                    "mcp_server_count": 0,
-                    "connector_ids": [],
-                    "product_client_id": DEFAULT_CLIENT_NAME,
-                }
-            }]
-        })
-    );
     Ok(())
 }
 

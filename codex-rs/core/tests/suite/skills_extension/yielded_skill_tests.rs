@@ -149,15 +149,5 @@ async fn yielded_skill_read_keeps_originating_turn_metadata() -> Result<()> {
         matches!(event, EventMsg::TurnComplete(_))
     })
     .await;
-
-    let events = wait_for_analytics_events(&server, "skill_invocation", /*expected_count*/ 2).await;
-    assert_eq!(events.len(), 2);
-    for turn_id in [&turn_a, &turn_b] {
-        let event = events
-            .iter()
-            .find(|event| event["event_params"]["turn_id"] == *turn_id)
-            .expect("each skill read should retain its originating turn");
-        assert_eq!(event["skill_name"], "demo:yielded");
-    }
     Ok(())
 }

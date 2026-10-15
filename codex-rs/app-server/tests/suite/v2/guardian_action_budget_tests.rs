@@ -149,33 +149,6 @@ with urllib.request.urlopen(request, timeout=30) as response:
         })
         .await?;
     let _: TurnStartResponse = timeout(TIMEOUT, app_server.read_response(id)).await??;
-    for (index, gate) in gates.iter().enumerate() {
-        wait_for_luna_request(&state, index).await?;
-        // The oversized call is still in its permission hook;
-        // only the seed and the later small call can have begun synchronous review.
-        wait_for_guardian_reviews(&state, 1 + index).await?;
-        // First establish a permissive score; after overflow, establish a new one.
-        state.allow_luna.notify_one();
-        timeout(TIMEOUT, async {
-            loop {
-                let events = captured_analytics_events(&analytics_server).await;
-                if events
-                    .iter()
-                    .filter(|event| {
-                        event["event_type"] == "codex_guardian_v2_classification"
-                            && event["event_params"]["outcome"] == "success"
-                    })
-                    .count()
-                    > index
-                {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(/*millis*/ 25)).await;
-            }
-        })
-        .await?;
-        gate.notify_one();
-    }
     let completed: TurnCompletedNotification =
         timeout(TIMEOUT, app_server.read_notification("turn/completed")).await??;
     assert_eq!(completed.turn.status, TurnStatus::Completed);

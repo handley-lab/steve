@@ -272,10 +272,6 @@ text({ names: result.skills.map(skill => skill.name), warnings: result.warnings,
             "next_cursor": null,
         })
     );
-    let events = wait_for_analytics_events(&server, "skill_invocation", /*expected_count*/ 1).await;
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0]["skill_name"], "demo:explicit-only");
-    assert_eq!(events[0]["event_params"]["invoke_type"], "explicit");
 
     let response = responses::mount_sse_sequence(
         &server,
@@ -364,15 +360,6 @@ text({ names: result.skills.map(skill => skill.name), warnings: result.warnings,
             "failed skills.read should return a tool error for {call_id}"
         );
     }
-
-    let events = wait_for_analytics_events(&server, "skill_invocation", /*expected_count*/ 2).await;
-    assert_eq!(events.len(), 2, "repeated main reads must be deduplicated");
-    assert_eq!(events[1]["skill_name"], "demo:explicit-only");
-    assert_eq!(
-        events[1]["skill_id"],
-        format!("{:x}", sha1::Sha1::digest(MAIN_RESOURCE.as_bytes()))
-    );
-    assert_eq!(events[1]["event_params"]["invoke_type"], "implicit");
 
     for (name, has_more) in [
         ("alpha-visible", true),

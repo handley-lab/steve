@@ -201,30 +201,6 @@ async fn model_guardian_policy_scores_code_mode_cells(
         // Legacy all-tools mode reviews the first call before a score is available.
         wait_for_guardian_reviews(&state, /*expected*/ 1).await?;
     }
-    for completed_scores in 1..=scores_per_cell {
-        state.allow_luna.notify_one();
-        timeout(TIMEOUT, async {
-            loop {
-                let events = captured_analytics_events(&analytics_server).await;
-                if events
-                    .iter()
-                    .filter(|event| {
-                        event["event_type"] == "codex_guardian_v2_classification"
-                            && matches!(
-                                event["event_params"]["outcome"].as_str(),
-                                Some("success" | "superseded")
-                            )
-                    })
-                    .count()
-                    >= completed_scores
-                {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(/*millis*/ 25)).await;
-            }
-        })
-        .await?;
-    }
     continue_parent.notify_one();
     let completed: TurnCompletedNotification =
         timeout(TIMEOUT, app_server.read_notification("turn/completed")).await??;

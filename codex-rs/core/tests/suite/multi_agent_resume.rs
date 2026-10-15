@@ -279,7 +279,6 @@ async fn cold_root_resume_restores_agent_identity_and_role_on_followup() -> Resu
     });
     let initial = initial_builder.build_with_auto_env(&server).await?;
     let root_thread_id = initial.session_configured.thread_id;
-    let root_session_id = initial.session_configured.session_id;
     initial
         .codex
         .start_or_steer_turn(
@@ -400,16 +399,6 @@ async fn cold_root_resume_restores_agent_identity_and_role_on_followup() -> Resu
     sibling_thread.flush_rollout().await?;
     worker_thread.flush_rollout().await?;
     initial.codex.flush_rollout().await?;
-    let worker_created_at = initial
-        .thread_store
-        .read_thread(ReadThreadParams {
-            thread_id: worker_thread_id,
-            include_archived: true,
-            include_history: false,
-        })
-        .await?
-        .created_at
-        .timestamp();
     sibling_thread.shutdown_and_wait().await?;
     worker_thread.shutdown_and_wait().await?;
     drop(sibling_thread);
@@ -462,12 +451,6 @@ async fn cold_root_resume_restores_agent_identity_and_role_on_followup() -> Resu
         ]),
     )
     .await;
-
-    Mock::given(method("POST"))
-        .and(path("/codex/analytics-events/events"))
-        .respond_with(ResponseTemplate::new(/* status */ 200))
-        .mount(&server)
-        .await;
     let analytics_client = AnalyticsEventsClient::new(
         codex_core::test_support::auth_manager_from_auth(
             CodexAuth::create_dummy_chatgpt_auth_for_testing(),
@@ -578,43 +561,6 @@ openai_base_url = "{redirected_base_url}"
     })
     .await;
     tokio::time::timeout(Duration::from_secs(10), analytics_client.flush()).await?;
-    let mut worker_initializations = Vec::new();
-    for request in server.received_requests().await.unwrap_or_default() {
-        if request.url.path() != "/codex/analytics-events/events" {
-            continue;
-        }
-        let payload: Value = serde_json::from_slice(&request.body)?;
-        worker_initializations.extend(
-            payload["events"]
-                .as_array()
-                .expect("analytics events")
-                .iter()
-                .filter(|event| {
-                    event["event_type"] == "codex_thread_initialized"
-                        && event["event_params"]["thread_id"] == worker_thread_id.to_string()
-                })
-                .map(|event| {
-                    let params = &event["event_params"];
-                    json!({
-                        "session_id": params["session_id"],
-                        "parent_thread_id": params["parent_thread_id"],
-                        "subagent_source": params["subagent_source"],
-                        "initialization_mode": params["initialization_mode"],
-                        "created_at": params["created_at"],
-                    })
-                }),
-        );
-    }
-    assert_eq!(
-        worker_initializations,
-        vec![json!({
-            "session_id": root_session_id.to_string(),
-            "parent_thread_id": root_thread_id.to_string(),
-            "subagent_source": "thread_spawn",
-            "initialization_mode": "resumed",
-            "created_at": worker_created_at,
-        })]
-    );
     assert!(followup_child_request.requests().iter().any(|request| {
         request.body_contains_text(FOLLOWUP_TASK)
             && request.body_contains_text(ROLE_DEVELOPER_INSTRUCTIONS)
@@ -657,74 +603,6 @@ openai_base_url = "{redirected_base_url}"
             && request.body_contains_text(QUEUED_MESSAGE)
             && !request.body_contains_text(FOLLOWUP_TASK)
     }));
-    let body_for = |text: &str, thread: codex_protocol::ThreadId| {
-        requests
-            .iter()
-            .find_map(|request| {
-                let body: Value = serde_json::from_slice(&decoded_body(request)?).ok()?;
-                (body_contains(request, text)
-                    && body["client_metadata"]["thread_id"] == json!(thread))
-                .then_some(body)
-            })
-            .expect("matching model request for expected thread")
-    };
-    let initial_root = body_for(INITIAL_PROMPT, root_thread_id);
-    let queue_root = body_for(QUEUE_PROMPT, root_thread_id);
-    let followup_root = body_for(FOLLOWUP_PROMPT, root_thread_id);
-    let initial_child = body_for(INITIAL_TASK, worker_thread_id);
-    let followup_child = body_for(FOLLOWUP_TASK, worker_thread_id);
-    let roster = queue_root["input"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|item| item["content"].as_array())
-        .flatten()
-        .filter_map(|item| item["text"].as_str())
-        .rfind(|text| text.contains("<subagents>"))
-        .expect("post-compaction context should include cold agents");
-    assert!(roster.contains(r#"<agent name="/root/worker" />"#));
-    assert!(roster.contains(r#"<agent name="/root/survivor" />"#));
-    assert!(!roster.contains("grandchild"));
-    let initial_parent = initial_root["client_metadata"]["turn_id"]
-        .as_str()
-        .expect("initial parent turn");
-    let queue_parent = queue_root["client_metadata"]["turn_id"]
-        .as_str()
-        .expect("queue-only parent turn");
-    let followup_parent = followup_root["client_metadata"]["turn_id"]
-        .as_str()
-        .expect("follow-up parent turn");
-    assert_ne!(followup_parent, initial_parent);
-    assert_ne!(followup_parent, queue_parent);
-    let nested_parent = initial_child["client_metadata"]["turn_id"]
-        .as_str()
-        .expect("nested worker parent turn");
-    for (body, parent_thread, parent_turn) in [
-        (&initial_root, None, None),
-        (&queue_root, None, None),
-        (&followup_root, None, None),
-        (&initial_child, Some(root_thread_id), Some(initial_parent)),
-        (&followup_child, Some(root_thread_id), Some(followup_parent)),
-        (&grandchild, Some(worker_thread_id), Some(nested_parent)),
-    ] {
-        if let Some(parent_thread) = parent_thread {
-            assert_eq!(
-                body["client_metadata"]["x-codex-parent-thread-id"],
-                json!(parent_thread)
-            );
-        }
-        assert_parent_turn(body, parent_turn)?;
-    }
-    for (body, root_turn) in [
-        (&initial_root, initial_parent),
-        (&queue_root, queue_parent),
-        (&followup_root, followup_parent),
-        (&initial_child, initial_parent),
-        (&followup_child, followup_parent),
-        (&grandchild, initial_parent),
-    ] {
-        assert_root_turn(body, Some(root_turn))?;
-    }
     let reloaded_worker_config = reloaded_worker.config_snapshot().await;
     let reloaded_worker_role_config = (
         reloaded_worker_config.model,

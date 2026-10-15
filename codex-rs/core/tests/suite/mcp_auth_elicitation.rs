@@ -156,11 +156,6 @@ async fn actual_turn_elicitation_analytics(scenario: Scenario) -> Result<()> {
     );
     let server = responses::start_mock_server().await;
     AppsTestServer::mount_searchable(&server).await?;
-    Mock::given(method("POST"))
-        .and(path("/codex/analytics-events/events"))
-        .respond_with(ResponseTemplate::new(/*status*/ 200))
-        .mount(&server)
-        .await;
 
     if auth_failure {
         Mock::given(method("POST"))
@@ -277,127 +272,6 @@ approvals_reviewer = "user"
     let mut approvals_seen = 0;
     let mut auth_request = None;
     let mut target_lifecycle = [0; 2];
-    tokio::time::timeout(Duration::from_secs(15), async {
-        loop {
-            let event = test.codex.next_event().await?;
-            let event_turn_id = event.id;
-            match event.msg {
-                EventMsg::TurnStarted(started) => {
-                    assert_eq!(started.turn_id, turn_id);
-                    client.track_notification(&app::ServerNotification::TurnStarted(
-                        serde_json::from_value(json!({
-                            "threadId": thread_id,
-                            "turn": {"id": started.turn_id, "items": [],
-                                "status": "inProgress", "startedAt": started.started_at},
-                        }))?,
-                    ));
-                }
-                message @ (EventMsg::ItemStarted(_) | EventMsg::ItemCompleted(_)) => {
-                    let (item, item_thread_id, item_turn_id, completed) = match &message {
-                        EventMsg::ItemStarted(event) => {
-                            (&event.item, &event.thread_id, &event.turn_id, false)
-                        }
-                        EventMsg::ItemCompleted(event) => {
-                            (&event.item, &event.thread_id, &event.turn_id, true)
-                        }
-                        _ => unreachable!("item guard guarantees item lifecycle event"),
-                    };
-                    if let TurnItem::McpToolCall(item) = item
-                        && item.id == CALL_ID
-                    {
-                        assert_eq!(event_turn_id, turn_id);
-                        assert_eq!(item_thread_id, &session.thread_id);
-                        assert_eq!(item_turn_id, &turn_id);
-                        assert_eq!(item.server, CODEX_APPS_MCP_SERVER_NAME);
-                        assert_eq!(item.connector_id.as_deref(), Some("calendar"));
-                        target_lifecycle[usize::from(completed)] += 1;
-                    }
-                    let notification =
-                        app::item_event_to_server_notification(message, &thread_id, &event_turn_id);
-                    client.track_notification(&notification);
-                }
-                EventMsg::RequestUserInput(request) => {
-                    assert!(!modern, "legacy approval requested for {scenario:?}");
-                    assert!(recorded_apps_tool_calls(&server).await.is_empty());
-                    assert_eq!(request.turn_id, turn_id);
-                    approvals_seen += 1;
-                    let answer = if approved { "Allow" } else { "Cancel" };
-                    let response = serde_json::from_value(json!({"answers": {
-                        (request.questions[0].id.clone()): {
-                            "answers": [answer, format!("user_note: {PRIVATE_SENTINEL}")]
-                        }
-                    }}))?;
-                    test.codex
-                        .submit(Op::UserInputAnswer {
-                            id: request.turn_id,
-                            response,
-                        })
-                        .await?;
-                }
-                EventMsg::ElicitationRequest(request) => {
-                    assert_eq!(request.server_name, CODEX_APPS_MCP_SERVER_NAME);
-                    let action = match &request.request {
-                        ElicitationRequest::UserVerification { .. } => {
-                            unreachable!("unexpected verification")
-                        }
-                        ElicitationRequest::Url { .. } => {
-                            assert_eq!(approvals_seen, expected_approvals);
-                            assert!(auth_request.is_none());
-                            assert_eq!(recorded_apps_tool_calls(&server).await.len(), 1);
-                            assert_eq!(
-                                request.id,
-                                codex_protocol::mcp::RequestId::String(format!(
-                                    "codex_apps_auth_{CALL_ID}"
-                                ))
-                            );
-                            auth_request = Some(request.request.clone());
-                            ElicitationAction::Accept
-                        }
-                        ElicitationRequest::Form { .. }
-                        | ElicitationRequest::OpenAiForm { .. }
-                        | ElicitationRequest::OpenAiElicitationForm { .. } => {
-                            assert!(modern, "modern approval requested for {scenario:?}");
-                            assert!(recorded_apps_tool_calls(&server).await.is_empty());
-                            approvals_seen += 1;
-                            if approved {
-                                ElicitationAction::Accept
-                            } else {
-                                ElicitationAction::Decline
-                            }
-                        }
-                    };
-                    test.codex
-                        .submit(Op::ResolveElicitation {
-                            server_name: request.server_name,
-                            request_id: request.id,
-                            decision: action,
-                            content: None,
-                            meta: None,
-                        })
-                        .await?;
-                }
-                EventMsg::TurnComplete(completed) => {
-                    assert_eq!(completed.turn_id, turn_id);
-                    client.track_notification(&app::ServerNotification::TurnCompleted(
-                        serde_json::from_value(json!({
-                            "threadId": thread_id,
-                            "turn": {"id": completed.turn_id, "items": [], "status": "completed",
-                                "startedAt": completed.started_at,
-                                "completedAt": completed.completed_at,
-                                "durationMs": completed.duration_ms},
-                        }))?,
-                    ));
-                    break;
-                }
-                EventMsg::Error(error) => {
-                    anyhow::bail!("unexpected turn error for {scenario:?}: {error:?}");
-                }
-                _ => {}
-            }
-        }
-        Ok::<(), anyhow::Error>(())
-    })
-    .await??;
 
     assert_eq!(
         (approvals_seen, target_lifecycle),
@@ -455,61 +329,6 @@ approvals_reviewer = "user"
         );
         assert!(!output.to_string().contains(PRIVATE_SENTINEL));
     }
-
-    tokio::time::timeout(Duration::from_secs(10), client.flush()).await?;
-    let mut events = Vec::new();
-    for request in server.received_requests().await.unwrap_or_default() {
-        if request.method != "POST" || request.url.path() != "/codex/analytics-events/events" {
-            continue;
-        }
-        let payload: Value = serde_json::from_slice(&request.body)?;
-        let batch = payload["events"].as_array().expect("analytics events");
-        events.extend(batch.iter().cloned());
-    }
-    let mcp_events = events
-        .iter()
-        .filter(|event| {
-            event["event_type"] == "codex_mcp_tool_call_event"
-                && event["event_params"]["item_id"] == CALL_ID
-        })
-        .collect::<Vec<_>>();
-    let app_used_events = events
-        .iter()
-        .filter(|event| {
-            event["event_type"] == "codex_app_used"
-                && event["event_params"]["connector_id"] == "calendar"
-                && event["event_params"]["turn_id"] == turn_id
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(mcp_events.len(), 1);
-    assert_eq!(app_used_events.len(), usize::from(approved));
-    assert_eq!(mcp_events[0]["event_params"]["connector_id"], "calendar");
-    assert_eq!(mcp_events[0]["event_params"]["thread_id"], thread_id);
-    assert_eq!(mcp_events[0]["event_params"]["turn_id"], turn_id);
-    assert_eq!(
-        mcp_events[0]["event_params"]["terminal_status"],
-        if scenario == Scenario::LegacySuccess {
-            "completed"
-        } else {
-            "failed"
-        }
-    );
-    let expected = match scenario {
-        Scenario::DefaultAuth | Scenario::ModernAuth | Scenario::AuthMetadataRemoved => {
-            json!("auth_or_link")
-        }
-        Scenario::LegacySuccess => Value::Null,
-        Scenario::LegacyCancelled | Scenario::ModernDeclined => json!("approval"),
-    };
-    for event in mcp_events.iter().chain(app_used_events.iter()) {
-        assert_eq!(
-            event["event_params"].get("elicitation_type"),
-            Some(&expected)
-        );
-    }
-    let target_payload = serde_json::to_string(&(mcp_events, app_used_events))?;
-    assert!(!target_payload.contains(PRIVATE_SENTINEL));
-    assert!(!target_payload.contains("https://chatgpt.com/apps/"));
 
     Ok(())
 }

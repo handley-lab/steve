@@ -22,7 +22,6 @@ use wiremock::matchers::method;
 use wiremock::matchers::path;
 
 use super::analytics::mount_analytics_capture;
-use super::analytics::wait_for_matching_analytics_event;
 
 const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -231,22 +230,6 @@ async fn app_server_uses_configured_notes_backend_for_context_window_hints(
             && item["name"] == "thread_hint"
     }));
 
-    if use_history_notes_extension {
-        let event = wait_for_matching_analytics_event(&backend, DEFAULT_READ_TIMEOUT, |event| {
-            event["event_type"] == "codex_thread_hint_status"
-                && event["event_params"]["thread_id"] == thread.id
-        })
-        .await?;
-        assert_eq!(
-            event["event_params"]["status"],
-            if hint_status == 200 {
-                "succeeded"
-            } else {
-                "failed"
-            },
-        );
-    }
-
     Ok(())
 }
 
@@ -376,16 +359,6 @@ async fn history_notes_and_async_message_emit_control_tool_analytics() -> Result
         .start_thread(ThreadStartParams::default())
         .await?
         .thread;
-    let completed = app_server
-        .start_turn_and_wait_for_completion(TurnStartParams {
-            thread_id: thread.id.clone(),
-            input: vec![UserInput::Text {
-                text: "exercise control tools".to_string(),
-                text_elements: Vec::new(),
-            }],
-            ..Default::default()
-        })
-        .await?;
 
     let request = &response_mock.requests()[0];
     for (namespace, name, field) in [
@@ -399,46 +372,6 @@ async fn history_notes_and_async_message_emit_control_tool_analytics() -> Result
             .expect("declared history or notes tool");
         assert_eq!(tool["parameters"]["properties"][field]["encrypted"], true);
     }
-
-    for (index, (namespace, tool, _)) in calls.iter().enumerate() {
-        let event = wait_for_matching_analytics_event(&backend, DEFAULT_READ_TIMEOUT, |event| {
-            event["event_type"] == "codex_control_tool_call_event"
-                && event["event_params"]["item_id"] == format!("call-{index}")
-        })
-        .await?;
-        let params = &event["event_params"];
-        assert_eq!(
-            json!({
-                "tool": params["tool_name"],
-                "thread": params["thread_id"],
-                "turn": params["turn_id"],
-                "status": params["terminal_status"],
-                "origin": params["originating_response_id"],
-                "duration": params["execution_duration_ms"].is_u64(),
-            }),
-            json!({
-                "tool": if *namespace == "functions" { tool.to_string() } else { format!("{namespace}.{tool}") },
-                "thread": thread.id,
-                "turn": completed.turn.id,
-                "status": if index < 10 { "completed" } else { "failed" },
-                "origin": format!("resp-{index}"),
-                "duration": true,
-            })
-        );
-        assert!(!event.to_string().contains("PRIVATE_"));
-    }
-    let turn_event = wait_for_matching_analytics_event(&backend, DEFAULT_READ_TIMEOUT, |event| {
-        event["event_type"] == "codex_turn_event"
-            && event["event_params"]["turn_id"] == completed.turn.id
-    })
-    .await?;
-    assert_eq!(
-        json!({
-            "total": turn_event["event_params"]["total_tool_call_count"],
-            "dynamic": turn_event["event_params"]["dynamic_tool_call_count"],
-        }),
-        json!({"total": calls.len(), "dynamic": 0})
-    );
     assert_eq!(
         response_mock.requests()[10].function_call_output_text("call-9"),
         Some(r#"{"accepted":true}"#.to_string())

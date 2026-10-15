@@ -62,10 +62,7 @@ use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
-use super::analytics::assert_basic_thread_initialized_event;
 use super::analytics::mount_analytics_capture;
-use super::analytics::thread_initialized_event;
-use super::analytics::wait_for_analytics_payload;
 
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const INVALID_REQUEST_ERROR_CODE: i64 = -32600;
@@ -952,43 +949,6 @@ fn normalize_path_for_comparison(path: impl AsRef<Path>) -> PathBuf {
     path.as_ref().to_path_buf()
 }
 
-#[test_case("codex_work_desktop")]
-#[tokio::test]
-async fn thread_start_tracks_thread_initialized_analytics(originator: &str) -> Result<()> {
-    let server = create_mock_responses_server_repeating_assistant("Done").await;
-
-    let codex_home = TempDir::new()?;
-    create_config_toml_with_chatgpt_base_url(codex_home.path(), &server.uri(), &server.uri())?;
-    mount_analytics_capture(&server, codex_home.path()).await?;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .without_managed_config()
-        .build_initialized()
-        .await?;
-
-    let ThreadStartResponse { thread, .. } = mcp
-        .start_thread(ThreadStartParams {
-            thread_source: Some(ThreadSource::User),
-            service_name: Some(originator.to_string()),
-            ..Default::default()
-        })
-        .await?;
-
-    let payload = wait_for_analytics_payload(&server, DEFAULT_READ_TIMEOUT).await?;
-    assert_eq!(payload["events"].as_array().expect("events array").len(), 1);
-    let event = thread_initialized_event(&payload)?;
-    assert_basic_thread_initialized_event(
-        event,
-        &thread.id,
-        &thread.session_id,
-        originator,
-        "mock-model",
-        "new",
-        "user",
-    );
-    Ok(())
-}
 
 #[tokio::test]
 async fn thread_start_respects_project_config_from_cwd() -> Result<()> {

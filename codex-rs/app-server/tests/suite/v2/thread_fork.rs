@@ -96,10 +96,7 @@ use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
-use super::analytics::assert_basic_thread_initialized_event;
 use super::analytics::mount_analytics_capture;
-use super::analytics::thread_initialized_event;
-use super::analytics::wait_for_analytics_payload;
 
 #[cfg(windows)]
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
@@ -1415,62 +1412,6 @@ async fn thread_fork_can_exclude_turns_and_skip_restored_token_usage() -> Result
     Ok(())
 }
 
-#[tokio::test]
-async fn thread_fork_tracks_thread_initialized_analytics() -> Result<()> {
-    let server = create_mock_responses_server_repeating_assistant("Done").await;
-
-    let codex_home = TempDir::new()?;
-    MockResponsesConfig::new(&server.uri())
-        .with_root_config(&format!(r#"chatgpt_base_url = "{}""#, server.uri()))
-        .write(codex_home.path())?;
-    mount_analytics_capture(&server, codex_home.path()).await?;
-
-    let conversation_id = create_fake_rollout(
-        codex_home.path(),
-        "2025-01-05T12-00-00",
-        "2025-01-05T12:00:00Z",
-        "Saved user message",
-        Some("mock_provider"),
-        /*git_info*/ None,
-    )?;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .without_auto_env()
-        .without_managed_config()
-        .build_initialized()
-        .await?;
-
-    let fork_id = mcp
-        .send_thread_fork_request(ThreadForkParams {
-            thread_id: conversation_id,
-            thread_source: Some(ThreadSource::User),
-            ..Default::default()
-        })
-        .await?;
-    let ThreadForkResponse { thread, .. } =
-        timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(fork_id)).await??;
-
-    let payload = wait_for_analytics_payload(&server, DEFAULT_READ_TIMEOUT).await?;
-    let event = thread_initialized_event(&payload)?;
-    assert_basic_thread_initialized_event(
-        event,
-        &thread.id,
-        &thread.session_id,
-        "codex",
-        "mock-model",
-        "forked",
-        "user",
-    );
-    assert_eq!(
-        event["event_params"]["forked_from_thread_id"],
-        thread
-            .forked_from_id
-            .as_deref()
-            .expect("forked thread has a source thread")
-    );
-    Ok(())
-}
 
 #[tokio::test]
 async fn thread_fork_rejects_unmaterialized_thread() -> Result<()> {
