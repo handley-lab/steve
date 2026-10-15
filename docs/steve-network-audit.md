@@ -283,6 +283,14 @@ still uses the configured model provider. Source:
 `codex-rs/features/src/lib.rs` and
 `codex-rs/ext/guardian-v2/src/async_scorer/`.
 
+## Responses API proxy
+
+`steve-responses-api-proxy` forwards `POST /v1/responses` to the absolute URL
+given by `--upstream-url`. Omitting the flag is an error. Steve does not
+select `https://api.openai.com/v1/responses`. An explicit upstream, including
+Cambridge or an Azure deployment URL, is forwarded unchanged. Source:
+`codex-rs/responses-api-proxy/src/lib.rs`.
+
 ## Built-in pet assets
 
 Loading a selected built-in pet checks its versioned cache under STEVE_HOME.

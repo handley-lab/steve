@@ -49,8 +49,8 @@ pub struct Args {
     #[arg(long)]
     pub http_shutdown: bool,
 
-    /// Absolute URL the proxy should forward requests to (defaults to OpenAI).
-    #[arg(long, default_value = "https://api.openai.com/v1/responses")]
+    /// Absolute URL the proxy should forward requests to.
+    #[arg(long)]
     pub upstream_url: String,
 
     /// Directory where request/response dumps should be written as JSON.
@@ -272,4 +272,27 @@ fn forward_request(
 
     let _ = req.respond(response);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Args;
+    use clap::Parser;
+
+    #[test]
+    fn missing_upstream_url_does_not_select_openai() {
+        let message = Args::try_parse_from(["responses-api-proxy"])
+            .expect_err("upstream url is required")
+            .to_string();
+        assert!(!message.contains("api.openai.com"));
+        assert!(!message.contains("https://"));
+    }
+
+    #[test]
+    fn explicit_upstream_url_is_unchanged() {
+        let url = "https://llm.hpc.cam.ac.uk/v1/responses";
+        let args = Args::try_parse_from(["responses-api-proxy", "--upstream-url", url])
+            .expect("explicit upstream");
+        assert_eq!(args.upstream_url, url);
+    }
 }
