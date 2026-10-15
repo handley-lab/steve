@@ -1,9 +1,7 @@
 //! Verify connection reuse without retaining request metadata or crossing config lifetimes.
 
 use super::PluginsConfigInput;
-use crate::remote::RemoteMarketplaceSource;
-use crate::remote::RemotePluginCatalogCacheMode;
-use crate::remote::fetch_remote_marketplaces;
+use crate::remote::fetch_recommended_plugin_install_metadata;
 use crate::test_support::test_http_client_factory;
 use codex_config::ConfigLayerStack;
 use codex_login::CodexAuth;
@@ -75,13 +73,27 @@ async fn reused_pool_uses_current_endpoint_product_and_authentication() {
         ),
     ] {
         Mock::given(method("GET"))
-            .and(path("/backend-api/ps/plugins/workspace/shared"))
+            .and(path("/backend-api/ps/plugins/plugins_pool"))
             .and(header("authorization", format!("Bearer {token}")))
             .and(header("chatgpt-account-id", account))
             .and(header("oai-product-sku", product_sku))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "plugins": [],
-                "pagination": {"next_page_token": null},
+                "id": "plugins_pool",
+                "name": "demo-plugin",
+                "scope": "WORKSPACE",
+                "discoverability": "PRIVATE",
+                "installation_policy": "AVAILABLE",
+                "authentication_policy": "ON_USE",
+                "release": {
+                    "version": "0.1.0",
+                    "display_name": "Demo Plugin",
+                    "description": "Demo plugin description",
+                    "interface": {
+                        "short_description": "A demo plugin",
+                        "capabilities": ["Read", "Write"]
+                    },
+                    "skills": []
+                }
             })))
             .expect(1)
             .mount(server)
@@ -104,12 +116,10 @@ async fn reused_pool_uses_current_endpoint_product_and_authentication() {
         /*chatgpt_plan_type*/ None,
     )
     .unwrap();
-    let first_result = fetch_remote_marketplaces(
+    let first_result = fetch_recommended_plugin_install_metadata(
         &first,
         Some(&first_auth),
-        &[RemoteMarketplaceSource::SharedWithMe],
-        None,
-        RemotePluginCatalogCacheMode::PreferCache,
+        "plugins_pool",
     )
     .await
     .unwrap();
@@ -123,12 +133,10 @@ async fn reused_pool_uses_current_endpoint_product_and_authentication() {
         /*chatgpt_plan_type*/ None,
     )
     .unwrap();
-    let second_result = fetch_remote_marketplaces(
+    let second_result = fetch_recommended_plugin_install_metadata(
         &second,
         Some(&second_auth),
-        &[RemoteMarketplaceSource::SharedWithMe],
-        None,
-        RemotePluginCatalogCacheMode::PreferCache,
+        "plugins_pool",
     )
     .await
     .unwrap();

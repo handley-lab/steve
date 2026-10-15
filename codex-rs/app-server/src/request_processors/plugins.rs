@@ -592,8 +592,6 @@ impl PluginRequestProcessor {
         }
         let include_vertical = context.global_config.plugins_enabled
             && marketplace_kinds.contains(&PluginListMarketplaceKind::Vertical);
-        let include_shared_with_me = context.global_config.plugins_enabled
-            && marketplace_kinds.contains(&PluginListMarketplaceKind::SharedWithMe);
         let include_created_by_me_remote = context.remote_plugins_enabled()
             && marketplace_kinds.contains(&PluginListMarketplaceKind::CreatedByMeRemote);
         let include_global_remote = context.remote_plugins_enabled() && !explicit_marketplace_kinds;
@@ -723,9 +721,6 @@ impl PluginRequestProcessor {
         {
             remote_sources.push(RemoteMarketplaceSource::WorkspaceDirectory);
         }
-        if include_shared_with_me && config.features.enabled(Feature::PluginSharing) {
-            remote_sources.push(RemoteMarketplaceSource::SharedWithMe);
-        }
         if !remote_sources.is_empty() {
             match codex_core_plugins::remote::fetch_remote_marketplaces(
                 &remote_plugin_service_config,
@@ -772,11 +767,7 @@ impl PluginRequestProcessor {
                 }
             }
         }
-        if include_local
-            || include_created_by_me_remote
-            || include_shared_with_me
-            || include_global_remote
-        {
+        if include_local || include_created_by_me_remote || include_global_remote {
             plugins_manager.maybe_start_plugin_list_background_tasks(
                 &context,
                 auth.clone(),

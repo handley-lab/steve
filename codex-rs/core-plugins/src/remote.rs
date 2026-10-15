@@ -195,7 +195,6 @@ pub enum RemoteMarketplaceSource {
     Global,
     CreatedByMeRemote,
     WorkspaceDirectory,
-    SharedWithMe,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -849,31 +848,6 @@ pub async fn fetch_remote_marketplaces(
                     scope.marketplace_name(),
                     scope.marketplace_display_name(),
                     directory_plugins.plugins,
-                    Vec::new(),
-                    /*include_installed_only*/ false,
-                )? {
-                    marketplaces.push(marketplace);
-                }
-            }
-            RemoteMarketplaceSource::SharedWithMe => {
-                // The shared endpoint is the source of truth for plugins explicitly shared
-                // with the user.
-                let shared_plugins = fetch_shared_workspace_plugins(config, auth).await?;
-                let directly_shared_plugins = shared_plugins
-                    .into_iter()
-                    .filter_map(|plugin| match workspace_plugin_discoverability(&plugin) {
-                        Ok(
-                            RemotePluginShareDiscoverability::Private
-                            | RemotePluginShareDiscoverability::Unlisted,
-                        ) => Some(Ok(plugin)),
-                        Ok(RemotePluginShareDiscoverability::Listed) => None,
-                        Err(err) => Some(Err(err)),
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                if let Some(marketplace) = build_remote_marketplace(
-                    REMOTE_WORKSPACE_SHARED_WITH_ME_PRIVATE_MARKETPLACE_NAME,
-                    REMOTE_WORKSPACE_SHARED_WITH_ME_PRIVATE_MARKETPLACE_DISPLAY_NAME,
-                    directly_shared_plugins,
                     Vec::new(),
                     /*include_installed_only*/ false,
                 )? {
@@ -1849,47 +1823,9 @@ async fn fetch_directory_plugins_for_scope_with_cache(
     })
 }
 
-async fn fetch_shared_workspace_plugins(
-    config: &RemotePluginServiceConfig,
-    auth: &CodexAuth,
-) -> Result<Vec<RemotePluginDirectoryItem>, RemotePluginCatalogError> {
-    let mut plugins = Vec::new();
-    let mut page_token = None;
-    loop {
-        let response =
-            get_remote_shared_workspace_plugins_page(config, auth, page_token.as_deref()).await?;
-        plugins.extend(response.plugins);
-        let Some(next_page_token) = response.pagination.next_page_token else {
-            break;
-        };
-        page_token = Some(next_page_token);
-    }
-    Ok(plugins)
-}
 
 
 
-async fn get_remote_shared_workspace_plugins_page(
-    config: &RemotePluginServiceConfig,
-    auth: &CodexAuth,
-    page_token: Option<&str>,
-) -> Result<RemotePluginListResponse, RemotePluginCatalogError> {
-    let base_url = config.chatgpt_base_url.trim_end_matches('/');
-    let mut url = Url::parse(&format!("{base_url}/ps/plugins/workspace/shared"))
-        .map_err(RemotePluginCatalogError::InvalidBaseUrl)?;
-    url.query_pairs_mut()
-        .append_pair("limit", &REMOTE_PLUGIN_LIST_PAGE_LIMIT.to_string());
-    if let Some(page_token) = page_token {
-        url.query_pairs_mut().append_pair("pageToken", page_token);
-    }
-    let url = url.to_string();
-    let request = authenticated_request(
-        config.http_request(Method::GET, &url),
-        auth,
-        &config.product_sku,
-    );
-    send_and_decode(request, &url).await
-}
 
 
 async fn fetch_plugin_detail(
