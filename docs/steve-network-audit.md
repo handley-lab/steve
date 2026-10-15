@@ -28,7 +28,7 @@ Skill detail still GETs `/ps/plugins/{plugin_id}/skills/{skill_name}`.
 Authentication and product SKU accompany the remaining plugin-service requests.
 
 Steve does not POST `/ps/plugins/{plugin_id}/install` or
-`/ps/plugins/{plugin_id}/uninstall`. The bundle download client is separate.
+`/ps/plugins/{plugin_id}/uninstall`.
 Local plugin interoperability does not require mechanically renaming the
 external service paths. Avoid
 first-party remote plugin operations and inspect installed plugin transports
@@ -46,14 +46,8 @@ can still be read when listing local plugins.
 
 ### Plugin bundle downloads
 
-Remote bundles are GETs to service-supplied HTTPS URLs, including redirects.
-The reviewed download function adds no explicit backend credential header or
-conversation body. HTTPS scheme validation does not constrain the destination
-to an OpenAI host: inspect the returned URL and the configured HTTP client's
-headers/policy. Downloaded plugin content can subsequently define tools and
-network transports; obtaining the bundle does not establish their runtime
-behavior. No bundle-download request was exercised for this audit.
-Source: `codex-rs/core-plugins/src/remote_bundle.rs`.
+Steve does not GET a remote plugin bundle download URL. npm source can still
+unpack a local plugin archive.
 
 ## Realtime voice
 

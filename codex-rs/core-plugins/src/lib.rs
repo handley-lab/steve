@@ -25,7 +25,6 @@ mod plugin_metrics;
 mod plugin_metrics_sidecar;
 mod provider;
 pub mod remote;
-pub mod remote_bundle;
 mod remote_metadata;
 mod remote_plugin_id_resolver;
 mod script_attribution;

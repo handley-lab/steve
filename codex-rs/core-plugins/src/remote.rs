@@ -535,8 +535,6 @@ struct RemotePluginReleaseResponse {
     display_name: String,
     description: String,
     #[serde(default)]
-    bundle_download_url: Option<String>,
-    #[serde(default)]
     app_ids: Vec<String>,
     #[serde(default)]
     app_manifest: Option<JsonValue>,

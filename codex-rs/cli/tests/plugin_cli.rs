@@ -1247,7 +1247,6 @@ impl RemoteMarketplaceFixture {
             .env_remove("OPENAI_API_KEY")
             .env_remove("STEVE_API_KEY")
             .env_remove("STEVE_ACCESS_TOKEN")
-            .env("STEVE_TEST_ALLOW_HTTP_REMOTE_PLUGIN_BUNDLE_DOWNLOADS", "1")
             .args(args)
             .output()
             .await?)

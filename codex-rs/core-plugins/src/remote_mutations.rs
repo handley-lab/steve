@@ -2,7 +2,6 @@
 
 use crate::remote::RemoteInstalledPluginBundleSyncError;
 use crate::remote::RemotePluginCatalogError;
-use crate::remote_bundle::RemotePluginBundleInstallError;
 use codex_plugin::PluginId;
 
 #[derive(Debug, thiserror::Error)]
@@ -20,8 +19,6 @@ pub enum RemotePluginOperationErrorKind {
         context: &'static str,
         source: RemotePluginCatalogError,
     },
-    #[error("install remote plugin bundle: {0}")]
-    Bundle(#[source] RemotePluginBundleInstallError),
     #[error("{context}: {source}")]
     Sync {
         context: &'static str,
