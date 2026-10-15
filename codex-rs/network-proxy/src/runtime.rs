@@ -1396,42 +1396,6 @@ mod tests {
         network
     }
 
-    #[tokio::test]
-    async fn reload_applies_credential_broker_enablement_changes() {
-        let config = NetworkProxyConfig {
-            enabled: true,
-            ..NetworkProxyConfig::default()
-        };
-        let initial_state = build_config_state(
-            config.clone(),
-            NetworkProxyConstraints::default(),
-            crate::Platform::native(),
-        )
-        .unwrap();
-        let mut reloaded_config = config;
-        reloaded_config.set_credential_broker_enabled(/*enabled*/ true);
-        let reloaded_state = build_config_state(
-            reloaded_config,
-            NetworkProxyConstraints::default(),
-            crate::Platform::native(),
-        )
-        .unwrap();
-        let state = NetworkProxyState::with_reloader(
-            initial_state,
-            Arc::new(StaticReloader {
-                state: reloaded_state,
-            }),
-        );
-
-        state
-            .force_reload()
-            .await
-            .expect("enable credential broker");
-        let mut env = HashMap::from([("OPENAI_API_KEY".to_string(), "sk-real".to_string())]);
-        state.virtualize_child_credentials(&mut env);
-        assert_ne!(env["OPENAI_API_KEY"], "sk-real");
-    }
-
     #[test]
     fn managed_disabled_proxy_does_not_virtualize_credentials() {
         let mut config = NetworkProxyConfig::default();
@@ -1446,11 +1410,14 @@ mod tests {
         )
         .expect("managed-disabled credential broker should fail open");
         let state = NetworkProxyState::with_reloader(config_state, Arc::new(NoopReloader));
-        let mut env = HashMap::from([("OPENAI_API_KEY".to_string(), "sk-real".to_string())]);
+        let mut env = HashMap::from([(
+            "GH_TOKEN".to_string(),
+            "ghp_abcdefghijklmnopqrstuvwxyz1234567890".to_string(),
+        )]);
 
         state.virtualize_child_credentials(&mut env);
 
-        assert_eq!(env["OPENAI_API_KEY"], "sk-real");
+        assert_eq!(env["GH_TOKEN"], "ghp_abcdefghijklmnopqrstuvwxyz1234567890");
     }
 
     #[tokio::test]

@@ -2020,10 +2020,6 @@ auth = ["bearer"]"#,
                 .and_then(|network_proxy| network_proxy.credentials.clone())
                 .unwrap_or_default();
             assert_eq!(proxy.credential_providers, expected_providers);
-            assert_eq!(
-                proxy.credential_broker_openai_host.as_deref(),
-                Some("api.example.test")
-            );
         }
 
         let active_profile = ActivePermissionProfile {

@@ -1030,39 +1030,6 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn handle_socks5_tcp_detects_tls_for_brokered_nonstandard_port_in_full_mode() {
-        let mut settings = NetworkProxyConfig {
-            enabled: true,
-            mode: NetworkMode::Full,
-            mitm: true,
-            credential_broker: true,
-            ..NetworkProxyConfig::default()
-        };
-        settings.set_allowed_domains(vec!["api.openai.com".to_string()]);
-        let state = state_for_settings(settings);
-        let mut env = HashMap::from([("OPENAI_API_KEY".to_string(), "sk-real".to_string())]);
-        state.virtualize_child_credentials(&mut env);
-        let mut request = TcpRequest::new(
-            HostWithPort::try_from("api.openai.com:8443").expect("valid authority"),
-        );
-        request.extensions_mut().insert(state.clone());
-
-        let result = handle_socks5_tcp(
-            request,
-            TargetCheckedTcpConnector::new(state),
-            /*policy_decider*/ None,
-            /*environment_id*/ None,
-        )
-        .await
-        .expect("brokered TLS should defer MITM until protocol detection");
-
-        assert!(matches!(
-            result.conn,
-            Socks5TcpConnection::DetectProtocol { .. }
-        ));
-    }
-
-    #[tokio::test(flavor = "current_thread")]
     async fn handle_socks5_tcp_blocks_limited_mode_without_mitm_state() {
         let mut settings = NetworkProxyConfig {
             enabled: true,

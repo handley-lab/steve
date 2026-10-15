@@ -55,7 +55,6 @@ struct CredentialBrokerState {
     config_revision: u64,
     enabled: bool,
     allow_local_binding: bool,
-    openai_api_host: Option<String>,
     context: CredentialBrokerContext,
     configured_provider_configs: BTreeMap<String, CredentialProviderConfig>,
     configured_providers: Vec<Arc<configured::ConfiguredCredentialProvider>>,
@@ -286,7 +285,6 @@ impl CredentialBroker {
         let previous_context_sources = (state.context != config.credential_broker_context)
             .then(|| active_credential_sources(&state, &HashMap::new()));
         if state.enabled != config.credential_broker
-            || state.openai_api_host != config.credential_broker_openai_host
             || state.allow_local_binding != config.allow_local_binding()
             || state.configured_provider_configs != config.credential_providers
             || previous_context_sources.is_some()
@@ -300,18 +298,6 @@ impl CredentialBroker {
             state.credentials.clear();
             state.credential_owners.clear();
             state.credential_aliases.clear();
-        }
-        if state.openai_api_host != config.credential_broker_openai_host {
-            state
-                .openai_api_host
-                .clone_from(&config.credential_broker_openai_host);
-            state.credentials.retain(|credential| {
-                !matches!(
-                    &credential.provider,
-                    BrokeredCredentialProvider::Builtin(provider)
-                        if provider.reset_on_configuration_change
-                )
-            });
         }
         if state.configured_provider_configs != config.credential_providers {
             let mut configured_providers: Vec<Arc<configured::ConfiguredCredentialProvider>> =
@@ -793,7 +779,7 @@ impl CredentialBroker {
         for provider in providers::credential_providers() {
             let brokered_provider = BrokeredCredentialProvider::Builtin(provider);
             let Some((source, host_binding)) = provider.sources().iter().rev().find_map(|source| {
-                (source.host_binding)(&binding_env, state.openai_api_host.as_deref())
+                (source.host_binding)(&binding_env)
                     .map(|binding| (source, binding))
             }) else {
                 continue;
@@ -872,11 +858,7 @@ impl CredentialBroker {
                                     .env_vars
                                     .iter()
                                     .any(|key| env_value(env, key) == Some(credential))
-                                    && (candidate.host_binding)(
-                                        &binding_env,
-                                        state.openai_api_host.as_deref(),
-                                    )
-                                    .is_none()
+                                    && (candidate.host_binding)(&binding_env).is_none()
                             })
                         {
                             continue;

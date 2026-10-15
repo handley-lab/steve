@@ -812,14 +812,14 @@ async fn snapshot_wrapper_replays_dummy_and_preserves_unbrokered_credentials() -
     let proxy = test_credential_broker_network_proxy().await?;
     let dir = tempdir()?;
     let startup = dir.path().join("startup.sh");
-    std::fs::write(&startup, "export OPENAI_API_KEY='sk-startup-secret'\n")?;
+    std::fs::write(&startup, "export GH_TOKEN='ghp_startup_secret'\n")?;
     let snapshot_dir = dir.path().join("snapshots");
     std::fs::create_dir(&snapshot_dir)?;
     let snapshot = snapshot_dir.join("snapshot.sh");
     std::fs::write(
         &snapshot,
         format!(
-            "# Snapshot file\ncorp_auth() {{ printf '%s\\n%s\\n%s' \"$OPENAI_API_KEY\" \"${{GITHUB_TOKEN-unset}}\" \"$1\"; }}\nexport OPENAI_API_KEY='stale'\nexport GITHUB_TOKEN='ghp_snapshot_only'\nexport GH_HOST='github.example.com'\nexport BASH_ENV='{}'\nexport ENV='{}'\nexport ZDOTDIR='{}'\n",
+            "# Snapshot file\ncorp_auth() {{ printf '%s\\n%s\\n%s' \"$GH_TOKEN\" \"${{SNAPSHOT_ONLY-unset}}\" \"$1\"; }}\nexport GH_TOKEN='stale'\nexport SNAPSHOT_ONLY='from-snapshot'\nexport GH_HOST='github.example.com'\nexport BASH_ENV='{}'\nexport ENV='{}'\nexport ZDOTDIR='{}'\n",
             startup.display(),
             startup.display(),
             dir.path().display()
@@ -828,25 +828,24 @@ async fn snapshot_wrapper_replays_dummy_and_preserves_unbrokered_credentials() -
     let (shell, snapshot) = shell_with_snapshot(ShellType::Bash, "/bin/bash", snapshot.abs());
     let mut env = HashMap::from([
         (
-            "OPENAI_API_KEY".to_string(),
-            "sk-proj-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_".to_string(),
+            "GH_TOKEN".to_string(),
+            "github_pat_11AA0bbCC_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH".to_string(),
         ),
         (
             "AUTH_HEADER".to_string(),
-            "Bearer sk-proj-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+            "Bearer github_pat_11AA0bbCC_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH"
                 .to_string(),
         ),
-        ("GITHUB_TOKEN".to_string(), String::new()),
         ("BASH_ENV".to_string(), startup.display().to_string()),
         ("ENV".to_string(), startup.display().to_string()),
     ]);
     proxy.apply_to_env(&mut env);
-    let dummy = env["OPENAI_API_KEY"].clone();
+    let dummy = env["GH_TOKEN"].clone();
     let dummy_alias = env["AUTH_HEADER"].clone();
     let mut alias_only_env = env.clone();
-    alias_only_env.remove("OPENAI_API_KEY");
+    alias_only_env.remove("GH_TOKEN");
     let mut empty_canonical_env = env.clone();
-    empty_canonical_env.insert("OPENAI_API_KEY".to_string(), String::new());
+    empty_canonical_env.insert("GH_TOKEN".to_string(), String::new());
     let mut absent_alias_env = env.clone();
     absent_alias_env.remove("AUTH_HEADER");
     prepare_brokered_shell_snapshot_env(&mut env, Some(&snapshot), &shell);
@@ -876,7 +875,7 @@ async fn snapshot_wrapper_replays_dummy_and_preserves_unbrokered_credentials() -
     assert!(output.status.success(), "command failed: {output:?}");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        format!("{dummy}\nghp_snapshot_only\ngithub.example.com")
+        format!("{dummy}\nfrom-snapshot\ngithub.example.com")
     );
 
     let (posix_shell, _) = shell_with_snapshot(ShellType::Sh, "/bin/sh", snapshot.clone());
@@ -894,7 +893,7 @@ async fn snapshot_wrapper_replays_dummy_and_preserves_unbrokered_credentials() -
                     "-c"
                 }
                 .to_string(),
-                "/bin/sh -ic 'printf \"%s|%s\" \"$OPENAI_API_KEY\" \"${ENV-unset}\"'".to_string(),
+                "/bin/sh -ic 'printf \"%s|%s\" \"$GH_TOKEN\" \"${ENV-unset}\"'".to_string(),
             ],
             shell,
             Some(snapshot),
@@ -919,7 +918,7 @@ async fn snapshot_wrapper_replays_dummy_and_preserves_unbrokered_credentials() -
             Ok(String::from_utf8(output.stdout)?)
         };
     let posix_startup = dir.path().join("posix-startup.sh");
-    std::fs::write(&posix_startup, "export OPENAI_API_KEY='sk-posix-secret'\n")?;
+    std::fs::write(&posix_startup, "export GH_TOKEN='ghp_posix_secret'\n")?;
     let posix_snapshot = dir.path().join("posix-startup-snapshot.sh").abs();
     std::fs::write(
         &posix_snapshot,
@@ -1104,7 +1103,7 @@ async fn snapshot_wrapper_replays_dummy_and_preserves_unbrokered_credentials() -
         bash_posix_path.clone(),
         "-c".to_string(),
         format!(
-            "'{bash_posix_path}' -ic 'printf \"%s|%s\" \"$OPENAI_API_KEY\" \"${{ENV-unset}}\"'"
+            "'{bash_posix_path}' -ic 'printf \"%s|%s\" \"$GH_TOKEN\" \"${{ENV-unset}}\"'"
         ),
     ];
     let mut tilde_env = env.clone();
@@ -1217,7 +1216,7 @@ async fn snapshot_wrapper_replays_dummy_and_preserves_unbrokered_credentials() -
     if std::path::Path::new("/bin/zsh").exists() {
         std::fs::write(
             dir.path().join(".zshenv"),
-            "export OPENAI_API_KEY='sk-startup-secret'\n",
+            "export GH_TOKEN='ghp_startup_secret'\n",
         )?;
         let renamed_zsh = dir.path().join("zsh.exe");
         std::os::unix::fs::symlink("/bin/zsh", &renamed_zsh)?;
@@ -1227,7 +1226,7 @@ async fn snapshot_wrapper_replays_dummy_and_preserves_unbrokered_credentials() -
         let command = vec![
             renamed_zsh.display().to_string(),
             "-lc".to_string(),
-            "printf '%s\\n%s' \"$OPENAI_API_KEY\" \"$ZDOTDIR\"".to_string(),
+            "printf '%s\\n%s' \"$GH_TOKEN\" \"$ZDOTDIR\"".to_string(),
         ];
         let rewritten = maybe_wrap_shell_lc_with_snapshot(
             &command,
@@ -1256,7 +1255,7 @@ async fn snapshot_wrapper_replays_dummy_and_preserves_unbrokered_credentials() -
         let system_startup_zsh = system_startup_dir.join("zsh");
         codex_utils_cargo_bin::write_executable(
             &system_startup_zsh,
-            "#!/bin/sh\nexport OPENAI_API_KEY='sk-system-startup-secret'\nexport AUTH_HEADER='Bearer sk-system-startup-secret'\nexec /bin/zsh -ax \"$@\"\n",
+            "#!/bin/sh\nexport GH_TOKEN='ghp_abcdefghijklmnopqrstuvwxyz1234567890'\nexport AUTH_HEADER='Bearer ghp_abcdefghijklmnopqrstuvwxyz1234567890'\nexec /bin/zsh -ax \"$@\"\n",
         )?;
         let mut permissions = std::fs::metadata(&system_startup_zsh)?.permissions();
         permissions.set_mode(0o700);
@@ -1276,7 +1275,7 @@ async fn snapshot_wrapper_replays_dummy_and_preserves_unbrokered_credentials() -
                 system_startup_zsh.display().to_string(),
                 "-c".to_string(),
                 format!(
-                    "set +x\nprintf '%s\\n%s\\n%s\\n%s\\n%s\\n' \"${{OPENAI_API_KEY-unset}}\" \"${{AUTH_HEADER-unset}}\" \"${{{SNAPSHOT_BROKERED_VALUE_ENV_PREFIX}AUTH_HEADER-unset}}\" \"${{{SNAPSHOT_BROKERED_VALUE_ENV_PREFIX}OPENAI_API_KEY-unset}}\" \"${{{SNAPSHOT_BROKERED_UNSET_ENV_PREFIX}OPENAI_API_KEY-unset}}\"\nenv -0"
+                    "set +x\nprintf '%s\\n%s\\n%s\\n%s\\n%s\\n' \"${{GH_TOKEN-unset}}\" \"${{AUTH_HEADER-unset}}\" \"${{{SNAPSHOT_BROKERED_VALUE_ENV_PREFIX}AUTH_HEADER-unset}}\" \"${{{SNAPSHOT_BROKERED_VALUE_ENV_PREFIX}GH_TOKEN-unset}}\" \"${{{SNAPSHOT_BROKERED_UNSET_ENV_PREFIX}GH_TOKEN-unset}}\"\nenv -0"
                 ),
             ];
             let system_rewritten = maybe_wrap_shell_lc_with_snapshot(
@@ -1302,13 +1301,13 @@ async fn snapshot_wrapper_replays_dummy_and_preserves_unbrokered_credentials() -
                     "{expected_canonical}\n{expected_alias}\nunset\nunset\nunset\n"
                 ))
                 .unwrap_or_else(|| panic!("unexpected system startup output: {stdout}"));
-            assert!(!stdout.contains("sk-system-startup-secret"));
+            assert!(!stdout.contains("ghp_abcdefghijklmnopqrstuvwxyz1234567890"));
             assert!(
                 !exported_env
                     .split('\0')
                     .any(|entry| entry.starts_with("__CODEX_SNAPSHOT_PROXY_OVERRIDE_"))
             );
-            assert!(!String::from_utf8_lossy(&output.stderr).contains("sk-system-startup-secret"));
+            assert!(!String::from_utf8_lossy(&output.stderr).contains("ghp_abcdefghijklmnopqrstuvwxyz1234567890"));
         }
 
         for (bash_env, posix_env, zdotdir) in [

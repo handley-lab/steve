@@ -350,7 +350,7 @@ pub(super) fn active_credential_sources(
     for provider in providers::credential_providers() {
         for source in provider.sources() {
             if let Some(host_binding) =
-                (source.host_binding)(&binding_env, state.openai_api_host.as_deref())
+                (source.host_binding)(&binding_env)
             {
                 sources.push(ActiveCredentialSource {
                     provider: BrokeredCredentialProvider::Builtin(provider),
@@ -448,7 +448,7 @@ pub(super) fn prioritized_credentials<'a>(
             BrokeredCredentialProvider::Builtin(provider) => {
                 provider.sources().iter().any(|source| {
                     !source.binding_env_vars.is_empty()
-                        && (source.host_binding)(&binding_env, state.openai_api_host.as_deref())
+                        && (source.host_binding)(&binding_env)
                             .is_some_and(|binding| binding == credential.host_binding)
                 })
             }

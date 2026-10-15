@@ -16,7 +16,6 @@ use url::Url;
 
 use crate::Platform;
 use crate::mitm_hook::MitmHookConfig;
-use crate::policy::normalize_host;
 
 /// Variant order encodes effective precedence for duplicate patterns:
 /// `None < Allow < Deny`, so deny wins over allow when entries conflict.
@@ -162,9 +161,6 @@ pub struct NetworkProxyConfig {
     pub credential_broker_enabled_mitm: bool,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub credential_providers: BTreeMap<String, crate::CredentialProviderConfig>,
-    /// Trusted OpenAI endpoint derived from local configuration, never sent to remote executors.
-    #[serde(skip)]
-    pub credential_broker_openai_host: Option<String>,
     /// Trusted local destination context, never sent to remote executors or child environments.
     #[serde(skip)]
     pub credential_broker_context: crate::CredentialBrokerContext,
@@ -194,7 +190,6 @@ impl Default for NetworkProxyConfig {
             credential_broker: false,
             credential_broker_enabled_mitm: false,
             credential_providers: BTreeMap::new(),
-            credential_broker_openai_host: None,
             credential_broker_context: crate::CredentialBrokerContext::default(),
             dangerously_allow_plaintext_credential_injection: false,
             mitm_hooks: Vec::new(),
@@ -216,10 +211,6 @@ impl NetworkProxyConfig {
             self.mitm = !self.mitm_hooks.is_empty() || self.mitm_ca.is_some();
             self.credential_broker_enabled_mitm = false;
         }
-    }
-
-    pub fn set_credential_broker_openai_base_url(&mut self, base_url: Option<&str>) {
-        self.credential_broker_openai_host = base_url.and_then(trusted_credential_broker_host);
     }
 
     /// Retains trusted destination context without changing child environment policy. Conflicting
@@ -370,15 +361,6 @@ impl NetworkProxyConfig {
         }
         self.unix_sockets = Some(unix_sockets);
     }
-}
-
-pub(crate) fn trusted_credential_broker_host(base_url: &str) -> Option<String> {
-    Url::parse(base_url)
-        .ok()
-        .filter(|url| {
-            url.scheme() == "https" && url.username().is_empty() && url.password().is_none()
-        })
-        .and_then(|url| url.host_str().map(normalize_host))
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -734,7 +716,6 @@ mod tests {
                 credential_broker: false,
                 credential_broker_enabled_mitm: false,
                 credential_providers: BTreeMap::new(),
-                credential_broker_openai_host: None,
                 credential_broker_context: crate::CredentialBrokerContext::default(),
                 dangerously_allow_plaintext_credential_injection: false,
                 mitm_hooks: Vec::new(),
@@ -846,33 +827,6 @@ mod tests {
         config.set_credential_broker_enabled(/*enabled*/ true);
         config.configure_credential_broker_environment(&HashMap::new());
         assert!(config.credential_broker);
-    }
-
-    #[test]
-    fn credential_broker_only_accepts_trusted_https_openai_endpoints() {
-        let mut config = NetworkProxyConfig::default();
-
-        for (base_url, expected_host) in [
-            (
-                Some("https://gateway.example.com/v1"),
-                Some("gateway.example.com"),
-            ),
-            (
-                Some("https://gateway.example.com./v1"),
-                Some("gateway.example.com"),
-            ),
-            (Some("https://[2001:db8::1]/v1"), Some("2001:db8::1")),
-            (Some("http://gateway.example.com/v1"), None),
-            (Some("https://user@gateway.example.com/v1"), None),
-            (Some("not-a-url"), None),
-            (None, None),
-        ] {
-            config.set_credential_broker_openai_base_url(base_url);
-            assert_eq!(
-                config.credential_broker_openai_host.as_deref(),
-                expected_host
-            );
-        }
     }
 
     #[test]

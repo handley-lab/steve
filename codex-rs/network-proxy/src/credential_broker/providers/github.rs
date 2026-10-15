@@ -42,7 +42,6 @@ pub(super) static PROVIDER: CredentialProvider = CredentialProvider {
             host_binding: github_enterprise_binding,
         },
     ],
-    reset_on_configuration_change: false,
     dummy_value,
     translate_request_header,
     request_header_value,
@@ -110,20 +109,14 @@ pub(super) fn translate_request_header(
     }
 }
 
-fn github_cloud_binding(
-    _: &HashMap<String, String>,
-    _: Option<&str>,
-) -> Option<CredentialHostBinding> {
+fn github_cloud_binding(_: &HashMap<String, String>) -> Option<CredentialHostBinding> {
     Some(CredentialHostBinding::HostPattern {
         exact_hosts: GITHUB_CLOUD_HOSTS,
         suffixes: GITHUB_CLOUD_HOST_SUFFIXES,
     })
 }
 
-fn github_enterprise_binding(
-    env: &HashMap<String, String>,
-    _: Option<&str>,
-) -> Option<CredentialHostBinding> {
+fn github_enterprise_binding(env: &HashMap<String, String>) -> Option<CredentialHostBinding> {
     github_host_hint(env)
         .filter(|host| !github_cloud_host(host))
         .map(CredentialHostBinding::ExactHost)

@@ -1,5 +1,4 @@
 mod github;
-mod openai;
 
 use super::destination::CredentialDestination;
 use rama_http::HeaderMap;
@@ -23,7 +22,6 @@ pub(super) struct CredentialProvider {
     pub(super) credential_watermark: Option<&'static str>,
     pub(super) minimum_credential_len: usize,
     sources: &'static [CredentialSource],
-    pub(super) reset_on_configuration_change: bool,
     dummy_value: fn(&str) -> String,
     translate_request_header: TranslateRequestHeader,
     request_header_value: fn(&str) -> Option<HeaderValue>,
@@ -33,7 +31,6 @@ pub(super) struct CredentialProvider {
 #[derive(Clone, PartialEq, Eq)]
 pub(super) enum CredentialHostBinding {
     ExactHost(String),
-    ExactHosts(Vec<String>),
     HostPattern {
         exact_hosts: &'static [&'static str],
         suffixes: &'static [&'static str],
@@ -47,10 +44,10 @@ pub(super) struct CredentialSource {
     // An explicit invalid hint can clear dynamic destinations while leaving a static fallback.
     pub(super) invalidates_host_binding: fn(&HashMap<String, String>) -> bool,
     pub(super) host_binding:
-        fn(&HashMap<String, String>, Option<&str>) -> Option<CredentialHostBinding>,
+        fn(&HashMap<String, String>) -> Option<CredentialHostBinding>,
 }
 
-const CREDENTIAL_PROVIDERS: &[&CredentialProvider] = &[&github::PROVIDER, &openai::PROVIDER];
+const CREDENTIAL_PROVIDERS: &[&CredentialProvider] = &[&github::PROVIDER];
 
 impl CredentialProvider {
     pub(super) fn sources(&self) -> &[CredentialSource] {
@@ -85,7 +82,6 @@ impl CredentialHostBinding {
 
         match self {
             Self::ExactHost(host) => is_default_proxy_bypass_host(host),
-            Self::ExactHosts(hosts) => hosts.iter().any(|host| is_default_proxy_bypass_host(host)),
             Self::HostPattern { exact_hosts, .. } => exact_hosts
                 .iter()
                 .any(|host| is_default_proxy_bypass_host(host)),
@@ -98,9 +94,6 @@ impl CredentialHostBinding {
     pub(super) fn matches_host(&self, host: &str, port: u16) -> bool {
         match self {
             Self::ExactHost(expected_host) => host == expected_host,
-            Self::ExactHosts(expected_hosts) => {
-                expected_hosts.iter().any(|expected| host == expected)
-            }
             Self::HostPattern {
                 exact_hosts,
                 suffixes,
@@ -119,7 +112,7 @@ impl CredentialHostBinding {
             Self::ConfiguredHosts(destinations) => destinations
                 .iter()
                 .any(|destination| destination.matches_hostname(host)),
-            Self::ExactHost(_) | Self::ExactHosts(_) | Self::HostPattern { .. } => {
+            Self::ExactHost(_) | Self::HostPattern { .. } => {
                 self.matches_host(host, /*port*/ 443)
             }
         }
@@ -130,7 +123,7 @@ impl CredentialHostBinding {
             Self::ConfiguredHosts(destinations) => destinations
                 .iter()
                 .any(|destination| destination.requires_mitm(host, port)),
-            Self::ExactHost(_) | Self::ExactHosts(_) | Self::HostPattern { .. } => {
+            Self::ExactHost(_) | Self::HostPattern { .. } => {
                 self.matches_host(host, port)
             }
         }
@@ -141,7 +134,7 @@ impl CredentialHostBinding {
             Self::ConfiguredHosts(destinations) => destinations
                 .iter()
                 .any(|destination| destination.matches_request(host, request)),
-            Self::ExactHost(_) | Self::ExactHosts(_) | Self::HostPattern { .. } => {
+            Self::ExactHost(_) | Self::HostPattern { .. } => {
                 request.is_none_or(|request| request.scheme() == "https")
                     && self.matches_host(
                         host,

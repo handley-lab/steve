@@ -98,6 +98,15 @@ Changing the inference provider does not change every service endpoint.
 Disabling analytics and feedback does not disable MCP requests or explicitly
 configured OpenTelemetry collectors.
 
+## Credential broker
+
+Steve's credential broker does not recognize `OPENAI_API_KEY`, does not bind
+`api.openai.com`, and does not inject that key. GitHub credentials and
+user-configured credential providers still virtualize and inject on their own
+hosts. An explicit model base URL stays in use. Sources:
+`codex-rs/network-proxy/src/credential_broker/providers.rs` and
+`codex-rs/network-proxy/src/credential_broker/providers/github.rs`.
+
 ## Observed Cambridge startup traffic
 
 An instrumented debug-package run with a fresh Steve home, Cambridge Kimi,

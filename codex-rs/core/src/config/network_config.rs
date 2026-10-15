@@ -78,7 +78,6 @@ pub struct NetworkConfigInputs<'a> {
     pub feature_enabled: bool,
     pub features: Option<&'a FeaturesToml>,
     pub candidate_permission_profile: &'a PermissionProfile,
-    pub credential_broker_base_url: Option<&'a str>,
 }
 
 /// The configured proxy before managed network requirements are applied.
@@ -93,7 +92,6 @@ impl PreparedNetworkConfig {
             feature_enabled,
             features,
             candidate_permission_profile,
-            credential_broker_base_url,
         } = inputs;
         if feature_enabled
             && candidate_permission_profile
@@ -107,7 +105,6 @@ impl PreparedNetworkConfig {
             }
             configured_proxy.enabled = true;
         }
-        configured_proxy.set_credential_broker_openai_base_url(credential_broker_base_url);
         Self { configured_proxy }
     }
 
