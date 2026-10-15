@@ -5884,7 +5884,7 @@ enabled = true
 }
 
 #[tokio::test]
-async fn featured_plugin_ids_for_config_uses_restriction_product_query_param() {
+async fn featured_plugin_ids_do_not_request_the_featured_endpoint() {
     let tmp = tempfile::tempdir().unwrap();
     write_file(
         &tmp.path().join(CONFIG_TOML_FILE),
@@ -5894,17 +5894,9 @@ plugins = true
     );
 
     let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/backend-api/plugins/featured"))
-        .and(query_param("platform", "chat"))
-        .and(header("authorization", "Bearer Access Token"))
-        .and(header("chatgpt-account-id", "account_id"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(r#"["chat-plugin"]"#))
-        .mount(&server)
-        .await;
-
     let mut config = load_config(tmp.path(), tmp.path()).await;
-    config.chatgpt_base_url = format!("{}/backend-api/", server.uri());
+    let base_url = format!("{}/backend-api/", server.uri());
+    config.chatgpt_base_url = base_url.clone();
     let manager = test_plugins_manager_with_options(
         tmp.path().to_path_buf(),
         Some(Product::Chatgpt),
@@ -5916,14 +5908,19 @@ plugins = true
             &config,
             Some(&CodexAuth::create_dummy_chatgpt_auth_for_testing()),
         )
-        .await
-        .unwrap();
+        .await;
 
-    assert_eq!(featured_plugin_ids, vec!["chat-plugin".to_string()]);
+    assert!(featured_plugin_ids.is_empty());
+    assert_eq!(config.chatgpt_base_url, base_url);
+    let requests = server.received_requests().await.unwrap();
+    assert!(
+        requests.is_empty(),
+        "featured plugin lookup must not send a request"
+    );
 }
 
 #[tokio::test]
-async fn featured_plugin_ids_for_config_defaults_query_param_to_codex() {
+async fn featured_plugin_ids_without_auth_do_not_select_a_host() {
     let tmp = tempfile::tempdir().unwrap();
     write_file(
         &tmp.path().join(CONFIG_TOML_FILE),
@@ -5933,15 +5930,9 @@ plugins = true
     );
 
     let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/backend-api/plugins/featured"))
-        .and(query_param("platform", "codex"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(r#"["codex-plugin"]"#))
-        .mount(&server)
-        .await;
-
     let mut config = load_config(tmp.path(), tmp.path()).await;
-    config.chatgpt_base_url = format!("{}/backend-api/", server.uri());
+    let base_url = format!("{}/backend-api/", server.uri());
+    config.chatgpt_base_url = base_url.clone();
     let manager = test_plugins_manager_with_options(
         tmp.path().to_path_buf(),
         /*restriction_product*/ None,
@@ -5950,10 +5941,15 @@ plugins = true
 
     let featured_plugin_ids = manager
         .featured_plugin_ids_for_config(&config, /*auth*/ None)
-        .await
-        .unwrap();
+        .await;
 
-    assert_eq!(featured_plugin_ids, vec!["codex-plugin".to_string()]);
+    assert!(featured_plugin_ids.is_empty());
+    assert_eq!(config.chatgpt_base_url, base_url);
+    assert!(
+        !featured_plugin_ids.iter().any(|id| id.contains("https://")),
+    );
+    let requests = server.received_requests().await.unwrap();
+    assert!(requests.is_empty());
 }
 
 #[tokio::test]

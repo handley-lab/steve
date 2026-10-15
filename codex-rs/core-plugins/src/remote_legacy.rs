@@ -2,14 +2,12 @@ use crate::error_subtype::http_status_sub_error_type;
 use crate::remote::RemotePluginServiceConfig;
 use codex_http_client::RouteAwareRequestError;
 use codex_login::CodexAuth;
-use codex_protocol::protocol::Product;
 use http::Method;
 use http::StatusCode;
 use serde::Deserialize;
 use std::time::Duration;
 use url::Url;
 
-const REMOTE_FEATURED_PLUGIN_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 const REMOTE_PLUGIN_MUTATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -91,74 +89,6 @@ impl RemotePluginMutationError {
             | Self::UnexpectedEnabledState { .. } => None,
         }
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum RemotePluginFetchError {
-    #[error("invalid chatgpt base url for remote featured plugin request: {0}")]
-    InvalidBaseUrl(#[source] url::ParseError),
-
-    #[error("failed to send remote featured plugin request to {url}: {source}")]
-    Request {
-        url: String,
-        #[source]
-        source: RouteAwareRequestError,
-    },
-
-    #[error("remote featured plugin request to {url} failed with status {status}: {body}")]
-    UnexpectedStatus {
-        url: String,
-        status: StatusCode,
-        body: String,
-    },
-
-    #[error("failed to parse remote featured plugin response from {url}: {source}")]
-    Decode {
-        url: String,
-        #[source]
-        source: serde_json::Error,
-    },
-}
-
-pub async fn fetch_remote_featured_plugin_ids(
-    config: &RemotePluginServiceConfig,
-    auth: Option<&CodexAuth>,
-    product: Option<Product>,
-) -> Result<Vec<String>, RemotePluginFetchError> {
-    let base_url = config.chatgpt_base_url.trim_end_matches('/');
-    let mut url = Url::parse(&format!("{base_url}/plugins/featured"))
-        .map_err(RemotePluginFetchError::InvalidBaseUrl)?;
-    url.query_pairs_mut().append_pair(
-        "platform",
-        product.unwrap_or(Product::Codex).to_app_platform(),
-    );
-    let url = url.to_string();
-    let mut request = config
-        .http_request(Method::GET, &url)
-        .timeout(REMOTE_FEATURED_PLUGIN_FETCH_TIMEOUT);
-
-    if let Some(auth) = auth.filter(|auth| auth.uses_codex_backend()) {
-        request =
-            request.headers(codex_model_provider::auth_provider_from_auth(auth).to_auth_headers());
-    }
-
-    let response = request
-        .send()
-        .await
-        .map_err(|source| RemotePluginFetchError::Request {
-            url: url.clone(),
-            source,
-        })?;
-    let status = response.status();
-    let body = response.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(RemotePluginFetchError::UnexpectedStatus { url, status, body });
-    }
-
-    serde_json::from_str(&body).map_err(|source| RemotePluginFetchError::Decode {
-        url: url.clone(),
-        source,
-    })
 }
 
 pub async fn enable_remote_plugin(

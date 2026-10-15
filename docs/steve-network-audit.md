@@ -160,15 +160,14 @@ DNS and local Unix-socket activity also occurred. This establishes the observed
 plugin-related startup traffic for these runs, not every possible network path
 or the contents of encrypted ChatGPT requests.
 
-Featured-plugin lookup GETs
-`{chatgpt_base_url}/plugins/featured?platform=...`, optionally attaching backend
-credentials when available. Steve does not fetch
-`https://github.com/openai/plugins.git`, the GitHub archive of that repository,
-or `https://chatgpt.com/backend-api/plugins/export/curated`. A curated snapshot
-already stored under the Steve home is still read locally. User-configured Git
-marketplaces remain a separate client. Plugins are enabled by default.
-Disabling the feature stops the featured-plugin request and local plugin
-loading together.
+Plugin list does not GET `{chatgpt_base_url}/plugins/featured`. Featured
+plugin ids are empty. An explicit `chatgpt_base_url` is left unchanged. Steve
+does not fetch `https://github.com/openai/plugins.git`, the GitHub archive of
+that repository, or `https://chatgpt.com/backend-api/plugins/export/curated`.
+A curated snapshot already stored under the Steve home is still read locally.
+User-configured Git marketplaces remain a separate client. Local plugin
+loading stays. The remote plugin catalogue, share, and bundle clients are
+separate.
 
 Raw local evidence: `~/.cache/codex-cambridge-build/steve-network-smoke-n05wyupc/`
 and `steve-network-smoke-cey30wqi/` contain configuration, structured model

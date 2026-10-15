@@ -2311,10 +2311,10 @@ async fn plugin_list_includes_remote_marketplaces_when_remote_plugin_enabled(
         .await;
     Mock::given(method("GET"))
         .and(path("/backend-api/plugins/featured"))
-        .and(query_param("platform", "codex"))
         .respond_with(
             ResponseTemplate::new(200).set_body_string(r#"["linear@openai-curated-remote"]"#),
         )
+        .expect(0)
         .mount(&server)
         .await;
 
@@ -2456,10 +2456,7 @@ async fn plugin_list_includes_remote_marketplaces_when_remote_plugin_enabled(
         cached_plugin_ids,
         vec!["plugins~Plugin_00000000000000000000000000000000".to_string()]
     );
-    assert_eq!(
-        response.featured_plugin_ids,
-        vec!["linear@openai-curated-remote".to_string()]
-    );
+    assert!(response.featured_plugin_ids.is_empty());
     assert!(
         !server
             .received_requests()
@@ -4969,7 +4966,7 @@ async fn plugin_list_omits_featured_plugin_ids_without_chatgpt_auth() -> Result<
 }
 
 #[tokio::test]
-async fn plugin_list_uses_warmed_featured_plugin_ids_cache_on_first_request() -> Result<()> {
+async fn plugin_list_does_not_request_featured_plugin_ids() -> Result<()> {
     let codex_home = TempDir::new()?;
     let server = MockServer::start().await;
     write_plugin_sync_config(codex_home.path(), &format!("{}/backend-api/", server.uri()))?;
@@ -4978,9 +4975,8 @@ async fn plugin_list_uses_warmed_featured_plugin_ids_cache_on_first_request() ->
 
     Mock::given(method("GET"))
         .and(path("/backend-api/plugins/featured"))
-        .and(query_param("platform", "codex"))
         .respond_with(ResponseTemplate::new(200).set_body_string(r#"["linear@openai-curated"]"#))
-        .expect(1)
+        .expect(0)
         .mount(&server)
         .await;
 
@@ -4989,7 +4985,7 @@ async fn plugin_list_uses_warmed_featured_plugin_ids_cache_on_first_request() ->
         .with_plugin_startup_tasks()
         .build_initialized_with_timeout(DEFAULT_TIMEOUT)
         .await?;
-    wait_for_featured_plugin_request_count(&server, /*expected_count*/ 1).await?;
+    wait_for_featured_plugin_request_count(&server, /*expected_count*/ 0).await?;
 
     let request_id = mcp
         .send_plugin_list_request(PluginListParams {
@@ -5002,10 +4998,7 @@ async fn plugin_list_uses_warmed_featured_plugin_ids_cache_on_first_request() ->
     let response: PluginListResponse =
         timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
 
-    assert_eq!(
-        response.featured_plugin_ids,
-        vec!["linear@openai-curated".to_string()]
-    );
+    assert!(response.featured_plugin_ids.is_empty());
     Ok(())
 }
 

@@ -69,7 +69,6 @@ use crate::remote::RemotePluginChange;
 use crate::remote::RemotePluginMaterialization;
 use crate::remote::RemotePluginScope;
 use crate::remote::RemotePluginServiceConfig;
-use crate::remote_legacy::RemotePluginFetchError;
 use crate::remote_legacy::RemotePluginMutationError;
 use crate::remote_plugin_id_resolver::RemoteInstalledPluginsSnapshot;
 use crate::remote_plugin_id_resolver::RemotePluginIdResolver;
@@ -141,8 +140,6 @@ use tokio::sync::watch;
 use tracing::instrument;
 use tracing::warn;
 
-const FEATURED_PLUGIN_IDS_CACHE_TTL: std::time::Duration =
-    std::time::Duration::from_secs(60 * 60 * 3);
 const REMOTE_INSTALLED_PLUGIN_SYNC_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const LOADED_PLUGINS_CACHE_CAPACITY: usize = 8;
 
@@ -225,24 +222,9 @@ pub struct RecommendedPluginCandidatesInput<'a> {
     pub app_server_client_name: Option<&'a str>,
 }
 
-#[derive(Clone, PartialEq, Eq)]
-struct FeaturedPluginIdsCacheKey {
-    chatgpt_base_url: String,
-    account_id: Option<String>,
-    chatgpt_user_id: Option<String>,
-    is_workspace_account: bool,
-}
-
 #[derive(Clone, Hash, PartialEq, Eq)]
 struct RecommendedPluginsCacheKey {
     chatgpt_base_url: String,
-}
-
-#[derive(Clone)]
-struct CachedFeaturedPluginIds {
-    key: FeaturedPluginIdsCacheKey,
-    expires_at: Instant,
-    featured_plugin_ids: Vec<String>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -411,18 +393,6 @@ fn remote_plugin_service_config(config: &PluginsConfigInput) -> RemotePluginServ
     config.remote_plugin_service_config()
 }
 
-fn featured_plugin_ids_cache_key(
-    config: &PluginsConfigInput,
-    auth: Option<&CodexAuth>,
-) -> FeaturedPluginIdsCacheKey {
-    FeaturedPluginIdsCacheKey {
-        chatgpt_base_url: config.chatgpt_base_url.clone(),
-        account_id: auth.and_then(CodexAuth::get_account_id),
-        chatgpt_user_id: auth.and_then(CodexAuth::get_chatgpt_user_id),
-        is_workspace_account: auth.is_some_and(CodexAuth::is_workspace_account),
-    }
-}
-
 fn recommended_plugins_cache_key(config: &PluginsConfigInput) -> RecommendedPluginsCacheKey {
     RecommendedPluginsCacheKey {
         chatgpt_base_url: config.chatgpt_base_url.clone(),
@@ -547,7 +517,6 @@ impl From<PluginDetail> for PluginCapabilitySummary {
 pub struct PluginsManager {
     codex_home: PathBuf,
     store: PluginStore,
-    featured_plugin_ids_cache: RwLock<Option<CachedFeaturedPluginIds>>,
     recommended_plugins_cache: RwLock<HashMap<RecommendedPluginsCacheKey, RecommendedPluginsMode>>,
     recommended_plugins_refreshes:
         RwLock<HashMap<RecommendedPluginsCacheKey, Arc<OnceCell<RecommendedPluginsMode>>>>,
@@ -702,7 +671,6 @@ impl PluginsManager {
         Self {
             codex_home,
             store,
-            featured_plugin_ids_cache: RwLock::new(None),
             recommended_plugins_cache: RwLock::new(HashMap::new()),
             recommended_plugins_refreshes: RwLock::new(HashMap::new()),
             configured_marketplace_upgrade_state: RwLock::new(
@@ -927,11 +895,6 @@ impl PluginsManager {
 
     pub fn clear_cache(&self) {
         self.clear_loaded_plugins_cache();
-        let mut featured_plugin_ids_cache = match self.featured_plugin_ids_cache.write() {
-            Ok(cache) => cache,
-            Err(err) => err.into_inner(),
-        };
-        *featured_plugin_ids_cache = None;
     }
 
     pub fn clear_recommended_plugins_cache(&self) {
@@ -1805,75 +1768,12 @@ impl PluginsManager {
         );
     }
 
-    fn cached_featured_plugin_ids(
-        &self,
-        cache_key: &FeaturedPluginIdsCacheKey,
-    ) -> Option<Vec<String>> {
-        {
-            let cache = match self.featured_plugin_ids_cache.read() {
-                Ok(cache) => cache,
-                Err(err) => err.into_inner(),
-            };
-            let now = Instant::now();
-            if let Some(cached) = cache.as_ref()
-                && now < cached.expires_at
-                && cached.key == *cache_key
-            {
-                return Some(cached.featured_plugin_ids.clone());
-            }
-        }
-
-        let mut cache = match self.featured_plugin_ids_cache.write() {
-            Ok(cache) => cache,
-            Err(err) => err.into_inner(),
-        };
-        let now = Instant::now();
-        if cache
-            .as_ref()
-            .is_some_and(|cached| now >= cached.expires_at || cached.key != *cache_key)
-        {
-            *cache = None;
-        }
-        None
-    }
-
-    fn write_featured_plugin_ids_cache(
-        &self,
-        cache_key: FeaturedPluginIdsCacheKey,
-        featured_plugin_ids: &[String],
-    ) {
-        let mut cache = match self.featured_plugin_ids_cache.write() {
-            Ok(cache) => cache,
-            Err(err) => err.into_inner(),
-        };
-        *cache = Some(CachedFeaturedPluginIds {
-            key: cache_key,
-            expires_at: Instant::now() + FEATURED_PLUGIN_IDS_CACHE_TTL,
-            featured_plugin_ids: featured_plugin_ids.to_vec(),
-        });
-    }
-
     pub async fn featured_plugin_ids_for_config(
         &self,
-        config: &PluginsConfigInput,
-        auth: Option<&CodexAuth>,
-    ) -> Result<Vec<String>, RemotePluginFetchError> {
-        if !config.plugins_enabled {
-            return Ok(Vec::new());
-        }
-
-        let cache_key = featured_plugin_ids_cache_key(config, auth);
-        if let Some(featured_plugin_ids) = self.cached_featured_plugin_ids(&cache_key) {
-            return Ok(featured_plugin_ids);
-        }
-        let featured_plugin_ids = crate::remote_legacy::fetch_remote_featured_plugin_ids(
-            &remote_plugin_service_config(config),
-            auth,
-            self.restriction_product,
-        )
-        .await?;
-        self.write_featured_plugin_ids_cache(cache_key, &featured_plugin_ids);
-        Ok(featured_plugin_ids)
+        _config: &PluginsConfigInput,
+        _auth: Option<&CodexAuth>,
+    ) -> Vec<String> {
+        Vec::new()
     }
 
     #[instrument(
@@ -2899,21 +2799,6 @@ impl PluginsManager {
                     scopes,
                     RemoteCatalogCacheRefreshMode::Force,
                 );
-            });
-
-            let config_for_featured_plugins = config.clone();
-            let manager = Arc::clone(self);
-            tokio::spawn(async move {
-                let auth = manager.auth_manager.auth().await;
-                if let Err(err) = manager
-                    .featured_plugin_ids_for_config(&config_for_featured_plugins, auth.as_ref())
-                    .await
-                {
-                    warn!(
-                        error = %err,
-                        "failed to warm featured plugin ids cache"
-                    );
-                }
             });
         }
     }

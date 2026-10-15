@@ -795,19 +795,9 @@ impl PluginRequestProcessor {
             marketplace.name == OPENAI_CURATED_MARKETPLACE_NAME
                 || marketplace.name == REMOTE_GLOBAL_MARKETPLACE_NAME
         }) {
-            match plugins_manager
+            plugins_manager
                 .featured_plugin_ids_for_config(&context.global_config, auth.as_ref())
                 .await
-            {
-                Ok(featured_plugin_ids) => featured_plugin_ids,
-                Err(err) => {
-                    warn!(
-                        error = %err,
-                        "plugin/list featured plugin fetch failed; returning empty featured ids"
-                    );
-                    Vec::new()
-                }
-            }
         } else {
             Vec::new()
         };
