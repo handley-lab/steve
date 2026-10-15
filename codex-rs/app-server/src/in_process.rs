@@ -513,7 +513,6 @@ async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcess
                 installation_id,
                 code_mode_session_provider: None,
                 rpc_transport: AppServerRpcTransport::InProcess,
-                remote_control_handle: None,
                 plugin_startup_tasks: Some(PluginStartupConfig::Current),
             }));
             let mut thread_created_rx = processor.thread_created_receiver();

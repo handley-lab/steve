@@ -82,7 +82,6 @@ async fn background_routing_call_sites_skip_config(api_key: Option<&str>) -> any
         installation_id: "11111111-1111-4111-8111-111111111111".to_string(),
         code_mode_session_provider: None,
         rpc_transport: AppServerRpcTransport::Stdio,
-        remote_control_handle: None,
         // Isolate routing from unrelated plugin startup configuration loads.
         plugin_startup_tasks: None,
     }));

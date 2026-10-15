@@ -3784,37 +3784,6 @@ class ReasoningTextDeltaNotification(BaseModel):
     turn_id: Annotated[str, Field(alias="turnId")]
 
 
-class RemoteControlConnectionStatus(Enum):
-    disabled = "disabled"
-    connecting = "connecting"
-    connected = "connected"
-    errored = "errored"
-
-
-class RemoteControlDisableParams(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    ephemeral: bool | None = None
-
-
-class RemoteControlEnableParams(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    ephemeral: bool | None = None
-
-
-class RemoteControlStatusChangedNotification(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    environment_id: Annotated[str | None, Field(alias="environmentId")] = None
-    installation_id: Annotated[str, Field(alias="installationId")]
-    server_name: Annotated[str, Field(alias="serverName")]
-    status: RemoteControlConnectionStatus
-
-
 class RequestHeader(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -4518,24 +4487,6 @@ class McpServerEventStreamNotificationServerNotification(BaseModel):
         Field(title="McpServer/event/stream/notificationNotificationMethod"),
     ]
     params: McpServerEventStreamNotification
-
-
-class RemoteControlStatusChangedServerNotification(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    emitted_at_ms: Annotated[
-        int | None,
-        Field(
-            alias="emittedAtMs",
-            description="Unix timestamp (in milliseconds) when app-server emitted this notification.",
-        ),
-    ] = None
-    method: Annotated[
-        Literal["remoteControl/status/changed"],
-        Field(title="RemoteControl/status/changedNotificationMethod"),
-    ]
-    params: RemoteControlStatusChangedNotification
 
 
 class FsChangedServerNotification(BaseModel):
@@ -13054,7 +13005,6 @@ class ServerNotification(
         | AccountGatewayOAuthChangedServerNotification
         | AccountRateLimitsUpdatedServerNotification
         | AppListUpdatedServerNotification
-        | RemoteControlStatusChangedServerNotification
         | ExternalAgentConfigImportProgressServerNotification
         | ExternalAgentConfigImportCompletedServerNotification
         | FsChangedServerNotification
@@ -13145,7 +13095,6 @@ class ServerNotification(
         | AccountGatewayOAuthChangedServerNotification
         | AccountRateLimitsUpdatedServerNotification
         | AppListUpdatedServerNotification
-        | RemoteControlStatusChangedServerNotification
         | ExternalAgentConfigImportProgressServerNotification
         | ExternalAgentConfigImportCompletedServerNotification
         | FsChangedServerNotification

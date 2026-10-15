@@ -248,7 +248,7 @@ context before calling. Verify does not require a pending elicitation; a UI with
 its own authenticator can return proof directly in elicitation response content.
 The calling flow owns pending-request checks and discards late proofs.
 Native enroll, delete, and verify accept local stdio and in-process connections.
-WebSocket and remote-control peers must use their own device authenticator;
+WebSocket peers must use their own device authenticator;
 status remains available for local readiness. Dropping an embedded RPC, disconnecting,
 or changing authentication cancels its native operation. Responses recheck the
 captured identity after waiting for outbound queue capacity.

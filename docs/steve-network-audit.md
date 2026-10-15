@@ -87,30 +87,12 @@ plugin-registered MCP endpoint is suppressed. Sources:
 
 ## Remote control
 
-The remote-control relay uses `chatgpt_base_url`, independently of the inference
-provider. URL normalization adds `wham/remote/control/server/enroll`,
-`server/refresh`, `server/pair` and `server/pair/status`; its WebSocket uses
-`wham/remote/control/server`. Accepted remote hosts belong to ChatGPT or its
-staging service; loopback hosts are also supported.
-
-Enrollment posts the server name (derived from hostname), OS, architecture,
-app-server version and installation ID, with authentication headers. Refresh
-posts server and installation IDs. Pairing exchanges codes. The WebSocket
-serializes app-server outgoing messages, including notifications, into relay
-envelopes with client/stream/sequence identifiers. This is a transport for
-session data and control, not a documentation download; the possible payload
-content depends on which app-server messages are sent.
-
-Remote control has its own desired state, authentication and persisted pairing
-state. Daemon settings default to disabled. Startup can resolve persisted state,
-so absence of an enable flag on one command does not establish that it is
-inactive. Keep it disabled when OpenAI relay traffic is unwanted; analytics
-and feedback consent are separate controls. No relay connection was exercised
-for this audit. Sources:
-`codex-rs/app-server-transport/src/transport/remote_control/protocol.rs`,
-`server_api.rs`, `controller.rs`, `websocket.rs`,
-`codex-rs/app-server/src/lib.rs` and
-`codex-rs/app-server-daemon/src/settings.rs`.
+Steve does not POST `wham/remote/control/server/enroll`,
+`wham/remote/control/server/refresh`, `wham/remote/control/server/pair`, or
+`wham/remote/control/server/pair/status`. It does not GET or DELETE
+`wham/remote/control/environments/{id}/clients`. It does not open a WebSocket
+to `wham/remote/control/server`. A daemon settings file may still contain
+`remoteControlEnabled`. That value is stored and is not used to open a relay.
 
 Changing the inference provider does not change every service endpoint.
 Disabling analytics and feedback does not disable MCP requests or explicitly

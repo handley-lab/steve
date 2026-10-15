@@ -49,7 +49,6 @@ from .v2_all import ProjectChangedNotification
 from .v2_all import ReasoningSummaryPartAddedNotification
 from .v2_all import ReasoningSummaryTextDeltaNotification
 from .v2_all import ReasoningTextDeltaNotification
-from .v2_all import RemoteControlStatusChangedNotification
 from .v2_all import ServerRequestResolvedNotification
 from .v2_all import SkillsChangedNotification
 from .v2_all import StrictReviewRequiredNotification
@@ -134,7 +133,6 @@ KnownNotificationPayload: TypeAlias = (
     | ReasoningSummaryPartAddedNotification
     | ReasoningSummaryTextDeltaNotification
     | ReasoningTextDeltaNotification
-    | RemoteControlStatusChangedNotification
     | ServerRequestResolvedNotification
     | SkillsChangedNotification
     | StrictReviewRequiredNotification
@@ -221,7 +219,6 @@ NOTIFICATION_MODELS: dict[str, type[KnownNotificationPayload]] = {
     "process/exited": ProcessExitedNotification,
     "process/outputDelta": ProcessOutputDeltaNotification,
     "project/changed": ProjectChangedNotification,
-    "remoteControl/status/changed": RemoteControlStatusChangedNotification,
     "serverRequest/resolved": ServerRequestResolvedNotification,
     "skills/changed": SkillsChangedNotification,
     "thread/archived": ThreadArchivedNotification,

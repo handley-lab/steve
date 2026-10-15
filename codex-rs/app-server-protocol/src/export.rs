@@ -51,8 +51,6 @@ const EXPERIMENTAL_CLIENT_METHOD_DEPENDENCY_TYPES: &[&str] = &[
     "BedrockEnvironmentCredential",
     "EnvironmentShellInfo",
     "EnvironmentStatusKind",
-    "RemoteControlClient",
-    "RemoteControlClientsListOrder",
     "ThreadBackgroundTerminal",
     "ThreadSearchOccurrence",
     "ThreadSearchTextRange",
@@ -3038,34 +3036,6 @@ permissionProfile?: string | null};
                 .exists(),
             false
         );
-
-        let _cleanup = fs::remove_dir_all(&output_dir);
-        Ok(())
-    }
-
-    #[test]
-    fn generate_json_includes_remote_control_methods_with_experimental_api() -> Result<()> {
-        let output_dir = std::env::temp_dir().join(format!("codex_schema_{}", Uuid::now_v7()));
-        fs::create_dir(&output_dir)?;
-        generate_json_with_experimental(&output_dir, /*experimental_api*/ true)?;
-
-        let client_request_json = fs::read_to_string(output_dir.join("ClientRequest.json"))?;
-        assert!(client_request_json.contains("remoteControl/pairing/start"));
-        assert!(client_request_json.contains("remoteControl/pairing/status"));
-        assert!(client_request_json.contains("remoteControl/client/list"));
-        assert!(client_request_json.contains("remoteControl/client/revoke"));
-        for schema in [
-            "RemoteControlPairingStartParams.json",
-            "RemoteControlPairingStartResponse.json",
-            "RemoteControlPairingStatusParams.json",
-            "RemoteControlPairingStatusResponse.json",
-            "RemoteControlClientsListParams.json",
-            "RemoteControlClientsListResponse.json",
-            "RemoteControlClientsRevokeParams.json",
-            "RemoteControlClientsRevokeResponse.json",
-        ] {
-            assert!(output_dir.join("v2").join(schema).exists());
-        }
 
         let _cleanup = fs::remove_dir_all(&output_dir);
         Ok(())

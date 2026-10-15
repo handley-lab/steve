@@ -42,7 +42,6 @@ use crate::request_processors::McpRequestProcessor;
 use crate::request_processors::PluginRequestProcessor;
 use crate::request_processors::ProcessExecRequestProcessor;
 use crate::request_processors::ProjectRequestProcessor;
-use crate::request_processors::RemoteControlRequestProcessor;
 use crate::request_processors::SearchRequestProcessor;
 use crate::request_processors::ThreadGoalRequestProcessor;
 use crate::request_processors::ThreadQueueRequestProcessor;
@@ -58,7 +57,6 @@ use crate::skills_watcher::SkillsWatcher;
 use crate::thread_state::ConnectionCapabilities;
 use crate::thread_state::ThreadStateManager;
 use crate::transport::AppServerTransport;
-use crate::transport::RemoteControlHandle;
 use crate::turn_cost_worker::TurnCostWorker;
 use codex_analytics::AnalyticsEventsClient;
 use codex_analytics::AppServerRpcTransport;
@@ -163,7 +161,6 @@ pub(crate) struct MessageProcessor {
     mcp_processor: McpRequestProcessor,
     plugin_processor: PluginRequestProcessor,
     project_processor: ProjectRequestProcessor,
-    pub(super) remote_control_processor: RemoteControlRequestProcessor,
     search_processor: SearchRequestProcessor,
     thread_goal_processor: ThreadGoalRequestProcessor,
     thread_queue_processor: ThreadQueueRequestProcessor,
@@ -264,7 +261,6 @@ pub(crate) struct MessageProcessorArgs {
     pub(crate) installation_id: String,
     pub(crate) code_mode_session_provider: Option<Arc<dyn CodeModeSessionProvider>>,
     pub(crate) rpc_transport: AppServerRpcTransport,
-    pub(crate) remote_control_handle: Option<RemoteControlHandle>,
     /// `None` skips startup tasks; otherwise preserve the initial config-loading path.
     pub(crate) plugin_startup_tasks: Option<PluginStartupConfig>,
 }
@@ -290,7 +286,6 @@ impl MessageProcessor {
             installation_id,
             code_mode_session_provider,
             rpc_transport,
-            remote_control_handle,
             plugin_startup_tasks,
         } = args;
         let _ = feedback;
@@ -477,7 +472,6 @@ impl MessageProcessor {
             config_manager.clone(),
             on_effective_plugins_changed,
         );
-        let remote_control_processor = RemoteControlRequestProcessor::new(remote_control_handle);
         let search_processor = SearchRequestProcessor::new(outgoing.clone());
         let thread_goal_processor = ThreadGoalRequestProcessor::new(
             Arc::clone(&thread_manager),
@@ -599,7 +593,6 @@ impl MessageProcessor {
             mcp_processor,
             plugin_processor,
             project_processor,
-            remote_control_processor,
             search_processor,
             thread_goal_processor,
             thread_queue_processor,
@@ -1169,46 +1162,6 @@ impl MessageProcessor {
                     .experimental_feature_enablement_set(request_id.clone(), params)
                     .await
             }
-            ClientRequest::RemoteControlEnable { params, .. } => self
-                .remote_control_processor
-                .enable(
-                    params.is_some_and(|params| params.ephemeral),
-                    app_server_client_name.as_deref(),
-                )
-                .await
-                .map(|response| Some(response.into())),
-            ClientRequest::RemoteControlDisable { params, .. } => self
-                .remote_control_processor
-                .disable(
-                    params.is_some_and(|params| params.ephemeral),
-                    app_server_client_name.as_deref(),
-                )
-                .await
-                .map(|response| Some(response.into())),
-            ClientRequest::RemoteControlStatusRead { .. } => self
-                .remote_control_processor
-                .status_read()
-                .map(|response| Some(response.into())),
-            ClientRequest::RemoteControlPairingStart { params, .. } => self
-                .remote_control_processor
-                .pairing_start(params, app_server_client_name.as_deref())
-                .await
-                .map(|response| Some(response.into())),
-            ClientRequest::RemoteControlPairingStatus { params, .. } => self
-                .remote_control_processor
-                .pairing_status(params)
-                .await
-                .map(|response| Some(response.into())),
-            ClientRequest::RemoteControlClientsList { params, .. } => self
-                .remote_control_processor
-                .clients_list(params)
-                .await
-                .map(|response| Some(response.into())),
-            ClientRequest::RemoteControlClientsRevoke { params, .. } => self
-                .remote_control_processor
-                .clients_revoke(params)
-                .await
-                .map(|response| Some(response.into())),
             ClientRequest::ConfigRequirementsRead { params: _, .. } => self
                 .config_processor
                 .config_requirements_read()

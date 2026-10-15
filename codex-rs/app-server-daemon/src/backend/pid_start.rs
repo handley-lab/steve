@@ -90,7 +90,7 @@ impl PidBackend {
             .await
             .unwrap_or_else(|_| self.codex_bin.clone());
         let launched_identity =
-            if matches!(self.command_kind, super::PidCommandKind::AppServer { .. }) {
+            if matches!(self.command_kind, super::PidCommandKind::AppServer) {
                 executable_identity(&codex_bin).await.ok()
             } else {
                 None
@@ -114,7 +114,7 @@ impl PidBackend {
             .stderr(Stdio::from(stderr_log.into_std().await));
         // Older or pinned managed binaries may predate this optional startup flag.
         let managed_app_server =
-            matches!(self.command_kind, super::PidCommandKind::AppServer { .. });
+            matches!(self.command_kind, super::PidCommandKind::AppServer);
         if managed_app_server
             && matches!(
                 tokio::time::timeout(
@@ -146,10 +146,6 @@ impl PidBackend {
                 }
             }
         }
-        if let Some((key, value)) = self.command_env() {
-            command.env(key, value);
-        }
-
         crate::background_command::set_working_directory(
             command.as_std_mut(),
             self.pid_file
@@ -188,7 +184,7 @@ impl PidBackend {
                 }
             }
             match self.command_kind {
-                PidCommandKind::AppServer { .. } => {
+                PidCommandKind::AppServer => {
                     command.env(codex_app_server_transport::DAEMON_SHUTDOWN_SOCKET_ENV, "1");
                 }
                 PidCommandKind::UpdateLoop { .. } => {

@@ -1140,48 +1140,6 @@ client_request_definitions! {
         serialization: global("config"),
         response: v2::ExperimentalFeatureEnablementSetResponse,
     },
-    #[experimental("remoteControl/enable")]
-    RemoteControlEnable => "remoteControl/enable" {
-        params: #[serde(skip_serializing_if = "Option::is_none")] v2::NullableRemoteControlEnableParams,
-        serialization: global("remote-control"),
-        response: v2::RemoteControlEnableResponse,
-    },
-    #[experimental("remoteControl/disable")]
-    RemoteControlDisable => "remoteControl/disable" {
-        params: #[serde(skip_serializing_if = "Option::is_none")] v2::NullableRemoteControlDisableParams,
-        serialization: global("remote-control"),
-        response: v2::RemoteControlDisableResponse,
-    },
-    #[experimental("remoteControl/status/read")]
-    RemoteControlStatusRead => "remoteControl/status/read" {
-        params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>,
-        serialization: global_shared_read("remote-control"),
-        response: v2::RemoteControlStatusReadResponse,
-    },
-    #[experimental("remoteControl/pairing/start")]
-    RemoteControlPairingStart => "remoteControl/pairing/start" {
-        params: v2::RemoteControlPairingStartParams,
-        serialization: global("remote-control-pairing"),
-        response: v2::RemoteControlPairingStartResponse,
-    },
-    #[experimental("remoteControl/pairing/status")]
-    RemoteControlPairingStatus => "remoteControl/pairing/status" {
-        params: v2::RemoteControlPairingStatusParams,
-        serialization: global_shared_read("remote-control-pairing"),
-        response: v2::RemoteControlPairingStatusResponse,
-    },
-    #[experimental("remoteControl/client/list")]
-    RemoteControlClientsList => "remoteControl/client/list" {
-        params: v2::RemoteControlClientsListParams,
-        serialization: global_shared_read("remote-control-clients"),
-        response: v2::RemoteControlClientsListResponse,
-    },
-    #[experimental("remoteControl/client/revoke")]
-    RemoteControlClientsRevoke => "remoteControl/client/revoke" {
-        params: v2::RemoteControlClientsRevokeParams,
-        serialization: global("remote-control-clients"),
-        response: v2::RemoteControlClientsRevokeResponse,
-    },
     #[experimental("collaborationMode/list")]
     /// Lists collaboration mode presets.
     CollaborationModeList => "collaborationMode/list" {
@@ -1994,7 +1952,6 @@ server_notification_definitions! {
     GatewayOAuthChanged => "account/gatewayOAuth/changed" (v2::GatewayOAuthChangedNotification),
     AccountRateLimitsUpdated => "account/rateLimits/updated" (v2::AccountRateLimitsUpdatedNotification),
     AppListUpdated => "app/list/updated" (v2::AppListUpdatedNotification),
-    RemoteControlStatusChanged => "remoteControl/status/changed" (v2::RemoteControlStatusChangedNotification),
     ExternalAgentConfigImportProgress => "externalAgentConfig/import/progress" (v2::ExternalAgentConfigImportProgressNotification),
     ExternalAgentConfigImportCompleted => "externalAgentConfig/import/completed" (v2::ExternalAgentConfigImportCompletedNotification),
     FsChanged => "fs/changed" (v2::FsChangedNotification),
@@ -2678,53 +2635,6 @@ mod tests {
             },
         };
         assert_eq!(mcp_resource_read.serialization_scope(), None);
-
-        let remote_control_pairing_start = ClientRequest::RemoteControlPairingStart {
-            request_id: request_id(),
-            params: v2::RemoteControlPairingStartParams::default(),
-        };
-        assert_eq!(
-            remote_control_pairing_start.serialization_scope(),
-            Some(ClientRequestSerializationScope::Global(
-                "remote-control-pairing"
-            ))
-        );
-        let remote_control_pairing_status = ClientRequest::RemoteControlPairingStatus {
-            request_id: request_id(),
-            params: v2::RemoteControlPairingStatusParams {
-                pairing_code: Some("pairing-code".to_string()),
-                manual_pairing_code: None,
-            },
-        };
-        assert_eq!(
-            remote_control_pairing_status.serialization_scope(),
-            Some(ClientRequestSerializationScope::GlobalSharedRead(
-                "remote-control-pairing"
-            ))
-        );
-        let remote_control_clients_list = ClientRequest::RemoteControlClientsList {
-            request_id: request_id(),
-            params: v2::RemoteControlClientsListParams::default(),
-        };
-        assert_eq!(
-            remote_control_clients_list.serialization_scope(),
-            Some(ClientRequestSerializationScope::GlobalSharedRead(
-                "remote-control-clients"
-            ))
-        );
-        let remote_control_clients_revoke = ClientRequest::RemoteControlClientsRevoke {
-            request_id: request_id(),
-            params: v2::RemoteControlClientsRevokeParams {
-                environment_id: "environment-id".to_string(),
-                client_id: "client-id".to_string(),
-            },
-        };
-        assert_eq!(
-            remote_control_clients_revoke.serialization_scope(),
-            Some(ClientRequestSerializationScope::Global(
-                "remote-control-clients"
-            ))
-        );
     }
 
     #[test]

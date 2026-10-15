@@ -14197,59 +14197,6 @@
       "title": "ReasoningTextDeltaNotification",
       "type": "object"
     },
-    "RemoteControlConnectionStatus": {
-      "enum": [
-        "disabled",
-        "connecting",
-        "connected",
-        "errored"
-      ],
-      "type": "string"
-    },
-    "RemoteControlDisableParams": {
-      "properties": {
-        "ephemeral": {
-          "type": "boolean"
-        }
-      },
-      "type": "object"
-    },
-    "RemoteControlEnableParams": {
-      "properties": {
-        "ephemeral": {
-          "type": "boolean"
-        }
-      },
-      "type": "object"
-    },
-    "RemoteControlStatusChangedNotification": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "description": "Current remote-control connection status and remote identity exposed to clients.",
-      "properties": {
-        "environmentId": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "installationId": {
-          "type": "string"
-        },
-        "serverName": {
-          "type": "string"
-        },
-        "status": {
-          "$ref": "#/definitions/RemoteControlConnectionStatus"
-        }
-      },
-      "required": [
-        "installationId",
-        "serverName",
-        "status"
-      ],
-      "title": "RemoteControlStatusChangedNotification",
-      "type": "object"
-    },
     "RequestHeader": {
       "properties": {
         "name": {
@@ -16922,26 +16869,6 @@
             "params"
           ],
           "title": "App/list/updatedNotification",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "method": {
-              "enum": [
-                "remoteControl/status/changed"
-              ],
-              "title": "RemoteControl/status/changedNotificationMethod",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/definitions/RemoteControlStatusChangedNotification"
-            }
-          },
-          "required": [
-            "method",
-            "params"
-          ],
-          "title": "RemoteControl/status/changedNotification",
           "type": "object"
         },
         {

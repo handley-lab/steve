@@ -78,7 +78,6 @@ async fn promotes_timestamp_only_macos_record() {
     let backend = PidBackend::new(
         temp.path().join("steve"),
         path.clone(),
-        /*remote_control_enabled*/ false,
     );
     backend.promote_legacy_identity().await.unwrap();
     record.process_identity = Some(identity);

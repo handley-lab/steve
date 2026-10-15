@@ -103,7 +103,6 @@ pub(crate) fn without_notification_media(notification: ServerNotification) -> Se
         | ServerNotification::AccountUpdated(_)
         | ServerNotification::AccountRateLimitsUpdated(_)
         | ServerNotification::AppListUpdated(_)
-        | ServerNotification::RemoteControlStatusChanged(_)
         | ServerNotification::ExternalAgentConfigImportProgress(_)
         | ServerNotification::ExternalAgentConfigImportCompleted(_)
         | ServerNotification::FsChanged(_)

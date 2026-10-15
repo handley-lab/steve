@@ -108,7 +108,6 @@ mod rate_limits;
 #[path = "rate_limits_identity_tests.rs"]
 mod rate_limits_identity;
 mod realtime_conversation;
-mod remote_control;
 #[cfg(debug_assertions)]
 mod remote_thread_store;
 mod request_permissions;
