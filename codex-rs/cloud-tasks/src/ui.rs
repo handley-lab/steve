@@ -34,22 +34,14 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             Constraint::Length(2), // two-line footer (help + status)
         ])
         .split(area);
-    if app.new_task.is_some() {
-        draw_new_task_page(frame, chunks[0], app);
-        draw_footer(frame, chunks[1], app);
-    } else {
-        draw_list(frame, chunks[0], app);
-        draw_footer(frame, chunks[1], app);
-    }
+    draw_list(frame, chunks[0], app);
+    draw_footer(frame, chunks[1], app);
 
     if app.diff_overlay.is_some() {
         draw_diff_overlay(frame, area, app);
     }
     if app.env_modal.is_some() {
         draw_env_modal(frame, area, app);
-    }
-    if app.best_of_modal.is_some() {
-        draw_best_of_modal(frame, area, app);
     }
     if app.apply_modal.is_some() {
         draw_apply_modal(frame, area, app);
@@ -101,78 +93,6 @@ fn overlay_content(area: Rect) -> Rect {
     overlay_block().inner(area)
 }
 
-pub fn draw_new_task_page(frame: &mut Frame, area: Rect, app: &mut App) {
-    let title_spans = {
-        let mut spans: Vec<ratatui::text::Span> = vec!["New Task".magenta().bold()];
-        if let Some(id) = app
-            .new_task
-            .as_ref()
-            .and_then(|p| p.env_id.as_ref())
-            .cloned()
-        {
-            spans.push("  • ".into());
-            // Try to map id to label
-            let label = app
-                .environments
-                .iter()
-                .find(|r| r.id == id)
-                .and_then(|r| r.label.clone())
-                .unwrap_or(id);
-            spans.push(label.dim());
-        } else {
-            spans.push("  • ".into());
-            spans.push("Env: none (press ctrl-o to choose)".red());
-        }
-        if let Some(page) = app.new_task.as_ref() {
-            spans.push("  • ".into());
-            let attempts = page.best_of_n;
-            let label = format!(
-                "{} attempt{}",
-                attempts,
-                if attempts == 1 { "" } else { "s" }
-            );
-            spans.push(label.cyan());
-        }
-        spans
-    };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(Line::from(title_spans));
-
-    frame.render_widget(Clear, area);
-    frame.render_widget(block.clone(), area);
-    let content = block.inner(area);
-
-    // Expand composer height up to (terminal height - 6), with a 3-line minimum.
-    let max_allowed = frame.area().height.saturating_sub(6).max(3);
-    let desired = app
-        .new_task
-        .as_ref()
-        .map(|p| p.composer.desired_height(content.width))
-        .unwrap_or(3)
-        .clamp(3, max_allowed);
-
-    // Anchor the composer to the bottom-left by allocating a flexible spacer
-    // above it and a fixed `desired`-height area for the composer.
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(desired)])
-        .split(content);
-    let composer_area = rows[1];
-
-    if let Some(page) = app.new_task.as_ref() {
-        page.composer.render_ref(composer_area, frame.buffer_mut());
-        // Composer renders its own footer hints; no extra row here.
-    }
-
-    // Place cursor where composer wants it
-    if let Some(page) = app.new_task.as_ref()
-        && let Some((x, y)) = page.composer.cursor_pos(composer_area)
-    {
-        frame.set_cursor_position((x, y));
-    }
-}
-
 fn draw_list(frame: &mut Frame, area: Rect, app: &mut App) {
     let items: Vec<ListItem> = app.tasks.iter().map(|t| render_task_item(app, t)).collect();
 
@@ -181,7 +101,6 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &mut App) {
     // Dim task list when a modal/overlay is active to emphasize focus.
     let dim_bg = app.env_modal.is_some()
         || app.apply_modal.is_some()
-        || app.best_of_modal.is_some()
         || app.diff_overlay.is_some();
     // Dynamic title includes current environment filter
     let suffix_span = if let Some(ref id) = app.env_filter {
@@ -262,13 +181,6 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &mut App) {
         help.push(": Apply  ".dim());
     }
     help.push("o : Set Env  ".dim());
-    if app.new_task.is_some() {
-        help.push("Ctrl+N".dim());
-        help.push(format!(": Attempts {}x  ", app.best_of_n).dim());
-        help.push("(editing new task)  ".dim());
-    } else {
-        help.push("n : New Task  ".dim());
-    }
     help.extend(vec!["q".dim(), ": Quit  ".dim()]);
     // Split footer area into two rows: help+spinner (top) and status (bottom)
     let rows = Layout::default()
@@ -988,59 +900,4 @@ pub fn draw_env_modal(frame: &mut Frame, area: Rect, app: &mut App) {
         .highlight_style(Style::default().bold())
         .block(Block::default().borders(Borders::NONE));
     frame.render_stateful_widget(list, rows[2], &mut list_state);
-}
-
-pub fn draw_best_of_modal(frame: &mut Frame, area: Rect, app: &mut App) {
-    use ratatui::widgets::Wrap;
-
-    let inner = overlay_outer(area);
-    const MAX_WIDTH: u16 = 40;
-    const MIN_WIDTH: u16 = 20;
-    const MAX_HEIGHT: u16 = 12;
-    const MIN_HEIGHT: u16 = 6;
-    let modal_width = inner.width.min(MAX_WIDTH).max(inner.width.min(MIN_WIDTH));
-    let modal_height = inner
-        .height
-        .min(MAX_HEIGHT)
-        .max(inner.height.min(MIN_HEIGHT));
-    let modal_x = inner.x + (inner.width.saturating_sub(modal_width)) / 2;
-    let modal_y = inner.y + (inner.height.saturating_sub(modal_height)) / 2;
-    let modal_area = Rect::new(modal_x, modal_y, modal_width, modal_height);
-    let title = Line::from(vec!["Parallel Attempts".magenta().bold()]);
-    let block = overlay_block().title(title);
-
-    frame.render_widget(Clear, modal_area);
-    frame.render_widget(block.clone(), modal_area);
-    let content = overlay_content(modal_area);
-
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(2), Constraint::Min(1)])
-        .split(content);
-
-    let hint = Paragraph::new(Line::from("Use ↑/↓ to choose, 1-4 jump".cyan().dim()))
-        .wrap(Wrap { trim: true });
-    frame.render_widget(hint, rows[0]);
-
-    let selected = app.best_of_modal.as_ref().map(|m| m.selected).unwrap_or(0);
-    let options = [1usize, 2, 3, 4];
-    let mut items: Vec<ListItem> = Vec::new();
-    for &attempts in &options {
-        let noun = if attempts == 1 { "attempt" } else { "attempts" };
-        let mut spans: Vec<ratatui::text::Span> = vec![format!("{attempts} {noun:<8}").into()];
-        spans.push("  ".into());
-        spans.push(format!("{attempts}x parallel").dim());
-        if attempts == app.best_of_n {
-            spans.push("  ".into());
-            spans.push("Current".magenta().bold());
-        }
-        items.push(ListItem::new(Line::from(spans)));
-    }
-    let sel = selected.min(options.len().saturating_sub(1));
-    let mut list_state = ListState::default().with_selected(Some(sel));
-    let list = List::new(items)
-        .highlight_symbol("› ")
-        .highlight_style(Style::default().bold())
-        .block(Block::default().borders(Borders::NONE));
-    frame.render_stateful_widget(list, rows[1], &mut list_state);
 }

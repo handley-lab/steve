@@ -92,11 +92,6 @@ pub struct ApplyOutcome {
     pub conflict_paths: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CreatedTask {
-    pub id: TaskId,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskListPage {
     pub tasks: Vec<TaskSummary>,
@@ -153,12 +148,4 @@ pub trait CloudBackend: Send + Sync {
         id: TaskId,
         diff_override: Option<String>,
     ) -> CloudBackendFuture<'_, ApplyOutcome>;
-    fn create_task<'a>(
-        &'a self,
-        env_id: &'a str,
-        prompt: &'a str,
-        git_ref: &'a str,
-        qa_mode: bool,
-        best_of_n: usize,
-    ) -> CloudBackendFuture<'a, CreatedTask>;
 }

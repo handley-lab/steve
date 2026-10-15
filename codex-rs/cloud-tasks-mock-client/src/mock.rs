@@ -4,7 +4,6 @@ use codex_cloud_tasks_client::ApplyStatus;
 use codex_cloud_tasks_client::AttemptStatus;
 use codex_cloud_tasks_client::CloudBackend;
 use codex_cloud_tasks_client::CloudBackendFuture;
-use codex_cloud_tasks_client::CreatedTask;
 use codex_cloud_tasks_client::Result;
 use codex_cloud_tasks_client::TaskId;
 use codex_cloud_tasks_client::TurnAttempt;
@@ -54,19 +53,6 @@ impl MockClient {
         }
         Ok(Vec::new())
     }
-
-    async fn create_task(
-        &self,
-        env_id: &str,
-        prompt: &str,
-        git_ref: &str,
-        qa_mode: bool,
-        best_of_n: usize,
-    ) -> Result<CreatedTask> {
-        let _ = (env_id, prompt, git_ref, qa_mode, best_of_n);
-        let id = format!("task_local_{}", chrono::Utc::now().timestamp_millis());
-        Ok(CreatedTask { id: TaskId(id) })
-    }
 }
 
 impl CloudBackend for MockClient {
@@ -92,19 +78,6 @@ impl CloudBackend for MockClient {
         turn_id: String,
     ) -> CloudBackendFuture<'_, Vec<TurnAttempt>> {
         Box::pin(MockClient::list_sibling_attempts(self, task, turn_id))
-    }
-
-    fn create_task<'a>(
-        &'a self,
-        env_id: &'a str,
-        prompt: &'a str,
-        git_ref: &'a str,
-        qa_mode: bool,
-        best_of_n: usize,
-    ) -> CloudBackendFuture<'a, CreatedTask> {
-        Box::pin(MockClient::create_task(
-            self, env_id, prompt, git_ref, qa_mode, best_of_n,
-        ))
     }
 }
 

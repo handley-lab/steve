@@ -337,40 +337,6 @@ impl Client {
         self.decode_json::<TurnAttemptsSiblingTurnsResponse>(&url, &ct, &body)
     }
 
-    /// Create a new task (user turn) by POSTing to the appropriate backend path
-    /// based on `path_style`. Returns the created task id.
-    pub async fn create_task(&self, request_body: serde_json::Value) -> Result<String> {
-        let url = match self.path_style {
-            PathStyle::CodexApi => format!("{}/api/codex/tasks", self.base_url),
-            PathStyle::ChatGptApi => format!("{}/wham/tasks", self.base_url),
-        };
-        let req = self
-            .request(Method::POST, &url)
-            .headers(self.headers())
-            .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
-            .json(&request_body);
-        let (body, ct) = self.exec_request(req, "POST", &url).await?;
-        // Extract id from JSON: prefer `task.id`; fallback to top-level `id` when present.
-        match serde_json::from_str::<serde_json::Value>(&body) {
-            Ok(v) => {
-                if let Some(id) = v
-                    .get("task")
-                    .and_then(|t| t.get("id"))
-                    .and_then(|s| s.as_str())
-                {
-                    Ok(id.to_string())
-                } else if let Some(id) = v.get("id").and_then(|s| s.as_str()) {
-                    Ok(id.to_string())
-                } else {
-                    anyhow::bail!(
-                        "POST {url} succeeded but no task id found; content-type={ct}; body={body}"
-                    );
-                }
-            }
-            Err(e) => anyhow::bail!("Decode error for {url}: {e}; content-type={ct}; body={body}"),
-        }
-    }
-
 }
 
 #[cfg(test)]

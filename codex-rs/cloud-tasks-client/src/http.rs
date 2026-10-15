@@ -46,10 +46,6 @@ impl HttpClient {
         self
     }
 
-    fn tasks_api(&self) -> api::Tasks<'_> {
-        api::Tasks::new(self)
-    }
-
     fn attempts_api(&self) -> api::Attempts<'_> {
         api::Attempts::new(self)
     }
@@ -79,21 +75,6 @@ impl CloudBackend for HttpClient {
     ) -> CloudBackendFuture<'_, ApplyOutcome> {
         Box::pin(async move { api::Apply::run(id, diff_override, /*preflight*/ true).await })
     }
-
-    fn create_task<'a>(
-        &'a self,
-        env_id: &'a str,
-        prompt: &'a str,
-        git_ref: &'a str,
-        qa_mode: bool,
-        best_of_n: usize,
-    ) -> CloudBackendFuture<'a, crate::CreatedTask> {
-        Box::pin(async move {
-            self.tasks_api()
-                .create(env_id, prompt, git_ref, qa_mode, best_of_n)
-                .await
-        })
-    }
 }
 
 mod api {
@@ -101,81 +82,6 @@ mod api {
     use serde_json::Value;
     use std::cmp::Ordering;
     use std::collections::HashMap;
-
-    pub(crate) struct Tasks<'a> {
-        backend: &'a backend::Client,
-    }
-
-    impl<'a> Tasks<'a> {
-        pub(crate) fn new(client: &'a HttpClient) -> Self {
-            Self {
-                backend: &client.backend,
-            }
-        }
-
-        pub(crate) async fn create(
-            &self,
-            env_id: &str,
-            prompt: &str,
-            git_ref: &str,
-            qa_mode: bool,
-            best_of_n: usize,
-        ) -> Result<crate::CreatedTask> {
-            let mut input_items: Vec<serde_json::Value> = Vec::new();
-            input_items.push(serde_json::json!({
-                "type": "message",
-                "role": "user",
-                "content": [{ "content_type": "text", "text": prompt }]
-            }));
-
-            if let Ok(diff) = std::env::var("STEVE_STARTING_DIFF")
-                && !diff.is_empty()
-            {
-                input_items.push(serde_json::json!({
-                    "type": "pre_apply_patch",
-                    "output_diff": { "diff": diff }
-                }));
-            }
-
-            let mut request_body = serde_json::json!({
-                "new_task": {
-                    "environment_id": env_id,
-                    "branch": git_ref,
-                    "run_environment_in_qa_mode": qa_mode,
-                },
-                "input_items": input_items,
-            });
-
-            if best_of_n > 1
-                && let Some(obj) = request_body.as_object_mut()
-            {
-                obj.insert(
-                    "metadata".to_string(),
-                    serde_json::json!({ "best_of_n": best_of_n }),
-                );
-            }
-
-            match self.backend.create_task(request_body).await {
-                Ok(id) => {
-                    append_error_log(&format!(
-                        "new_task: created id={id} env={} prompt_chars={}",
-                        env_id,
-                        prompt.chars().count()
-                    ));
-                    Ok(crate::CreatedTask { id: TaskId(id) })
-                }
-                Err(e) => {
-                    append_error_log(&format!(
-                        "new_task: create failed env={} prompt_chars={}: {}",
-                        env_id,
-                        prompt.chars().count(),
-                        e
-                    ));
-                    Err(CloudTaskError::Http(format!("create_task failed: {e}")))
-                }
-            }
-        }
-    }
 
     pub(crate) struct Attempts<'a> {
         backend: &'a backend::Client,

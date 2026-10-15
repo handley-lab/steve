@@ -1,22 +1,17 @@
 mod app;
 mod cli;
 pub(crate) mod env_detect;
-mod new_task;
 pub(crate) mod scrollable_diff;
 mod ui;
 pub(crate) mod util;
 pub use cli::Cli;
 
-use anyhow::anyhow;
-use codex_git_utils::current_branch_name;
-use codex_git_utils::default_branch_name;
 use codex_http_client::ClientRouteClass;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
 use codex_http_client::RouteAwareClientPool;
 use codex_login::default_client::get_codex_user_agent;
 use std::io::IsTerminal;
-use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -112,156 +107,6 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
         base_url,
         environment_http,
     })
-}
-
-trait GitInfoProvider {
-    fn default_branch_name(
-        &self,
-        path: &std::path::Path,
-    ) -> impl std::future::Future<Output = Option<String>> + Send;
-
-    fn current_branch_name(
-        &self,
-        path: &std::path::Path,
-    ) -> impl std::future::Future<Output = Option<String>> + Send;
-}
-
-struct RealGitInfo;
-
-impl GitInfoProvider for RealGitInfo {
-    async fn default_branch_name(&self, path: &std::path::Path) -> Option<String> {
-        default_branch_name(path).await
-    }
-
-    async fn current_branch_name(&self, path: &std::path::Path) -> Option<String> {
-        current_branch_name(path).await
-    }
-}
-
-async fn resolve_git_ref(branch_override: Option<&String>) -> String {
-    resolve_git_ref_with_git_info(branch_override, &RealGitInfo).await
-}
-
-async fn resolve_git_ref_with_git_info(
-    branch_override: Option<&String>,
-    git_info: &impl GitInfoProvider,
-) -> String {
-    if let Some(branch) = branch_override {
-        let branch = branch.trim();
-        if !branch.is_empty() {
-            return branch.to_string();
-        }
-    }
-
-    if let Ok(cwd) = std::env::current_dir() {
-        if let Some(branch) = git_info.current_branch_name(&cwd).await {
-            branch
-        } else if let Some(branch) = git_info.default_branch_name(&cwd).await {
-            branch
-        } else {
-            "main".to_string()
-        }
-    } else {
-        "main".to_string()
-    }
-}
-
-async fn run_exec_command(args: crate::cli::ExecCommand) -> anyhow::Result<()> {
-    let crate::cli::ExecCommand {
-        query,
-        environment,
-        branch,
-        attempts,
-    } = args;
-    let ctx = init_backend("codex_cloud_tasks_exec").await?;
-    let prompt = resolve_query_input(query)?;
-    let env_id = resolve_environment_id(&ctx, &environment).await?;
-    let git_ref = resolve_git_ref(branch.as_ref()).await;
-    let created = codex_cloud_tasks_client::CloudBackend::create_task(
-        &*ctx.backend,
-        &env_id,
-        &prompt,
-        &git_ref,
-        /*qa_mode*/ false,
-        attempts,
-    )
-    .await?;
-    let url = util::task_url(&ctx.base_url, &created.id.0);
-    println!("{url}");
-    Ok(())
-}
-
-async fn resolve_environment_id(ctx: &BackendContext, requested: &str) -> anyhow::Result<String> {
-    let trimmed = requested.trim();
-    if trimmed.is_empty() {
-        return Err(anyhow!("environment id must not be empty"));
-    }
-    let normalized = util::normalize_base_url(&ctx.base_url);
-    let headers = util::build_chatgpt_headers().await;
-    let environments =
-        crate::env_detect::list_environments(&ctx.environment_http, &normalized, &headers).await?;
-    if environments.is_empty() {
-        return Err(anyhow!(
-            "no cloud environments are available for this workspace"
-        ));
-    }
-
-    if let Some(row) = environments.iter().find(|row| row.id == trimmed) {
-        return Ok(row.id.clone());
-    }
-
-    let label_matches = environments
-        .iter()
-        .filter(|row| {
-            row.label
-                .as_deref()
-                .map(|label| label.eq_ignore_ascii_case(trimmed))
-                .unwrap_or(false)
-        })
-        .collect::<Vec<_>>();
-    match label_matches.as_slice() {
-        [] => Err(anyhow!(
-            "environment '{trimmed}' not found; run `codex cloud` to list available environments"
-        )),
-        [single] => Ok(single.id.clone()),
-        [first, rest @ ..] => {
-            let first_id = &first.id;
-            if rest.iter().all(|row| row.id == *first_id) {
-                Ok(first_id.clone())
-            } else {
-                Err(anyhow!(
-                    "environment label '{trimmed}' is ambiguous; run `codex cloud` to pick the desired environment id"
-                ))
-            }
-        }
-    }
-}
-
-fn resolve_query_input(query_arg: Option<String>) -> anyhow::Result<String> {
-    match query_arg {
-        Some(q) if q != "-" => Ok(q),
-        maybe_dash => {
-            let force_stdin = matches!(maybe_dash.as_deref(), Some("-"));
-            if std::io::stdin().is_terminal() && !force_stdin {
-                return Err(anyhow!(
-                    "no query provided. Pass one as an argument or pipe it via stdin."
-                ));
-            }
-            if !force_stdin {
-                eprintln!("Reading query from stdin...");
-            }
-            let mut buffer = String::new();
-            std::io::stdin()
-                .read_to_string(&mut buffer)
-                .map_err(|e| anyhow!("failed to read query from stdin: {e}"))?;
-            if buffer.trim().is_empty() {
-                return Err(anyhow!(
-                    "no query provided via stdin (received empty input)."
-                ));
-            }
-            Ok(buffer)
-        }
-    }
 }
 
 fn level_from_status(status: codex_cloud_tasks_client::ApplyStatus) -> app::ApplyResultLevel {
@@ -389,14 +234,7 @@ fn spawn_apply(
 // (no standalone patch summarizer needed – UI displays raw diffs)
 
 /// Entry point for the `codex cloud` subcommand.
-pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()> {
-    if let Some(command) = cli.command {
-        return match command {
-            crate::cli::Command::Exec(args) => run_exec_command(args).await,
-        };
-    }
-    let Cli { .. } = cli;
-
+pub async fn run_main(_cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()> {
     // Very minimal logging setup; mirrors other crates' pattern.
     let default_level = "error";
     let _ = tracing_subscriber::fmt()
@@ -546,13 +384,6 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                             needs_redraw: &mut bool|
      -> anyhow::Result<()> {
         if *needs_redraw {
-            if let Some(delay) = app
-                .new_task
-                .as_ref()
-                .and_then(|page| page.composer.footer_flash_delay())
-            {
-                let _ = frame_tx.send(Instant::now() + delay);
-            }
             terminal.draw(|f| ui::draw(f, app))?;
             *needs_redraw = false;
         }
@@ -563,15 +394,6 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
         tokio::select! {
             // Coalesced redraw requests: spinner animation and paste-burst micro‑flush.
             Some(()) = redraw_rx.recv() => {
-                // Micro‑flush pending first key held by paste‑burst.
-                if let Some(page) = app.new_task.as_mut() {
-                    needs_redraw = true;
-                    page.composer.flush_paste_burst_if_due();
-                    if page.composer.is_in_paste_burst() {
-                        let _ = frame_tx
-                            .send(Instant::now() + codex_tui::ComposerInput::recommended_flush_delay());
-                    }
-                }
                 // Keep spinner pulsing only while loading.
                 if app.refresh_inflight
                     || app.details_inflight
@@ -592,24 +414,6 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
             maybe_app_event = rx.recv() => {
                 if let Some(ev) = maybe_app_event {
                     match ev {
-                        app::AppEvent::NewTaskSubmitted(result) => {
-                            match result {
-                                Ok(created) => {
-                                    append_error_log(format!("new-task: created id={}", created.id.0));
-                                    app.status = format!("Submitted as {}", created.id.0);
-                                    app.new_task = None;
-                                    needs_redraw = true;
-                                    let _ = frame_tx.send(Instant::now());
-                                }
-                                Err(msg) => {
-                                    append_error_log(format!("new-task: submit failed: {msg}"));
-                                    if let Some(page) = app.new_task.as_mut() { page.submitting = false; }
-                                    app.status = format!("Submit failed: {msg}. See error.log for details.");
-                                    needs_redraw = true;
-                                    let _ = frame_tx.send(Instant::now());
-                                }
-                            }
-                        }
                         // (removed TaskSummaryUpdated; unused in this prototype)
                         app::AppEvent::ApplyPreflightFinished { id, title, message, level, skipped, conflicts } => {
                             // Only update if modal is still open and ids match
@@ -713,13 +517,6 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                 }
                             }
                             needs_redraw = true;
-                        } else if let Some(page) = app.new_task.as_mut()
-                            && !page.submitting
-                        {
-                            if page.composer.handle_paste(pasted) {
-                                needs_redraw = true;
-                            }
-                            let _ = frame_tx.send(Instant::now());
                         }
                     }
                     Some(Ok(Event::Key(key))) if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) => {
@@ -731,16 +528,9 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                 // Close environment selector if open (don’t quit composer).
                                 app.env_modal = None;
                                 needs_redraw = true;
-                            } else if app.best_of_modal.is_some() {
-                                app.best_of_modal = None;
-                                needs_redraw = true;
                             } else if app.apply_modal.is_some() {
                                 app.apply_modal = None;
                                 app.status = "Apply canceled".to_string();
-                                needs_redraw = true;
-                            } else if app.new_task.is_some() {
-                                app.new_task = None;
-                                app.status = "Canceled new task".to_string();
                                 needs_redraw = true;
                             } else if app.diff_overlay.is_some() {
                                 app.diff_overlay = None;
@@ -750,172 +540,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                             }
                             // Render updated state immediately before continuing to next loop iteration.
                             render_if_needed(&mut terminal, &mut app, &mut needs_redraw)?;
-                            // Render after New Task branch to reflect input changes immediately.
-                            render_if_needed(&mut terminal, &mut app, &mut needs_redraw)?;
                             continue;
-                        }
-                        let is_ctrl_n = key.modifiers.contains(KeyModifiers::CONTROL)
-                            && matches!(key.code, KeyCode::Char('n') | KeyCode::Char('N'))
-                            || matches!(key.code, KeyCode::Char('\u{000E}'));
-                        if is_ctrl_n {
-                            if app.new_task.is_none() {
-                                continue;
-                            }
-                            if app.best_of_modal.is_some() {
-                                app.best_of_modal = None;
-                                needs_redraw = true;
-                            } else {
-                                let selected = app.best_of_n.saturating_sub(1).min(3);
-                                app.best_of_modal = Some(app::BestOfModalState { selected });
-                                app.status = format!(
-                                    "Select best-of attempts (current: {} attempt{})",
-                                    app.best_of_n,
-                                    if app.best_of_n == 1 { "" } else { "s" }
-                                );
-                                needs_redraw = true;
-                            }
-                            render_if_needed(&mut terminal, &mut app, &mut needs_redraw)?;
-                            continue;
-                        }
-                        if app.best_of_modal.is_some() {
-                            match key.code {
-                                KeyCode::Esc => {
-                                    app.best_of_modal = None;
-                                    needs_redraw = true;
-                                }
-                                KeyCode::Down | KeyCode::Char('j') => {
-                                    if let Some(m) = app.best_of_modal.as_mut() {
-                                        m.selected = (m.selected + 1).min(3);
-                                    }
-                                    needs_redraw = true;
-                                }
-                                KeyCode::Up | KeyCode::Char('k') => {
-                                    if let Some(m) = app.best_of_modal.as_mut() {
-                                        m.selected = m.selected.saturating_sub(1);
-                                    }
-                                    needs_redraw = true;
-                                }
-                                KeyCode::Char('1') | KeyCode::Char('2') | KeyCode::Char('3') | KeyCode::Char('4') => {
-                                    if let Some(m) = app.best_of_modal.as_mut() {
-                                        let val = match key.code {
-                                            KeyCode::Char('1') => 0,
-                                            KeyCode::Char('2') => 1,
-                                            KeyCode::Char('3') => 2,
-                                            KeyCode::Char('4') => 3,
-                                            _ => m.selected,
-                                        };
-                                        m.selected = val;
-                                    }
-                                    needs_redraw = true;
-                                }
-                                KeyCode::Enter => {
-                                    if let Some(state) = app.best_of_modal.take() {
-                                        let new_value = state.selected + 1;
-                                        app.best_of_n = new_value;
-                                        if let Some(page) = app.new_task.as_mut() {
-                                            page.best_of_n = new_value;
-                                        }
-                                        append_error_log(format!("best-of.select: attempts={new_value}"));
-                                        app.status = format!(
-                                            "Best-of updated to {new_value} attempt{}",
-                                            if new_value == 1 { "" } else { "s" }
-                                        );
-                                        needs_redraw = true;
-                                    }
-                                }
-                                _ => {}
-                            }
-                            render_if_needed(&mut terminal, &mut app, &mut needs_redraw)?;
-                            continue;
-                        }
-                        // New Task page: Ctrl+O opens environment switcher while composing.
-                        let is_ctrl_o = key.modifiers.contains(KeyModifiers::CONTROL)
-                            && matches!(key.code, KeyCode::Char('o') | KeyCode::Char('O'))
-                            || matches!(key.code, KeyCode::Char('\u{000F}'));
-                        if is_ctrl_o && app.new_task.is_some() {
-                            // Close task modal/pending apply if present before opening env modal
-                            app.diff_overlay = None;
-                            app.env_modal = Some(app::EnvModalState { query: String::new(), selected: 0 });
-                            // Cache environments while the modal is open to avoid repeated fetches.
-                            let should_fetch = app.environments.is_empty();
-                            if should_fetch {
-                                app.env_loading = true;
-                                app.env_error = None;
-                                // Ensure spinner animates while loading environments.
-                                let _ = frame_tx.send(Instant::now() + Duration::from_millis(100));
-                            }
-                            needs_redraw = true;
-                            if should_fetch {
-                                spawn_environment_load(
-                                    tx.clone(),
-                                    base_url.clone(),
-                                    environment_http.clone(),
-                                );
-                            }
-                            // Render after opening env modal to show it instantly.
-                            render_if_needed(&mut terminal, &mut app, &mut needs_redraw)?;
-                            continue;
-                        }
-
-                        // New Task page has priority when active, unless an env modal is open.
-                        if let Some(page) = app.new_task.as_mut() {
-                            if app.env_modal.is_some() {
-                                // Defer handling to env-modal branch below.
-                            } else {
-                            match key.code {
-                                KeyCode::Esc => {
-                                    app.new_task = None;
-                                    app.status = "Canceled new task".to_string();
-                                    needs_redraw = true;
-                                }
-                                _ => {
-                                    if page.submitting {
-                                        // Ignore input while submitting
-                                    } else if let codex_tui::ComposerAction::Submitted(text) =
-                                        page.composer.input(key)
-                                    {
-                                            // Submit only if we have an env id
-                                            if let Some(env) = page.env_id.clone() {
-                                                append_error_log(format!(
-                                                    "new-task: submit env={} size={}",
-                                                    env,
-                                                    text.chars().count()
-                                                ));
-                                                page.submitting = true;
-                                                app.status = "Submitting new task…".to_string();
-                                                let tx = tx.clone();
-                                                let backend = Arc::clone(&backend);
-                                                let best_of_n = page.best_of_n;
-                                                tokio::spawn(async move {
-                                                    let git_ref = resolve_git_ref(/*branch_override*/ None).await;
-
-                                                    let result = codex_cloud_tasks_client::CloudBackend::create_task(&*backend, &env, &text, &git_ref, /*qa_mode*/ false, best_of_n).await;
-                                                    let evt = match result {
-                                                        Ok(ok) => app::AppEvent::NewTaskSubmitted(Ok(ok)),
-                                                        Err(e) => app::AppEvent::NewTaskSubmitted(Err(format!("{e}"))),
-                                                    };
-                                                    let _ = tx.send(evt);
-                                                });
-                                            } else {
-                                                app.status = "No environment selected".to_string();
-                                            }
-                                    }
-                                    needs_redraw = true;
-                                    // If paste‑burst is active, schedule a micro‑flush frame.
-                                    if page.composer.is_in_paste_burst() {
-                                        let _ = frame_tx.send(
-                                            Instant::now()
-                                                + codex_tui::ComposerInput::recommended_flush_delay(),
-                                        );
-                                    }
-                                    // Always schedule an immediate redraw for key edits in the composer.
-                                    let _ = frame_tx.send(Instant::now());
-                                    // Draw now so non-char edits (e.g., Option+Delete) reflect instantly.
-                                    render_if_needed(&mut terminal, &mut app, &mut needs_redraw)?;
-                                }
-                            }
-                            continue;
-                            }
                         }
                         // If a diff overlay is open, handle its keys first.
                         if app.apply_modal.is_some() {
@@ -1104,15 +729,6 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                 KeyCode::End => { if let Some(m) = app.env_modal.as_mut() { m.selected = app.environments.len(); } needs_redraw = true; }
                                 KeyCode::PageDown | KeyCode::Char(' ') => { if let Some(m) = app.env_modal.as_mut() { let step = 10usize; m.selected = m.selected.saturating_add(step); } needs_redraw = true; }
                                 KeyCode::PageUp => { if let Some(m) = app.env_modal.as_mut() { let step = 10usize; m.selected = m.selected.saturating_sub(step); } needs_redraw = true; }
-                                KeyCode::Char('n') => {
-                                    if app.env_filter.is_none() {
-                                        app.new_task = Some(crate::new_task::NewTaskPage::new(/*env_id*/ None, app.best_of_n));
-                                    } else {
-                                        app.new_task = Some(crate::new_task::NewTaskPage::new(app.env_filter.clone(), app.best_of_n));
-                                    }
-                                    app.status = "New Task: Enter to submit; Esc to cancel".to_string();
-                                    needs_redraw = true;
-                                }
                                 KeyCode::Enter => {
                                     // Resolve selection over filtered set
                                     if let Some(state) = app.env_modal.take() {
@@ -1138,10 +754,6 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                                 ));
                                                 app.env_filter = Some(row.id.clone());
                                             }
-                                        }
-                                        // If New Task page is open, reflect the new selection in its header immediately.
-                                        if let Some(page) = app.new_task.as_mut() {
-                                            page.env_id = app.env_filter.clone();
                                         }
                                         needs_redraw = true;
                                     }
@@ -1177,12 +789,6 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                             environment_http.clone(),
                                         );
                                     }
-                                }
-                                KeyCode::Char('n') => {
-                                    let env_opt = app.env_filter.clone();
-                                    app.new_task = Some(crate::new_task::NewTaskPage::new(env_opt, app.best_of_n));
-                                    app.status = "New Task: Enter to submit; Esc to cancel".to_string();
-                                    needs_redraw = true;
                                 }
                                 KeyCode::Enter => {}
                                 KeyCode::Char('a') => {
@@ -1245,92 +851,3 @@ fn spawn_environment_load(
 }
 
 // extract_chatgpt_account_id moved to util.rs
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::resolve_git_ref_with_git_info;
-
-    struct StubGitInfo {
-        default_branch: Option<String>,
-        current_branch: Option<String>,
-    }
-
-    impl StubGitInfo {
-        fn new(default_branch: Option<String>, current_branch: Option<String>) -> Self {
-            Self {
-                default_branch,
-                current_branch,
-            }
-        }
-    }
-
-    impl super::GitInfoProvider for StubGitInfo {
-        async fn default_branch_name(&self, _path: &std::path::Path) -> Option<String> {
-            self.default_branch.clone()
-        }
-
-        async fn current_branch_name(&self, _path: &std::path::Path) -> Option<String> {
-            self.current_branch.clone()
-        }
-    }
-
-    #[tokio::test]
-    async fn branch_override_is_used_when_provided() {
-        let git_ref = resolve_git_ref_with_git_info(
-            Some(&"feature/override".to_string()),
-            &StubGitInfo::new(/*default_branch*/ None, /*current_branch*/ None),
-        )
-        .await;
-
-        assert_eq!(git_ref, "feature/override");
-    }
-
-    #[tokio::test]
-    async fn trims_override_whitespace() {
-        let git_ref = resolve_git_ref_with_git_info(
-            Some(&"  feature/spaces  ".to_string()),
-            &StubGitInfo::new(/*default_branch*/ None, /*current_branch*/ None),
-        )
-        .await;
-
-        assert_eq!(git_ref, "feature/spaces");
-    }
-
-    #[tokio::test]
-    async fn prefers_current_branch_when_available() {
-        let git_ref = resolve_git_ref_with_git_info(
-            /*branch_override*/ None,
-            &StubGitInfo::new(
-                Some("default-main".to_string()),
-                Some("feature/current".to_string()),
-            ),
-        )
-        .await;
-
-        assert_eq!(git_ref, "feature/current");
-    }
-
-    #[tokio::test]
-    async fn falls_back_to_current_branch_when_default_is_missing() {
-        let git_ref = resolve_git_ref_with_git_info(
-            /*branch_override*/ None,
-            &StubGitInfo::new(/*default_branch*/ None, Some("develop".to_string())),
-        )
-        .await;
-
-        assert_eq!(git_ref, "develop");
-    }
-
-    #[tokio::test]
-    async fn falls_back_to_main_when_no_git_info_is_available() {
-        let git_ref = resolve_git_ref_with_git_info(
-            /*branch_override*/ None,
-            &StubGitInfo::new(/*default_branch*/ None, /*current_branch*/ None),
-        )
-        .await;
-
-        assert_eq!(git_ref, "main");
-    }
-
-}
