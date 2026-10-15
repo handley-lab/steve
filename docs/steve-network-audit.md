@@ -158,8 +158,10 @@ bundle. Local configuration still loads.
 
 ## Rate-limit usage
 
-Steve does not GET `/wham/usage` or `/api/codex/usage`. Longer usage paths,
-including thread usage, turn cost, and plan history, are separate requests.
+Steve does not GET `/wham/usage` or `/api/codex/usage`. Steve does not POST
+`/wham/usage/thread-estimates/query` or `/api/codex/usage/thread-estimates/query`.
+Thread usage, the API-key turn-cost request, and plan history are separate
+requests.
 Steve does not GET `/wham/rate-limit-reset-credits` or
 `/api/codex/rate-limit-reset-credits`, and does not POST either path with
 `/consume`.

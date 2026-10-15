@@ -151,7 +151,6 @@ mod thread_timeline;
 mod thread_unarchive;
 mod thread_unload;
 mod thread_unsubscribe;
-mod turn_cost_otel;
 mod turn_interrupt;
 mod turn_settings_update;
 mod turn_start;
