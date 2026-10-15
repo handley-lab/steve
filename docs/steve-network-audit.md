@@ -28,7 +28,7 @@ Skill detail still GETs `/ps/plugins/{plugin_id}/skills/{skill_name}`.
 Authentication and product SKU accompany the remaining plugin-service requests.
 
 Steve does not POST `/ps/plugins/{plugin_id}/install` or
-`/ps/plugins/{plugin_id}/uninstall`. Share and bundle clients are separate.
+`/ps/plugins/{plugin_id}/uninstall`. The bundle download client is separate.
 Local plugin interoperability does not require mechanically renaming the
 external service paths. Avoid
 first-party remote plugin operations and inspect installed plugin transports
@@ -38,19 +38,11 @@ Source: `codex-rs/core-plugins/src/remote.rs`.
 
 ### Plugin sharing uploads
 
-Saving a remote plugin share archives the selected local plugin directory. It
-POSTs filename, gzip MIME type, archive size and optional plugin ID to
-`/public/plugins/workspace/upload-url`, then PUTs the archive bytes to the
-returned upload URL. Finalization POSTs file ID, ETag, discoverability and share
-targets to `/public/plugins/workspace` or its plugin-specific path. Sharing
-therefore sends local plugin content to a service-selected storage endpoint;
-it is distinct from catalogue downloads and inference. The reviewed save path
-requires first-party backend authentication. Changing targets PUTs principals
-and discoverability to `/ps/plugins/{id}/shares`; deletion sends an authenticated
-DELETE to `/public/plugins/workspace/{id}`. Analytics and feedback consent are
-not checked in these functions. Do not invoke these remote-sharing operations
-when local content must not be uploaded. No sharing operation was exercised.
-Source: `codex-rs/core-plugins/src/remote/share.rs`.
+Steve does not POST `/public/plugins/workspace/upload-url`, PUT an archive to a
+returned upload URL, or POST `/public/plugins/workspace`. It does not PUT
+`/ps/plugins/{id}/shares`, DELETE `/public/plugins/workspace/{id}`, or GET
+`/ps/plugins/workspace/created`. A previously recorded local share-path mapping
+can still be read when listing local plugins.
 
 ### Plugin bundle downloads
 

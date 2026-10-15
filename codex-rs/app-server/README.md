@@ -390,8 +390,8 @@ Attachment creation and deletion requests using the same thread ID are serialize
 
 # Thread plugin settings
 
-Plugin summaries returned by `plugin/list`, `plugin/installed`, `plugin/read`,
-and `plugin/share/list` report effective `enabled` state. When
+Plugin summaries returned by `plugin/list`, `plugin/installed`, and
+`plugin/read` report effective `enabled` state. When
 `plugins._default.enabled` is configured, an explicit
 `plugins."<plugin-name>@<marketplace-name>".enabled` overrides that default;
 a plugin disabled at its source remains disabled. Omitting the default preserves

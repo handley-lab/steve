@@ -20,7 +20,6 @@ use codex_login::CodexAuth;
 use codex_login::default_client::default_headers;
 use codex_plugin::PluginCapabilitySummary;
 use codex_plugin::PluginId;
-use codex_utils_absolute_path::AbsolutePathBuf;
 use http::Method;
 use http::StatusCode;
 use serde::Deserialize;
@@ -29,7 +28,6 @@ use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
@@ -50,22 +48,11 @@ pub use remote_installed_plugin_sync::RemotePluginCacheMutationGuard;
 pub use remote_installed_plugin_sync::RemotePluginChange;
 pub use remote_installed_plugin_sync::RemotePluginMaterialization;
 pub use remote_installed_plugin_sync::mark_remote_plugin_cache_mutation_in_flight;
-pub use share::RemotePluginShareAccessPolicy;
 pub use share::RemotePluginShareDiscoverability;
 pub use share::RemotePluginSharePrincipal;
 pub use share::RemotePluginSharePrincipalRole;
 pub use share::RemotePluginSharePrincipalType;
-pub use share::RemotePluginShareSaveResult;
-pub use share::RemotePluginShareTarget;
-pub use share::RemotePluginShareTargetRole;
-pub use share::RemotePluginShareUpdateDiscoverability;
-pub use share::RemotePluginShareUpdateTargetsResult;
-pub use share::checkout_remote_plugin_share;
-pub use share::delete_remote_plugin_share;
-pub use share::list_remote_plugin_shares;
 pub use share::load_plugin_share_remote_ids_by_local_path;
-pub use share::save_remote_plugin_share;
-pub use share::update_remote_plugin_share_targets;
 
 pub const REMOTE_GLOBAL_MARKETPLACE_NAME: &str = "openai-curated-remote";
 pub const REMOTE_CREATED_BY_ME_MARKETPLACE_NAME: &str = "created-by-me-remote";
@@ -86,7 +73,6 @@ const OPENAI_CURATED_REMOTE_COLLECTION_KEY: &str = "vertical";
 const OAI_PRODUCT_SKU_HEADER: &str = "OAI-Product-Sku";
 pub(crate) const CODEX_PRODUCT_SKU: &str = "codex";
 const REMOTE_PLUGIN_CATALOG_TIMEOUT: Duration = Duration::from_secs(30);
-const REMOTE_PLUGIN_LIST_PAGE_LIMIT: u32 = 200;
 const MAX_REMOTE_DEFAULT_PROMPT_COUNT: usize = 3;
 const MAX_REMOTE_DEFAULT_PROMPT_LEN: usize = 128;
 const INVALID_REQUEST_ERROR_CODE: i64 = -32600;
@@ -262,12 +248,6 @@ pub struct RemotePluginShareContext {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct RemotePluginShareSummary {
-    pub summary: RemotePluginSummary,
-    pub local_plugin_path: Option<AbsolutePathBuf>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct RemotePluginDetail {
     pub marketplace_name: String,
     pub marketplace_display_name: String,
@@ -427,30 +407,6 @@ pub enum RemotePluginCatalogError {
         actual_enabled: bool,
     },
 
-    #[error("invalid plugin path `{path}`: {reason}")]
-    InvalidPluginPath { path: PathBuf, reason: String },
-
-    #[error("remote plugin `{remote_plugin_id}` is not available for plugin/share/checkout")]
-    PluginShareCheckoutNotAvailable { remote_plugin_id: String },
-
-    #[error("failed to archive plugin at `{path}`: {source}")]
-    Archive {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-
-    #[error("failed to join plugin archive task: {0}")]
-    ArchiveJoin(#[source] tokio::task::JoinError),
-
-    #[error(
-        "plugin archive would be {bytes} bytes, exceeding the maximum upload size of {max_bytes} bytes"
-    )]
-    ArchiveTooLarge { bytes: usize, max_bytes: usize },
-
-    #[error("workspace plugin upload response did not include an etag")]
-    MissingUploadEtag,
-
     #[error("{0}")]
     UnexpectedResponse(String),
 
@@ -476,12 +432,6 @@ impl RemotePluginCatalogError {
             | Self::UnexpectedPluginId { .. }
             | Self::UnexpectedSkillName { .. }
             | Self::UnexpectedEnabledState { .. }
-            | Self::InvalidPluginPath { .. }
-            | Self::PluginShareCheckoutNotAvailable { .. }
-            | Self::Archive { .. }
-            | Self::ArchiveJoin(_)
-            | Self::ArchiveTooLarge { .. }
-            | Self::MissingUploadEtag
             | Self::UnexpectedResponse(_)
             | Self::CacheRemove(_) => None,
         }
@@ -531,11 +481,6 @@ impl RemotePluginScope {
             _ => None,
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-struct RemotePluginPagination {
-    next_page_token: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -732,13 +677,6 @@ struct RemotePluginInstalledItem {
     #[serde(default)]
     disabled_skill_names: Vec<String>,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-struct RemotePluginListResponse {
-    plugins: Vec<RemotePluginDirectoryItem>,
-    pagination: RemotePluginPagination,
-}
-
 
 pub async fn fetch_remote_marketplaces(
     config: &RemotePluginServiceConfig,

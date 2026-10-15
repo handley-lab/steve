@@ -100,7 +100,6 @@ mod plugin_manifest_cache;
 mod plugin_read;
 mod plugin_reconcile;
 mod plugin_search;
-mod plugin_share;
 mod plugin_uninstall;
 mod process_exec;
 mod projects;

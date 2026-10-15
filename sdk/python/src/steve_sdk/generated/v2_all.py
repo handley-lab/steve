@@ -3197,7 +3197,7 @@ class PluginInstallResponse(BaseModel):
         populate_by_name=True,
     )
     apps_needing_auth: Annotated[list[AppSummary], Field(alias="appsNeedingAuth")]
-    auth_policy: Annotated[PluginAuthPolicy, Field(alias="authPolicy")]
+    auth_policy: Annotated[PluginAuthPolicy | None, Field(alias="authPolicy")] = None
 
 
 class PluginInstalledParams(BaseModel):
@@ -3390,51 +3390,10 @@ class PluginSearchScope(Enum):
     personal = "personal"
 
 
-class PluginShareCheckoutParams(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    remote_plugin_id: Annotated[str, Field(alias="remotePluginId")]
-
-
-class PluginShareCheckoutResponse(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    marketplace_name: Annotated[str, Field(alias="marketplaceName")]
-    marketplace_path: Annotated[AbsolutePathBuf, Field(alias="marketplacePath")]
-    plugin_id: Annotated[str, Field(alias="pluginId")]
-    plugin_name: Annotated[str, Field(alias="pluginName")]
-    plugin_path: Annotated[AbsolutePathBuf, Field(alias="pluginPath")]
-    remote_plugin_id: Annotated[str, Field(alias="remotePluginId")]
-    remote_version: Annotated[str | None, Field(alias="remoteVersion")] = None
-
-
-class PluginShareDeleteParams(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    remote_plugin_id: Annotated[str, Field(alias="remotePluginId")]
-
-
-class PluginShareDeleteResponse(BaseModel):
-    pass
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-
-
 class PluginShareDiscoverability(Enum):
     listed = "LISTED"
     unlisted = "UNLISTED"
     private = "PRIVATE"
-
-
-class PluginShareListParams(BaseModel):
-    pass
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
 
 
 class PluginSharePrincipalRole(Enum):
@@ -3447,26 +3406,6 @@ class PluginSharePrincipalType(Enum):
     user = "user"
     group = "group"
     workspace = "workspace"
-
-
-class PluginShareSaveResponse(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    can_publish_to_workspace: Annotated[bool | None, Field(alias="canPublishToWorkspace")] = None
-    remote_plugin_id: Annotated[str, Field(alias="remotePluginId")]
-    share_url: Annotated[str, Field(alias="shareUrl")]
-
-
-class PluginShareTargetRole(Enum):
-    reader = "reader"
-    editor = "editor"
-
-
-class PluginShareUpdateDiscoverability(Enum):
-    unlisted = "UNLISTED"
-    private = "PRIVATE"
-    listed = "LISTED"
 
 
 class PluginSkillReadParams(BaseModel):
@@ -7332,37 +7271,6 @@ class PluginSkillReadRequest(BaseModel):
     params: PluginSkillReadParams
 
 
-class PluginShareListRequest(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    id: RequestId
-    method: Annotated[Literal["plugin/share/list"], Field(title="Plugin/share/listRequestMethod")]
-    params: PluginShareListParams
-
-
-class PluginShareCheckoutRequest(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    id: RequestId
-    method: Annotated[
-        Literal["plugin/share/checkout"], Field(title="Plugin/share/checkoutRequestMethod")
-    ]
-    params: PluginShareCheckoutParams
-
-
-class PluginShareDeleteRequest(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    id: RequestId
-    method: Annotated[
-        Literal["plugin/share/delete"], Field(title="Plugin/share/deleteRequestMethod")
-    ]
-    params: PluginShareDeleteParams
-
-
 class AppReadRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -8975,32 +8883,6 @@ class PluginSharePrincipal(BaseModel):
     principal_id: Annotated[str, Field(alias="principalId")]
     principal_type: Annotated[PluginSharePrincipalType, Field(alias="principalType")]
     role: PluginSharePrincipalRole
-
-
-class PluginShareTarget(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    principal_id: Annotated[str, Field(alias="principalId")]
-    principal_type: Annotated[PluginSharePrincipalType, Field(alias="principalType")]
-    role: PluginShareTargetRole
-
-
-class PluginShareUpdateTargetsParams(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    discoverability: PluginShareUpdateDiscoverability
-    remote_plugin_id: Annotated[str, Field(alias="remotePluginId")]
-    share_targets: Annotated[list[PluginShareTarget], Field(alias="shareTargets")]
-
-
-class PluginShareUpdateTargetsResponse(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    discoverability: PluginShareDiscoverability
-    principals: list[PluginSharePrincipal]
 
 
 class ProcessOutputDeltaNotification(BaseModel):
@@ -10767,18 +10649,6 @@ class ThreadTurnsListRequest(BaseModel):
     params: ThreadTurnsListParams
 
 
-class PluginShareUpdateTargetsRequest(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    id: RequestId
-    method: Annotated[
-        Literal["plugin/share/updateTargets"],
-        Field(title="Plugin/share/updateTargetsRequestMethod"),
-    ]
-    params: PluginShareUpdateTargetsParams
-
-
 class TurnSteerRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -11186,16 +11056,6 @@ class PluginShareContext(BaseModel):
         list[PluginSharePrincipal] | None, Field(alias="sharePrincipals")
     ] = None
     share_url: Annotated[str | None, Field(alias="shareUrl")] = None
-
-
-class PluginShareSaveParams(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    discoverability: PluginShareDiscoverability | None = None
-    plugin_path: Annotated[AbsolutePathBuf, Field(alias="pluginPath")]
-    remote_plugin_id: Annotated[str | None, Field(alias="remotePluginId")] = None
-    share_targets: Annotated[list[PluginShareTarget] | None, Field(alias="shareTargets")] = None
 
 
 class PluginSummary(BaseModel):
@@ -11874,15 +11734,6 @@ class AdditionalFileSystemPermissions(BaseModel):
     ] = None
 
 
-class PluginShareSaveRequest(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    id: RequestId
-    method: Annotated[Literal["plugin/share/save"], Field(title="Plugin/share/saveRequestMethod")]
-    params: PluginShareSaveParams
-
-
 class ConfigBatchWriteRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -12136,21 +11987,6 @@ class PluginSearchResult(BaseModel):
     marketplace_name: Annotated[str, Field(alias="marketplaceName")]
     marketplace_path: Annotated[AbsolutePathBuf | None, Field(alias="marketplacePath")] = None
     plugin: PluginSummary
-
-
-class PluginShareListItem(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    local_plugin_path: Annotated[AbsolutePathBuf | None, Field(alias="localPluginPath")] = None
-    plugin: PluginSummary
-
-
-class PluginShareListResponse(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    data: list[PluginShareListItem]
 
 
 class RawResponseItemCompletedNotification(BaseModel):
@@ -12827,11 +12663,6 @@ class ClientRequest(
         | PluginReconcileRequest
         | PluginReadRequest
         | PluginSkillReadRequest
-        | PluginShareSaveRequest
-        | PluginShareUpdateTargetsRequest
-        | PluginShareListRequest
-        | PluginShareCheckoutRequest
-        | PluginShareDeleteRequest
         | AppReadRequest
         | AppListRequest
         | AppInstalledRequest
@@ -12938,11 +12769,6 @@ class ClientRequest(
         | PluginReconcileRequest
         | PluginReadRequest
         | PluginSkillReadRequest
-        | PluginShareSaveRequest
-        | PluginShareUpdateTargetsRequest
-        | PluginShareListRequest
-        | PluginShareCheckoutRequest
-        | PluginShareDeleteRequest
         | AppReadRequest
         | AppListRequest
         | AppInstalledRequest

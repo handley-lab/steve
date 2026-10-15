@@ -1244,126 +1244,6 @@
             },
             "method": {
               "enum": [
-                "plugin/share/save"
-              ],
-              "title": "Plugin/share/saveRequestMethod",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/definitions/v2/PluginShareSaveParams"
-            }
-          },
-          "required": [
-            "id",
-            "method",
-            "params"
-          ],
-          "title": "Plugin/share/saveRequest",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "$ref": "#/definitions/v2/RequestId"
-            },
-            "method": {
-              "enum": [
-                "plugin/share/updateTargets"
-              ],
-              "title": "Plugin/share/updateTargetsRequestMethod",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/definitions/v2/PluginShareUpdateTargetsParams"
-            }
-          },
-          "required": [
-            "id",
-            "method",
-            "params"
-          ],
-          "title": "Plugin/share/updateTargetsRequest",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "$ref": "#/definitions/v2/RequestId"
-            },
-            "method": {
-              "enum": [
-                "plugin/share/list"
-              ],
-              "title": "Plugin/share/listRequestMethod",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/definitions/v2/PluginShareListParams"
-            }
-          },
-          "required": [
-            "id",
-            "method",
-            "params"
-          ],
-          "title": "Plugin/share/listRequest",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "$ref": "#/definitions/v2/RequestId"
-            },
-            "method": {
-              "enum": [
-                "plugin/share/checkout"
-              ],
-              "title": "Plugin/share/checkoutRequestMethod",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/definitions/v2/PluginShareCheckoutParams"
-            }
-          },
-          "required": [
-            "id",
-            "method",
-            "params"
-          ],
-          "title": "Plugin/share/checkoutRequest",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "$ref": "#/definitions/v2/RequestId"
-            },
-            "method": {
-              "enum": [
-                "plugin/share/delete"
-              ],
-              "title": "Plugin/share/deleteRequestMethod",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/definitions/v2/PluginShareDeleteParams"
-            }
-          },
-          "required": [
-            "id",
-            "method",
-            "params"
-          ],
-          "title": "Plugin/share/deleteRequest",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "$ref": "#/definitions/v2/RequestId"
-            },
-            "method": {
-              "enum": [
                 "app/read"
               ],
               "title": "App/readRequestMethod",
@@ -3449,7 +3329,7 @@
               "$ref": "#/definitions/v2/AbsolutePathBuf"
             }
           ],
-          "description": "Absolute path to the server's $CODEX_HOME directory."
+          "description": "Absolute path to the server's $STEVE_HOME directory."
         },
         "platformFamily": {
           "description": "Platform family for the running app-server target, for example `\"unix\"` or `\"windows\"`.",
@@ -9834,7 +9714,7 @@
             "type": "object"
           },
           {
-            "description": "User config layer from $CODEX_HOME/config.toml. This layer is special in that it is expected to be: - writable by the user - generally outside the workspace directory",
+            "description": "User config layer from $STEVE_HOME/config.toml. This layer is special in that it is expected to be: - writable by the user - generally outside the workspace directory",
             "properties": {
               "file": {
                 "allOf": [
@@ -9867,7 +9747,7 @@
             "type": "object"
           },
           {
-            "description": "Path to a .codex/ folder within a project. There could be multiple of these between `cwd` and the project/repo root.",
+            "description": "Path to a .steve/ folder within a project. There could be multiple of these between `cwd` and the project/repo root.",
             "properties": {
               "dotCodexFolder": {
                 "$ref": "#/definitions/v2/AbsolutePathBuf"
@@ -16617,12 +16497,18 @@
             "type": "array"
           },
           "authPolicy": {
-            "$ref": "#/definitions/v2/PluginAuthPolicy"
+            "anyOf": [
+              {
+                "$ref": "#/definitions/v2/PluginAuthPolicy"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
-          "appsNeedingAuth",
-          "authPolicy"
+          "appsNeedingAuth"
         ],
         "title": "PluginInstallResponse",
         "type": "object"
@@ -17088,58 +16974,6 @@
         ],
         "type": "string"
       },
-      "PluginShareCheckoutParams": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "remotePluginId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "remotePluginId"
-        ],
-        "title": "PluginShareCheckoutParams",
-        "type": "object"
-      },
-      "PluginShareCheckoutResponse": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "marketplaceName": {
-            "type": "string"
-          },
-          "marketplacePath": {
-            "$ref": "#/definitions/v2/AbsolutePathBuf"
-          },
-          "pluginId": {
-            "type": "string"
-          },
-          "pluginName": {
-            "type": "string"
-          },
-          "pluginPath": {
-            "$ref": "#/definitions/v2/AbsolutePathBuf"
-          },
-          "remotePluginId": {
-            "type": "string"
-          },
-          "remoteVersion": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "marketplaceName",
-          "marketplacePath",
-          "pluginId",
-          "pluginName",
-          "pluginPath",
-          "remotePluginId"
-        ],
-        "title": "PluginShareCheckoutResponse",
-        "type": "object"
-      },
       "PluginShareContext": {
         "properties": {
           "canPublishToWorkspace": {
@@ -17203,24 +17037,6 @@
         ],
         "type": "object"
       },
-      "PluginShareDeleteParams": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "remotePluginId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "remotePluginId"
-        ],
-        "title": "PluginShareDeleteParams",
-        "type": "object"
-      },
-      "PluginShareDeleteResponse": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "PluginShareDeleteResponse",
-        "type": "object"
-      },
       "PluginShareDiscoverability": {
         "enum": [
           "LISTED",
@@ -17228,48 +17044,6 @@
           "PRIVATE"
         ],
         "type": "string"
-      },
-      "PluginShareListItem": {
-        "properties": {
-          "localPluginPath": {
-            "anyOf": [
-              {
-                "$ref": "#/definitions/v2/AbsolutePathBuf"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "plugin": {
-            "$ref": "#/definitions/v2/PluginSummary"
-          }
-        },
-        "required": [
-          "plugin"
-        ],
-        "type": "object"
-      },
-      "PluginShareListParams": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "PluginShareListParams",
-        "type": "object"
-      },
-      "PluginShareListResponse": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "data": {
-            "items": {
-              "$ref": "#/definitions/v2/PluginShareListItem"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "data"
-        ],
-        "title": "PluginShareListResponse",
-        "type": "object"
       },
       "PluginSharePrincipal": {
         "properties": {
@@ -17309,146 +17083,6 @@
           "workspace"
         ],
         "type": "string"
-      },
-      "PluginShareSaveParams": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "discoverability": {
-            "anyOf": [
-              {
-                "$ref": "#/definitions/v2/PluginShareDiscoverability"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "pluginPath": {
-            "$ref": "#/definitions/v2/AbsolutePathBuf"
-          },
-          "remotePluginId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "shareTargets": {
-            "items": {
-              "$ref": "#/definitions/v2/PluginShareTarget"
-            },
-            "type": [
-              "array",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "pluginPath"
-        ],
-        "title": "PluginShareSaveParams",
-        "type": "object"
-      },
-      "PluginShareSaveResponse": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "canPublishToWorkspace": {
-            "default": null,
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "remotePluginId": {
-            "type": "string"
-          },
-          "shareUrl": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "remotePluginId",
-          "shareUrl"
-        ],
-        "title": "PluginShareSaveResponse",
-        "type": "object"
-      },
-      "PluginShareTarget": {
-        "properties": {
-          "principalId": {
-            "type": "string"
-          },
-          "principalType": {
-            "$ref": "#/definitions/v2/PluginSharePrincipalType"
-          },
-          "role": {
-            "$ref": "#/definitions/v2/PluginShareTargetRole"
-          }
-        },
-        "required": [
-          "principalId",
-          "principalType",
-          "role"
-        ],
-        "type": "object"
-      },
-      "PluginShareTargetRole": {
-        "enum": [
-          "reader",
-          "editor"
-        ],
-        "type": "string"
-      },
-      "PluginShareUpdateDiscoverability": {
-        "enum": [
-          "UNLISTED",
-          "PRIVATE",
-          "LISTED"
-        ],
-        "type": "string"
-      },
-      "PluginShareUpdateTargetsParams": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "discoverability": {
-            "$ref": "#/definitions/v2/PluginShareUpdateDiscoverability"
-          },
-          "remotePluginId": {
-            "type": "string"
-          },
-          "shareTargets": {
-            "items": {
-              "$ref": "#/definitions/v2/PluginShareTarget"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "discoverability",
-          "remotePluginId",
-          "shareTargets"
-        ],
-        "title": "PluginShareUpdateTargetsParams",
-        "type": "object"
-      },
-      "PluginShareUpdateTargetsResponse": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "discoverability": {
-            "$ref": "#/definitions/v2/PluginShareDiscoverability"
-          },
-          "principals": {
-            "items": {
-              "$ref": "#/definitions/v2/PluginSharePrincipal"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "discoverability",
-          "principals"
-        ],
-        "title": "PluginShareUpdateTargetsResponse",
-        "type": "object"
       },
       "PluginSkillReadParams": {
         "$schema": "http://json-schema.org/draft-07/schema#",

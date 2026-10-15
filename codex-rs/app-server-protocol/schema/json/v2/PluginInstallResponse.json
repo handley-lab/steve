@@ -51,12 +51,18 @@
       "type": "array"
     },
     "authPolicy": {
-      "$ref": "#/definitions/PluginAuthPolicy"
+      "anyOf": [
+        {
+          "$ref": "#/definitions/PluginAuthPolicy"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
-    "appsNeedingAuth",
-    "authPolicy"
+    "appsNeedingAuth"
   ],
   "title": "PluginInstallResponse",
   "type": "object"
