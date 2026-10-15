@@ -259,15 +259,13 @@ This does not cover every update-discovery path or prove runtime behavior.
 Sources: `codex-rs/app-server-daemon/src/update_loop.rs`,
 `codex-rs/tui/src/update_action.rs` and `scripts/install/install.sh`.
 
-The macOS desktop command deliberately operates the external Codex desktop
-application. If absent, it downloads Codex.dmg or Codex-latest-x64.dmg from
-`persistent.oaistatic.com/codex-app-prod` through curl. The download call adds
-no conversation body or workspace argument. After signature verification,
-it opens `codex://threads/new?path=...`, passing the workspace path to that
-external local application. The desktop application's subsequent network
-behavior is outside this source audit. Avoid invoking this command when
-external desktop participation is unwanted; a Cambridge inference provider
-does not change this integration. Source: `codex-rs/cli/src/desktop_app/mac.rs`.
+The macOS desktop command opens an installed local desktop application.
+If none is installed and `--download-url` is unset, Steve reports that the
+desktop app is not installed and does not request `persistent.oaistatic.com`.
+An explicit download URL is fetched with curl. After signature verification,
+an installed or downloaded application is opened with
+`codex://threads/new?path=...`. Source: `codex-rs/cli/src/desktop_app/mac.rs`
+and `codex-rs/cli/src/desktop_installer_url.rs`.
 
 Doctor does not GET a desktop update manifest. It does not request an
 appcast or Windows store file from `persistent.oaistatic.com`, and it does

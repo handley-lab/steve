@@ -57,6 +57,8 @@ mod daemon_install;
 mod daemon_telemetry;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod desktop_app;
+#[cfg(any(target_os = "macos", test))]
+mod desktop_installer_url;
 mod doctor;
 #[cfg(test)]
 #[path = "exec_args_tests.rs"]
