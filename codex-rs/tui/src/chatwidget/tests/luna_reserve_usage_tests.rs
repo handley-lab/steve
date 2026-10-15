@@ -64,7 +64,6 @@ async fn luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_withou
             }
         }))
         .unwrap();
-        chat.update_backend_banner(&response);
         let rendered = normalize_snapshot_paths(render_bottom_popup(&chat, /*width*/ 90));
         assert!(
             !rendered.contains("saved draft"),
@@ -97,7 +96,6 @@ async fn luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_withou
         );
         assert_eq!(chat.composer_text_with_pending(), "saved draft");
         // A periodic usage reply must not reopen a selector the user just closed.
-        chat.update_backend_banner(&response);
         let rendered = normalize_snapshot_paths(render_bottom_popup(&chat, /*width*/ 90));
         assert!(!rendered.contains("You’re now using Luna"));
         assert!(rendered.contains("saved draft"));
@@ -160,7 +158,6 @@ async fn luna_reserve_usage_survives_banner_dismissal_and_typing_during_a_turn()
             ]
         })),
     };
-    chat.update_backend_banner(&response);
     for colors in [
         DefaultColors {
             fg: (230, 230, 230),

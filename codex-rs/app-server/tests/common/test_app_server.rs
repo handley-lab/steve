@@ -435,12 +435,6 @@ impl TestAppServer {
         self.send_request("getConversationSummary", params).await
     }
 
-    /// Send an `account/rateLimits/read` JSON-RPC request.
-    pub async fn send_get_account_rate_limits_request(&mut self) -> anyhow::Result<i64> {
-        self.send_request("account/rateLimits/read", /*params*/ None)
-            .await
-    }
-
     /// Send an `account/rateLimitResetCredit/consume` JSON-RPC request.
     pub async fn send_consume_account_rate_limit_reset_credit_request(
         &mut self,

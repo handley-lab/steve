@@ -2165,7 +2165,7 @@ fn assert_no_owner_nudge_or_rate_limit_refresh(
         assert!(
             !matches!(
                 event,
-                AppEvent::SendAddCreditsNudgeEmail { .. } | AppEvent::RefreshRateLimits { .. }
+                AppEvent::SendAddCreditsNudgeEmail { .. }
             ),
             "unexpected event: {event:?}"
         );

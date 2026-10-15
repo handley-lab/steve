@@ -1,4 +1,4 @@
-//! Backend banner payload and CTA mapping, supplied by the existing account usage read.
+//! Backend banner payload and CTA mapping.
 //!
 //! The backend owns eligibility, copy, actions, and ordered model fallback instructions.
 
@@ -10,10 +10,6 @@ mod render;
 
 pub(crate) const LUNA_RESERVE_BANNER: &str = "luna_reserve";
 pub(crate) const LUNA_RESERVE_RECOVERY_VIEW_ID: &str = "luna-reserve-recovery";
-
-#[cfg(test)]
-#[path = "backend_banners_tests.rs"]
-mod tests;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub(crate) struct BackendBanner {
@@ -49,29 +45,3 @@ pub(crate) struct BackendBannerCta {
     label: String,
 }
 
-impl BackendBanner {
-    /// Parse supported, bounded content before constructing rendered copy or CTA closures.
-    pub(crate) fn parse(raw: &serde_json::Value) -> Option<Self> {
-        serde_json::from_value::<Self>(raw.clone())
-            .ok()
-            .filter(|banner| {
-                let valid_slug = |slug: &str| {
-                    !slug.trim().is_empty()
-                        && slug.len() <= 256
-                        && !slug.chars().any(char::is_control)
-                };
-                banner.title.len() <= 1024
-                    && banner.description.len() <= 4096
-                    && banner.ctas.len() <= 8
-                    && !banner.title.trim().is_empty()
-                    && banner.title.lines().count() <= 3
-                    && banner.description.lines().count() <= 12
-                    && banner.blocked_model_slug.as_deref().is_none_or(valid_slug)
-                    && banner.fallback_model_slugs.len() <= 16
-                    && banner
-                        .fallback_model_slugs
-                        .iter()
-                        .all(|slug| valid_slug(slug))
-            })
-    }
-}

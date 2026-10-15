@@ -154,6 +154,12 @@ Steve does not GET `/wham/config/bundle` or `/api/codex/config/bundle`. Startup
 does not substitute `https://chatgpt.com/backend-api/` to fetch a cloud config
 bundle. Local configuration still loads.
 
+## Rate-limit usage
+
+Steve does not GET `/wham/usage` or `/api/codex/usage`. Longer usage paths,
+including thread usage, turn cost, and plan history, are separate requests.
+Reset-credit list and consume stay on `/wham/rate-limit-reset-credits`.
+
 ## Cloud-task submission
 
 Cloud-task initialization does not default to

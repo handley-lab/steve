@@ -9,7 +9,6 @@ use super::app_server_event_targets::server_request_thread_id;
 use super::app_server_requests::BufferedServerRequest;
 use crate::app_command::AppCommand;
 use crate::app_event::AppEvent;
-use crate::app_event::RateLimitRefreshOrigin;
 #[cfg(any(target_os = "windows", test))]
 use crate::app_event::WindowsSandboxEnableMode;
 use crate::app_info::app_info_from_api;
@@ -361,10 +360,6 @@ impl App {
                 }
                 self.chat_widget
                     .on_rolling_rate_limit_snapshot(notification.rate_limits.clone());
-                if workspace_hard_stop && self.chat_widget.has_chatgpt_account() {
-                    // Background inference may publish a hard stop without a foreground Error.
-                    self.refresh_rate_limits(app_server_client, RateLimitRefreshOrigin::Recovery);
-                }
                 return;
             }
             ServerNotification::AccountUpdated(notification) => {

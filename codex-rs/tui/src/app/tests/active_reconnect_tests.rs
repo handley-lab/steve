@@ -275,12 +275,6 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
         }
         let stale_picker_refresh = app.agent_navigation.begin_picker_refresh(id).unwrap();
         app.last_subagent_backfill_attempt = Some(id);
-        app.rate_limit_refresh_state
-            .start(
-                RateLimitRefreshOrigin::Recovery,
-                &mut app.rate_limit_hard_stop_generation,
-            )
-            .unwrap();
         let before_disconnect = Instant::now();
         app.recap.note_focus_lost(before_disconnect);
         for _ in 0..3 {
@@ -345,14 +339,6 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
         assert!(!app.reconnect.offline);
         assert!(!app.thread_unavailable(id));
         assert_eq!(app.last_subagent_backfill_attempt, None);
-        assert!(
-            app.rate_limit_refresh_state
-                .start(
-                    RateLimitRefreshOrigin::Recovery,
-                    &mut app.rate_limit_hard_stop_generation
-                )
-                .is_some()
-        );
         assert!(app.agent_navigation.begin_picker_refresh(id).is_some());
         assert!(
             app.agent_navigation

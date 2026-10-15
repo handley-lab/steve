@@ -1152,13 +1152,7 @@ See the Steve keymap documentation for supported actions and examples."
                 app.app_event_tx.clone(),
                 app.chat_widget.security_setup_request_id,
             );
-            let reset_hint_request_id = app.chat_widget.start_rate_limit_reset_startup_check();
-            app.refresh_rate_limits(
-                &app_server,
-                RateLimitRefreshOrigin::StartupPrefetch {
-                    reset_hint_request_id,
-                },
-            );
+            app.chat_widget.start_rate_limit_reset_startup_check();
         }
 
         let mut last_screen_size = tui.terminal.last_known_screen_size;
@@ -1280,10 +1274,6 @@ See the Steve keymap documentation for supported actions and examples."
                         Some((size, Instant::now() + Duration::from_secs(/*secs*/ 15)));
                 }
                 last_screen_size = size;
-                let rate_limit_poll_deadline = app
-                    .chat_widget
-                    .rate_limit_refresh_interval()
-                    .and_then(|interval| app.rate_limit_refresh_state.poll_deadline(interval));
                 let control = select! {
                     result = async {
                         match app.daemon_restart.as_mut() {
@@ -1427,17 +1417,6 @@ See the Steve keymap documentation for supported actions and examples."
                                 settled_size_tags = tags;
                             }
                         }
-                        AppRunControl::Continue
-                    }
-                    () = async {
-                        match rate_limit_poll_deadline {
-                            Some(deadline) => {
-                                tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await;
-                            }
-                            None => std::future::pending().await,
-                        }
-                    }, if listen_for_app_server_events => {
-                        app.refresh_rate_limits(&app_server, RateLimitRefreshOrigin::Periodic);
                         AppRunControl::Continue
                     }
                     () = async {

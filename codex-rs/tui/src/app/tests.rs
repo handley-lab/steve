@@ -21,8 +21,6 @@ mod agents_navigation_tests;
 mod approvals_reviewer_error_tests;
 #[path = "tests/backend_banner_fallback_tests.rs"]
 mod backend_banner_fallback_tests;
-#[path = "tests/backend_banner_recovery_tests.rs"]
-mod backend_banner_recovery_tests;
 #[path = "tests/backend_banner_startup_tests.rs"]
 mod backend_banner_startup_tests;
 #[path = "tests/background_exit_tests.rs"]

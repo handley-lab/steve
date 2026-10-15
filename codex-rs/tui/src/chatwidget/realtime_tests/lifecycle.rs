@@ -96,14 +96,10 @@ async fn stopping_while_the_offer_is_pending_resets_the_session() {
     chat.park_voice();
     callback.send(AppEvent::ResetTranscriptForThreadSwitch);
     assert!(events.try_recv().is_err());
-    callback.send(AppEvent::RefreshRateLimits {
-        origin: crate::app_event::RateLimitRefreshOrigin::Recovery,
-    });
+    callback.send(AppEvent::CommitPendingUsageOutput);
     assert!(matches!(
         events.try_recv(),
-        Ok(AppEvent::RefreshRateLimits {
-            origin: crate::app_event::RateLimitRefreshOrigin::Recovery
-        })
+        Ok(AppEvent::CommitPendingUsageOutput)
     ));
     sender.send(AppEvent::ResetTranscriptForThreadSwitch);
     assert!(events.try_recv().is_ok());

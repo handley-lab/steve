@@ -1,7 +1,5 @@
 use crate::ensure_layout;
 use crate::extensions::seed_extension_instructions;
-use crate::guard;
-use crate::metrics::MEMORY_STARTUP;
 use crate::phase1;
 use crate::phase2;
 use crate::runtime::MemoryStartupContext;
@@ -46,7 +44,6 @@ pub fn start_memories_startup_task(
         let mut pipeline_config = config.as_ref().clone();
         pipeline_config.memories.version = version;
         let config = Arc::new(pipeline_config);
-        let auth_manager = Arc::clone(&auth_manager);
         let parent_permission_profile = parent_permission_profile.clone();
         let context = Arc::new(MemoryStartupContext::new(
             Arc::clone(&thread_manager),
@@ -72,18 +69,7 @@ pub fn start_memories_startup_task(
                 warn!("failed seeding memory extension instructions: {err}");
             }
 
-            // Clean memories to make preserve DB size. This does not consume tokens so can be
-            // done before the quota check.
             phase1::prune(context.as_ref(), &config).await;
-
-            if !guard::rate_limits_ok(&auth_manager, &config).await {
-                context.counter(
-                    MEMORY_STARTUP,
-                    /*inc*/ 1,
-                    &[("status", "skipped_rate_limit")],
-                );
-                return;
-            }
 
             // Run phase 1.
             phase1::run(Arc::clone(&context), Arc::clone(&config)).await;

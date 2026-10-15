@@ -87,7 +87,6 @@ async fn security_setup_dismissal_survives_usage_banner_replacement() {
             rate_limits_by_limit_id: None,
             rate_limit_reset_credits: None,
         };
-        chat.update_backend_banner(&response);
         assert!(
             render_bottom_popup(&chat, /*width*/ 70).contains("Selected model usage exhausted")
         );
@@ -164,7 +163,6 @@ async fn security_setup_respects_applicable_backend_banner() {
             rate_limits_by_limit_id: None,
             rate_limit_reset_credits: None,
         };
-        chat.update_backend_banner(&response);
         render_bottom_popup(&chat, /*width*/ 70);
         match state {
             "dismissed" => {

@@ -2192,11 +2192,6 @@ mod tests {
             "params?: GetAccountTokenUsageParams | undefined, }"
         );
         assert!(client_request_ts.contains(LEGACY_ACCOUNT_USAGE_REQUEST));
-        const LEGACY_ACCOUNT_RATE_LIMITS_REQUEST: &str = concat!(
-            "{ \"method\": \"account/rateLimits/read\", id: RequestId, ",
-            "params?: GetAccountRateLimitsParams | undefined, }"
-        );
-        assert!(client_request_ts.contains(LEGACY_ACCOUNT_RATE_LIMITS_REQUEST));
         let account_usage_response_ts = std::str::from_utf8(
             fixture_tree
                 .get(Path::new("v2/GetAccountTokenUsageResponse.ts"))
@@ -2281,12 +2276,10 @@ mod tests {
                 });
 
             let contents = std::str::from_utf8(contents)?;
-            // Both stable usage RPCs originally required `params: undefined`. Preserve that
-            // source compatibility only for these exact envelopes, not arbitrary new fields.
+            // The stable token-usage RPC originally required `params: undefined`. Preserve that
+            // source compatibility only for this exact envelope, not arbitrary new fields.
             let checked_contents = if path == Path::new("ClientRequest.ts") {
-                contents
-                    .replace(LEGACY_ACCOUNT_USAGE_REQUEST, "")
-                    .replace(LEGACY_ACCOUNT_RATE_LIMITS_REQUEST, "")
+                contents.replace(LEGACY_ACCOUNT_USAGE_REQUEST, "")
             } else {
                 contents.to_owned()
             };
@@ -2973,7 +2966,6 @@ permissionProfile?: string | null};
             .collect();
         let missing_client_request_methods: Vec<String> = [
             "account/logout",
-            "account/rateLimits/read",
             "config/mcpServer/reload",
             "configRequirements/read",
             "fuzzyFileSearch",

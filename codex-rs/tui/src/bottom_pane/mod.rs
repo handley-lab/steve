@@ -2823,7 +2823,7 @@ mod tests {
             ("personal_limit", "view_usage", "View usage"),
             ("workspace_member_credits", "notify_owner", "Notify owner"),
         ] {
-            let banner = crate::backend_banners::BackendBanner::parse(&serde_json::json!({
+            let banner = serde_json::from_value::<crate::backend_banners::BackendBanner>(serde_json::json!({
                 "banner_type": kind,
                 "presentation": "dismissible",
                 "title": "Usage limit\u{7} reached",

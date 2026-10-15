@@ -6,45 +6,10 @@ use crate::types::RateLimitResetCreditDetails;
 use crate::types::RateLimitResetCreditsDetails;
 use crate::types::RateLimitResetCreditsSummary;
 use pretty_assertions::assert_eq;
-use wiremock::Mock;
-use wiremock::MockServer;
-use wiremock::ResponseTemplate;
-use wiremock::matchers::method;
-use wiremock::matchers::path;
 
-#[tokio::test]
-async fn ordinary_usage_permission_comes_from_backend_not_display_percent() {
-    for (allowed, used_percent) in [(Some(true), 100), (Some(false), 0), (None, 0)] {
-        let server = MockServer::start().await;
-        let rate_limit = allowed.map(|allowed| {
-            serde_json::json!({
-                "allowed": allowed, "limit_reached": !allowed,
-                "primary_window": {"used_percent": used_percent, "limit_window_seconds": 300,
-                    "reset_after_seconds": 60, "reset_at": 2000000000}
-            })
-        });
-        Mock::given(method("GET"))
-            .and(path("/api/codex/usage"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "plan_type": "plus", "rate_limit": rate_limit
-            })))
-            .expect(1)
-            .mount(&server)
-            .await;
-        let response = test_client(&server.uri(), PathStyle::CodexApi)
-            .get_rate_limits_with_reset_credits()
-            .await
-            .unwrap();
-        assert_eq!(response.ordinary_usage_allowed, allowed);
-    }
-}
 
 #[test]
 fn rate_limit_reset_contract_uses_expected_paths_and_payloads() {
-    assert_eq!(
-        test_client("https://example.test", PathStyle::CodexApi).rate_limit_status_url(),
-        "https://example.test/api/codex/usage"
-    );
     assert_eq!(
         test_client("https://example.test", PathStyle::CodexApi).rate_limit_reset_credits_url(),
         "https://example.test/api/codex/rate-limit-reset-credits"
@@ -53,11 +18,6 @@ fn rate_limit_reset_contract_uses_expected_paths_and_payloads() {
         test_client("https://example.test", PathStyle::CodexApi)
             .consume_rate_limit_reset_credit_url(),
         "https://example.test/api/codex/rate-limit-reset-credits/consume"
-    );
-    assert_eq!(
-        test_client("https://chatgpt.com/backend-api", PathStyle::ChatGptApi)
-            .rate_limit_status_url(),
-        "https://chatgpt.com/backend-api/wham/usage"
     );
     assert_eq!(
         test_client("https://chatgpt.com/backend-api", PathStyle::ChatGptApi)
@@ -90,15 +50,6 @@ fn rate_limit_reset_contract_uses_expected_paths_and_payloads() {
         })
     );
 
-    let status: RateLimitStatusWithResetCredits = serde_json::from_value(serde_json::json!({
-        "plan_type": "plus",
-        "rate_limit_reset_credits": { "available_count": 3 }
-    }))
-    .unwrap();
-    assert_eq!(
-        status.rate_limit_reset_credits,
-        Some(RateLimitResetCreditsSummary { available_count: 3 })
-    );
 
     let details: RateLimitResetCreditsDetails = serde_json::from_value(serde_json::json!({
         "credits": [

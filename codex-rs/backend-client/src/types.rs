@@ -1,19 +1,11 @@
 pub use codex_backend_openapi_models::models::ConfigBundleResponse;
-pub use codex_backend_openapi_models::models::CreditStatusDetails;
 pub use codex_backend_openapi_models::models::DeliveredConfigToml;
 pub use codex_backend_openapi_models::models::DeliveredManagedLayers;
 pub use codex_backend_openapi_models::models::DeliveredRequirementsToml;
 pub use codex_backend_openapi_models::models::DeliveredTomlFragment;
 pub use codex_backend_openapi_models::models::PaginatedListTaskListItem;
-pub use codex_backend_openapi_models::models::PlanType;
-pub use codex_backend_openapi_models::models::RateLimitReachedKind;
-pub use codex_backend_openapi_models::models::RateLimitStatusDetails;
-pub use codex_backend_openapi_models::models::RateLimitStatusPayload;
-pub use codex_backend_openapi_models::models::RateLimitWindowSnapshot;
-pub use codex_backend_openapi_models::models::SpendControlLimitDetails;
 pub use codex_backend_openapi_models::models::TaskListItem;
 
-use codex_protocol::protocol::RateLimitSnapshot;
 use serde::Deserialize;
 use serde::de::Deserializer;
 use serde_json::Value;
@@ -41,38 +33,6 @@ pub struct RateLimitResetCreditDetails {
     pub description: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct RateLimitsWithResetCredits {
-    pub rate_limits: Vec<RateLimitSnapshot>,
-    /// Backend decision for ordinary included usage; absence is not permission to recover.
-    pub ordinary_usage_allowed: Option<bool>,
-    pub rate_limit_reset_credits: Option<RateLimitResetCreditsSummary>,
-    pub account_id: Option<String>,
-    pub user_id: Option<String>,
-    pub rate_limit_upsell: Option<Value>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-pub(crate) struct RateLimitStatusWithResetCredits {
-    #[serde(flatten)]
-    pub rate_limits: RateLimitStatusPayload,
-    // Capture the new optional metadata alongside the generated quota fields until the
-    // backend OpenAPI export includes it. This field owns additional_rate_limits on the wire.
-    pub additional_rate_limits: Option<Vec<AdditionalRateLimitWithNormalModel>>,
-    pub rate_limit_reset_credits: Option<RateLimitResetCreditsSummary>,
-    pub account_id: Option<String>,
-    pub user_id: Option<String>,
-    // Preserve the backend-owned banner contract without making optional UI data break usage.
-    pub rate_limit_upsell: Option<Value>,
-}
-
-/// Additional quota details plus the normal model whose picker metadata should be used.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-pub(crate) struct AdditionalRateLimitWithNormalModel {
-    #[serde(flatten)]
-    pub details: codex_backend_openapi_models::models::AdditionalRateLimitDetails,
-    pub normal_model_slug: Option<String>,
-}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct CodexWorkspaceMessagesResponse {

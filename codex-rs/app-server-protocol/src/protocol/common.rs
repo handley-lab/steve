@@ -486,16 +486,6 @@ enum GetAccountTokenUsageParamsTypeScript {
     Undefined,
 }
 
-/// Preserve omitted/undefined params while exporting the new usage capability type.
-#[allow(dead_code)]
-#[derive(TS)]
-#[ts(untagged)]
-enum GetAccountRateLimitsParamsTypeScript {
-    Params(v2::GetAccountRateLimitsParams),
-    #[ts(type = "undefined")]
-    Undefined,
-}
-
 client_request_definitions! {
     Initialize => "initialize" {
         params: v1::InitializeParams,
@@ -1269,12 +1259,6 @@ client_request_definitions! {
         params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>,
         serialization: global("account-auth"),
         response: v2::LogoutAccountResponse,
-    },
-
-    GetAccountRateLimits => "account/rateLimits/read" {
-        params: #[ts(optional, as = "Option<GetAccountRateLimitsParamsTypeScript>", inline)] #[serde(default, skip_serializing_if = "Option::is_none")] v2::NullableGetAccountRateLimitsParams,
-        serialization: None,
-        response: v2::GetAccountRateLimitsResponse,
     },
 
     ConsumeAccountRateLimitResetCredit => "account/rateLimitResetCredit/consume" {
@@ -3013,23 +2997,6 @@ mod tests {
         let payload = ServerRequestPayload::McpServerElicitationRequest(params);
         assert_eq!(request.id(), &RequestId::Integer(9));
         assert_eq!(payload.request_with_id(RequestId::Integer(9)), request);
-        Ok(())
-    }
-
-    #[test]
-    fn serialize_get_account_rate_limits() -> Result<()> {
-        let request = ClientRequest::GetAccountRateLimits {
-            request_id: RequestId::Integer(1),
-            params: None,
-        };
-        assert_eq!(request.id(), &RequestId::Integer(1));
-        assert_eq!(
-            json!({
-                "method": "account/rateLimits/read",
-                "id": 1,
-            }),
-            serde_json::to_value(&request)?,
-        );
         Ok(())
     }
 

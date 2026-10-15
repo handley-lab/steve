@@ -46,183 +46,7 @@ pub(super) async fn start_fallback_thread(
     Ok((server, requests, proxy))
 }
 
-#[tokio::test]
-async fn backend_banner_fallback_updates_task_settings_and_keeps_notice() -> Result<()> {
-    for mode_kind in [ModeKind::Default, ModeKind::Plan] {
-        let (mut app, mut events, mut ops) = make_test_app_with_channels().await;
-        let (mut server, requests, proxy) = start_fallback_thread(&mut app).await?;
-        let thread_id = app.active_thread_id.expect("active fallback thread");
-        app.chat_widget
-            .set_reasoning_effort(Some(ReasoningEffortConfig::Medium));
-        if mode_kind == ModeKind::Plan {
-            app.chat_widget
-                .handle_key_event(KeyEvent::from(KeyCode::BackTab));
-            app.chat_widget
-                .set_plan_mode_reasoning_effort(Some(ReasoningEffortConfig::High));
-        }
-        app.chat_widget
-            .set_feature_enabled(Feature::FastMode, /*enabled*/ true);
-        app.chat_widget
-            .set_service_tier(Some(ServiceTier::Fast.request_value().to_string()));
-        let mut expected_mode = app.chat_widget.effective_collaboration_mode();
-        assert_eq!(expected_mode.mode, mode_kind);
-        expected_mode.settings.model = "gpt-5.6-terra".into();
-        expected_mode.settings.reasoning_effort = Some(ReasoningEffortConfig::Medium);
-        let default_model = app.config.model.clone();
-        let default_plan_effort = app.config.plan_mode_reasoning_effort.clone();
-        let config_path = app.config.codex_home.join("config.toml");
-        let saved_config = std::fs::read(&config_path).ok();
-        while events.try_recv().is_ok() {}
-        while ops.try_recv().is_ok() {}
-        requests.lock().unwrap().clear();
-        let response = fallback_response();
-        let generation = app.rate_limit_hard_stop_generation;
-        let mut tui = crate::tui::test_support::make_test_tui()?;
-        app.handle_event(
-            &mut tui,
-            &mut server,
-            AppEvent::RateLimitsLoaded {
-                request_id: 1,
-                origin: RateLimitRefreshOrigin::StatusCommand { request_id: 0 },
-                hard_stop_generation: generation,
-                result: Ok(response.clone()),
-            },
-        )
-        .await?;
 
-        let actual_mode = app.chat_widget.effective_collaboration_mode();
-        assert_eq!(actual_mode, expected_mode);
-        assert_eq!(app.chat_widget.current_service_tier(), None);
-        let sent = requests.lock().unwrap().clone();
-        let methods: Vec<_> = sent.iter().map(|request| request.method.as_str()).collect();
-        assert_eq!(methods, ["thread/settings/update"]);
-        assert_eq!(
-            serde_json::from_value::<ThreadSettingsUpdateParams>(sent[0].params.clone().unwrap())?,
-            ThreadSettingsUpdateParams {
-                thread_id: thread_id.to_string(),
-                model: Some("gpt-5.6-terra".into()),
-                effort: Some(ReasoningEffortConfig::Medium),
-                collaboration_mode: Some(expected_mode.clone()),
-                service_tier: Some(Some("default".into())),
-                ..Default::default()
-            }
-        );
-        let rendered = render_bottom_popup(&app.chat_widget, /*width*/ 72);
-        assert!(rendered.contains("Selected model usage exhausted"));
-        if mode_kind == ModeKind::Default {
-            insta::assert_snapshot!(
-                "backend_banner_after_fallback",
-                normalize_snapshot_paths(rendered)
-            );
-        }
-        app.chat_widget
-            .handle_key_event(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
-        let queued = std::iter::from_fn(|| events.try_recv().ok()).collect::<Vec<_>>();
-        assert!(queued.iter().any(|event| matches!(event, AppEvent::OpenUrlInBrowser { url } if url == "https://chatgpt.com/settings/usage")));
-        let notices = queued
-            .iter()
-            .filter_map(|event| match event {
-                AppEvent::InsertHistoryCell(cell) => {
-                    Some(lines_to_single_string(&cell.display_lines(/*width*/ 80)))
-                }
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(notices.len(), 1);
-        insta::assert_snapshot!("backend_banner_fallback_notice", notices[0]);
-        assert!(!queued.iter().any(|event| matches!(
-            event,
-            AppEvent::PersistModelSelection { .. } | AppEvent::CodexOp(_)
-        )));
-        assert!(ops.try_recv().is_err(), "switch must not replay a turn");
-        app.chat_widget
-            .handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        app.chat_widget.update_backend_banner(&response);
-        app.apply_backend_banner_fallback(&mut server).await;
-        assert!(
-            !render_bottom_popup(&app.chat_widget, /*width*/ 72)
-                .contains("Selected model usage exhausted")
-        );
-        let mut healthy = response;
-        healthy.rate_limit_upsell = None;
-        app.chat_widget.update_backend_banner(&healthy);
-        app.apply_backend_banner_fallback(&mut server).await;
-        assert_eq!(app.chat_widget.current_model(), "gpt-5.6-terra");
-        assert_eq!(requests.lock().unwrap().len(), 1);
-        assert!(
-            !std::iter::from_fn(|| events.try_recv().ok())
-                .any(|event| matches!(event, AppEvent::InsertHistoryCell(_)))
-        );
-        assert_eq!(app.config.model, default_model);
-        assert_eq!(app.config.plan_mode_reasoning_effort, default_plan_effort);
-        assert_eq!(std::fs::read(&config_path).ok(), saved_config);
-        if mode_kind == ModeKind::Plan {
-            let chat = &mut app.chat_widget;
-            chat.handle_key_event(KeyEvent::from(KeyCode::BackTab));
-            assert_eq!(chat.active_collaboration_mode_kind(), ModeKind::Default);
-            chat.handle_key_event(KeyEvent::from(KeyCode::BackTab));
-        }
-        app.chat_widget
-            .restore_user_message_to_composer(UserMessage::from("continue"));
-        app.chat_widget
-            .handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert_matches!(next_user_turn_op(&mut ops), AppCommand::UserTurn { model, collaboration_mode: Some(mode), .. }
-            if model == "gpt-5.6-terra" && mode == expected_mode);
-        server.shutdown().await?;
-        proxy.await??;
-    }
-    Ok(())
-}
-
-#[tokio::test]
-async fn backend_banner_fallback_uses_current_task_and_accepted_generation() -> Result<()> {
-    let (mut app, _events, _ops) = make_test_app_with_channels().await;
-    let (mut server, requests, proxy) = start_fallback_thread(&mut app).await?;
-    let read_generation = app.rate_limit_hard_stop_generation;
-    let second = server.start_thread(&app.config).await?;
-    let active_id = second.session.thread_id;
-    let mut tui = crate::tui::test_support::make_test_tui()?;
-    let init = app.chatwidget_init_for_forked_or_resumed_thread(
-        &mut tui,
-        app.config.clone(),
-        /*initial_user_message*/ None,
-    );
-    app.replace_chat_widget(ChatWidget::new_with_app_event(init));
-    app.store_active_thread_receiver().await;
-    app.active_thread_id = None;
-    app.enqueue_primary_thread_session(second.session, second.turns)
-        .await?;
-    configure_fallback_model(&mut app);
-    requests.lock().unwrap().clear();
-    app.rate_limit_hard_stop_generation = read_generation.wrapping_add(1);
-    for generation in [read_generation, app.rate_limit_hard_stop_generation] {
-        app.handle_event(
-            &mut tui,
-            &mut server,
-            AppEvent::RateLimitsLoaded {
-                request_id: 1,
-                origin: RateLimitRefreshOrigin::StatusCommand { request_id: 0 },
-                hard_stop_generation: generation,
-                result: Ok(fallback_response()),
-            },
-        )
-        .await?;
-        if generation == read_generation {
-            assert_eq!(app.chat_widget.current_model(), "gpt-5.5");
-            assert!(requests.lock().unwrap().is_empty());
-        }
-    }
-    let sent = requests.lock().unwrap().clone();
-    assert_eq!(sent.len(), 1);
-    assert_eq!(
-        sent[0].params.as_ref().unwrap()["threadId"],
-        active_id.to_string()
-    );
-    assert_eq!(app.chat_widget.current_model(), "gpt-5.6-terra");
-    server.shutdown().await?;
-    proxy.await??;
-    Ok(())
-}
 
 #[tokio::test]
 async fn backend_banner_fallback_keeps_existing_recovery_without_candidate() -> Result<()> {
@@ -236,7 +60,6 @@ async fn backend_banner_fallback_keeps_existing_recovery_without_candidate() -> 
     ] {
         let mut response = fallback_response();
         response.rate_limit_upsell.as_mut().unwrap()["fallback_model_slugs"] = replacement;
-        app.chat_widget.update_backend_banner(&response);
         app.apply_backend_banner_fallback(&mut server).await;
         assert_eq!(app.chat_widget.current_model(), "gpt-5.5");
         let rendered = render_bottom_popup(&app.chat_widget, /*width*/ 72);
@@ -249,7 +72,6 @@ async fn backend_banner_fallback_keeps_existing_recovery_without_candidate() -> 
         }
     }
     app.chat_widget.set_model("gpt-5.6-terra");
-    app.chat_widget.update_backend_banner(&fallback_response());
     app.apply_backend_banner_fallback(&mut server).await;
     assert_eq!(app.chat_widget.current_model(), "gpt-5.6-terra");
     assert!(
@@ -350,7 +172,6 @@ async fn backend_banner_fallback_handles_settings_failure_and_queued_manual_sele
         } else {
             fallback_response()
         };
-        app.chat_widget.update_backend_banner(&response);
         app.apply_backend_banner_fallback(&mut server).await;
         let queued = std::iter::from_fn(|| events.try_recv().ok()).collect::<Vec<_>>();
         let switch_notices = queued
@@ -476,7 +297,6 @@ async fn backend_banner_fallback_preserves_permissions_for_first_eligible_cyber_
         cyber_model.model,
         "gpt-5.6-terra"
     ]);
-    app.chat_widget.update_backend_banner(&response);
     app.apply_backend_banner_fallback(&mut server).await;
     assert_eq!(app.chat_widget.current_model(), cyber_model.model);
     let settings = next_thread_settings_updated(&mut server, thread_id)

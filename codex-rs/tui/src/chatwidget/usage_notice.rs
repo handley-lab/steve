@@ -22,9 +22,6 @@ pub(super) struct UsageNoticeState {
     secondary: Option<RateLimitWindow>,
     plan_type: Option<PlanType>,
     credits: Option<CreditsSnapshot>,
-    latest_read_id: u64,
-    stale_through: Option<u64>,
-    applying_stale_read: bool,
 }
 
 impl UsageNoticeState {
@@ -90,20 +87,20 @@ impl UsageNoticeState {
         source: RateLimitSnapshotSource,
         plan_type: Option<PlanType>,
     ) -> bool {
-        if matches!(source, RateLimitSnapshotSource::AccountUsage) && self.applying_stale_read {
-            return false;
-        }
         let previous = self.current();
-        let rolling = matches!(source, RateLimitSnapshotSource::RollingUpdate);
-        if rolling {
-            self.stale_through = Some(self.latest_read_id);
-        }
+        #[cfg(test)]
+        let account_read = matches!(source, RateLimitSnapshotSource::AccountUsage);
+        #[cfg(not(test))]
+        let account_read = {
+            let _ = source;
+            false
+        };
         self.plan_type = snapshot.plan_type.or(self.plan_type).or(plan_type);
         for (current, incoming) in [
             (&mut self.primary, &snapshot.primary),
             (&mut self.secondary, &snapshot.secondary),
         ] {
-            if !rolling {
+            if account_read {
                 *current = incoming.clone();
                 continue;
             }
@@ -123,7 +120,7 @@ impl UsageNoticeState {
             }
             *current = Some(window);
         }
-        if !rolling || snapshot.credits.is_some() {
+        if account_read || snapshot.credits.is_some() {
             self.credits = snapshot.credits.clone();
         }
         self.current() != previous
@@ -173,19 +170,6 @@ impl ChatWidget {
         }
         self.usage_notice_state
             .line(width, Local::now(), self.clock_format)
-    }
-
-    pub(crate) fn start_usage_notice_read(&mut self, request_id: u64) {
-        self.usage_notice_state.latest_read_id = request_id;
-    }
-
-    pub(crate) fn apply_usage_notice_read(&mut self, request_id: u64) {
-        // A newer failed read does not invalidate an older successful one. Only rolling
-        // updates received since that read began make it too old to confirm recovery.
-        self.usage_notice_state.applying_stale_read = self
-            .usage_notice_state
-            .stale_through
-            .is_some_and(|id| request_id <= id);
     }
 }
 

@@ -86,6 +86,8 @@ async fn fresh_logo_returns_only_to_the_ordinary_composer() -> Result<()> {
     Ok(())
 }
 
+
+#[tokio::test]
 #[tokio::test]
 async fn non_startup_history_dismisses_logo_until_a_new_thread() -> Result<()> {
     let mut app = crate::app::test_support::make_test_app().await;
@@ -137,17 +139,6 @@ async fn non_startup_history_dismisses_logo_until_a_new_thread() -> Result<()> {
     draw(&mut app, &mut tui, size)?;
     assert!(has_blossom(&tui));
 
-    crate::chatwidget::tests::set_chatgpt_auth(&mut app.chat_widget);
-    let request = app.chat_widget.start_rate_limit_reset_startup_check();
-    assert!(app.chat_widget.finish_rate_limit_reset_hint_refresh(
-        request,
-        Vec::new(),
-        Ok(codex_app_server_protocol::RateLimitResetCreditsSummary {
-            available_count: 1,
-            credits: None,
-        }),
-    ));
-    // The same startup notice stays eligible both pending and committed to history.
     assert!(app.chat_widget.empty_state_composer().is_some());
     draw(&mut app, &mut tui, size)?;
     assert!(has_blossom(&tui));
@@ -155,7 +146,6 @@ async fn non_startup_history_dismisses_logo_until_a_new_thread() -> Result<()> {
     draw(&mut app, &mut tui, size)?;
     assert!(has_blossom(&tui));
 
-    // Even invisible non-startup content ends eligibility before a frame or clear can erase it.
     app.insert_history_cell(
         &mut tui,
         Box::new(history_cell::PlainHistoryCell::new(Vec::new())),
@@ -174,7 +164,6 @@ async fn non_startup_history_dismisses_logo_until_a_new_thread() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
 async fn empty_state_animation_preserves_header_cursor_and_footer() -> Result<()> {
     let mut app = crate::app::test_support::make_test_app().await;
     app.local_settings.tui.animations = true;

@@ -296,45 +296,6 @@ impl ChatWidget {
         });
     }
 
-    pub(crate) fn finish_status_rate_limit_refresh(
-        &mut self,
-        request_id: u64,
-        snapshots: Vec<RateLimitSnapshot>,
-    ) {
-        if !self
-            .refreshing_status_outputs
-            .iter()
-            .any(|(pending_request_id, _)| *pending_request_id == request_id)
-        {
-            return;
-        }
-
-        for snapshot in snapshots {
-            self.on_rate_limit_snapshot(Some(snapshot));
-        }
-
-        let rate_limit_snapshots: Vec<RateLimitSnapshotDisplay> = self
-            .rate_limit_snapshots_by_limit_id
-            .values()
-            .cloned()
-            .collect();
-        let now = Local::now();
-        let mut remaining = Vec::with_capacity(self.refreshing_status_outputs.len());
-        let mut updated_any = false;
-        for (pending_request_id, handle) in self.refreshing_status_outputs.drain(..) {
-            if pending_request_id == request_id {
-                updated_any = true;
-                handle.finish_rate_limit_refresh(rate_limit_snapshots.as_slice(), now);
-            } else {
-                remaining.push((pending_request_id, handle));
-            }
-        }
-        self.refreshing_status_outputs = remaining;
-        if updated_any {
-            self.request_redraw();
-        }
-    }
-
     pub(super) fn open_status_line_setup(&mut self) {
         let configured_status_line_items = self.configured_status_line_items();
         let view = StatusLineSetupView::new(

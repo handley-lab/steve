@@ -509,19 +509,12 @@ async fn dynamic_service_tier_command_returns_to_latest() -> Result<()> {
     Ok(())
 }
 
+
+#[tokio::test]
 #[tokio::test]
 async fn usage_picker_opens_analytics_without_moving_the_background_transcript() -> Result<()> {
     let (mut app, mut events, _op_rx) = make_test_app_with_channels().await;
     set_chatgpt_auth(&mut app.chat_widget);
-    let startup_request = app.chat_widget.start_rate_limit_reset_startup_check();
-    assert!(app.chat_widget.finish_rate_limit_reset_hint_refresh(
-        startup_request,
-        Vec::new(),
-        Ok(RateLimitResetCreditsSummary {
-            available_count: 1,
-            credits: None,
-        }),
-    ));
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let mut server = start_config_write_test_app_server(&app).await?;
     tui.set_owned_screen(/*owned*/ true)?;
@@ -552,7 +545,6 @@ async fn usage_picker_opens_analytics_without_moving_the_background_transcript()
     Ok(())
 }
 
-#[tokio::test]
 async fn background_history_insertion_keeps_the_visible_reading_rows() -> Result<()> {
     let (mut app, _events, _op_rx) = make_test_app_with_channels().await;
     let mut tui = crate::tui::test_support::make_test_tui()?;

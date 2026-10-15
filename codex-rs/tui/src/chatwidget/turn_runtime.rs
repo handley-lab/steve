@@ -486,11 +486,6 @@ impl ChatWidget {
         {
             self.open_workspace_owner_nudge_prompt(credit_type);
         }
-        if self.has_chatgpt_account {
-            self.app_event_tx.send(AppEvent::RefreshRateLimits {
-                origin: crate::app_event::RateLimitRefreshOrigin::Recovery,
-            });
-        }
     }
 
     pub(super) fn handle_non_retry_error(

@@ -7,7 +7,6 @@ use crate::auth_mode::auth_mode_to_api;
 use crate::external_auth::ExternalAuthBridge;
 use crate::outgoing_message::AccountNotification;
 use chrono::DateTime;
-use codex_app_server_protocol::GetAccountRateLimitsParams;
 use codex_login::login_with_bedrock_access_keys;
 use codex_mcp::ema_auth_scope;
 use codex_model_provider::is_supported_amazon_bedrock_region;
@@ -142,14 +141,6 @@ impl AccountRequestProcessor {
             .map(|response| Some(response.into()))
     }
 
-    pub(crate) async fn get_account_rate_limits(
-        &self,
-        params: Option<GetAccountRateLimitsParams>,
-    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        self.get_account_rate_limits_response(params.unwrap_or_default())
-            .await
-            .map(|response| Some(response.into()))
-    }
 
     pub(crate) async fn get_account_token_usage(
         &self,
@@ -891,114 +882,6 @@ impl AccountRequestProcessor {
         Ok(response)
     }
 
-    async fn get_account_rate_limits_response(
-        &self,
-        params: GetAccountRateLimitsParams,
-    ) -> Result<GetAccountRateLimitsResponse, JSONRPCErrorError> {
-        let Some((auth, http_client_factory)) =
-            self.auth_manager.auth_with_http_client_factory().await
-        else {
-            return Err(invalid_request(
-                "codex account authentication required to read rate limits",
-            ));
-        };
-
-        if !auth.uses_codex_backend() {
-            return Err(invalid_request(
-                "chatgpt authentication required to read rate limits",
-            ));
-        }
-
-        let client = BackendClient::from_auth(
-            self.config.chatgpt_base_url.clone(),
-            &auth,
-            http_client_factory,
-        );
-
-        let usage_request = async {
-            if params.supports_luna_reserve
-                && auth.auth_mode() == codex_protocol::auth::AuthMode::Chatgpt
-                && !auth.is_fedramp_account()
-            {
-                client.get_rate_limits_with_luna_reserve().await
-            } else {
-                client.get_rate_limits_with_reset_credits().await
-            }
-        };
-        let (response, detailed_rate_limit_reset_credits) = tokio::join!(usage_request, async {
-            if params.exclude_reset_credit_details {
-                None
-            } else {
-                Self::detailed_rate_limit_reset_credits(&client).await
-            }
-        },);
-        let response = response
-            .map_err(|err| internal_error(format!("failed to fetch codex rate limits: {err}")))?;
-        if response.rate_limits.is_empty() {
-            return Err(internal_error(
-                "failed to fetch codex rate limits: no snapshots returned",
-            ));
-        }
-
-        let rate_limits_by_limit_id: HashMap<_, _> = response
-            .rate_limits
-            .iter()
-            .cloned()
-            .map(|snapshot| {
-                let limit_id = snapshot
-                    .limit_id
-                    .clone()
-                    .unwrap_or_else(|| "codex".to_string());
-                (limit_id, snapshot)
-            })
-            .collect();
-        let rate_limits = response
-            .rate_limits
-            .iter()
-            .find(|snapshot| snapshot.limit_id.as_deref() == Some("codex"))
-            .cloned()
-            .unwrap_or_else(|| response.rate_limits[0].clone());
-
-        let rate_limit_reset_credits = detailed_rate_limit_reset_credits.or_else(|| {
-            response
-                .rate_limit_reset_credits
-                .map(|summary| RateLimitResetCreditsSummary {
-                    available_count: summary.available_count,
-                    credits: None,
-                })
-        });
-
-        // Match desktop's account readiness check before exposing account-bound CTA content.
-        // Normal rate limits remain available when older backends omit identity or banner data.
-        // Login can change while the backend read is in flight.
-        let active_auth = self.auth_manager.auth().await;
-        let matches_active_account = active_auth.is_some_and(|auth| {
-            !auth.is_fedramp_account()
-                && response.account_id.is_some()
-                && response.account_id == auth.get_account_id()
-                && response.user_id.is_some()
-                && response.user_id == auth.get_chatgpt_user_id()
-        });
-        let rate_limit_upsell = response
-            .rate_limit_upsell
-            .filter(|_| matches_active_account);
-
-        Ok(GetAccountRateLimitsResponse {
-            ordinary_usage_allowed: response
-                .ordinary_usage_allowed
-                .filter(|_| matches_active_account),
-            rate_limits: rate_limits.into(),
-            rate_limits_by_limit_id: Some(
-                rate_limits_by_limit_id
-                    .into_iter()
-                    .map(|(limit_id, snapshot)| (limit_id, snapshot.into()))
-                    .collect(),
-            ),
-            rate_limit_reset_credits,
-            account_id: response.account_id,
-            rate_limit_upsell,
-        })
-    }
 
     async fn get_account_token_usage_response(
         &self,

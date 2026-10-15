@@ -1965,7 +1965,6 @@ async fn slash_copy_status_yields_to_later_turns_and_commands_even_after_refresh
             NextTurn::ServiceTier => chat.handle_service_tier_command_dispatch(fast_tier_command()),
             NextTurn::ShellCommand => chat.submit_user_message(UserMessage::from("!echo hello")),
         }
-        chat.finish_status_rate_limit_refresh(/*request_id*/ 0, Vec::new());
         drain_insert_history(&mut rx);
         chat.dispatch_command(SlashCommand::Copy);
         chat.handle_key_event(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));

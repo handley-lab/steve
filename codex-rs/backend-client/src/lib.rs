@@ -41,7 +41,6 @@ pub use types::PaginatedListTaskListItem;
 pub use types::RateLimitResetCreditDetails;
 pub use types::RateLimitResetCreditsDetails;
 pub use types::RateLimitResetCreditsSummary;
-pub use types::RateLimitsWithResetCredits;
 pub use types::TaskListItem;
 pub use types::TokenUsageProfile;
 pub use types::TokenUsageProfileDailyBucket;

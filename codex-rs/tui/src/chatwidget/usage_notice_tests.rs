@@ -1,8 +1,6 @@
 //! Quota selection, sparse updates, read ordering, and compact notice formatting.
 
 use super::*;
-use crate::app_event::AppEvent;
-use crate::app_event::RateLimitRefreshOrigin;
 use crate::chatwidget::tests::make_chatwidget_manual_with_sender;
 use crate::tui::FrameRequester;
 use chrono::TimeZone;
@@ -314,105 +312,12 @@ async fn notice_redraws_when_only_limit_blockers_change() {
 }
 
 #[tokio::test]
-async fn overlapping_reads_keep_older_success_when_newer_read_fails() -> color_eyre::Result<()> {
-    let mut app = crate::app::test_support::make_test_app().await;
-    let mut session = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
-    let mut tui = crate::tui::test_support::make_test_tui()?;
-    let low = snapshot(/*used_percent*/ 92);
-    let healthy = snapshot(/*used_percent*/ 10);
-    for (first_id, rolling, update, expected) in [
-        (
-            1,
-            None,
-            low.clone(),
-            Some((low.primary.clone().unwrap(), false)),
-        ),
-        (
-            3,
-            Some(low.clone()),
-            healthy.clone(),
-            Some((low.primary.clone().unwrap(), false)),
-        ),
-        (5, None, healthy, None),
-    ] {
-        for request_id in first_id..=first_id + 1 {
-            app.chat_widget
-                .add_status_output(/*refreshing_rate_limits*/ true, Some(request_id));
-            app.refresh_rate_limits(
-                &session,
-                RateLimitRefreshOrigin::StatusCommand { request_id },
-            );
-        }
-        if let Some(rolling) = rolling {
-            app.chat_widget.on_rolling_rate_limit_snapshot(rolling);
-        }
-        let before = app.chat_widget.usage_notice_state.current();
-        for (request_id, result, expected) in [
-            (first_id + 1, Err("transient failure".into()), before),
-            (first_id, Ok(update), expected),
-        ] {
-            app.handle_event(
-                &mut tui,
-                &mut session,
-                AppEvent::RateLimitsLoaded {
-                    request_id,
-                    origin: RateLimitRefreshOrigin::StatusCommand { request_id },
-                    hard_stop_generation: 0,
-                    result: result.map(|update| {
-                        serde_json::from_value(serde_json::json!({"rateLimits": update})).unwrap()
-                    }),
-                },
-            )
-            .await?;
-            assert_eq!(app.chat_widget.usage_notice_state.current(), expected);
-        }
-    }
-    session.shutdown().await?;
-    Ok(())
-}
-
-#[tokio::test]
-async fn rolling_updates_invalidate_only_reads_already_started() {
-    let (mut chat, _, _, _) = make_chatwidget_manual_with_sender().await;
-    let mut low = snapshot(/*used_percent*/ 50);
-    low.plan_type = Some(PlanType::Plus);
-    let healthy = snapshot(/*used_percent*/ 10);
-    chat.start_usage_notice_read(/*request_id*/ 1);
-    chat.on_rolling_rate_limit_snapshot(low.clone());
-    chat.start_usage_notice_read(/*request_id*/ 2);
-    chat.start_usage_notice_read(/*request_id*/ 3);
-    // Read 3 fails; read 1 is stale, but read 2 began after the rolling update.
-    chat.apply_usage_notice_read(/*request_id*/ 1);
-    let mut stale = healthy.clone();
-    stale.plan_type = Some(PlanType::Pro);
-    // A legacy response can include the same quota both at the top level and in its map.
-    for _ in 0..2 {
-        chat.on_rate_limit_snapshot(Some(stale.clone()));
-        assert_eq!(
-            chat.usage_notice_state.current(),
-            Some((low.primary.clone().unwrap(), false))
-        );
-    }
-    chat.apply_usage_notice_read(/*request_id*/ 2);
-    chat.on_rate_limit_snapshot(Some(healthy));
-    assert_eq!(chat.usage_notice_state.current(), None);
-}
-
-#[tokio::test]
 async fn notice_follows_threads_and_clears_on_account_change() {
     let (mut previous, _, _, _) = make_chatwidget_manual_with_sender().await;
     let low = snapshot(/*used_percent*/ 92);
     previous.on_rate_limit_snapshot(Some(low.clone()));
-    previous.start_usage_notice_read(/*request_id*/ 1);
-    previous.on_rolling_rate_limit_snapshot(low.clone());
     let (mut chat, _, _, _) = make_chatwidget_manual_with_sender().await;
     chat.inherit_backend_banner_state(&mut previous);
-    chat.apply_usage_notice_read(/*request_id*/ 1);
-    chat.on_rate_limit_snapshot(Some(snapshot(/*used_percent*/ 10)));
-    let mut other = snapshot(/*used_percent*/ 99);
-    other.limit_id = Some("codex_other".into());
-    chat.on_rolling_rate_limit_snapshot(other);
-    chat.on_rate_limit_snapshot(/*snapshot*/ None);
     assert_eq!(
         chat.usage_notice_state.current(),
         Some((low.primary.unwrap(), false))
