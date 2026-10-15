@@ -30,7 +30,6 @@ use codex_app_server_protocol::CommandExecWriteParams;
 use codex_app_server_protocol::ConfigBatchWriteParams;
 use codex_app_server_protocol::ConfigReadParams;
 use codex_app_server_protocol::ConfigValueWriteParams;
-use codex_app_server_protocol::ConsumeAccountRateLimitResetCreditParams;
 use codex_app_server_protocol::ExperimentalFeatureListParams;
 use codex_app_server_protocol::FsCopyParams;
 use codex_app_server_protocol::FsCreateDirectoryParams;
@@ -433,18 +432,6 @@ impl TestAppServer {
     ) -> anyhow::Result<i64> {
         let params = Some(serde_json::to_value(params)?);
         self.send_request("getConversationSummary", params).await
-    }
-
-    /// Send an `account/rateLimitResetCredit/consume` JSON-RPC request.
-    pub async fn send_consume_account_rate_limit_reset_credit_request(
-        &mut self,
-        params: ConsumeAccountRateLimitResetCreditParams,
-    ) -> anyhow::Result<i64> {
-        self.send_request(
-            "account/rateLimitResetCredit/consume",
-            Some(serde_json::to_value(params)?),
-        )
-        .await
     }
 
     /// Send an `account/sendAddCreditsNudgeEmail` JSON-RPC request.

@@ -1837,49 +1837,6 @@ impl App {
                 self.overlay = Some(Overlay::Analytics(view));
                 tui.frame_requester().schedule_frame();
             }
-            AppEvent::OpenRateLimitResetCredits => {
-                self.chat_widget.show_rate_limit_reset_loading_popup();
-            }
-            AppEvent::ConsumeRateLimitResetCredit {
-                idempotency_key,
-                credit_id,
-            } => {
-                if let Some(request_id) = self
-                    .chat_widget
-                    .start_rate_limit_reset_consumption(&idempotency_key)
-                {
-                    self.consume_rate_limit_reset_credit(
-                        app_server,
-                        request_id,
-                        idempotency_key,
-                        credit_id,
-                    );
-                }
-            }
-            AppEvent::RateLimitResetCreditConsumed {
-                request_id,
-                idempotency_key,
-                credit_id,
-                result,
-            } => {
-                if let Err(err) = &result {
-                    tracing::warn!(
-                        "account/rateLimitResetCredit/consume failed during TUI request: {err}"
-                    );
-                }
-                if self.chat_widget.finish_rate_limit_reset_consume(
-                    request_id,
-                    idempotency_key,
-                    credit_id,
-                    result,
-                ) {
-                    // Reads started before redemption must not restore the pre-reset banner.
-                    self.rate_limit_hard_stop_generation =
-                        self.rate_limit_hard_stop_generation.wrapping_add(1);
-                    self.rate_limit_refresh_state.invalidate_recovery();
-                    self.chat_widget.clear_backend_banner();
-                }
-            }
             AppEvent::ThreadUsageLoaded {
                 thread_id,
                 request_id,

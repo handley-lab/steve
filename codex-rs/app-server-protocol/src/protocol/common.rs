@@ -1261,12 +1261,6 @@ client_request_definitions! {
         response: v2::LogoutAccountResponse,
     },
 
-    ConsumeAccountRateLimitResetCredit => "account/rateLimitResetCredit/consume" {
-        params: v2::ConsumeAccountRateLimitResetCreditParams,
-        serialization: global("account-auth"),
-        response: v2::ConsumeAccountRateLimitResetCreditResponse,
-    },
-
     GetAccountTokenUsage => "account/usage/read" {
         params: #[ts(optional, as = "Option<GetAccountTokenUsageParamsTypeScript>", inline)] #[serde(default, skip_serializing_if = "Option::is_none")] v2::NullableGetAccountTokenUsageParams,
         serialization: None,

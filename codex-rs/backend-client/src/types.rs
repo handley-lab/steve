@@ -12,29 +12,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-pub struct RateLimitResetCreditsSummary {
-    pub available_count: i64,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-pub struct RateLimitResetCreditsDetails {
-    pub credits: Vec<RateLimitResetCreditDetails>,
-    pub available_count: i64,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-pub struct RateLimitResetCreditDetails {
-    pub id: String,
-    pub reset_type: String,
-    pub status: String,
-    pub granted_at: String,
-    pub expires_at: Option<String>,
-    pub title: Option<String>,
-    pub description: Option<String>,
-}
-
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct CodexWorkspaceMessagesResponse {
     #[serde(default)]
     pub messages: Vec<CodexWorkspaceMessage>,
@@ -59,22 +36,6 @@ pub struct CodexWorkspaceMessage {
     pub created_at: Option<String>,
     #[serde(default)]
     pub archived_at: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ConsumeRateLimitResetCreditCode {
-    Reset,
-    NothingToReset,
-    NoCredit,
-    AlreadyRedeemed,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-pub struct ConsumeRateLimitResetCreditResponse {
-    pub code: ConsumeRateLimitResetCreditCode,
-    #[serde(default)]
-    pub windows_reset: i64,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]

@@ -1142,9 +1142,7 @@ See the Steve keymap documentation for supported actions and examples."
             "tui startup initial frame scheduled"
         );
         app.refresh_startup_skills(&app_server);
-        // Kick off a non-blocking rate-limit prefetch so the first `/status`
-        // already has data and available reset credits can be surfaced, without
-        // delaying the initial frame render.
+        // Kick off a non-blocking security prefetch without delaying the initial frame.
         if requires_openai_auth && has_chatgpt_account {
             crate::security_setup::prefetch(
                 &app.config,
@@ -1152,7 +1150,6 @@ See the Steve keymap documentation for supported actions and examples."
                 app.app_event_tx.clone(),
                 app.chat_widget.security_setup_request_id,
             );
-            app.chat_widget.start_rate_limit_reset_startup_check();
         }
 
         let mut last_screen_size = tui.terminal.last_known_screen_size;

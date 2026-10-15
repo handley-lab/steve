@@ -56,7 +56,6 @@ impl BackendBanner {
                                     credit_type: *credit_type,
                                 }
                             }
-                            BannerAction::ResetUsage => AppEvent::OpenRateLimitResetCredits,
                         })
                     })],
                     dismiss_on_select: false,

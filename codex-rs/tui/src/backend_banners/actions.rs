@@ -10,7 +10,6 @@ const WORKSPACE_USAGE_URL: &str = "https://chatgpt.com/admin/usage-limits/worksp
 pub(super) enum BannerAction {
     OpenUrl(String),
     NotifyOwner(AddCreditsNudgeCreditType),
-    ResetUsage,
 }
 
 impl BackendBanner {
@@ -37,8 +36,6 @@ impl BackendBanner {
                 }
                 return Some(BannerAction::OpenUrl(url.to_string()));
             }
-            // Keep the existing picker and explicit confirmation before consuming a reset.
-            "reset_usage" => return Some(BannerAction::ResetUsage),
             _ => {}
         }
         let destination = match action {

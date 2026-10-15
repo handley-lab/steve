@@ -16,7 +16,6 @@ mod bedrock_gov_cloud;
 mod bedrock_setup;
 mod enterprise_login;
 mod gateway_oauth;
-mod rate_limit_resets;
 mod workspace_routing;
 
 pub(super) use enterprise_login::EnterpriseLoginCompletion;

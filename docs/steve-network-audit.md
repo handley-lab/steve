@@ -158,7 +158,9 @@ bundle. Local configuration still loads.
 
 Steve does not GET `/wham/usage` or `/api/codex/usage`. Longer usage paths,
 including thread usage, turn cost, and plan history, are separate requests.
-Reset-credit list and consume stay on `/wham/rate-limit-reset-credits`.
+Steve does not GET `/wham/rate-limit-reset-credits` or
+`/api/codex/rate-limit-reset-credits`, and does not POST either path with
+`/consume`.
 
 ## Accounts check
 

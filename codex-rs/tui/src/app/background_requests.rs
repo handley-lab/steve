@@ -13,8 +13,6 @@ use crate::chatwidget::ThreadUsageOutcome;
 use crate::config_update::format_config_error;
 use codex_app_server_protocol::AppsListParams;
 use codex_app_server_protocol::AppsListResponse;
-use codex_app_server_protocol::ConsumeAccountRateLimitResetCreditParams;
-use codex_app_server_protocol::ConsumeAccountRateLimitResetCreditResponse;
 use codex_app_server_protocol::GetAccountTokenUsageParams;
 use codex_app_server_protocol::GetAccountTokenUsageResponse;
 use codex_app_server_protocol::MarketplaceAddParams;
@@ -33,8 +31,6 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 
 pub(super) const THREAD_USAGE_FETCH_TIMEOUT: std::time::Duration =
     std::time::Duration::from_secs(/*secs*/ 65);
-const RATE_LIMIT_RESET_REQUEST_TIMEOUT: std::time::Duration =
-    std::time::Duration::from_secs(/*secs*/ 15);
 const WORKSPACE_HEADLINE_FETCH_TIMEOUT: std::time::Duration =
     std::time::Duration::from_millis(/*millis*/ 2000);
 
@@ -117,36 +113,6 @@ impl App {
             app_event_tx.send(AppEvent::ThreadUsageLoaded {
                 thread_id,
                 request_id,
-                result,
-            });
-        });
-    }
-
-    pub(super) fn consume_rate_limit_reset_credit(
-        &mut self,
-        app_server: &AppServerSession,
-        request_id: u64,
-        idempotency_key: String,
-        credit_id: Option<String>,
-    ) {
-        let request_handle = app_server.request_handle();
-        let app_event_tx = self.app_event_tx.clone();
-        tokio::spawn(async move {
-            let result = tokio::time::timeout(
-                RATE_LIMIT_RESET_REQUEST_TIMEOUT,
-                consume_rate_limit_reset_credit_request(
-                    request_handle,
-                    idempotency_key.clone(),
-                    credit_id.clone(),
-                ),
-            )
-            .await
-            .map_err(|_| "account/rateLimitResetCredit/consume timed out in TUI".to_string())
-            .and_then(|result| result.map_err(|err| err.to_string()));
-            app_event_tx.send(AppEvent::RateLimitResetCreditConsumed {
-                request_id,
-                idempotency_key,
-                credit_id,
                 result,
             });
         });
@@ -777,24 +743,6 @@ pub(super) async fn fetch_thread_usage(
         .thread_usage
         .map(ThreadUsageOutcome::Available)
         .unwrap_or(ThreadUsageOutcome::Disabled))
-}
-
-pub(super) async fn consume_rate_limit_reset_credit_request(
-    request_handle: AppServerRequestHandle,
-    idempotency_key: String,
-    credit_id: Option<String>,
-) -> Result<ConsumeAccountRateLimitResetCreditResponse> {
-    let request_id = RequestId::String(format!("consume-rate-limit-reset-{}", Uuid::new_v4()));
-    request_handle
-        .request_typed(ClientRequest::ConsumeAccountRateLimitResetCredit {
-            request_id,
-            params: ConsumeAccountRateLimitResetCreditParams {
-                idempotency_key,
-                credit_id,
-            },
-        })
-        .await
-        .wrap_err("account/rateLimitResetCredit/consume failed in TUI")
 }
 
 pub(super) async fn fetch_workspace_messages(
