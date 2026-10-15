@@ -27,11 +27,10 @@ for plugin detail, `/ps/plugins/workspace/shared`, or `/ps/plugins/installed`.
 Skill detail still GETs `/ps/plugins/{plugin_id}/skills/{skill_name}`.
 Authentication and product SKU accompany the remaining plugin-service requests.
 
-Steve does not POST `/ps/plugins/{plugin_id}/install`. Uninstalling a remote
-plugin still POSTs to `/ps/plugins/{plugin_id}/uninstall`. That operation
-changes remote account state; it is not just local package removal. Skill
-detail, share, and bundle clients are separate. Local plugin interoperability
-does not require mechanically renaming the external service paths. Avoid
+Steve does not POST `/ps/plugins/{plugin_id}/install` or
+`/ps/plugins/{plugin_id}/uninstall`. Share and bundle clients are separate.
+Local plugin interoperability does not require mechanically renaming the
+external service paths. Avoid
 first-party remote plugin operations and inspect installed plugin transports
 when preventing OpenAI traffic. Analytics and feedback flags do not gate the
 reviewed request functions. No plugin-service request was made for this audit.
@@ -174,8 +173,9 @@ An in-memory installed snapshot may still be read. Shared workspace plugins
 do not GET `{chatgpt_base_url}/ps/plugins/workspace/shared`. Plugin detail does
 not GET `{chatgpt_base_url}/ps/plugins/{plugin_id}`. Skill detail still GETs
 `/ps/plugins/{plugin_id}/skills/{skill_name}`. Steve does not POST
-`{chatgpt_base_url}/ps/plugins/{plugin_id}/install`. Uninstall, share, and
-bundle clients are separate.
+`{chatgpt_base_url}/ps/plugins/{plugin_id}/install` or
+`{chatgpt_base_url}/ps/plugins/{plugin_id}/uninstall`. Share and bundle
+clients are separate.
 
 Raw local evidence: `~/.cache/codex-cambridge-build/steve-network-smoke-n05wyupc/`
 and `steve-network-smoke-cey30wqi/` contain configuration, structured model

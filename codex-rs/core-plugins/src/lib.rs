@@ -95,7 +95,6 @@ pub use manager::PluginsManager;
 pub use manager::RecommendedPluginCandidatesInput;
 pub use manager::RemotePluginOperationError;
 pub use manager::RemotePluginOperationErrorKind;
-pub use manager::RemotePluginUninstallOutcome;
 pub use marketplace_policy::allowed_configured_marketplace_names;
 pub use marketplace_upgrade::ConfigLayerReload;
 pub use marketplace_upgrade::ConfiguredMarketplaceUpgradeError as PluginMarketplaceUpgradeError;

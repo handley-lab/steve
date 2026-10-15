@@ -91,58 +91,6 @@ remote enabled state. It prints the events and leaves the JSONL file in place
 for inspection. It does not install or uninstall plugins and does not modify
 the profile's persistent config.
 
-### Testing remote uninstall analytics
-
-`plugin-analytics-mutation-smoke` is a manually invoked live smoke test. It
-contacts the configured remote plugin API through uninstall. It does not
-install a plugin. It is not run by `cargo test`, `just test`, or CI.
-
-Choose a remote plugin that is available to the active account and is not
-currently installed. The command refuses to run when the plugin is already
-installed, uninstalls it, validates `codex_plugin_uninstalled`, and verifies
-that the original uninstalled state was restored.
-
-The mutation events include the local Codex ID in `plugin_id` and the backend ID
-in `remote_plugin_id`.
-
-`--remote-plugin-id` takes the backend ID, such as `plugins~Plugin_...`, not the
-local `<plugin>@<marketplace>` ID.
-
-```bash
-cargo run -p codex-app-server-test-client -- \
-  --codex-bin ./target/debug/codex \
-  plugin-analytics-mutation-smoke \
-  --remote-plugin-id <REMOTE_PLUGIN_ID> \
-  --confirm-account-mutation \
-  --capture-file /tmp/plugin-mutation-analytics.jsonl
-```
-
-Analytics use the normal queue, reduction, batching, and serialization path,
-but the debug capture destination suppresses analytics network delivery. The
-command prints one of these final states:
-
-- `PASS`: the install and uninstall events validated and the plugin is uninstalled.
-- `FAIL-CLEAN`: validation failed, but the original uninstalled state was
-  restored.
-- `FAIL-LOCAL-CACHE`: the backend is uninstalled, but local cleanup reported
-  an error.
-- `FAIL-DIRTY`: cleanup failed and the plugin still appears installed.
-- `FAIL-UNKNOWN`: the command could not verify the final installed state.
-
-For a dirty or uncertain result, retry cleanup with:
-
-```bash
-cargo run -p codex-app-server-test-client -- \
-  --codex-bin ./target/debug/codex \
-  plugin-remote-uninstall \
-  --remote-plugin-id <REMOTE_PLUGIN_ID> \
-  --confirm-account-mutation
-```
-
-Cleanup does not require analytics capture or a debug Codex binary. When the
-smoke uses global `--config` overrides, its printed recovery command preserves
-them so cleanup targets the same backend and account.
-
 ## Watching Raw Inbound Traffic
 
 Initialize a connection, then print every inbound JSON-RPC message until you stop it with

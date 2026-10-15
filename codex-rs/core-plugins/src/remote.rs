@@ -50,7 +50,6 @@ pub use remote_installed_plugin_sync::RemotePluginCacheMutationGuard;
 pub use remote_installed_plugin_sync::RemotePluginChange;
 pub use remote_installed_plugin_sync::RemotePluginMaterialization;
 pub use remote_installed_plugin_sync::mark_remote_plugin_cache_mutation_in_flight;
-pub(crate) use remote_installed_plugin_sync::remote_installed_plugin_bundle_sync_gate;
 pub use share::RemotePluginShareAccessPolicy;
 pub use share::RemotePluginShareDiscoverability;
 pub use share::RemotePluginSharePrincipal;
@@ -741,15 +740,6 @@ struct RemotePluginListResponse {
 }
 
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-struct RemotePluginMutationResponse {
-    id: String,
-    enabled: bool,
-    #[serde(default)]
-    app_ids_needing_auth: Option<Vec<String>>,
-}
-
-
 pub async fn fetch_remote_marketplaces(
     config: &RemotePluginServiceConfig,
     auth: Option<&CodexAuth>,
@@ -1085,47 +1075,6 @@ pub async fn fetch_remote_plugin_skill_detail(
     Ok(RemotePluginSkillDetail {
         contents: response.skill_md_contents,
     })
-}
-
-
-
-
-
-
-
-
-
-
-pub async fn uninstall_remote_plugin(
-    config: &RemotePluginServiceConfig,
-    auth: Option<&CodexAuth>,
-    remote_plugin_id: &str,
-) -> Result<(), RemotePluginCatalogError> {
-    let auth = ensure_chatgpt_auth(auth)?;
-    let base_url = config.chatgpt_base_url.trim_end_matches('/');
-    let url = format!("{base_url}/ps/plugins/{remote_plugin_id}/uninstall");
-    let request = authenticated_request(
-        config.http_request(Method::POST, &url),
-        auth,
-        &config.product_sku,
-    );
-    let response: RemotePluginMutationResponse = send_and_decode(request, &url).await?;
-    let _ = response.app_ids_needing_auth;
-    if response.id != remote_plugin_id {
-        return Err(RemotePluginCatalogError::UnexpectedPluginId {
-            expected: remote_plugin_id.to_string(),
-            actual: response.id,
-        });
-    }
-    if response.enabled {
-        return Err(RemotePluginCatalogError::UnexpectedEnabledState {
-            plugin_id: response.id,
-            expected_enabled: false,
-            actual_enabled: response.enabled,
-        });
-    }
-
-    Ok(())
 }
 
 

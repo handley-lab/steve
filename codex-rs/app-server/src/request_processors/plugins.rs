@@ -11,8 +11,6 @@ use codex_config::types::PluginsConfigToml;
 use codex_core_plugins::OPENAI_CURATED_MARKETPLACE_NAME;
 use codex_core_plugins::PluginListBackgroundTaskOptions;
 use codex_core_plugins::PluginMarketplaceContext;
-use codex_core_plugins::RemotePluginOperationError;
-use codex_core_plugins::RemotePluginOperationErrorKind;
 use codex_core_plugins::is_openai_curated_marketplace_name;
 use codex_core_plugins::loader::load_configured_plugin_mcp_servers;
 use codex_core_plugins::manifest::is_agent_plugin_manifest;
@@ -57,7 +55,6 @@ pub(crate) struct PluginRequestProcessor {
     auth_manager: Arc<AuthManager>,
     thread_manager: Arc<ThreadManager>,
     outgoing: Arc<OutgoingMessageSender>,
-    analytics_events_client: AnalyticsEventsClient,
     config_manager: ConfigManager,
     on_effective_plugins_changed:
         Arc<dyn Fn(codex_core_plugins::EffectivePluginsChange) + Send + Sync>,
@@ -399,7 +396,6 @@ impl PluginRequestProcessor {
         auth_manager: Arc<AuthManager>,
         thread_manager: Arc<ThreadManager>,
         outgoing: Arc<OutgoingMessageSender>,
-        analytics_events_client: AnalyticsEventsClient,
         config_manager: ConfigManager,
         on_effective_plugins_changed: Arc<
             dyn Fn(codex_core_plugins::EffectivePluginsChange) + Send + Sync,
@@ -409,7 +405,6 @@ impl PluginRequestProcessor {
             auth_manager,
             thread_manager,
             outgoing,
-            analytics_events_client,
             config_manager,
             on_effective_plugins_changed,
         }
@@ -1682,14 +1677,6 @@ impl PluginRequestProcessor {
         params: PluginUninstallParams,
     ) -> Result<PluginUninstallResponse, JSONRPCErrorError> {
         let PluginUninstallParams { plugin_id } = params;
-        if codex_plugin::PluginId::parse(&plugin_id).is_err()
-            && !is_valid_remote_plugin_id(&plugin_id)
-        {
-            return Err(invalid_request("invalid remote plugin id"));
-        }
-        if is_valid_remote_plugin_id(&plugin_id) {
-            return self.remote_plugin_uninstall_response(plugin_id).await;
-        }
         let plugins_manager = self.thread_manager.plugins_manager();
 
         plugins_manager
@@ -1760,38 +1747,6 @@ impl PluginRequestProcessor {
             | MarketplaceError::InvalidPlugin(_) => invalid_request(err.to_string()),
             MarketplaceError::Io { .. } => internal_error(format!("failed to {action}: {err}")),
         }
-    }
-
-    async fn remote_plugin_uninstall_response(
-        &self,
-        plugin_id: String,
-    ) -> Result<PluginUninstallResponse, JSONRPCErrorError> {
-        let config = self.load_latest_config(/*fallback_cwd*/ None).await?;
-        let auth = self.auth_manager.auth().await;
-        let outcome = self
-            .thread_manager
-            .plugins_manager()
-            .uninstall_remote_plugin(
-                &config.plugins_config_input(),
-                auth.as_ref(),
-                &plugin_id,
-                Some(self.effective_plugins_changed_callback()),
-            )
-            .await
-            .map_err(remote_plugin_operation_error_to_jsonrpc)?;
-        self.analytics_events_client
-            .track_plugin_uninstalled(outcome.telemetry);
-        if outcome.effective_plugins_changed {
-            self.on_effective_plugins_changed().await;
-        }
-        if let Some(err) = outcome.cache_removal_error {
-            return Err(remote_plugin_catalog_error_to_jsonrpc(
-                err,
-                "uninstall remote plugin",
-            ));
-        }
-
-        Ok(PluginUninstallResponse {})
     }
 }
 
@@ -1987,26 +1942,4 @@ fn remote_plugin_catalog_error_to_jsonrpc(
     }
 }
 
-fn remote_plugin_bundle_install_error_to_jsonrpc(
-    err: codex_core_plugins::remote_bundle::RemotePluginBundleInstallError,
-) -> JSONRPCErrorError {
-    internal_error(format!("install remote plugin bundle: {err}"))
-}
 
-fn remote_plugin_operation_error_to_jsonrpc(err: RemotePluginOperationError) -> JSONRPCErrorError {
-    match *err.kind {
-        RemotePluginOperationErrorKind::Catalog { context, source } => {
-            remote_plugin_catalog_error_to_jsonrpc(source, context)
-        }
-        RemotePluginOperationErrorKind::Bundle(source) => {
-            remote_plugin_bundle_install_error_to_jsonrpc(source)
-        }
-        RemotePluginOperationErrorKind::Sync { context, source } => {
-            internal_error(format!("{context}: {source}"))
-        }
-        err @ (RemotePluginOperationErrorKind::DisabledByAdmin(_)
-        | RemotePluginOperationErrorKind::NotAvailable(_)
-        | RemotePluginOperationErrorKind::InvalidRequest(_)) => invalid_request(err.to_string()),
-        RemotePluginOperationErrorKind::Internal(message) => internal_error(message),
-    }
-}

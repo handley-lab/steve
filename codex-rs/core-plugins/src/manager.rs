@@ -2,7 +2,6 @@
 mod remote_mutations;
 pub use remote_mutations::RemotePluginOperationError;
 pub use remote_mutations::RemotePluginOperationErrorKind;
-pub use remote_mutations::RemotePluginUninstallOutcome;
 #[path = "marketplace_context.rs"]
 mod marketplace_context;
 pub use marketplace_context::PluginMarketplaceContext;
@@ -59,7 +58,6 @@ use crate::remote::CODEX_PRODUCT_SKU;
 use crate::remote::REMOTE_GLOBAL_MARKETPLACE_NAME;
 use crate::remote::RecommendedPluginsMode;
 use crate::remote::RemoteInstalledPlugin;
-use crate::remote::RemoteInstalledPluginBundleSyncError;
 use crate::remote::RemotePluginMaterialization;
 use crate::remote::RemotePluginServiceConfig;
 use crate::remote_plugin_id_resolver::RemoteInstalledPluginsSnapshot;
@@ -122,15 +120,12 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::sync::RwLock;
-use std::time::Duration;
 use std::time::Instant;
-use tokio::sync::OwnedSemaphorePermit;
 use tokio::sync::Semaphore;
 use tokio::sync::watch;
 use tracing::instrument;
 use tracing::warn;
 
-const REMOTE_INSTALLED_PLUGIN_SYNC_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const LOADED_PLUGINS_CACHE_CAPACITY: usize = 8;
 
 type EffectivePluginsChangedCallback = Arc<dyn Fn(EffectivePluginsChange) + Send + Sync + 'static>;
@@ -246,20 +241,6 @@ enum RemoteInstalledPluginsCachePublication {
     Refresh,
     Reconcile,
 }
-
-/// Holds the cache-root gate shared by full installed-bundle sync, reconciliation, and direct
-/// remote plugin mutations.
-///
-/// Callers should keep this guard only while mutating the remote plugin cache and backend
-/// installed state, then release it before unrelated analytics, OAuth, or runtime refresh work.
-struct RemoteInstalledPluginSyncGuard {
-    _permit: OwnedSemaphorePermit,
-}
-
-
-
-
-
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PluginListBackgroundTaskOptions {
@@ -439,7 +420,6 @@ pub struct PluginsManager {
     skill_root_loader: Arc<dyn SkillRootLoader<PluginSkillRoot>>,
     tool_suggest_metadata_cache: ToolSuggestMetadataCache,
     remote_installed_plugins_cache: RwLock<RemoteInstalledPluginsCache>,
-    remote_installed_plugin_bundle_sync_gate: Arc<Semaphore>,
     restriction_product: Option<Product>,
     auth_manager: Arc<AuthManager>,
     analytics_events_client: RwLock<Option<AnalyticsEventsClient>>,
@@ -570,8 +550,6 @@ impl PluginsManager {
         // already-admitted plugins may continue exposing MCP servers/tools from shared local state.
         //
         // This assumes a single STEVE_HOME is only used by one product.
-        let remote_installed_plugin_bundle_sync_gate =
-            crate::remote::remote_installed_plugin_bundle_sync_gate(&codex_home);
         let store = PluginStore::new(codex_home.clone());
         let tool_suggest_metadata_cache =
             ToolSuggestMetadataCache::new(Arc::clone(&store.manifest_cache));
@@ -592,7 +570,6 @@ impl PluginsManager {
             skill_root_loader,
             tool_suggest_metadata_cache,
             remote_installed_plugins_cache: RwLock::new(RemoteInstalledPluginsCache::default()),
-            remote_installed_plugin_bundle_sync_gate,
             restriction_product,
             auth_manager,
             analytics_events_client: RwLock::new(None),
@@ -1249,28 +1226,6 @@ impl PluginsManager {
         self.clear_loaded_plugins_cache();
         true
     }
-
-
-
-
-
-
-    /// Acquires the cache-root gate shared by full installed-bundle sync, reconciliation, and
-    /// direct remote plugin mutations.
-    async fn acquire_remote_installed_plugin_sync_guard(
-        &self,
-    ) -> Result<RemoteInstalledPluginSyncGuard, RemoteInstalledPluginBundleSyncError> {
-        let permit = tokio::time::timeout(
-            REMOTE_INSTALLED_PLUGIN_SYNC_WAIT_TIMEOUT,
-            Arc::clone(&self.remote_installed_plugin_bundle_sync_gate).acquire_owned(),
-        )
-        .await
-        .map_err(|_| RemoteInstalledPluginBundleSyncError::LockTimeout)?
-        .map_err(|_| RemoteInstalledPluginBundleSyncError::Superseded)?;
-        Ok(RemoteInstalledPluginSyncGuard { _permit: permit })
-    }
-
-
 
     pub fn maybe_start_plugin_list_background_tasks(
         self: &Arc<Self>,

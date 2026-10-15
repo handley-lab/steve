@@ -27,7 +27,6 @@ use codex_core_plugins::remote::REMOTE_GLOBAL_MARKETPLACE_NAME;
 use codex_core_plugins::remote::RemoteMarketplace;
 use codex_core_plugins::remote::RemoteMarketplaceSource;
 use codex_core_plugins::remote::RemotePluginCatalogCacheMode;
-use codex_core_plugins::remote::RemotePluginSummary;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_plugin::PluginId;
@@ -656,40 +655,10 @@ pub async fn run_plugin_remove(
         json,
     } = args;
     let selection = parse_plugin_selection(plugin, marketplace_name)?;
-
-    if selection.marketplace_name == REMOTE_GLOBAL_MARKETPLACE_NAME {
-        ensure!(
-            context.plugins_input.plugins_enabled,
-            "remote plugins are not enabled"
-        );
-        let auth = context.auth.as_ref();
-        // Installed plugins may no longer appear in the directory or curated collection.
-        let _ = auth;
-        let marketplaces = context
-            .manager
-            .build_remote_installed_plugin_marketplaces_from_cache(&[
-                REMOTE_GLOBAL_MARKETPLACE_NAME,
-            ])
-            .unwrap_or_default();
-        let plugin = resolve_remote_plugin(marketplaces, &selection)?;
-        let outcome = context
-            .manager
-            .uninstall_remote_plugin(
-                &context.plugins_input,
-                auth,
-                &plugin.remote_plugin_id,
-                /*on_effective_plugins_changed*/ None,
-            )
-            .await?;
-        if let Some(err) = outcome.cache_removal_error {
-            return Err(err.into());
-        }
-    } else {
-        context
-            .manager
-            .uninstall_plugin(selection.plugin_key.clone())
-            .await?;
-    }
+    context
+        .manager
+        .uninstall_plugin(selection.plugin_key.clone())
+        .await?;
     if json {
         let output = JsonPluginRemoveOutput::from_selection(selection);
         println!("{}", serde_json::to_string_pretty(&output)?);
@@ -859,29 +828,6 @@ async fn fetch_remote_marketplaces(
             Ok(RemoteMarketplaceListing::default())
         }
         Err(err) => Err(err).context("failed to list remote marketplace plugins"),
-    }
-}
-
-fn resolve_remote_plugin(
-    marketplaces: Vec<RemoteMarketplace>,
-    selection: &PluginSelection,
-) -> Result<RemotePluginSummary> {
-    let matches = marketplaces
-        .into_iter()
-        .flat_map(|marketplace| marketplace.plugins)
-        .filter(|plugin| plugin.name == selection.plugin_name)
-        .collect::<Vec<_>>();
-    match matches.as_slice() {
-        [plugin] => Ok(plugin.clone()),
-        [] => bail!(
-            "plugin `{}` was not found in remote marketplace `{}`",
-            selection.plugin_name,
-            selection.marketplace_name
-        ),
-        _ => bail!(
-            "plugin `{}` matched multiple remote plugins",
-            selection.plugin_key
-        ),
     }
 }
 

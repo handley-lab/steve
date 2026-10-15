@@ -8,15 +8,9 @@ use codex_plugin::PluginId;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
-use std::sync::Weak;
-use tokio::sync::Semaphore;
 
-static REMOTE_INSTALLED_PLUGIN_BUNDLE_SYNC_GATES: OnceLock<
-    Mutex<HashMap<PathBuf, Weak<Semaphore>>>,
-> = OnceLock::new();
 static REMOTE_PLUGIN_CACHE_MUTATIONS_IN_FLIGHT: OnceLock<
     Mutex<HashMap<RemotePluginCacheMutationKey, usize>>,
 > = OnceLock::new();
@@ -75,24 +69,6 @@ struct RemotePluginCacheMutationKey {
 pub struct RemotePluginCacheMutationGuard {
     key: RemotePluginCacheMutationKey,
 }
-
-pub(crate) fn remote_installed_plugin_bundle_sync_gate(codex_home: &Path) -> Arc<Semaphore> {
-    let plugin_cache_root = remote_plugin_cache_root(codex_home);
-    let gates =
-        REMOTE_INSTALLED_PLUGIN_BUNDLE_SYNC_GATES.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut gates = match gates.lock() {
-        Ok(gates) => gates,
-        Err(err) => err.into_inner(),
-    };
-    if let Some(gate) = gates.get(&plugin_cache_root).and_then(Weak::upgrade) {
-        return gate;
-    }
-    let gate = Arc::new(Semaphore::new(/*permits*/ 1));
-    gates.insert(plugin_cache_root, Arc::downgrade(&gate));
-    gate
-}
-
-
 
 pub fn mark_remote_plugin_cache_mutation_in_flight(
     codex_home: &Path,

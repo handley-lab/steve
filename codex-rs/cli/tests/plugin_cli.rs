@@ -19,12 +19,7 @@ use std::process::Stdio;
 use tempfile::TempDir;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
-use wiremock::Mock;
 use wiremock::MockServer;
-use wiremock::ResponseTemplate;
-use wiremock::matchers::header;
-use wiremock::matchers::method;
-use wiremock::matchers::path;
 
 const MARKETPLACE_HEADER: &str = "MARKETPLACE";
 const MARKETPLACE_LIST_HEADER: &str = "MARKETPLACE  ROOT";
@@ -1181,9 +1176,7 @@ async fn plugin_add_rejects_cached_plugins_without_authorizing_marketplace_snaps
     Ok(())
 }
 
-const REMOTE_ID: &str = "b1234567-89ab-4cde-8f01-234567890abc";
 const MARKETPLACE: &str = "openai-curated-remote";
-const PLUGIN_KEY: &str = "sample@openai-curated-remote";
 
 
 struct RemoteMarketplaceFixture {
@@ -1297,32 +1290,6 @@ async fn remote_plugin_listing_replaces_local_curated_catalog() -> Result<()> {
 #[tokio::test]
 async fn remote_plugin_add_list_and_remove() -> Result<()> {
     let fixture = RemoteMarketplaceFixture::new().await?;
-    Mock::given(method("POST"))
-        .and(path(format!(
-            "/backend-api/ps/plugins/{REMOTE_ID}/uninstall"
-        )))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": REMOTE_ID, "enabled": false})))
-        .expect(1)
-        .mount(&fixture.server)
-        .await;
-
-    let removed = fixture
-        .success(&[
-            "-c",
-            "features.remote_plugin=false",
-            "plugin",
-            "remove",
-            "sample",
-            "-m",
-            MARKETPLACE,
-            "--json",
-        ])
-        .await?;
-    assert_eq!(
-        serde_json::from_str::<Value>(&removed)?,
-        json!({"pluginId": PLUGIN_KEY, "name": "sample", "marketplaceName": MARKETPLACE})
-    );
     let listed = fixture.success(&["plugin", "list", "--json"]).await?;
     assert_eq!(
         serde_json::from_str::<Value>(&listed)?,

@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use anyhow::bail;
 use app_test_support::ChatGptAuthFixture;
 use app_test_support::DEFAULT_CLIENT_NAME;
 use app_test_support::TestAppServer;
@@ -15,16 +14,9 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 use tempfile::TempDir;
 use tokio::time::timeout;
-use wiremock::Mock;
 use wiremock::MockServer;
-use wiremock::ResponseTemplate;
-use wiremock::matchers::header;
-use wiremock::matchers::method;
-use wiremock::matchers::path;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
-const REMOTE_PLUGIN_ID: &str = "plugins~Plugin_linear";
-const WORKSPACE_REMOTE_PLUGIN_ID: &str = "plugins_69f27c3e67848191a45cbaa5f2adb39d";
 
 #[tokio::test]
 async fn plugin_uninstall_removes_plugin_cache_and_config_entry() -> Result<()> {
@@ -130,168 +122,8 @@ async fn plugin_uninstall_tracks_analytics_event() -> Result<()> {
 }
 
 #[tokio::test]
-async fn plugin_uninstall_rejects_remote_plugin_when_plugins_are_disabled() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    std::fs::write(
-        codex_home.path().join("config.toml"),
-        r#"[features]
-plugins = false
-"#,
-    )?;
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let request_id = mcp
-        .send_plugin_uninstall_request(PluginUninstallParams {
-            plugin_id: "plugins~Plugin_sample".to_string(),
-        })
-        .await?;
-
-    let err = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_error_message(RequestId::Integer(request_id)),
-    )
-    .await??;
-
-    assert_eq!(err.error.code, -32600);
-    assert!(
-        err.error
-            .message
-            .contains("remote plugin uninstall is not enabled")
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn plugin_uninstall_writes_remote_plugin_to_cloud_when_remote_plugin_enabled() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    write_remote_plugin_catalog_config(
-        codex_home.path(),
-        &format!("{}/backend-api/", server.uri()),
-    )?;
-    write_chatgpt_auth(
-        codex_home.path(),
-        ChatGptAuthFixture::new("chatgpt-token")
-            .account_id("account-123")
-            .chatgpt_user_id("user-123")
-            .chatgpt_account_id("account-123"),
-        AuthCredentialsStoreMode::File,
-    )?;
-
-    Mock::given(method("POST"))
-        .and(path(format!(
-            "/backend-api/ps/plugins/{REMOTE_PLUGIN_ID}/uninstall"
-        )))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_string(format!(r#"{{"id":"{REMOTE_PLUGIN_ID}","enabled":false}}"#)),
-        )
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path("/backend-api/codex/analytics-events/events"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"status":"ok"}"#))
-        .mount(&server)
-        .await;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let response = uninstall_plugin(&mut mcp, REMOTE_PLUGIN_ID).await?;
-
-    assert_eq!(response, PluginUninstallResponse {});
-    wait_for_remote_plugin_request_count(
-        &server,
-        "POST",
-        &format!("/ps/plugins/{REMOTE_PLUGIN_ID}/uninstall"),
-        /*expected_count*/ 1,
-    )
-    .await?;
-    let payload = wait_for_plugin_analytics_payload(&server).await?;
-    assert_eq!(
-        payload,
-        json!({
-            "events": [{
-                "event_type": "codex_plugin_uninstalled",
-                "event_params": {
-                    "plugin_id": null,
-                    "remote_plugin_id": REMOTE_PLUGIN_ID,
-                    "plugin_name": null,
-                    "marketplace_name": null,
-                    "has_skills": null,
-                    "mcp_server_count": null,
-                    "connector_ids": null,
-                    "product_client_id": DEFAULT_CLIENT_NAME,
-                }
-            }]
-        })
-    );
-    Ok(())
-}
-
-
-#[tokio::test]
-async fn plugin_uninstall_accepts_workspace_remote_plugin_id_shape() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    write_remote_plugin_catalog_config(
-        codex_home.path(),
-        &format!("{}/backend-api/", server.uri()),
-    )?;
-    write_chatgpt_auth(
-        codex_home.path(),
-        ChatGptAuthFixture::new("chatgpt-token")
-            .account_id("account-123")
-            .chatgpt_user_id("user-123")
-            .chatgpt_account_id("account-123"),
-        AuthCredentialsStoreMode::File,
-    )?;
-    Mock::given(method("POST"))
-        .and(path(format!(
-            "/backend-api/ps/plugins/{WORKSPACE_REMOTE_PLUGIN_ID}/uninstall"
-        )))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(format!(
-            r#"{{"id":"{WORKSPACE_REMOTE_PLUGIN_ID}","enabled":false}}"#
-        )))
-        .mount(&server)
-        .await;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let response = uninstall_plugin(&mut mcp, WORKSPACE_REMOTE_PLUGIN_ID).await?;
-
-    assert_eq!(response, PluginUninstallResponse {});
-    wait_for_remote_plugin_request_count(
-        &server,
-        "POST",
-        &format!("/ps/plugins/{WORKSPACE_REMOTE_PLUGIN_ID}/uninstall"),
-        /*expected_count*/ 1,
-    )
-    .await?;
-    Ok(())
-}
-
-
-#[tokio::test]
 async fn plugin_uninstall_rejects_remote_plugin_id_with_spaces_before_network_call() -> Result<()> {
     let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    write_remote_plugin_catalog_config(
-        codex_home.path(),
-        &format!("{}/backend-api/", server.uri()),
-    )?;
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .build_initialized_with_timeout(DEFAULT_TIMEOUT)
@@ -310,25 +142,13 @@ async fn plugin_uninstall_rejects_remote_plugin_id_with_spaces_before_network_ca
     .await??;
 
     assert_eq!(err.error.code, -32600);
-    assert!(err.error.message.contains("invalid remote plugin id"));
-    wait_for_remote_plugin_request_count(
-        &server,
-        "POST",
-        "/ps/plugins/sample plugin/uninstall",
-        /*expected_count*/ 0,
-    )
-    .await?;
+    assert!(err.error.message.contains("invalid plugin key"));
     Ok(())
 }
 
 #[tokio::test]
 async fn plugin_uninstall_rejects_invalid_remote_plugin_id_before_network_call() -> Result<()> {
     let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    write_remote_plugin_catalog_config(
-        codex_home.path(),
-        &format!("{}/backend-api/", server.uri()),
-    )?;
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .build_initialized_with_timeout(DEFAULT_TIMEOUT)
@@ -347,14 +167,7 @@ async fn plugin_uninstall_rejects_invalid_remote_plugin_id_before_network_call()
     .await??;
 
     assert_eq!(err.error.code, -32600);
-    assert!(err.error.message.contains("invalid remote plugin id"));
-    wait_for_remote_plugin_request_count(
-        &server,
-        "POST",
-        "/ps/plugins/linear/../../oops/uninstall",
-        /*expected_count*/ 0,
-    )
-    .await?;
+    assert!(err.error.message.contains("invalid plugin key"));
     Ok(())
 }
 
@@ -383,7 +196,7 @@ async fn plugin_uninstall_rejects_empty_remote_plugin_id() -> Result<()> {
     .await??;
 
     assert_eq!(err.error.code, -32600);
-    assert!(err.error.message.contains("invalid remote plugin id"));
+    assert!(err.error.message.contains("invalid plugin key"));
 
     Ok(())
 }
@@ -434,64 +247,4 @@ plugins = true
 "#
         ),
     )
-}
-
-
-
-async fn wait_for_plugin_analytics_payload(server: &MockServer) -> Result<serde_json::Value> {
-    timeout(DEFAULT_TIMEOUT, async {
-        loop {
-            let Some(requests) = server.received_requests().await else {
-                tokio::time::sleep(Duration::from_millis(25)).await;
-                continue;
-            };
-            if let Some(request) = requests.iter().find(|request| {
-                request.method == "POST"
-                    && request
-                        .url
-                        .path()
-                        .ends_with("/codex/analytics-events/events")
-            }) {
-                return serde_json::from_slice(&request.body)
-                    .map_err(|err| anyhow::anyhow!("invalid analytics payload: {err}"));
-            }
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
-    })
-    .await?
-}
-
-async fn wait_for_remote_plugin_request_count(
-    server: &MockServer,
-    method_name: &str,
-    path_suffix: &str,
-    expected_count: usize,
-) -> Result<()> {
-    timeout(DEFAULT_TIMEOUT, async {
-        loop {
-            let Some(requests) = server.received_requests().await else {
-                if expected_count == 0 {
-                    return Ok::<(), anyhow::Error>(());
-                }
-                bail!("wiremock did not record requests");
-            };
-            let request_count = requests
-                .iter()
-                .filter(|request| {
-                    request.method == method_name && request.url.path().ends_with(path_suffix)
-                })
-                .count();
-            if request_count == expected_count {
-                return Ok::<(), anyhow::Error>(());
-            }
-            if request_count > expected_count {
-                bail!(
-                    "expected exactly {expected_count} {method_name} {path_suffix} requests, got {request_count}"
-                );
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await??;
-    Ok(())
 }
