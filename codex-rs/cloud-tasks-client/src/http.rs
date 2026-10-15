@@ -1,65 +1,29 @@
 use crate::ApplyOutcome;
 use crate::ApplyStatus;
-use crate::AttemptStatus;
 use crate::CloudBackend;
 use crate::CloudBackendFuture;
 use crate::CloudTaskError;
 use crate::Result;
 use crate::TaskId;
-use crate::TurnAttempt;
-use chrono::DateTime;
 use chrono::Utc;
 
-use codex_api::SharedAuthProvider;
-use codex_backend_client as backend;
 use codex_git_utils::ApplyGitRequest;
 use codex_git_utils::apply_git_patch;
 
 #[derive(Clone)]
 pub struct HttpClient {
     pub base_url: String,
-    backend: backend::Client,
 }
 
 impl HttpClient {
-    pub fn new(
-        base_url: impl Into<String>,
-        http_client_factory: codex_http_client::HttpClientFactory,
-    ) -> Self {
-        let base_url = base_url.into();
-        let backend = backend::Client::new_without_redirects(base_url.clone(), http_client_factory);
-        Self { base_url, backend }
-    }
-
-    pub fn with_user_agent(mut self, ua: impl Into<String>) -> Self {
-        self.backend = self.backend.clone().with_user_agent(ua);
-        self
-    }
-
-    pub fn with_auth_provider(mut self, auth: SharedAuthProvider) -> Self {
-        self.backend = self.backend.clone().with_auth_provider(auth);
-        self
-    }
-
-    pub fn with_chatgpt_account_id(mut self, account_id: impl Into<String>) -> Self {
-        self.backend = self.backend.clone().with_chatgpt_account_id(account_id);
-        self
-    }
-
-    fn attempts_api(&self) -> api::Attempts<'_> {
-        api::Attempts::new(self)
+    pub fn new(base_url: impl Into<String>) -> Self {
+        Self {
+            base_url: base_url.into(),
+        }
     }
 }
 
 impl CloudBackend for HttpClient {
-    fn list_sibling_attempts(
-        &self,
-        task: TaskId,
-        turn_id: String,
-    ) -> CloudBackendFuture<'_, Vec<TurnAttempt>> {
-        Box::pin(async move { self.attempts_api().list(task, turn_id).await })
-    }
-
     fn apply_task(
         &self,
         id: TaskId,
@@ -79,37 +43,6 @@ impl CloudBackend for HttpClient {
 
 mod api {
     use super::*;
-    use serde_json::Value;
-    use std::cmp::Ordering;
-    use std::collections::HashMap;
-
-    pub(crate) struct Attempts<'a> {
-        backend: &'a backend::Client,
-    }
-
-    impl<'a> Attempts<'a> {
-        pub(crate) fn new(client: &'a HttpClient) -> Self {
-            Self {
-                backend: &client.backend,
-            }
-        }
-
-        pub(crate) async fn list(&self, task: TaskId, turn_id: String) -> Result<Vec<TurnAttempt>> {
-            let resp = self
-                .backend
-                .list_sibling_turns(&task.0, &turn_id)
-                .await
-                .map_err(|e| CloudTaskError::Http(format!("list_sibling_turns failed: {e}")))?;
-
-            let mut attempts: Vec<TurnAttempt> = resp
-                .sibling_turns
-                .iter()
-                .filter_map(turn_attempt_from_map)
-                .collect();
-            attempts.sort_by(compare_attempts);
-            Ok(attempts)
-        }
-    }
 
     pub(crate) struct Apply;
 
@@ -242,106 +175,6 @@ mod api {
                 conflict_paths: r.conflicted_paths,
             })
         }
-    }
-
-    fn turn_attempt_from_map(turn: &HashMap<String, Value>) -> Option<TurnAttempt> {
-        let turn_id = turn.get("id").and_then(Value::as_str)?.to_string();
-        let attempt_placement = turn.get("attempt_placement").and_then(Value::as_i64);
-        let created_at = parse_timestamp_value(turn.get("created_at"));
-        let status = attempt_status_from_str(turn.get("turn_status").and_then(Value::as_str));
-        let diff = extract_diff_from_turn(turn);
-        let messages = extract_assistant_messages_from_turn(turn);
-        Some(TurnAttempt {
-            turn_id,
-            attempt_placement,
-            created_at,
-            status,
-            diff,
-            messages,
-        })
-    }
-
-    fn compare_attempts(a: &TurnAttempt, b: &TurnAttempt) -> Ordering {
-        match (a.attempt_placement, b.attempt_placement) {
-            (Some(lhs), Some(rhs)) => lhs.cmp(&rhs),
-            (Some(_), None) => Ordering::Less,
-            (None, Some(_)) => Ordering::Greater,
-            (None, None) => match (a.created_at, b.created_at) {
-                (Some(lhs), Some(rhs)) => lhs.cmp(&rhs),
-                (Some(_), None) => Ordering::Less,
-                (None, Some(_)) => Ordering::Greater,
-                (None, None) => a.turn_id.cmp(&b.turn_id),
-            },
-        }
-    }
-
-    fn extract_diff_from_turn(turn: &HashMap<String, Value>) -> Option<String> {
-        let items = turn.get("output_items").and_then(Value::as_array)?;
-        for item in items {
-            match item.get("type").and_then(Value::as_str) {
-                Some("output_diff") => {
-                    if let Some(diff) = item.get("diff").and_then(Value::as_str)
-                        && !diff.is_empty()
-                    {
-                        return Some(diff.to_string());
-                    }
-                }
-                Some("pr") => {
-                    if let Some(diff) = item
-                        .get("output_diff")
-                        .and_then(Value::as_object)
-                        .and_then(|od| od.get("diff"))
-                        .and_then(Value::as_str)
-                        && !diff.is_empty()
-                    {
-                        return Some(diff.to_string());
-                    }
-                }
-                _ => {}
-            }
-        }
-        None
-    }
-
-    fn extract_assistant_messages_from_turn(turn: &HashMap<String, Value>) -> Vec<String> {
-        let mut msgs = Vec::new();
-        if let Some(items) = turn.get("output_items").and_then(Value::as_array) {
-            for item in items {
-                if item.get("type").and_then(Value::as_str) != Some("message") {
-                    continue;
-                }
-                if let Some(content) = item.get("content").and_then(Value::as_array) {
-                    for part in content {
-                        if part.get("content_type").and_then(Value::as_str) == Some("text")
-                            && let Some(txt) = part.get("text").and_then(Value::as_str)
-                            && !txt.is_empty()
-                        {
-                            msgs.push(txt.to_string());
-                        }
-                    }
-                }
-            }
-        }
-        msgs
-    }
-
-    fn attempt_status_from_str(raw: Option<&str>) -> AttemptStatus {
-        match raw.unwrap_or_default() {
-            "failed" => AttemptStatus::Failed,
-            "completed" => AttemptStatus::Completed,
-            "in_progress" => AttemptStatus::InProgress,
-            "pending" => AttemptStatus::Pending,
-            _ => AttemptStatus::Pending,
-        }
-    }
-
-    fn parse_timestamp_value(v: Option<&Value>) -> Option<DateTime<Utc>> {
-        let ts = v?.as_f64()?;
-        let secs = ts as i64;
-        let nanos = ((ts - secs as f64) * 1_000_000_000.0) as u32;
-        Some(DateTime::<Utc>::from(
-            std::time::UNIX_EPOCH + std::time::Duration::new(secs.max(0) as u64, nanos),
-        ))
     }
 
     fn is_unified_diff(diff: &str) -> bool {

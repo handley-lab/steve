@@ -13,7 +13,6 @@ pub use api::TaskListPage;
 pub use api::TaskStatus;
 pub use api::TaskSummary;
 pub use api::TaskText;
-pub use api::TurnAttempt;
 
 mod http;
 pub use http::HttpClient;

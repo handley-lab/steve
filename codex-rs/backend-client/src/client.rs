@@ -1,4 +1,3 @@
-use crate::types::TurnAttemptsSiblingTurnsResponse;
 use anyhow::Result;
 use codex_api::SharedAuthProvider;
 use codex_http_client::ClientRouteClass;
@@ -259,27 +258,6 @@ impl Client {
         self.http.request(method, url)
     }
 
-    async fn exec_request(
-        &self,
-        req: RequestBuilder,
-        method: &str,
-        url: &str,
-    ) -> Result<(String, String)> {
-        let res = req.send().await?;
-        let status = res.status();
-        let ct = res
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_string();
-        let body = res.text().await.map_err(anyhow::Error::from)?;
-        if !status.is_success() {
-            anyhow::bail!("{method} {url} failed: {status}; content-type={ct}; body={body}");
-        }
-        Ok((body, ct))
-    }
-
     async fn exec_request_detailed(
         &self,
         req: RequestBuilder,
@@ -317,25 +295,6 @@ impl Client {
     }
 
 
-    pub async fn list_sibling_turns(
-        &self,
-        task_id: &str,
-        turn_id: &str,
-    ) -> Result<TurnAttemptsSiblingTurnsResponse> {
-        let url = match self.path_style {
-            PathStyle::CodexApi => format!(
-                "{}/api/codex/tasks/{}/turns/{}/sibling_turns",
-                self.base_url, task_id, turn_id
-            ),
-            PathStyle::ChatGptApi => format!(
-                "{}/wham/tasks/{}/turns/{}/sibling_turns",
-                self.base_url, task_id, turn_id
-            ),
-        };
-        let req = self.request(Method::GET, &url).headers(self.headers());
-        let (body, ct) = self.exec_request(req, "GET", &url).await?;
-        self.decode_json::<TurnAttemptsSiblingTurnsResponse>(&url, &ct, &body)
-    }
 
 }
 

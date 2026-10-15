@@ -56,14 +56,12 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
         });
     }
 
-    let ua = get_codex_user_agent();
     let (auth_manager, http_client_factory) = util::load_auth_manager(Some(base_url.clone())).await;
     let environment_http = RouteAwareClientPool::new_without_redirects_or_request_logging(
         http_client_factory.clone(),
         ClientRouteClass::Api,
     );
-    let mut http = codex_cloud_tasks_client::HttpClient::new(base_url.clone(), http_client_factory)
-        .with_user_agent(ua);
+    let http = codex_cloud_tasks_client::HttpClient::new(base_url.clone());
     let style = if base_url.contains("/backend-api") {
         "wham"
     } else {
@@ -94,12 +92,6 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
             "Not signed in. Please run 'codex login' to sign in with ChatGPT, then re-run 'codex cloud'."
         );
         std::process::exit(1);
-    }
-
-    let auth_provider = codex_model_provider::auth_provider_from_auth(&auth);
-    http = http.with_auth_provider(auth_provider);
-    if let Some(acc) = auth.get_account_id() {
-        append_error_log(format!("auth: set ChatGPT-Account-Id header: {acc}"));
     }
 
     Ok(BackendContext {

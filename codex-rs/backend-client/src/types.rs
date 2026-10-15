@@ -8,7 +8,6 @@ pub use codex_backend_openapi_models::models::TaskListItem;
 
 use serde::Deserialize;
 use serde::de::Deserializer;
-use serde_json::Value;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
@@ -405,12 +404,6 @@ where
     T: Deserialize<'de>,
 {
     Option::<Vec<T>>::deserialize(deserializer).map(Option::unwrap_or_default)
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct TurnAttemptsSiblingTurnsResponse {
-    #[serde(default)]
-    pub sibling_turns: Vec<HashMap<String, Value>>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]

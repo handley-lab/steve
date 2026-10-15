@@ -63,16 +63,6 @@ pub enum AttemptStatus {
     Unknown,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TurnAttempt {
-    pub turn_id: String,
-    pub attempt_placement: Option<i64>,
-    pub created_at: Option<DateTime<Utc>>,
-    pub status: AttemptStatus,
-    pub diff: Option<String>,
-    pub messages: Vec<String>,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ApplyStatus {
@@ -129,12 +119,6 @@ impl Default for TaskText {
 }
 
 pub trait CloudBackend: Send + Sync {
-    /// Return any sibling attempts (best-of-N) for the given assistant turn.
-    fn list_sibling_attempts(
-        &self,
-        task: TaskId,
-        turn_id: String,
-    ) -> CloudBackendFuture<'_, Vec<TurnAttempt>>;
     /// Dry-run apply (preflight) that validates whether the patch would apply cleanly.
     /// Never modifies the working tree. When `diff_override` is supplied, the provided diff is
     /// used instead of re-fetching the task details so callers can apply alternate attempts.
