@@ -270,8 +270,10 @@ staged macOS Sparkle bundle can still be reported. When configuration fails
 to load, doctor does not probe `https://chatgpt.com/backend-api/codex/responses`.
 An API-key provider with no base URL is not probed at `https://api.openai.com/v1`.
 An explicit provider base URL is still probed. A loaded configuration's
-`chatgpt_base_url` is still used for the ChatGPT reachability probe. Source:
-`codex-rs/cli/src/doctor/updates.rs` and `codex-rs/cli/src/doctor.rs`.
+`chatgpt_base_url` is still used for the ChatGPT reachability probe. The TUI
+does not GET `{chatgpt_base_url}/wham/security-setup`. Source:
+`codex-rs/cli/src/doctor/updates.rs`, `codex-rs/cli/src/doctor.rs`, and
+`codex-rs/tui/src/security_setup.rs`.
 
 ## Guardian Decisions comparison
 

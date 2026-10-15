@@ -155,7 +155,6 @@ impl ChatWidget {
             backend_banner_state: backend_banners::BackendBannerState::default(),
             security_setup_request_id: uuid::Uuid::new_v4(),
             security_setup_presented: false,
-            security_setup_identity: None,
             security_setup_dismissed: false,
             automatic_model_switch_state: backend_banners::AutomaticModelSwitchState::default(),
             backend_banner_notice_model: None,

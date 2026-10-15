@@ -532,14 +532,6 @@ impl App {
             bootstrap.has_chatgpt_account,
             matches!(bootstrap.auth_mode, Some(TelemetryAuthMode::Chatgpt)),
         );
-        if self.chat_widget.has_chatgpt_account() {
-            crate::security_setup::prefetch(
-                &self.config,
-                app_server,
-                self.app_event_tx.clone(),
-                self.chat_widget.security_setup_request_id,
-            );
-        }
         self.feedback_audience = bootstrap.feedback_audience;
         if displayed.is_some_and(|id| !self.thread_unavailable(id)) {
             self.chat_widget.maybe_send_next_queued_input();

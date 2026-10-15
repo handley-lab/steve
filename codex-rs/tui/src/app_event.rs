@@ -264,11 +264,6 @@ pub(crate) enum AppEvent {
         request_id: uuid::Uuid,
         email: Option<String>,
     },
-    SecuritySetupLoaded {
-        request_id: uuid::Uuid,
-        identity: crate::security_setup::Identity,
-        notice: crate::security_setup::Notice,
-    },
     OpenDaemonMenu,
     ConfirmDaemonRestart,
     RunDaemonRestart,

@@ -406,12 +406,6 @@ impl App {
                 );
                 if self.chat_widget.has_chatgpt_account() {
                     self.refresh_account_email(app_server_client);
-                    crate::security_setup::prefetch(
-                        &self.config,
-                        app_server_client,
-                        self.app_event_tx.clone(),
-                        self.chat_widget.security_setup_request_id,
-                    );
                 }
                 return;
             }

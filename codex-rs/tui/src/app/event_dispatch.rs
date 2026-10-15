@@ -1331,12 +1331,6 @@ impl App {
                     self.chat_widget.on_account_email_loaded(email);
                 }
             }
-            AppEvent::SecuritySetupLoaded { request_id, identity, notice } => {
-                tracing::debug!(current = request_id == self.chat_widget.security_setup_request_id, "handling security setup notice");
-                if request_id == self.chat_widget.security_setup_request_id {
-                    self.chat_widget.show_security_setup(identity, notice);
-                }
-            }
             AppEvent::OpenUrlInBrowser { url } => {
                 self.open_url_in_browser(url);
             }

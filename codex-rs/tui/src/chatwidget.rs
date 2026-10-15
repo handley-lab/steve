@@ -570,7 +570,6 @@ pub(crate) struct ChatWidget {
     backend_banner_state: backend_banners::BackendBannerState,
     pub(crate) security_setup_request_id: uuid::Uuid,
     security_setup_presented: bool,
-    security_setup_identity: Option<crate::security_setup::Identity>,
     security_setup_dismissed: bool,
     automatic_model_switch_state: backend_banners::AutomaticModelSwitchState,
     backend_banner_notice_model: Option<String>,

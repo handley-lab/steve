@@ -1142,15 +1142,6 @@ See the Steve keymap documentation for supported actions and examples."
             "tui startup initial frame scheduled"
         );
         app.refresh_startup_skills(&app_server);
-        // Kick off a non-blocking security prefetch without delaying the initial frame.
-        if requires_openai_auth && has_chatgpt_account {
-            crate::security_setup::prefetch(
-                &app.config,
-                &app_server,
-                app.app_event_tx.clone(),
-                app.chat_widget.security_setup_request_id,
-            );
-        }
 
         let mut last_screen_size = tui.terminal.last_known_screen_size;
         let mut settled_size_tags = crate::terminal_size_telemetry::tags(last_screen_size);
