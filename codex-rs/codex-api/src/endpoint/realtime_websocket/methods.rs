@@ -60,7 +60,6 @@ use tungstenite::protocol::frame::coding::CloseCode;
 use url::Url;
 
 const REALTIME_WIRE_LOG_TARGET: &str = "codex_api::realtime_websocket::wire";
-const OPENAI_REALTIME_API_BASE_URL: &str = "https://api.openai.com/v1";
 const MAX_ACTIVE_TRANSCRIPT_BYTES: usize = 8 * 1024;
 const TRUNCATED_TRANSCRIPT_PREFIX: &str = "…";
 
@@ -832,7 +831,7 @@ fn contains_transcript_entry(entries: &[RealtimeTranscriptEntry], role: &str, te
 pub struct RealtimeWebsocketClient {
     provider: Provider,
     http_client_factory: HttpClientFactory,
-    webrtc_sideband_base_url: String,
+    webrtc_sideband_base_url: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -847,13 +846,13 @@ impl RealtimeWebsocketClient {
         Self {
             provider,
             http_client_factory,
-            webrtc_sideband_base_url: OPENAI_REALTIME_API_BASE_URL.to_string(),
+            webrtc_sideband_base_url: None,
         }
     }
 
-    /// Overrides the direct WebRTC sideband URL for local development and tests.
+    /// Sets the WebRTC sideband base URL. Without one, the sideband is not connected.
     pub fn with_webrtc_sideband_base_url(mut self, base_url: String) -> Self {
-        self.webrtc_sideband_base_url = base_url;
+        self.webrtc_sideband_base_url = Some(base_url);
         self
     }
 
@@ -942,6 +941,11 @@ impl RealtimeWebsocketClient {
         session_initialization: RealtimeSessionInitialization,
         transcript_state: RealtimeTranscriptState,
     ) -> Result<RealtimeWebsocketConnection, ApiError> {
+        if self.webrtc_sideband_base_url.is_none() {
+            return Err(ApiError::Stream(
+                "webrtc sideband base URL is not configured".to_string(),
+            ));
+        }
         // The WebRTC call already exists; this loop only retries joining its sideband control
         // socket. Once joined, the returned connection is the same reader/writer state that the
         // ordinary websocket start path uses.
@@ -1010,8 +1014,13 @@ impl RealtimeWebsocketClient {
         session_mode: RealtimeSessionMode,
         call_id: &str,
     ) -> Result<Url, ApiError> {
+        let Some(base_url) = self.webrtc_sideband_base_url.as_deref() else {
+            return Err(ApiError::Stream(
+                "webrtc sideband base URL is not configured".to_string(),
+            ));
+        };
         websocket_url_from_api_url_for_call(
-            self.webrtc_sideband_base_url.as_str(),
+            base_url,
             /*query_params*/ None,
             event_parser,
             session_mode,
@@ -2319,34 +2328,6 @@ mod tests {
                     if message == format!("invalid realtime call id: {call_id}")
             ));
         }
-    }
-
-    #[test]
-    fn webrtc_frameless_sideband_ignores_provider_base_url() {
-        let client = test_client(Provider {
-            name: "chatgpt".to_string(),
-            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
-            query_params: None,
-            headers: HeaderMap::new(),
-            retry: RetryConfig {
-                max_attempts: 0,
-                base_delay: Duration::ZERO,
-                retry_429: false,
-                retry_5xx: false,
-                retry_transport: false,
-            },
-            stream_idle_timeout: Duration::from_secs(5),
-        });
-
-        let url = client
-            .webrtc_sideband_url(
-                RealtimeEventParser::FramelessBidi,
-                RealtimeSessionMode::Conversational,
-                "rtc_test",
-            )
-            .expect("build ws url");
-
-        assert_eq!(url.as_str(), "wss://api.openai.com/v1/live/rtc_test");
     }
 
     #[tokio::test]

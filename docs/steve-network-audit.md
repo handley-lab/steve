@@ -56,7 +56,9 @@ base URLs can be overridden separately by
 `experimental_realtime_ws_base_url` and
 `experimental_realtime_webrtc_call_base_url`; an existing call can also supply
 its sideband base. These overrides need inspection even when ordinary inference
-uses Cambridge. This source routing does not establish Cambridge support for
+uses Cambridge. The WebRTC sideband does not default to
+`https://api.openai.com/v1`. It connects only when an explicit sideband base
+URL is set. This source routing does not establish Cambridge support for
 the realtime protocols.
 
 WebRTC creation POSTs SDP and session configuration to `realtime/calls`
