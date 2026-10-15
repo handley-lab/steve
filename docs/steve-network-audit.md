@@ -148,6 +148,12 @@ daemon diagnostic wording changes. Sources:
 `codex-rs/core-plugins/src/startup_sync.rs`, `manager.rs`, and
 `codex-rs/app-server/src/request_processors/plugins/search.rs`.
 
+## Config bundle
+
+Steve does not GET `/wham/config/bundle` or `/api/codex/config/bundle`. Startup
+does not substitute `https://chatgpt.com/backend-api/` to fetch a cloud config
+bundle. Local configuration still loads.
+
 ## Cloud-task submission
 
 Cloud-task initialization does not default to

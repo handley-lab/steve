@@ -634,11 +634,6 @@ impl AccountRequestProcessor {
             )))
             .await
             .map_err(|err| internal_error(format!("failed to set external auth: {err}")))?;
-        self.config_manager.replace_cloud_config_bundle_loader(
-            self.auth_manager.clone(),
-            self.config.chatgpt_base_url.clone(),
-            self.config.http_client_factory(),
-        );
         self.config_manager
             .sync_default_client_residency_requirement()
             .await;
@@ -708,11 +703,6 @@ impl AccountRequestProcessor {
         // Another process may have changed the persisted workspace. Reload both
         // account authority and its policy before selecting a grant to remove.
         self.auth_manager.reload().await;
-        self.config_manager.replace_cloud_config_bundle_loader(
-            Arc::clone(&self.auth_manager),
-            self.config.chatgpt_base_url.clone(),
-            self.config.http_client_factory(),
-        );
         let config = self
             .config_manager
             .load_latest_config(/*fallback_cwd*/ None)

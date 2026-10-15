@@ -52,10 +52,6 @@ async fn bootstrap_discovery_survives_identity_installation_but_account_access_i
     let policy = EmbeddedNetworkPolicy::load(&overrides).await;
     let auth_config = policy.bind_bootstrap_auth(config.auth_config());
     let bootstrap = auth_config.auth_route_config.http_client_factory().clone();
-    let bundle_url =
-        codex_backend_client::Client::new(config.chatgpt_base_url.clone(), bootstrap.clone())
-            .config_bundle_url()
-            .parse()?;
     let content_url = "https://chatgpt.com/backend-api/codex/responses".parse()?;
     let manager = AuthManager::new(
         home.path().to_path_buf(),
@@ -69,7 +65,6 @@ async fn bootstrap_discovery_survives_identity_installation_but_account_access_i
     .await;
     assert!(manager.auth_cached().is_none());
 
-    bootstrap.network_policy().acquire(&bundle_url)?;
     let mut previous_access: Option<(HttpClientFactory, NetworkPermit)> = None;
     for identity in ["bootstrap-account-one", "bootstrap-account-two"] {
         let token = format!(
@@ -95,12 +90,6 @@ async fn bootstrap_discovery_survives_identity_installation_but_account_access_i
             );
         }
 
-        // Discovery must remain possible after both initial login and a workspace change.
-        bootstrap.network_policy().acquire(&bundle_url)?;
-        assert_eq!(
-            bootstrap.network_policy().acquire(&content_url).err(),
-            Some(NetworkPolicyDenied::Destination)
-        );
         assert_eq!(
             manager
                 .application_network_policy()
@@ -132,12 +121,11 @@ async fn bootstrap_discovery_survives_identity_installation_but_account_access_i
             .err(),
         Some(NetworkPolicyDenied::Unavailable)
     );
-    bootstrap.network_policy().acquire(&bundle_url)?;
 
     // Losing local requirements must still close the bootstrap route.
     policy.local.unavailable(policy.local.policy().revision());
     assert_eq!(
-        bootstrap.network_policy().acquire(&bundle_url).err(),
+        bootstrap.network_policy().acquire(&content_url).err(),
         Some(NetworkPolicyDenied::Unavailable)
     );
     Ok(())

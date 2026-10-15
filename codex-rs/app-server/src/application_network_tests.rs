@@ -5,7 +5,6 @@ use anyhow::Result;
 use codex_config::CloudConfigBundleLoader;
 use codex_config::LoaderOverrides;
 use codex_config::test_support::CloudConfigBundleFixture;
-use codex_http_client::NetworkPolicyDenied;
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
@@ -44,17 +43,16 @@ async fn embedded_transports_stay_blocked_until_the_same_policy_is_published() -
         .build()
         .await?;
     config.chatgpt_base_url = server.uri();
-    let cloud_endpoint = format!("{}/api/codex/config/bundle", server.uri());
     let policy = EmbeddedNetworkPolicy::load(&overrides).await;
     let bootstrap_auth = policy.bind_bootstrap_auth(config.auth_config());
     let bootstrap = bootstrap_auth
         .auth_route_config
         .http_client_factory()
-        .build_client(&cloud_endpoint, ClientRouteClass::Auth)?;
+        .build_client(&server.uri(), ClientRouteClass::Auth)?;
     let application = policy
         .bind(config.http_client_factory())
         .build_client(&server.uri(), ClientRouteClass::Other)?;
-    assert!(bootstrap.get(&cloud_endpoint).send().await.is_err());
+    assert!(bootstrap.get(server.uri()).send().await.is_err());
     assert!(application.get(server.uri()).send().await.is_err());
     policy.activate(&mut config);
     let caller_factory = config.http_client_factory();
@@ -63,9 +61,9 @@ async fn embedded_transports_stay_blocked_until_the_same_policy_is_published() -
     let worktree_client = worktree_bootstrap
         .auth_route_config
         .http_client_factory()
-        .build_client(&cloud_endpoint, ClientRouteClass::Auth)?;
+        .build_client(&server.uri(), ClientRouteClass::Auth)?;
     assert!(caller_client.get(server.uri()).send().await.is_err());
-    assert!(worktree_client.get(&cloud_endpoint).send().await.is_err());
+    assert!(worktree_client.get(server.uri()).send().await.is_err());
     assert!(
         caller_factory
             .network_policy()
@@ -86,18 +84,8 @@ async fn embedded_transports_stay_blocked_until_the_same_policy_is_published() -
 
     std::fs::remove_file(&requirements)?;
     let unrestricted = manager.refresh_application_network_policy().await?;
-    let unrelated_endpoint = format!("{}/not-the-config-endpoint", server.uri()).parse()?;
-    assert_eq!(
-        bootstrap_auth
-            .auth_route_config
-            .http_client_factory()
-            .network_policy()
-            .acquire(&unrelated_endpoint)
-            .map(|_| ()),
-        Err(NetworkPolicyDenied::Destination),
-    );
     caller_client.get(server.uri()).send().await?;
-    worktree_client.get(&cloud_endpoint).send().await?;
+    worktree_client.get(server.uri()).send().await?;
     assert!(
         caller_factory
             .network_policy()
@@ -108,7 +96,7 @@ async fn embedded_transports_stay_blocked_until_the_same_policy_is_published() -
     std::fs::write(&requirements, "[malformed")?;
     assert!(manager.refresh_application_network_policy().await.is_err());
     assert!(caller_client.get(server.uri()).send().await.is_err());
-    assert!(worktree_client.get(&cloud_endpoint).send().await.is_err());
+    assert!(worktree_client.get(server.uri()).send().await.is_err());
     assert!(
         caller_factory
             .network_policy()

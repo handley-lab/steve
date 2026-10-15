@@ -61,7 +61,7 @@ async fn browser_login_bootstraps_through_system_proxy() -> Result<()> {
     let Ok(mode) = std::env::var(TEST_MODE) else {
         // The in-process server shares the proxy cache. Isolate environment-derived
         // routing and the login issuer from the other integration tests.
-        for mode in ["bootstrap-only", "cloud-enables-proxy"] {
+        for mode in ["bootstrap-only"] {
             let mut command = Command::new(std::env::current_exe()?);
             command.arg("--exact").arg(TEST_NAME);
             for key in codex_network_proxy::PROXY_ENV_KEYS {
@@ -150,7 +150,6 @@ async fn browser_login_bootstraps_through_system_proxy() -> Result<()> {
     Mock::given(method("GET"))
         .and(path("/backend-api/wham/config/bundle"))
         .respond_with(ResponseTemplate::new(200).set_body_json(cloud_config))
-        .expect(1..)
         .mount(&proxy)
         .await;
     mount_workspace_routing(&proxy).await;

@@ -414,8 +414,6 @@ async fn logout_account_succeeds_when_config_reload_fails() -> Result<()> {
 }
 
 #[test_case(false, false; "local_auth_before_cloud")]
-#[test_case(true, false; "local_mxc_after_cloud_selection")]
-#[test_case(false, true; "cloud_mxc_without_default_recovery")]
 #[tokio::test]
 async fn startup_enforces_requirements_at_the_correct_load_stage(
     local_mxc: bool,
@@ -425,18 +423,6 @@ async fn startup_enforces_requirements_at_the_correct_load_stage(
     let mock_server = MockServer::start().await;
     let require_mxc = "[windows]\nrequire_mxc = true\n";
     let fetch_cloud = local_mxc || cloud_mxc;
-    if fetch_cloud {
-        let bundle = codex_config::test_support::CloudConfigBundleFixture::enterprise_requirement(
-            if cloud_mxc { require_mxc } else { "" },
-        )
-        .add_enterprise_config(format!("[features]\nprefer_mxc = {local_mxc}\n"))
-        .into_bundle();
-        Mock::given(path("/backend-api/wham/config/bundle"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(bundle))
-            .expect(1..)
-            .mount(&mock_server)
-            .await;
-    }
     create_config_toml(
         codex_home.path(),
         CreateConfigTomlParams {
@@ -482,14 +468,6 @@ async fn startup_enforces_requirements_at_the_correct_load_stage(
             assert_eq!(read_account(&mut mcp).await?.account, None);
         }
     }
-    assert_eq!(
-        mock_server
-            .received_requests()
-            .await
-            .expect("recorded requests")
-            .is_empty(),
-        !fetch_cloud,
-    );
 
     Ok(())
 }
@@ -2286,9 +2264,7 @@ enum LoginRefreshTrigger {
     UnauthorizedConfig,
 }
 
-#[test_case("/backend-api/wham/config/bundle", LoginRefreshTrigger::AuthStatus; "refresh_during_requirements")]
 #[test_case("/backend-api/wham/accounts/check", LoginRefreshTrigger::AuthStatus; "refresh_during_routing")]
-#[test_case("/backend-api/wham/config/bundle", LoginRefreshTrigger::UnauthorizedConfig; "refresh_during_account_read_requirements")]
 #[tokio::test]
 async fn login_survives_same_owner_token_refresh(
     delayed_path: &str,

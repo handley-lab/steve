@@ -866,15 +866,6 @@ trust_level = "trusted"
                 "cannot create a checkout from an explicitly untrusted source",
             )
             .await?;
-            assert!(
-                server
-                    .received_requests()
-                    .await
-                    .context("requests")?
-                    .iter()
-                    .skip(request_count)
-                    .any(|request| request.url.path() == "/source/backend-api/wham/config/bundle")
-            );
             assert_eq!(git(&source, &["worktree", "list", "--porcelain"])?, before);
             server.reset().await;
             if cache.exists() {
@@ -907,7 +898,6 @@ trust_level = "trusted"
                 .skip(count)
                 .map(|r| r.url.path())
                 .collect::<Vec<_>>();
-            assert!(paths.contains(&"/source/backend-api/wham/config/bundle"));
             assert!(!paths.contains(&"/v1/responses"));
             let after = git(&source, &["worktree", "list", "--porcelain"])?;
             let retained = after

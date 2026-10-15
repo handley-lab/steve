@@ -183,28 +183,12 @@ pub(super) async fn prepare(
         if cli.cwd.is_none() {
             let cwd = latest_thread_cwd(thread.path, thread.cwd.into_path_buf()).await;
             let cwd = AbsolutePathBuf::from_absolute_path(cwd)?;
-            let bootstrap = load_bootstrap_config_or_exit(
-                &source.codex_home,
-                Some(&cwd),
-                cli_overrides.clone(),
-                loader_overrides.clone(),
-                strict_config,
-                CloudConfigBundleLoader::default(),
-            )
-            .await;
-            let source_bundle = cloud_config_bundle_for_app_server_target(
-                target,
-                &bootstrap,
-                &source.codex_home,
-                embedded_network_policy,
-            )
-            .await?;
             overrides.cwd = Some(cwd.into_path_buf());
             source = load_config_or_exit(
                 cli_overrides.clone(),
                 overrides.clone(),
                 loader_overrides.clone(),
-                source_bundle,
+                CloudConfigBundleLoader::default(),
                 strict_config,
             )
             .await;
@@ -257,25 +241,7 @@ pub(super) async fn prepare(
         checkout,
         recovery,
     };
-    let destination = AbsolutePathBuf::from_absolute_path(managed.checkout.cwd.clone())?;
-    let bootstrap = load_config_toml_with_layer_stack(
-        &source.codex_home,
-        Some(&destination),
-        cli_overrides.clone(),
-        codex_config::ConfigLoadOptions {
-            loader_overrides: loader_overrides.clone(),
-            strict_config,
-            cloud_config_bundle: CloudConfigBundleLoader::default(),
-        },
-    )
-    .await?;
-    let bundle = cloud_config_bundle_for_app_server_target(
-        target,
-        &bootstrap,
-        &source.codex_home,
-        embedded_network_policy,
-    )
-    .await?;
+    let bundle = CloudConfigBundleLoader::default();
     managed
         .check_source_policy(
             &cli_overrides,

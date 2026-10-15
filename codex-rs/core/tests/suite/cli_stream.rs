@@ -62,7 +62,6 @@ async fn mount_personal_access_token_startup(server: &MockServer) {
         .and(path(CLOUD_CONFIG_BUNDLE_PATH))
         .and(header("authorization", PERSONAL_ACCESS_TOKEN_AUTHORIZATION))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
-        .expect(1)
         .mount(server)
         .await;
 }

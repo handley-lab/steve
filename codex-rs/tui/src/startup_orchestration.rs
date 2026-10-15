@@ -148,17 +148,7 @@ pub(super) async fn run_main_inner(
             CloudConfigBundleLoader::default(),
         )
         .await;
-        let validation_cloud_config_bundle = if workload_identity_selected {
-            cloud_config_bundle_for_app_server_target(
-                &validation_target,
-                &validation_bootstrap,
-                &codex_home,
-                &embedded_network_policy,
-            )
-            .await?
-        } else {
-            CloudConfigBundleLoader::default()
-        };
+        let validation_cloud_config_bundle = CloudConfigBundleLoader::default();
         load_config_or_exit(
             cli_kv_overrides.clone(),
             ConfigOverrides {
@@ -345,14 +335,7 @@ pub(super) async fn run_main_inner(
     } else {
         Ok(())
     };
-    let cloud_config_bundle = startup_draft
-        .run_until(cloud_config_bundle_for_app_server_target(
-            &app_server_target,
-            &bootstrap_config,
-            &codex_home,
-            &embedded_network_policy,
-        ))
-        .await??;
+    let mut cloud_config_bundle = CloudConfigBundleLoader::default();
     let bootstrap_config_toml = &bootstrap_config.config_toml;
 
     let cwd_override = if app_server_target.uses_remote_workspace() {
@@ -365,9 +348,7 @@ pub(super) async fn run_main_inner(
     let model_provider_override = if cli.oss {
         let bootstrap_config_with_cloud_config;
         let config_toml_for_oss = if cli.oss_provider.is_none() {
-            // The first load intentionally skips cloud config so we can read
-            // auth/base-url settings needed to fetch the bundle. If OSS mode
-            // needs a default provider from config, reload with the bundle.
+            // Reload when OSS mode needs a default provider from configuration.
             bootstrap_config_with_cloud_config = startup_draft
                 .run_until(load_bootstrap_config_or_exit(
                     &codex_home,
@@ -467,18 +448,6 @@ pub(super) async fn run_main_inner(
         config.cwd.as_path(),
     );
 
-    let mut cloud_config_bundle = if workload_identity_selected {
-        cloud_config_bundle
-    } else {
-        startup_draft
-            .run_until(cloud_config_bundle_loader_for_storage(
-                embedded_network_policy.bind_bootstrap_auth(
-                    app_server_target.auth_config_for_cloud_loader(config.auth_config()),
-                ),
-                /*enable_codex_api_key_env*/ false,
-            ))
-            .await??
-    };
     let managed_worktree = if cli.shared.worktree {
         let (destination, bundle, worktree) = startup_draft
             .run_until(worktree_startup::prepare(

@@ -68,7 +68,7 @@ impl EmbeddedNetworkPolicy {
         config.application_network_policy = self.effective.policy();
     }
 
-    /// Limits cloud discovery and each authentication request to their exact local-policy endpoints.
+    /// Attaches the local bootstrap policy and the effective application policy to authentication.
     pub fn bind_bootstrap_auth(
         &self,
         mut auth: codex_login::AuthConfig,
@@ -78,22 +78,10 @@ impl EmbeddedNetworkPolicy {
             .http_client_factory()
             .clone()
             .with_network_policy(self.local.policy());
-        let endpoint = codex_backend_client::Client::new(
-            auth.chatgpt_base_url
-                .as_deref()
-                .unwrap_or("https://chatgpt.com/backend-api/"),
-            factory.clone(),
-        )
-        .config_bundle_url();
-        auth.auth_route_config = codex_login::AuthRouteConfig::from_http_client_factory(
-            factory.clone().with_network_policy(
-                self.local
-                    .policy()
-                    .restrict_to_endpoints(endpoint.parse().into_iter().collect()),
-            ),
-        )
-        .with_local_bootstrap_factory(factory)
-        .with_application_network_policy(self.effective.policy());
+        auth.auth_route_config =
+            codex_login::AuthRouteConfig::from_http_client_factory(factory.clone())
+                .with_local_bootstrap_factory(factory)
+                .with_application_network_policy(self.effective.policy());
         auth
     }
 }
@@ -119,17 +107,6 @@ pub(super) async fn configure(
         ..caller_auth.clone()
     };
     bootstrap_auth.validate()?;
-    let bootstrap_auth_manager = AuthManager::shared_from_auth_config(
-        bootstrap_auth,
-        /*enable_codex_api_key_env*/ false,
-    )
-    .await
-    .map_err(IoError::other)?;
-    config_manager.replace_cloud_config_bundle_loader(
-        bootstrap_auth_manager,
-        bootstrap_config.chatgpt_base_url.clone(),
-        bootstrap_config.http_client_factory(),
-    );
     let policy_config = config_manager
         .load_startup_config(Some(config.cwd.to_path_buf()))
         .await?;
@@ -166,11 +143,6 @@ pub(super) async fn configure(
     config.application_auth_route_config = policy_config.application_auth_route_config;
     config.forced_login_method = policy_config.forced_login_method;
     config.forced_chatgpt_workspace_id = policy_config.forced_chatgpt_workspace_id;
-    config_manager.replace_cloud_config_bundle_loader(
-        policy_auth_manager,
-        config.chatgpt_base_url.clone(),
-        config.http_client_factory(),
-    );
     codex_login::default_client::set_default_client_residency_requirement(
         config.enforce_residency.value(),
     );

@@ -1,5 +1,4 @@
 use codex_arg0::Arg0DispatchPaths;
-use codex_cloud_config::cloud_config_bundle_loader;
 use codex_config::CloudConfigBundleLoader;
 use codex_config::ConfigLayerStack;
 use codex_config::LoaderOverrides;
@@ -11,7 +10,6 @@ use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
 use codex_exec_server::LOCAL_FS;
 use codex_features::feature_for_key;
-use codex_login::AuthManager;
 use codex_login::default_client::set_default_client_residency_requirement;
 use codex_model_provider_info::AMAZON_BEDROCK_PROVIDER_ID;
 use codex_model_provider_info::AMAZON_BEDROCK_RUNTIME_PROVIDER_ID;
@@ -135,36 +133,6 @@ impl ConfigManager {
             self.runtime_feature_enablement.write().map_err(|_| ())?;
         runtime_feature_enablement.extend(enablement);
         Ok(())
-    }
-
-    pub(crate) fn replace_cloud_config_bundle_loader(
-        &self,
-        auth_manager: Arc<AuthManager>,
-        chatgpt_base_url: String,
-        http_client_factory: codex_http_client::HttpClientFactory,
-    ) {
-        let endpoint = codex_backend_client::Client::new(
-            chatgpt_base_url.clone(),
-            http_client_factory.clone(),
-        )
-        .config_bundle_url();
-        let http_client_factory = http_client_factory.with_network_policy(
-            self.local_network_policy
-                .policy()
-                .restrict_to_endpoints(endpoint.parse().into_iter().collect()),
-        );
-        let loader = cloud_config_bundle_loader(
-            auth_manager,
-            chatgpt_base_url,
-            self.codex_home.clone(),
-            http_client_factory,
-        );
-        if let Ok(mut guard) = self.cloud_config_bundle.write() {
-            guard.retire_ema_policy();
-            *guard = loader;
-        } else {
-            warn!("failed to update cloud config bundle loader");
-        }
     }
 
     pub(crate) fn clear_cloud_config_bundle_loader(&self) {

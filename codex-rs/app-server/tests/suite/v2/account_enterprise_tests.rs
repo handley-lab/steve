@@ -75,7 +75,6 @@ client_id = "enterprise-client""#
                     CloudConfigBundleFixture::enterprise_config(contents).into_bundle(),
                 ),
             )
-            .expect(1)
             .mount(&server)
             .await;
     }

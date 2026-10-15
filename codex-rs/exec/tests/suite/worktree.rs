@@ -363,15 +363,6 @@ async fn worktree_start_and_fork_use_host_pool_and_preserve_legacy_resume() -> a
                 )
             );
             assert!(stderr.contains("Remove it manually with `git worktree remove`"));
-            assert!(
-                server
-                    .received_requests()
-                    .await
-                    .context("requests")?
-                    .iter()
-                    .skip(request_count)
-                    .any(|request| request.url.path() == "/backend-api/wham/config/bundle")
-            );
         } else {
             assert!(!home.join("worktrees").exists());
         }

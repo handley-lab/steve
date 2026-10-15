@@ -58,7 +58,7 @@ use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::TurnStartedNotification;
 use codex_arg0::Arg0DispatchPaths;
-use codex_cloud_config::cloud_config_bundle_loader_for_storage;
+
 use codex_config::CloudConfigBundleLoader;
 use codex_config::ConfigLoadError;
 use codex_config::ConfigLoadOptions;
@@ -70,7 +70,7 @@ use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
 use codex_core::config::ConfigTomlLoadResult;
-use codex_core::config::bootstrap_auth_config;
+
 use codex_core::config::find_codex_home;
 use codex_core::config::load_config_toml_with_layer_stack;
 use codex_core::config::resolve_oss_provider;
@@ -393,21 +393,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
     let managed_worktree = if worktree {
         let embedded_network_policy =
             codex_app_server_client::EmbeddedNetworkPolicy::load(&loader_overrides).await;
-        let gate_bootstrap = load_bootstrap_config_or_exit(
-            &codex_home,
-            /*cwd*/ None,
-            cli_kv_overrides.clone(),
-            loader_overrides.clone(),
-            strict_config,
-            CloudConfigBundleLoader::default(),
-        )
-        .await;
-        let gate_cloud_config = cloud_config_bundle_loader_for_storage(
-            embedded_network_policy
-                .bind_bootstrap_auth(bootstrap_auth_config(&codex_home, &gate_bootstrap)?),
-            /*enable_codex_api_key_env*/ false,
-        )
-        .await?;
+        let gate_cloud_config = CloudConfigBundleLoader::default();
         let gate_config = ConfigBuilder::default()
             .codex_home(codex_home.to_path_buf())
             .cli_overrides(cli_kv_overrides.clone())
@@ -502,16 +488,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
     )
     .await;
     let bootstrap_config_toml = &bootstrap_config.config_toml;
-    let bootstrap_auth_config = embedded_network_policy
-        .bind_bootstrap_auth(bootstrap_auth_config(&codex_home, &bootstrap_config)?);
-    // API keys cannot fetch workspace-managed configuration. Preserve the
-    // existing ChatGPT bootstrap identity even when model requests allow
-    // STEVE_API_KEY.
-    let cloud_config_bundle = cloud_config_bundle_loader_for_storage(
-        bootstrap_auth_config,
-        /*enable_codex_api_key_env*/ false,
-    )
-    .await?;
+    let cloud_config_bundle = CloudConfigBundleLoader::default();
     if let Some(worktree) = managed_worktree.as_ref() {
         // Destination auth can fetch source policy that the host bootstrap could not.
         let source_config = ConfigBuilder::default()
