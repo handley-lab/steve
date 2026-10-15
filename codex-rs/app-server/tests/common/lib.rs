@@ -12,13 +12,6 @@ mod rollout;
 mod rpc_delay;
 mod test_app_server;
 
-pub use analytics_server::analytics_capture_path;
-pub use analytics_server::analytics_capture_path_for;
-pub use analytics_server::captured_analytics_events as captured_analytics_events_from_uri;
-pub use analytics_server::read_analytics_events;
-pub use analytics_server::read_analytics_lines;
-pub use analytics_server::read_analytics_payload;
-pub use analytics_server::register_analytics_capture;
 pub use analytics_server::start_analytics_events_server;
 pub use auth_fixtures::ChatGptAuthFixture;
 pub use auth_fixtures::ChatGptIdTokenClaims;

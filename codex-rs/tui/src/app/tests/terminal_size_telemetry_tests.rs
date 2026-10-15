@@ -4,7 +4,7 @@ use super::*;
 use pretty_assertions::assert_eq;
 
 #[tokio::test]
-async fn terminal_size_telemetry_follows_the_reloaded_exporter() -> Result<()> {
+async fn terminal_size_telemetry_respects_reloaded_exporter_and_consent() -> Result<()> {
     let (mut app, _app_event_rx, _op_rx) = Box::pin(make_test_app_with_channels()).await;
     let cwd = app.config.cwd.to_path_buf();
     let mut enabled = Vec::new();

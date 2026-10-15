@@ -44,7 +44,6 @@ use std::path::Path;
 use tempfile::TempDir;
 use tokio::time::timeout;
 
-use super::analytics::captured_analytics_events;
 use super::analytics::mount_analytics_capture;
 use super::analytics::wait_for_matching_analytics_event;
 
@@ -431,7 +430,6 @@ async fn thread_archive_archives_spawned_descendants() -> Result<()> {
     let server = create_mock_responses_server_repeating_assistant("Done").await;
     let codex_home = TempDir::new()?;
     MockResponsesConfig::new(&server.uri()).write(codex_home.path())?;
-    app_test_support::register_analytics_capture(&server.uri(), codex_home.path());
 
     let parent_id = create_fake_rollout(
         codex_home.path(),
@@ -698,11 +696,38 @@ async fn thread_archive_succeeds_when_descendant_archive_fails() -> Result<()> {
     })
     .await?;
 
-    let archive_events = captured_analytics_events(&server)
+    let requests = server
+        .received_requests()
         .await
-        .into_iter()
-        .filter(|event| event["event_type"] == "codex_thread_archive_event")
-        .collect::<Vec<_>>();
+        .ok_or_else(|| anyhow::anyhow!("wiremock did not record requests"))?;
+    let mut archive_events = Vec::new();
+    for request in requests {
+        if request.url.path() != "/codex/analytics-events/events" {
+            continue;
+        }
+        let payload: Value = serde_json::from_slice(&request.body)?;
+        let events = payload["events"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("analytics payload missing events array"))?;
+        for event in events
+            .iter()
+            .filter(|event| event["event_type"] == "codex_thread_archive_event")
+        {
+            for (header, expected) in [
+                ("authorization", "Bearer chatgpt-token"),
+                ("chatgpt-account-id", "account-123"),
+            ] {
+                assert_eq!(
+                    request
+                        .headers
+                        .get(header)
+                        .and_then(|value| value.to_str().ok()),
+                    Some(expected)
+                );
+            }
+            archive_events.push(event.clone());
+        }
+    }
 
     let expected = [
         (parent_id.as_str(), "archived"),

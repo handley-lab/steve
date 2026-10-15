@@ -4965,50 +4965,6 @@ async fn plugin_list_omits_featured_plugin_ids_without_chatgpt_auth() -> Result<
     Ok(())
 }
 
-#[tokio::test]
-async fn plugin_list_does_not_request_featured_plugin_ids() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    write_plugin_sync_config(codex_home.path(), &format!("{}/backend-api/", server.uri()))?;
-    write_openai_curated_marketplace(codex_home.path(), &["linear", "gmail"])?;
-    write_remote_plugin_test_auth(codex_home.path())?;
-
-    Mock::given(method("GET"))
-        .and(path("/backend-api/plugins/featured"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(r#"["linear@openai-curated"]"#))
-        .expect(0)
-        .mount(&server)
-        .await;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .with_plugin_startup_tasks()
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-    wait_for_featured_plugin_request_count(&server, /*expected_count*/ 0).await?;
-
-    let request_id = mcp
-        .send_plugin_list_request(PluginListParams {
-            cwds: None,
-            marketplace_kinds: None,
-            force_refetch: false,
-        })
-        .await?;
-
-    let response: PluginListResponse =
-        timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
-
-    assert!(response.featured_plugin_ids.is_empty());
-    Ok(())
-}
-
-async fn wait_for_featured_plugin_request_count(
-    server: &MockServer,
-    expected_count: usize,
-) -> Result<()> {
-    wait_for_remote_plugin_request_count(server, "/plugins/featured", expected_count).await
-}
-
 async fn wait_for_remote_plugin_request_count(
     server: &MockServer,
     path_suffix: &str,

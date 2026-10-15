@@ -570,7 +570,7 @@ async fn plugin_install_tracks_analytics_when_remote_detail_fetch_fails() -> Res
     let server = MockServer::start().await;
     configure_remote_plugin_test(codex_home.path(), &server)?;
     mount_empty_remote_installed_plugins(&server).await;
-    register_backend_analytics(&server, codex_home.path());
+    mount_backend_analytics_events(&server).await;
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
@@ -628,7 +628,7 @@ async fn plugin_install_tracks_analytics_when_remote_install_is_rate_limited() -
         .respond_with(ResponseTemplate::new(/*status_code*/ 429).set_body_string("rate limited"))
         .mount(&server)
         .await;
-    register_backend_analytics(&server, codex_home.path());
+    mount_backend_analytics_events(&server).await;
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
@@ -697,7 +697,7 @@ async fn plugin_install_rejects_remote_plugin_disabled_by_admin_before_download(
     )
     .await;
     mount_empty_remote_installed_plugins(&server).await;
-    register_backend_analytics(&server, codex_home.path());
+    mount_backend_analytics_events(&server).await;
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
@@ -760,7 +760,7 @@ async fn plugin_install_rejects_remote_plugin_not_available() -> Result<()> {
     )
     .await;
     mount_empty_remote_installed_plugins(&server).await;
-    register_backend_analytics(&server, codex_home.path());
+    mount_backend_analytics_events(&server).await;
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
@@ -834,7 +834,6 @@ async fn plugin_install_returns_invalid_request_for_missing_marketplace_file() -
 async fn plugin_install_tracks_analytics_when_marketplace_file_cannot_be_read() -> Result<()> {
     let analytics_server = start_analytics_events_server().await?;
     let codex_home = TempDir::new()?;
-    register_backend_analytics(&analytics_server, codex_home.path());
     write_analytics_config(codex_home.path(), &analytics_server.uri())?;
     write_chatgpt_auth(
         codex_home.path(),
@@ -988,7 +987,6 @@ async fn plugin_install_returns_invalid_request_for_disallowed_product_plugin() 
 async fn plugin_install_tracks_analytics_event() -> Result<()> {
     let analytics_server = start_analytics_events_server().await?;
     let codex_home = TempDir::new()?;
-    register_backend_analytics(&analytics_server, codex_home.path());
     write_analytics_config(codex_home.path(), &analytics_server.uri())?;
     write_chatgpt_auth(
         codex_home.path(),
@@ -1056,7 +1054,6 @@ async fn plugin_install_tracks_analytics_event() -> Result<()> {
 async fn plugin_install_failure_tracks_analytics_event() -> Result<()> {
     let analytics_server = start_analytics_events_server().await?;
     let codex_home = TempDir::new()?;
-    register_backend_analytics(&analytics_server, codex_home.path());
     write_analytics_config(codex_home.path(), &analytics_server.uri())?;
     write_chatgpt_auth(
         codex_home.path(),
@@ -1133,7 +1130,7 @@ async fn plugin_install_tracks_remote_plugin_analytics_event() -> Result<()> {
     mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
     mount_empty_remote_installed_plugins(&server).await;
     mount_remote_plugin_install(&server, REMOTE_PLUGIN_ID).await;
-    register_backend_analytics(&server, codex_home.path());
+    mount_backend_analytics_events(&server).await;
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
@@ -1190,7 +1187,7 @@ async fn plugin_install_preserves_status_when_remote_bundle_error_body_is_too_la
     mount_remote_plugin_detail(&server, REMOTE_PLUGIN_ID, "1.2.3", Some(&bundle_url)).await;
     mount_empty_remote_installed_plugins(&server).await;
     mount_remote_plugin_install(&server, REMOTE_PLUGIN_ID).await;
-    register_backend_analytics(&server, codex_home.path());
+    mount_backend_analytics_events(&server).await;
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
@@ -2826,21 +2823,36 @@ fn write_analytics_config(codex_home: &std::path::Path, base_url: &str) -> std::
     )
 }
 
-fn register_backend_analytics(server: &MockServer, codex_home: &std::path::Path) {
-    app_test_support::register_analytics_capture(&server.uri(), codex_home);
+async fn mount_backend_analytics_events(server: &MockServer) {
+    Mock::given(method("POST"))
+        .and(path("/backend-api/codex/analytics-events/events"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"status":"ok"}"#))
+        .mount(server)
+        .await;
 }
 
 async fn wait_for_plugin_analytics_payload(
     server: &MockServer,
     event_type: &str,
 ) -> Result<serde_json::Value> {
-    let path = app_test_support::analytics_capture_path_for(&server.uri());
     timeout(DEFAULT_TIMEOUT, async {
         loop {
-            for mut payload in app_test_support::read_analytics_lines(&path) {
-                let Some(events) = payload["events"].as_array_mut() else {
-                    continue;
-                };
+            let Some(requests) = server.received_requests().await else {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+                continue;
+            };
+            for request in requests.iter().filter(|request| {
+                request.method == "POST"
+                    && request
+                        .url
+                        .path()
+                        .ends_with("/codex/analytics-events/events")
+            }) {
+                let mut payload: serde_json::Value = serde_json::from_slice(&request.body)
+                    .map_err(|err| anyhow::anyhow!("invalid analytics payload: {err}"))?;
+                let events = payload["events"]
+                    .as_array_mut()
+                    .ok_or_else(|| anyhow::anyhow!("analytics payload missing events array"))?;
                 events.retain(|event| event["event_type"] == event_type);
                 if !events.is_empty() {
                     return Ok(payload);
@@ -2853,27 +2865,28 @@ async fn wait_for_plugin_analytics_payload(
 }
 
 #[tokio::test]
-async fn plugin_analytics_wait_ignores_unrelated_events_and_batched_events() -> Result<()> {
+async fn plugin_analytics_wait_ignores_unrelated_requests_and_batched_events() -> Result<()> {
     let server = MockServer::start().await;
-    let codex_home = TempDir::new()?;
-    register_backend_analytics(&server, codex_home.path());
+    mount_backend_analytics_events(&server).await;
+    let client = HttpClientBuilder::new().build_direct()?;
     let expected = json!({
         "event_type": "codex_plugin_install_failed",
         "event_params": {"plugin_id": "sample-plugin@debug"}
     });
-    let lines = [
-        json!({"events": [{"event_type": "codex_turn_event"}]}),
-        json!({"events": [{"event_type": "codex_thread_initialized"}, expected.clone()]}),
-    ];
-    let mut body = String::new();
-    for line in lines {
-        body.push_str(&serde_json::to_string(&line)?);
-        body.push('\n');
+    for events in [
+        json!([{"event_type": "codex_turn_event"}]),
+        json!([{"event_type": "codex_thread_initialized"}, expected.clone()]),
+    ] {
+        client
+            .post(format!(
+                "{}/backend-api/codex/analytics-events/events",
+                server.uri()
+            ))
+            .json(&json!({"events": events}))
+            .send()
+            .await?
+            .error_for_status()?;
     }
-    std::fs::write(
-        app_test_support::analytics_capture_path(codex_home.path()),
-        body,
-    )?;
     assert_eq!(
         wait_for_plugin_analytics_payload(&server, "codex_plugin_install_failed").await?,
         json!({"events": [expected]})

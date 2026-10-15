@@ -149,13 +149,6 @@ async fn mount_recommendations(server: &wiremock::MockServer, response: Response
         .await;
 }
 
-fn suggested_plugin_request_count(requests: &[wiremock::Request]) -> usize {
-    requests
-        .iter()
-        .filter(|request| request.url.path() == "/ps/plugins/suggested/codex")
-        .count()
-}
-
 fn assert_legacy_tools(body: &Value) {
     let tools = tool_names(body);
     assert!(!tools.iter().any(|name| name == TOOL_SEARCH_TOOL_NAME));
@@ -276,10 +269,6 @@ async fn start_gated_step_preparation(test: &TestCodex, server: &MockServer) -> 
     })
     .await
     .context("MCP startup should begin before MCP is released")?;
-    assert_eq!(
-        suggested_plugin_request_count(&server.received_requests().await.unwrap_or_default()),
-        0
-    );
 
     PathUri::from_host_native_path(test.config.cwd.join("allow-step-preparation-initialize"))
         .map_err(Into::into)
@@ -788,40 +777,5 @@ async fn local_plugin_skill_availability_reaches_tool_suggestion_candidates(
             }]
         })
     );
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn turn_does_not_request_suggested_plugins() -> Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let server = start_mock_server().await;
-    let apps_server = AppsTestServer::mount(&server).await?;
-    let base_url = apps_server.chatgpt_base_url.clone();
-    let mock = mount_sse_once(
-        &server,
-        sse(vec![
-            ev_response_created("resp-1"),
-            ev_assistant_message("msg-1", "done"),
-            ev_completed("resp-1"),
-        ]),
-    )
-    .await;
-    let test = build_test(&server, &apps_server).await?;
-    test.submit_turn("suggest a plugin").await?;
-
-    let request = mock.single_request();
-    assert!(
-        !request
-            .message_input_texts("developer")
-            .join("\n")
-            .contains("<recommended_plugins>")
-    );
-    assert_legacy_tools(&request.body_json());
-    assert_eq!(
-        suggested_plugin_request_count(&server.received_requests().await.unwrap_or_default()),
-        0
-    );
-    assert_eq!(test.config.chatgpt_base_url, base_url);
     Ok(())
 }

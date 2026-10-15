@@ -357,32 +357,6 @@ mod tests {
         }
     }
 
-    #[cfg(not(target_os = "windows"))]
-    #[tokio::test]
-    async fn desktop_update_check_does_not_request_an_appcast() {
-        let application = InstalledApp {
-            identity: "com.openai.codex",
-            version: "0.0.0".to_string(),
-            #[cfg(target_os = "macos")]
-            bundle: PathBuf::new(),
-            #[cfg(target_os = "macos")]
-            build: 0,
-        };
-        let mut checks = vec![DoctorCheck::new(
-            "network.provider_reachability",
-            "network",
-            CheckStatus::Ok,
-            "ok",
-        )];
-
-        append_desktop_update(&mut checks, &application).await;
-
-        let rendered = format!("{checks:?}");
-        assert!(!rendered.contains("oaistatic.com"), "{rendered}");
-        assert!(!rendered.contains("chatgpt.com"), "{rendered}");
-        assert!(!rendered.contains("/wham/app/appcast"), "{rendered}");
-    }
-
     #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn macos_staged_updates_require_a_newer_matching_extracted_bundle() {

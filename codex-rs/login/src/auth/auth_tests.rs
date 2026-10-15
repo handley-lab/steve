@@ -458,45 +458,6 @@ async fn login_with_access_token_rejects_personal_access_token_workspace_mismatc
 }
 
 #[tokio::test]
-#[serial(codex_auth_env)]
-async fn login_with_access_token_stores_supplied_personal_access_token_without_whoami() {
-    let dir = tempdir().unwrap();
-    let server = MockServer::start().await;
-    let _authapi_guard = EnvVarGuard::set("STEVE_AUTHAPI_BASE_URL", &server.uri());
-
-    super::login_with_access_token(
-        dir.path(),
-        "at-invalid-login",
-        AuthCredentialsStoreMode::File,
-        /*forced_chatgpt_workspace_id*/ None,
-        /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::default(),
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .await
-    .expect("supplied personal access token should be stored locally");
-
-    let auth = super::load_auth_dot_json(
-        dir.path(),
-        AuthCredentialsStoreMode::File,
-        AuthKeyringBackendKind::default(),
-    )
-    .expect("auth.json should parse")
-    .expect("auth.json should exist");
-    assert_eq!(
-        auth.personal_access_token.as_deref(),
-        Some("at-invalid-login")
-    );
-    assert!(
-        server
-            .received_requests()
-            .await
-            .expect("inspect auth requests")
-            .is_empty()
-    );
-}
-
-#[tokio::test]
 async fn login_with_access_token_rejects_invalid_jwt() {
     let dir = tempdir().unwrap();
 

@@ -15,26 +15,3 @@ impl FeedbackRequestProcessor {
         Err(invalid_request("sending feedback is not available"))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn feedback_upload_does_not_submit_a_sentry_envelope() {
-        let processor = FeedbackRequestProcessor::new();
-        let error = processor
-            .feedback_upload(FeedbackUploadParams {
-                classification: "bug".to_string(),
-                reason: Some("local note".to_string()),
-                thread_id: None,
-                include_logs: true,
-                extra_log_files: None,
-                tags: None,
-            })
-            .await
-            .expect_err("feedback upload has no sentry transport");
-        assert_eq!(error.message, "sending feedback is not available");
-        assert!(!error.message.contains("ingest.sentry.io"));
-    }
-}

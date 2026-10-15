@@ -463,14 +463,16 @@ async fn cold_root_resume_restores_agent_identity_and_role_on_followup() -> Resu
     )
     .await;
 
-    let analytics_capture = tempfile::tempdir()?;
-    let analytics_capture_path = analytics_capture.path().join("analytics-events.jsonl");
-    let analytics_client = AnalyticsEventsClient::capturing(
+    Mock::given(method("POST"))
+        .and(path("/codex/analytics-events/events"))
+        .respond_with(ResponseTemplate::new(/* status */ 200))
+        .mount(&server)
+        .await;
+    let analytics_client = AnalyticsEventsClient::new(
         codex_core::test_support::auth_manager_from_auth(
             CodexAuth::create_dummy_chatgpt_auth_for_testing(),
         ),
         /* analytics_enabled */ Some(true),
-        analytics_capture_path.clone(),
     );
     let resumed_model_provider_base_url = format!("{}/v1", server.uri());
     let mut resume_builder = test_codex()
@@ -577,8 +579,11 @@ openai_base_url = "{redirected_base_url}"
     .await;
     tokio::time::timeout(Duration::from_secs(10), analytics_client.flush()).await?;
     let mut worker_initializations = Vec::new();
-    for payload in core_test_support::analytics_capture::read_analytics_lines(&analytics_capture_path)
-    {
+    for request in server.received_requests().await.unwrap_or_default() {
+        if request.url.path() != "/codex/analytics-events/events" {
+            continue;
+        }
+        let payload: Value = serde_json::from_slice(&request.body)?;
         worker_initializations.extend(
             payload["events"]
                 .as_array()

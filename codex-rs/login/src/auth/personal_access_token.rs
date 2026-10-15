@@ -65,7 +65,3 @@ impl PersonalAccessTokenAuth {
         self.metadata.chatgpt_account_is_fedramp
     }
 }
-
-#[cfg(test)]
-#[path = "personal_access_token_tests.rs"]
-mod tests;

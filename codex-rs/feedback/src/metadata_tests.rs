@@ -33,7 +33,7 @@ fn refreshing_logs_preserves_captured_metadata() {
 }
 
 #[test]
-fn dynamic_tags_remain_on_the_local_snapshot() {
+fn dynamic_tags_survive_upload_alongside_static_fields() {
     let feedback = CodexFeedback::new();
     let _guard = tracing_subscriber::registry()
         .with(feedback.metadata_layer())

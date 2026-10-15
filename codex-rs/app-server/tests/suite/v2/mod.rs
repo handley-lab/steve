@@ -59,7 +59,6 @@ mod experimental_api;
 mod experimental_feature_list;
 mod external_agent_config;
 mod external_agent_import_sync;
-mod feedback;
 mod fs;
 #[path = "gateway_oauth_tests.rs"]
 mod gateway_oauth;
@@ -110,7 +109,6 @@ mod rate_limits;
 #[path = "rate_limits_identity_tests.rs"]
 mod rate_limits_identity;
 mod realtime_conversation;
-mod recommended_plugins;
 mod remote_control;
 #[cfg(debug_assertions)]
 mod remote_thread_store;

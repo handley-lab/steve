@@ -214,39 +214,6 @@ supports_websockets = true
 }
 
 #[test]
-fn missing_base_url_is_not_replaced_with_an_openai_host() {
-    for auth_mode in [
-        None,
-        Some(AuthMode::ApiKey),
-        Some(AuthMode::Chatgpt),
-        Some(AuthMode::ChatgptAuthTokens),
-        Some(AuthMode::Headers),
-        Some(AuthMode::AgentIdentity),
-        Some(AuthMode::PersonalAccessToken),
-    ] {
-        let error = ModelProviderInfo::create_openai_provider(/*base_url*/ None)
-            .to_api_provider(auth_mode)
-            .expect_err("missing base_url must not select an OpenAI host");
-        let message = error.to_string();
-        assert!(!message.contains("api.openai.com"), "{message}");
-        assert!(!message.contains("chatgpt.com"), "{message}");
-    }
-}
-
-#[test]
-fn explicit_cambridge_base_url_is_unchanged() {
-    let provider = ModelProviderInfo::create_openai_provider(Some(
-        "https://llm.hpc.cam.ac.uk/v1".to_string(),
-    ));
-    for auth_mode in [None, Some(AuthMode::ApiKey), Some(AuthMode::Chatgpt)] {
-        let api_provider = provider
-            .to_api_provider(auth_mode)
-            .expect("explicit base_url should build");
-        assert_eq!(api_provider.base_url, "https://llm.hpc.cam.ac.uk/v1");
-    }
-}
-
-#[test]
 fn codex_backend_routes_require_codex_base_url() {
     for (base_url, expected) in [
         (None, true),

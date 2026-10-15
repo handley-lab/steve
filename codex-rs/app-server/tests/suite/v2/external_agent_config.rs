@@ -1363,7 +1363,6 @@ async fn external_agent_config_import_reports_failed_sync_import_in_completion()
 async fn external_agent_config_import_completed_tracks_analytics_event() -> Result<()> {
     let analytics_server = start_analytics_events_server().await?;
     let codex_home = TempDir::new()?;
-    app_test_support::register_analytics_capture(&analytics_server.uri(), codex_home.path());
     write_analytics_config(codex_home.path(), &analytics_server.uri())?;
     write_chatgpt_auth(
         codex_home.path(),
@@ -1466,7 +1465,6 @@ async fn external_agent_config_import_completed_tracks_analytics_event() -> Resu
 async fn external_agent_config_import_reports_session_config_error_subtype() -> Result<()> {
     let analytics_server = start_analytics_events_server().await?;
     let codex_home = TempDir::new()?;
-    app_test_support::register_analytics_capture(&analytics_server.uri(), codex_home.path());
     write_analytics_config(codex_home.path(), &analytics_server.uri())?;
     write_chatgpt_auth(
         codex_home.path(),
@@ -1572,7 +1570,6 @@ async fn external_agent_config_import_reports_session_config_error_subtype() -> 
 async fn external_agent_config_import_reinstalls_plugins_from_known_marketplaces() -> Result<()> {
     let codex_home = TempDir::new()?;
     let analytics_server = start_analytics_events_server().await?;
-    app_test_support::register_analytics_capture(&analytics_server.uri(), codex_home.path());
     write_analytics_config(codex_home.path(), &analytics_server.uri())?;
     write_chatgpt_auth(
         codex_home.path(),

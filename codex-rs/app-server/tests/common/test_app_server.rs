@@ -266,10 +266,6 @@ impl TestAppServer {
         cmd.stderr(Stdio::piped());
         cmd.current_dir(codex_home);
         cmd.env("STEVE_HOME", codex_home);
-        cmd.env(
-            "STEVE_ANALYTICS_EVENTS_CAPTURE_FILE",
-            codex_home.join("analytics-events.jsonl"),
-        );
         cmd.env("RUST_LOG", "warn");
         // Keep integration tests isolated from host managed configuration.
         cmd.env(

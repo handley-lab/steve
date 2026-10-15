@@ -570,7 +570,11 @@ async fn metrics_exporters_respect_analytics_preferences() -> Result<()> {
 }
 
 pub(crate) async fn mount_analytics_capture(server: &MockServer, codex_home: &Path) -> Result<()> {
-    app_test_support::register_analytics_capture(&server.uri(), codex_home);
+    Mock::given(method("POST"))
+        .and(path("/codex/analytics-events/events"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(server)
+        .await;
 
     write_chatgpt_auth(
         codex_home,
@@ -586,27 +590,42 @@ pub(crate) async fn mount_analytics_capture(server: &MockServer, codex_home: &Pa
 }
 
 pub(crate) async fn captured_analytics_events(server: &MockServer) -> Vec<Value> {
-    app_test_support::captured_analytics_events_from_uri(&server.uri())
+    server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|request| request.url.path() == "/codex/analytics-events/events")
+        .flat_map(|request| {
+            let payload: Value = serde_json::from_slice(&request.body).expect("analytics payload");
+            payload["events"]
+                .as_array()
+                .expect("analytics events")
+                .clone()
+        })
+        .collect()
 }
 
 pub(crate) async fn wait_for_analytics_payload(
     server: &MockServer,
     read_timeout: Duration,
 ) -> Result<Value> {
-    let path = app_test_support::analytics_capture_path_for(&server.uri());
-    timeout(read_timeout, async {
+    let body = timeout(read_timeout, async {
         loop {
-            let payload = app_test_support::read_analytics_payload(&path);
-            if payload["events"]
-                .as_array()
-                .is_some_and(|events| !events.is_empty())
-            {
-                return Ok(payload);
+            let Some(requests) = server.received_requests().await else {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+                continue;
+            };
+            if let Some(request) = requests.iter().find(|request| {
+                request.method == "POST" && request.url.path() == "/codex/analytics-events/events"
+            }) {
+                break request.body.clone();
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
     })
-    .await?
+    .await?;
+    serde_json::from_slice(&body).map_err(|err| anyhow::anyhow!("invalid analytics payload: {err}"))
 }
 
 pub(crate) async fn wait_for_analytics_event(
@@ -639,12 +658,29 @@ pub(crate) async fn wait_for_matching_analytics_event(
     read_timeout: Duration,
     matches: impl Fn(&Value) -> bool,
 ) -> Result<Value> {
-    let path = app_test_support::analytics_capture_path_for(&server.uri());
     timeout(read_timeout, async {
         loop {
-            let events = app_test_support::read_analytics_events(&path);
-            if let Some(event) = events.into_iter().find(|event| matches(event)) {
-                return Ok::<Value, anyhow::Error>(event);
+            let Some(requests) = server.received_requests().await else {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+                continue;
+            };
+            for request in &requests {
+                if request.method != "POST"
+                    || !request
+                        .url
+                        .path()
+                        .ends_with("/codex/analytics-events/events")
+                {
+                    continue;
+                }
+                let payload: Value = serde_json::from_slice(&request.body)
+                    .map_err(|err| anyhow::anyhow!("invalid analytics payload: {err}"))?;
+                let Some(events) = payload["events"].as_array() else {
+                    continue;
+                };
+                if let Some(event) = events.iter().find(|event| matches(event)) {
+                    return Ok::<Value, anyhow::Error>(event.clone());
+                }
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
@@ -1000,14 +1036,29 @@ enabled = true
             "exit_code": 0,
         })
     );
-    let mut measurement_events = captured_analytics_events(&analytics_server)
+    let mut measurement_events = Vec::new();
+    for request in analytics_server
+        .received_requests()
         .await
-        .into_iter()
-        .filter(|event| {
-            event["event_type"] == "codex_plugin_measurement_event"
-                && event["event_params"]["item_id"] == call_id
-        })
-        .collect::<Vec<_>>();
+        .unwrap_or_default()
+    {
+        if request.method != "POST" || request.url.path() != "/codex/analytics-events/events" {
+            continue;
+        }
+        let payload: Value = serde_json::from_slice(&request.body)?;
+        let Some(events) = payload["events"].as_array() else {
+            continue;
+        };
+        measurement_events.extend(
+            events
+                .iter()
+                .filter(|event| {
+                    event["event_type"] == "codex_plugin_measurement_event"
+                        && event["event_params"]["item_id"] == call_id
+                })
+                .cloned(),
+        );
+    }
     measurement_events.sort_by(|left, right| {
         left["event_params"]["measurement_name"]
             .as_str()
