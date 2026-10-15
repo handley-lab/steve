@@ -69,7 +69,6 @@ use crate::remote::RemotePluginChange;
 use crate::remote::RemotePluginMaterialization;
 use crate::remote::RemotePluginScope;
 use crate::remote::RemotePluginServiceConfig;
-use crate::remote_legacy::RemotePluginMutationError;
 use crate::remote_plugin_id_resolver::RemoteInstalledPluginsSnapshot;
 use crate::remote_plugin_id_resolver::RemotePluginIdResolver;
 use crate::remote_plugin_id_resolver::persisted_remote_plugin_id_for_installation;
@@ -2009,25 +2008,8 @@ impl PluginsManager {
         auth: Option<&CodexAuth>,
         request: PluginInstallRequest,
     ) -> Result<PluginInstallOutcome, PluginInstallError> {
+        let _ = auth;
         let resolved = self.resolve_installable_plugin(&config.config_layer_stack, &request)?;
-        let plugin_id = resolved.plugin_id.as_key();
-        // This only forwards the backend mutation before the local install flow.
-        if let Err(err) = crate::remote_legacy::enable_remote_plugin(
-            &remote_plugin_service_config(config),
-            auth,
-            &plugin_id,
-        )
-        .await
-        {
-            let err = PluginInstallError::from(err);
-            self.track_plugin_install_failed(
-                &resolved.plugin_id,
-                plugin_install_error_type(&err),
-                err.sub_error_type(),
-                err.to_string(),
-            );
-            return Err(err);
-        }
         let plugin_id = resolved.plugin_id.clone();
         match self.install_resolved_plugin(resolved).await {
             Ok(outcome) => Ok(outcome),
@@ -2215,18 +2197,8 @@ impl PluginsManager {
         auth: Option<&CodexAuth>,
         plugin_id: String,
     ) -> Result<(), PluginUninstallError> {
-        // TODO: Remove this legacy remote-sync path once remote plugins have
-        // their own manager and installed-state API.
+        let _ = (config, auth);
         let plugin_id = PluginId::parse(&plugin_id)?;
-        let plugin_key = plugin_id.as_key();
-        // This only forwards the backend mutation before the local uninstall flow.
-        crate::remote_legacy::uninstall_remote_plugin(
-            &remote_plugin_service_config(config),
-            auth,
-            &plugin_key,
-        )
-        .await
-        .map_err(PluginUninstallError::from)?;
         self.uninstall_plugin_id(plugin_id).await
     }
 
@@ -3508,9 +3480,6 @@ pub enum PluginInstallError {
     Marketplace(#[from] MarketplaceError),
 
     #[error("{0}")]
-    Remote(#[from] RemotePluginMutationError),
-
-    #[error("{0}")]
     Store(#[from] PluginStoreError),
 
     #[error("{0}")]
@@ -3541,7 +3510,6 @@ impl PluginInstallError {
     pub fn sub_error_type(&self) -> Option<String> {
         match self {
             Self::Marketplace(err) => marketplace_error_sub_error_type(err),
-            Self::Remote(err) => err.sub_error_type(),
             Self::Store(err) => err.sub_error_type(),
             Self::Config(_) => Some("failed_to_enable_plugin".to_string()),
             Self::Join(_) => Some("plugin_install_task_failed".to_string()),
@@ -3552,7 +3520,6 @@ impl PluginInstallError {
 fn plugin_install_error_type(err: &PluginInstallError) -> &'static str {
     match err {
         PluginInstallError::Marketplace(err) => marketplace_error_type(err),
-        PluginInstallError::Remote(err) => remote_plugin_mutation_error_type(err),
         PluginInstallError::Store(err) => plugin_store_error_type(err),
         PluginInstallError::Config(_) => "config",
         PluginInstallError::Join(_) => "join",
@@ -3583,25 +3550,6 @@ fn marketplace_error_sub_error_type(err: &MarketplaceError) -> Option<String> {
     }
 }
 
-fn remote_plugin_mutation_error_type(err: &RemotePluginMutationError) -> &'static str {
-    match err {
-        RemotePluginMutationError::AuthRequired => "remote_mutation_auth_required",
-        RemotePluginMutationError::UnsupportedAuthMode => "remote_mutation_unsupported_auth_mode",
-        RemotePluginMutationError::AuthToken(_) => "remote_mutation_auth_token",
-        RemotePluginMutationError::InvalidBaseUrl(_) => "remote_mutation_invalid_base_url",
-        RemotePluginMutationError::InvalidBaseUrlPath => "remote_mutation_invalid_base_url_path",
-        RemotePluginMutationError::Request { .. } => "remote_mutation_request",
-        RemotePluginMutationError::UnexpectedStatus { .. } => "remote_mutation_unexpected_status",
-        RemotePluginMutationError::Decode { .. } => "remote_mutation_decode",
-        RemotePluginMutationError::UnexpectedPluginId { .. } => {
-            "remote_mutation_unexpected_plugin_id"
-        }
-        RemotePluginMutationError::UnexpectedEnabledState { .. } => {
-            "remote_mutation_unexpected_enabled_state"
-        }
-    }
-}
-
 fn plugin_store_error_type(err: &PluginStoreError) -> &'static str {
     match err {
         PluginStoreError::Io { .. } => "store_io",
@@ -3613,9 +3561,6 @@ fn plugin_store_error_type(err: &PluginStoreError) -> &'static str {
 pub enum PluginUninstallError {
     #[error("{0}")]
     InvalidPluginId(#[from] PluginIdError),
-
-    #[error("{0}")]
-    Remote(#[from] RemotePluginMutationError),
 
     #[error("{0}")]
     Store(#[from] PluginStoreError),

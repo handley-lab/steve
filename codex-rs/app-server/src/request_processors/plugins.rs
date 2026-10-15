@@ -2040,9 +2040,6 @@ impl PluginRequestProcessor {
             CorePluginInstallError::Config(err) => {
                 internal_error(format!("failed to persist installed plugin config: {err}"))
             }
-            CorePluginInstallError::Remote(err) => {
-                internal_error(format!("failed to enable remote plugin: {err}"))
-            }
             CorePluginInstallError::Join(err) => {
                 internal_error(format!("failed to install plugin: {err}"))
             }
@@ -2060,9 +2057,6 @@ impl PluginRequestProcessor {
         match err {
             CorePluginUninstallError::Config(err) => {
                 internal_error(format!("failed to clear plugin config: {err}"))
-            }
-            CorePluginUninstallError::Remote(err) => {
-                internal_error(format!("failed to uninstall remote plugin: {err}"))
             }
             CorePluginUninstallError::Join(err) => {
                 internal_error(format!("failed to uninstall plugin: {err}"))

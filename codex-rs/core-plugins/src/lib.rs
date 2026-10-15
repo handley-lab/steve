@@ -27,7 +27,6 @@ mod provider;
 mod recommended_plugin_install;
 pub mod remote;
 pub mod remote_bundle;
-pub mod remote_legacy;
 mod remote_metadata;
 mod remote_plugin_id_resolver;
 mod script_attribution;

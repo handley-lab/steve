@@ -5953,6 +5953,40 @@ plugins = true
 }
 
 #[tokio::test]
+async fn legacy_plugin_uninstall_does_not_post_a_mutation() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_file(
+        &tmp.path().join(CONFIG_TOML_FILE),
+        r#"[features]
+plugins = true
+"#,
+    );
+
+    let server = MockServer::start().await;
+    let mut config = load_config(tmp.path(), tmp.path()).await;
+    let base_url = format!("{}/backend-api/", server.uri());
+    config.chatgpt_base_url = base_url.clone();
+    let manager = test_plugins_manager_with_options(
+        tmp.path().to_path_buf(),
+        /*restriction_product*/ None,
+        /*auth_mode*/ None,
+    );
+
+    manager
+        .uninstall_plugin_with_remote_sync(
+            &config,
+            Some(&CodexAuth::create_dummy_chatgpt_auth_for_testing()),
+            "sample-plugin@debug".to_string(),
+        )
+        .await
+        .expect("local uninstall");
+
+    assert_eq!(config.chatgpt_base_url, base_url);
+    let requests = server.received_requests().await.unwrap();
+    assert!(requests.is_empty());
+}
+
+#[tokio::test]
 async fn remote_plugin_caches_refresh_warms_recommended_plugins_cache() {
     let tmp = tempfile::tempdir().unwrap();
     write_file(
