@@ -606,7 +606,6 @@ impl PluginRequestProcessor {
         } else {
             RemotePluginCatalogCacheMode::PreferCache
         };
-        let mut remote_catalog_cache_refresh_scopes = Default::default();
         let (mut data, marketplace_load_errors, local_marketplaces) = if include_local {
             let context_for_marketplace_listing = context.clone();
             let plugins_manager_for_marketplace_listing = plugins_manager.clone();
@@ -738,7 +737,6 @@ impl PluginRequestProcessor {
             .await
             {
                 Ok(outcome) => {
-                    remote_catalog_cache_refresh_scopes = outcome.catalog_cache_refresh_scopes;
                     for remote_marketplace in outcome
                         .marketplaces
                         .into_iter()
@@ -778,15 +776,11 @@ impl PluginRequestProcessor {
             || include_created_by_me_remote
             || include_shared_with_me
             || include_global_remote
-            || !remote_catalog_cache_refresh_scopes.is_empty()
         {
             plugins_manager.maybe_start_plugin_list_background_tasks(
                 &context,
                 auth.clone(),
-                PluginListBackgroundTaskOptions {
-                    local_marketplaces,
-                    remote_catalog_cache_refresh_scopes,
-                },
+                PluginListBackgroundTaskOptions { local_marketplaces },
                 Some(self.effective_plugins_changed_callback()),
             );
         }

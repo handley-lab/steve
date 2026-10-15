@@ -67,7 +67,6 @@ use crate::remote::RemotePluginCapabilities;
 use crate::remote::RemotePluginCatalogError;
 use crate::remote::RemotePluginChange;
 use crate::remote::RemotePluginMaterialization;
-use crate::remote::RemotePluginScope;
 use crate::remote::RemotePluginServiceConfig;
 use crate::remote_plugin_id_resolver::RemoteInstalledPluginsSnapshot;
 use crate::remote_plugin_id_resolver::RemotePluginIdResolver;
@@ -120,7 +119,6 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path_uri::PathUri;
 use codex_utils_plugins::PluginIdentity;
 use codex_utils_plugins::PluginSkillRoot;
-use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -304,41 +302,9 @@ struct RemoteInstalledPluginsCacheRefreshState {
     in_flight: bool,
 }
 
-struct RemoteCatalogCacheRefreshRequest {
-    service_config: RemotePluginServiceConfig,
-    auth: Option<CodexAuth>,
-    scopes: BTreeSet<RemotePluginScope>,
-    mode: RemoteCatalogCacheRefreshMode,
-}
-
-impl RemoteCatalogCacheRefreshRequest {
-    fn has_same_cache_identity(&self, other: &Self) -> bool {
-        self.service_config == other.service_config
-            && self.auth.as_ref().and_then(CodexAuth::get_account_id)
-                == other.auth.as_ref().and_then(CodexAuth::get_account_id)
-            && self.auth.as_ref().and_then(CodexAuth::get_chatgpt_user_id)
-                == other.auth.as_ref().and_then(CodexAuth::get_chatgpt_user_id)
-            && self.auth.as_ref().map(CodexAuth::is_workspace_account)
-                == other.auth.as_ref().map(CodexAuth::is_workspace_account)
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum RemoteCatalogCacheRefreshMode {
-    OnlyIfStale,
-    Force,
-}
-
-#[derive(Default)]
-struct RemoteCatalogCacheRefreshState {
-    requests: VecDeque<RemoteCatalogCacheRefreshRequest>,
-    in_flight: bool,
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PluginListBackgroundTaskOptions {
     pub local_marketplaces: Vec<ConfiguredMarketplace>,
-    pub remote_catalog_cache_refresh_scopes: BTreeSet<RemotePluginScope>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -516,7 +482,6 @@ pub struct PluginsManager {
     remote_installed_plugins_cache: RwLock<RemoteInstalledPluginsCache>,
     remote_installed_plugin_bundle_sync_gate: Arc<Semaphore>,
     remote_installed_plugins_cache_refresh_state: RwLock<RemoteInstalledPluginsCacheRefreshState>,
-    remote_catalog_cache_refresh_state: RwLock<RemoteCatalogCacheRefreshState>,
     restriction_product: Option<Product>,
     auth_manager: Arc<AuthManager>,
     analytics_events_client: RwLock<Option<AnalyticsEventsClient>>,
@@ -672,9 +637,6 @@ impl PluginsManager {
             remote_installed_plugin_bundle_sync_gate,
             remote_installed_plugins_cache_refresh_state: RwLock::new(
                 RemoteInstalledPluginsCacheRefreshState::default(),
-            ),
-            remote_catalog_cache_refresh_state: RwLock::new(
-                RemoteCatalogCacheRefreshState::default(),
             ),
             restriction_product,
             auth_manager,
@@ -1684,25 +1646,6 @@ impl PluginsManager {
         Ok((outcome, effective_plugins_changed))
     }
 
-    fn maybe_start_remote_catalog_cache_refresh(
-        self: &Arc<Self>,
-        config: &PluginsConfigInput,
-        auth: Option<CodexAuth>,
-        scopes: BTreeSet<RemotePluginScope>,
-        mode: RemoteCatalogCacheRefreshMode,
-    ) {
-        if !config.plugins_enabled || scopes.is_empty() {
-            return;
-        }
-
-        self.schedule_remote_catalog_cache_refresh(RemoteCatalogCacheRefreshRequest {
-            service_config: remote_plugin_service_config(config),
-            auth,
-            scopes,
-            mode,
-        });
-    }
-
     pub fn maybe_start_plugin_list_background_tasks(
         self: &Arc<Self>,
         context: &PluginMarketplaceContext,
@@ -1711,12 +1654,6 @@ impl PluginsManager {
         on_effective_plugins_changed: Option<EffectivePluginsChangedCallback>,
     ) {
         self.maybe_start_non_curated_plugin_cache_refresh(context, &options.local_marketplaces);
-        self.maybe_start_remote_catalog_cache_refresh(
-            &context.global_config,
-            auth.clone(),
-            options.remote_catalog_cache_refresh_scopes,
-            RemoteCatalogCacheRefreshMode::OnlyIfStale,
-        );
         self.maybe_start_remote_plugin_caches_refresh(
             &context.global_config,
             auth.clone(),
@@ -2631,24 +2568,8 @@ impl PluginsManager {
                 );
                 manager.maybe_start_remote_installed_plugin_bundle_sync(
                     &config_for_remote_sync,
-                    auth.clone(),
-                    on_effective_plugins_changed,
-                );
-                let mut scopes = crate::remote::cached_remote_plugin_catalog_scopes(
-                    manager.codex_home.as_path(),
-                    &remote_plugin_service_config(&config_for_remote_sync),
-                    auth.as_ref(),
-                );
-                if config_for_remote_sync.remote_plugin_enabled {
-                    scopes.insert(RemotePluginScope::Global);
-                } else {
-                    scopes.retain(|scope| *scope == RemotePluginScope::Workspace);
-                }
-                manager.maybe_start_remote_catalog_cache_refresh(
-                    &config_for_remote_sync,
                     auth,
-                    scopes,
-                    RemoteCatalogCacheRefreshMode::Force,
+                    on_effective_plugins_changed,
                 );
             });
         }
@@ -2869,52 +2790,6 @@ impl PluginsManager {
         });
     }
 
-    fn schedule_remote_catalog_cache_refresh(
-        self: &Arc<Self>,
-        request: RemoteCatalogCacheRefreshRequest,
-    ) {
-        let should_spawn = {
-            let mut state = match self.remote_catalog_cache_refresh_state.write() {
-                Ok(state) => state,
-                Err(err) => err.into_inner(),
-            };
-            if let Some(pending) = state
-                .requests
-                .iter_mut()
-                .find(|pending| pending.has_same_cache_identity(&request))
-            {
-                pending.scopes.extend(request.scopes);
-                pending.auth = request.auth;
-                pending.mode = match (pending.mode, request.mode) {
-                    (RemoteCatalogCacheRefreshMode::Force, _)
-                    | (_, RemoteCatalogCacheRefreshMode::Force) => {
-                        RemoteCatalogCacheRefreshMode::Force
-                    }
-                    (
-                        RemoteCatalogCacheRefreshMode::OnlyIfStale,
-                        RemoteCatalogCacheRefreshMode::OnlyIfStale,
-                    ) => RemoteCatalogCacheRefreshMode::OnlyIfStale,
-                };
-            } else {
-                state.requests.push_back(request);
-            }
-            if state.in_flight {
-                false
-            } else {
-                state.in_flight = true;
-                true
-            }
-        };
-        if !should_spawn {
-            return;
-        }
-
-        let manager = Arc::clone(self);
-        tokio::spawn(async move {
-            manager.run_remote_catalog_cache_refresh_loop().await;
-        });
-    }
-
     fn schedule_non_curated_plugin_cache_refresh(
         self: &Arc<Self>,
         mut request: NonCuratedCacheRefreshRequest,
@@ -3071,59 +2946,6 @@ impl PluginsManager {
                             .len(),
                         "failed to refresh remote installed plugins cache"
                     );
-                }
-            }
-        }
-    }
-
-    async fn run_remote_catalog_cache_refresh_loop(self: Arc<Self>) {
-        loop {
-            let request = {
-                let mut state = match self.remote_catalog_cache_refresh_state.write() {
-                    Ok(state) => state,
-                    Err(err) => err.into_inner(),
-                };
-                match state.requests.pop_front() {
-                    Some(request) => request,
-                    None => {
-                        state.in_flight = false;
-                        return;
-                    }
-                }
-            };
-
-            for scope in request.scopes {
-                if request.mode == RemoteCatalogCacheRefreshMode::OnlyIfStale
-                    && crate::remote::has_fresh_cached_remote_plugin_catalog(
-                        self.codex_home.as_path(),
-                        &request.service_config,
-                        request.auth.as_ref(),
-                        scope,
-                    )
-                {
-                    continue;
-                }
-
-                match crate::remote::fetch_and_cache_remote_plugin_catalog(
-                    self.codex_home.as_path(),
-                    &request.service_config,
-                    request.auth.as_ref(),
-                    scope,
-                )
-                .await
-                {
-                    Ok(()) => {}
-                    Err(
-                        RemotePluginCatalogError::AuthRequired
-                        | RemotePluginCatalogError::UnsupportedAuthMode,
-                    ) => {}
-                    Err(err) => {
-                        warn!(
-                            error = %err,
-                            scope = ?scope,
-                            "failed to refresh cached remote plugin catalog"
-                        );
-                    }
                 }
             }
         }

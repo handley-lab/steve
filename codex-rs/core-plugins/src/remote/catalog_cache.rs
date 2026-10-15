@@ -1,20 +1,23 @@
 use super::RemotePluginDirectoryItem;
 use super::RemotePluginScope;
 use super::RemotePluginServiceConfig;
+#[cfg(test)]
 use chrono::DateTime;
+#[cfg(test)]
 use chrono::Utc;
 use codex_login::CodexAuth;
 use serde::Deserialize;
 use serde::Serialize;
 use std::path::Path;
 use std::path::PathBuf;
+#[cfg(test)]
 use std::time::Duration;
 use tracing::warn;
 
-// `plugin/list` and other callers that assume all plugins are available locally will be
-// deprecated soon. Remove this catalog cache when those callers migrate to on-demand fetching.
+// A previously written directory may still be read. Tests are the only writer.
 const REMOTE_PLUGIN_CATALOG_DISK_CACHE_SCHEMA_VERSION: u8 = 1;
 const REMOTE_PLUGIN_CATALOG_DISK_CACHE_DIR: &str = "cache/remote_plugin_catalog";
+#[cfg(test)]
 const REMOTE_PLUGIN_CATALOG_DISK_CACHE_TTL: Duration = Duration::from_secs(60 * 60 * 3);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -61,20 +64,23 @@ impl RemotePluginCatalogCacheKey {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RemotePluginCatalogDiskCache {
     schema_version: u8,
+    #[cfg(test)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     fetched_at: Option<DateTime<Utc>>,
     plugins: Vec<RemotePluginDirectoryItem>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum RemotePluginCatalogCacheFreshness {
+pub(crate) enum RemotePluginCatalogCacheFreshness {
     Fresh,
     Stale,
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct CachedDirectoryPlugins {
+pub(crate) struct CachedDirectoryPlugins {
     pub plugins: Vec<RemotePluginDirectoryItem>,
+    #[cfg(test)]
     pub freshness: RemotePluginCatalogCacheFreshness,
 }
 
@@ -114,6 +120,7 @@ pub(crate) fn load_cached_directory_plugins(
         return None;
     }
 
+    #[cfg(test)]
     let freshness = if is_fresh(cache.fetched_at, Utc::now()) {
         RemotePluginCatalogCacheFreshness::Fresh
     } else {
@@ -121,10 +128,12 @@ pub(crate) fn load_cached_directory_plugins(
     };
     Some(CachedDirectoryPlugins {
         plugins: cache.plugins,
+        #[cfg(test)]
         freshness,
     })
 }
 
+#[cfg(test)]
 pub(crate) fn write_cached_directory_plugins(
     codex_home: &Path,
     config: &RemotePluginServiceConfig,
@@ -182,6 +191,7 @@ fn cache_path(codex_home: &Path, cache_key: &RemotePluginCatalogCacheKey) -> Pat
         .join(format!("{cache_key_hash:016x}.json"))
 }
 
+#[cfg(test)]
 fn is_fresh(fetched_at: Option<DateTime<Utc>>, now: DateTime<Utc>) -> bool {
     let Some(fetched_at) = fetched_at else {
         return false;

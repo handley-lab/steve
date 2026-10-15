@@ -5,8 +5,8 @@ use crate::PluginInstallRequest;
 use crate::PluginsConfigInput;
 use crate::PluginsManager;
 use crate::remote::REMOTE_GLOBAL_MARKETPLACE_NAME;
+use crate::remote::RemotePluginScope;
 use crate::remote::RemotePluginServiceConfig;
-use crate::remote::fetch_and_cache_global_remote_plugin_catalog;
 use crate::startup_sync::curated_plugins_repo_path;
 use crate::test_support::TEST_CURATED_PLUGIN_SHA;
 use crate::test_support::load_plugins_config;
@@ -39,7 +39,6 @@ use wiremock::MockServer;
 use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
-use wiremock::matchers::query_param;
 use wiremock::matchers::query_param_is_missing;
 
 #[tokio::test]
@@ -849,10 +848,7 @@ plugins = true
     );
 
     let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/list"))
-        .and(query_param("scope", "GLOBAL"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+    let directory_body = json!({
             "plugins": [
                 {
                     "id": "plugins~Plugin_remote_github",
@@ -938,10 +934,7 @@ plugins = true
             "pagination": {
                 "next_page_token": null
             }
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
+    });
 
     let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
     let mut plugins = load_plugins_config(codex_home.path(), codex_home.path()).await;
@@ -951,17 +944,20 @@ plugins = true
         Some(Product::Codex),
         Some(AuthMode::Chatgpt),
     );
-    fetch_and_cache_global_remote_plugin_catalog(
+    let directory_plugins: Vec<crate::remote::RemotePluginDirectoryItem> =
+        serde_json::from_value(directory_body["plugins"].clone()).expect("directory plugins");
+    crate::remote::catalog_cache::write_cached_directory_plugins(
         codex_home.path(),
         &RemotePluginServiceConfig::new(
             plugins.chatgpt_base_url.clone(),
             crate::test_support::test_http_client_factory(),
             /*product_sku*/ None,
         ),
-        Some(&auth),
-    )
-    .await
-    .expect("remote plugin catalog cache should write");
+        &auth,
+        RemotePluginScope::Global,
+        None,
+        &directory_plugins,
+    );
 
     assert_eq!(
         list_discoverable_plugins(

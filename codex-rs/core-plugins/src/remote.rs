@@ -50,7 +50,7 @@ use std::time::Duration;
 use tracing::instrument;
 use url::Url;
 
-mod catalog_cache;
+pub(crate) mod catalog_cache;
 mod plugin_capabilities;
 mod remote_installed_plugin_sync;
 mod share;
@@ -526,6 +526,7 @@ enum RemoteInstalledPluginScope {
 }
 
 impl RemotePluginScope {
+    #[cfg(test)]
     const CATALOG_CACHE_SCOPES: [Self; 3] = [Self::Global, Self::User, Self::Workspace];
 
     fn api_value(self) -> &'static str {
@@ -687,7 +688,7 @@ impl RemotePluginInstallPolicySource {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-struct RemotePluginDirectoryItem {
+pub(crate) struct RemotePluginDirectoryItem {
     id: String,
     name: String,
     #[serde(default)]
@@ -961,28 +962,6 @@ pub async fn fetch_remote_marketplaces(
     })
 }
 
-pub(crate) async fn fetch_and_cache_remote_plugin_catalog(
-    codex_home: &Path,
-    config: &RemotePluginServiceConfig,
-    auth: Option<&CodexAuth>,
-    scope: RemotePluginScope,
-) -> Result<(), RemotePluginCatalogError> {
-    let auth = ensure_chatgpt_auth(auth)?;
-    let plugins = fetch_directory_plugins_for_scope(config, auth, scope).await?;
-    catalog_cache::write_cached_directory_plugins(
-        codex_home, config, auth, scope, /*collection*/ None, &plugins,
-    );
-    Ok(())
-}
-
-pub async fn fetch_and_cache_global_remote_plugin_catalog(
-    codex_home: &Path,
-    config: &RemotePluginServiceConfig,
-    auth: Option<&CodexAuth>,
-) -> Result<(), RemotePluginCatalogError> {
-    fetch_and_cache_remote_plugin_catalog(codex_home, config, auth, RemotePluginScope::Global).await
-}
-
 pub fn invalidate_cached_remote_plugin_catalog_scopes(
     codex_home: &Path,
     config: &RemotePluginServiceConfig,
@@ -1048,26 +1027,7 @@ pub(crate) async fn fetch_recommended_plugin_install_metadata(
     Ok(Some(app_connector_ids))
 }
 
-pub(crate) fn has_fresh_cached_remote_plugin_catalog(
-    codex_home: &Path,
-    config: &RemotePluginServiceConfig,
-    auth: Option<&CodexAuth>,
-    scope: RemotePluginScope,
-) -> bool {
-    let Ok(auth) = ensure_chatgpt_auth(auth) else {
-        return false;
-    };
-    catalog_cache::load_cached_directory_plugins(
-        codex_home, config, auth, scope, /*collection*/ None,
-    )
-    .is_some_and(|cached| {
-        matches!(
-            cached.freshness,
-            catalog_cache::RemotePluginCatalogCacheFreshness::Fresh
-        )
-    })
-}
-
+#[cfg(test)]
 pub(crate) fn cached_remote_plugin_catalog_scopes(
     codex_home: &Path,
     config: &RemotePluginServiceConfig,
@@ -1975,78 +1935,28 @@ async fn fetch_directory_plugins_for_scope_with_cache(
     collection: Option<&str>,
     cache_mode: RemotePluginCatalogCacheMode,
 ) -> Result<DirectoryPluginsFetchOutcome, RemotePluginCatalogError> {
-    if cache_mode != RemotePluginCatalogCacheMode::ForceRefetch
-        && let Some(codex_home) = codex_home
-        && let Some(cached) = catalog_cache::load_cached_directory_plugins(
-            codex_home, config, auth, scope, collection,
-        )
-        && (cache_mode == RemotePluginCatalogCacheMode::PreferCache
-            || cached.freshness == catalog_cache::RemotePluginCatalogCacheFreshness::Fresh)
-    {
+    let _ = cache_mode;
+    let Some(codex_home) = codex_home else {
         return Ok(DirectoryPluginsFetchOutcome {
-            plugins: cached.plugins,
-            cache_refresh_needed: matches!(
-                cached.freshness,
-                catalog_cache::RemotePluginCatalogCacheFreshness::Stale
-            ),
-            catalog_cache_used: true,
+            plugins: Vec::new(),
+            cache_refresh_needed: false,
+            catalog_cache_used: false,
         });
-    }
-
-    let plugins =
-        fetch_directory_plugins_for_scope_with_optional_collection(config, auth, scope, collection)
-            .await?;
-    if let Some(codex_home) = codex_home {
-        catalog_cache::write_cached_directory_plugins(
-            codex_home, config, auth, scope, collection, &plugins,
-        );
-    }
+    };
+    let Some(cached) =
+        catalog_cache::load_cached_directory_plugins(codex_home, config, auth, scope, collection)
+    else {
+        return Ok(DirectoryPluginsFetchOutcome {
+            plugins: Vec::new(),
+            cache_refresh_needed: false,
+            catalog_cache_used: false,
+        });
+    };
     Ok(DirectoryPluginsFetchOutcome {
-        plugins,
+        plugins: cached.plugins,
         cache_refresh_needed: false,
-        catalog_cache_used: false,
+        catalog_cache_used: true,
     })
-}
-
-async fn fetch_directory_plugins_for_scope(
-    config: &RemotePluginServiceConfig,
-    auth: &CodexAuth,
-    scope: RemotePluginScope,
-) -> Result<Vec<RemotePluginDirectoryItem>, RemotePluginCatalogError> {
-    fetch_directory_plugins_for_scope_with_optional_collection(
-        config, auth, scope, /*collection*/ None,
-    )
-    .await
-}
-
-async fn fetch_directory_plugins_for_scope_with_optional_collection(
-    config: &RemotePluginServiceConfig,
-    auth: &CodexAuth,
-    scope: RemotePluginScope,
-    collection: Option<&str>,
-) -> Result<Vec<RemotePluginDirectoryItem>, RemotePluginCatalogError> {
-    tracing::info!(
-        operation = "plugins.remote_catalog.list",
-        http.method = "GET",
-        api.path = "ps/plugins/list",
-        plugin.scope = scope.api_value(),
-        plugin.collection = collection.unwrap_or_default(),
-        "fetching remote plugin catalog"
-    );
-
-    let mut plugins = Vec::new();
-    let mut page_token = None;
-    loop {
-        let response =
-            get_remote_plugin_list_page(config, auth, scope, page_token.as_deref(), collection)
-                .await?;
-        plugins.extend(response.plugins);
-        let Some(next_page_token) = response.pagination.next_page_token else {
-            break;
-        };
-        page_token = Some(next_page_token);
-    }
-    Ok(plugins)
 }
 
 async fn fetch_shared_workspace_plugins(
@@ -2105,34 +2015,6 @@ async fn fetch_installed_plugins(
         page_token = Some(next_page_token);
     }
     Ok(plugins)
-}
-
-async fn get_remote_plugin_list_page(
-    config: &RemotePluginServiceConfig,
-    auth: &CodexAuth,
-    scope: RemotePluginScope,
-    page_token: Option<&str>,
-    collection: Option<&str>,
-) -> Result<RemotePluginListResponse, RemotePluginCatalogError> {
-    let base_url = config.chatgpt_base_url.trim_end_matches('/');
-    let mut url = Url::parse(&format!("{base_url}/ps/plugins/list"))
-        .map_err(RemotePluginCatalogError::InvalidBaseUrl)?;
-    url.query_pairs_mut()
-        .append_pair("scope", scope.api_value())
-        .append_pair("limit", &REMOTE_PLUGIN_LIST_PAGE_LIMIT.to_string());
-    if let Some(collection) = collection {
-        url.query_pairs_mut().append_pair("collection", collection);
-    }
-    if let Some(page_token) = page_token {
-        url.query_pairs_mut().append_pair("pageToken", page_token);
-    }
-    let url = url.to_string();
-    let request = authenticated_request(
-        config.http_request(Method::GET, &url),
-        auth,
-        &config.product_sku,
-    );
-    send_and_decode(request, &url).await
 }
 
 async fn get_remote_shared_workspace_plugins_page(

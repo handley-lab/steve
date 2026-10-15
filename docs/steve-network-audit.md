@@ -22,7 +22,7 @@ verify release-build update behavior. Sources:
 ## Remote plugin catalogue and account mutations
 
 The reviewed remote plugin-service requests use `chatgpt_base_url` and require
-first-party backend authentication. Catalogue GETs include `/ps/plugins/list`,
+first-party backend authentication. Catalogue GETs include
 `/ps/plugins/workspace/shared`, `/ps/plugins/installed`, and plugin-specific
 detail paths. Query parameters identify scope,
 collection, pagination and whether download URLs are requested. Authentication
@@ -170,8 +170,10 @@ loading stays. Legacy plugin install and uninstall do not POST
 `{chatgpt_base_url}/plugins/{id}/enable` or `/uninstall`. Plugin search does
 not GET `{chatgpt_base_url}/ps/plugins/search`. Local marketplace search
 stays. Plugin recommendations do not GET
-`{chatgpt_base_url}/ps/plugins/suggested/codex`. The `/ps/plugins` list,
-install, uninstall, share, and bundle clients are separate.
+`{chatgpt_base_url}/ps/plugins/suggested/codex`. The plugin directory does not
+GET `{chatgpt_base_url}/ps/plugins/list`. A cached directory may still be
+read. Installed, shared, detail, install, uninstall, share, and bundle clients
+are separate.
 
 Raw local evidence: `~/.cache/codex-cambridge-build/steve-network-smoke-n05wyupc/`
 and `steve-network-smoke-cey30wqi/` contain configuration, structured model

@@ -501,28 +501,6 @@ async fn skills_list_loads_remote_installed_plugin_skills_from_cache() -> Result
         AuthCredentialsStoreMode::File,
     )?;
 
-    let global_directory_body = r#"{
-  "plugins": [
-    {
-      "id": "plugins~Plugin_linear",
-      "name": "linear",
-      "scope": "GLOBAL",
-      "installation_policy": "AVAILABLE",
-      "authentication_policy": "ON_USE",
-      "release": {
-        "display_name": "Linear",
-        "description": "Track work in Linear",
-        "app_ids": [],
-        "interface": {},
-        "skills": []
-      }
-    }
-  ],
-  "pagination": {
-    "limit": 50,
-    "next_page_token": null
-  }
-}"#;
     let global_installed_body = r#"{
   "plugins": [
     {
@@ -555,20 +533,6 @@ async fn skills_list_loads_remote_installed_plugin_skills_from_cache() -> Result
   }
 }"#;
 
-    for (scope, body) in [
-        ("GLOBAL", global_directory_body),
-        ("WORKSPACE", empty_page_body),
-    ] {
-        Mock::given(method("GET"))
-            .and(path("/backend-api/ps/plugins/list"))
-            .and(query_param("scope", scope))
-            .and(query_param("limit", "200"))
-            .and(header("authorization", "Bearer chatgpt-token"))
-            .and(header("chatgpt-account-id", "account-123"))
-            .respond_with(ResponseTemplate::new(200).set_body_string(body))
-            .mount(&server)
-            .await;
-    }
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .without_auto_env()
