@@ -19,7 +19,6 @@ use codex_exec_server::LOCAL_FS;
 use codex_http_client::ClientRouteClass;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
-use codex_http_client::RequestBuilder;
 use codex_http_client::RouteAwareClientPool;
 use codex_login::AuthHeaders;
 use codex_login::AuthManager;
@@ -46,7 +45,6 @@ use codex_utils_path_uri::PathUri;
 use codex_utils_plugins::PluginSkillRoot;
 use codex_utils_plugins::SkillDiscoveryMode;
 use codex_utils_plugins::migrated_command_skills_root;
-use http::Method;
 use toml::Value;
 
 pub(crate) const TEST_CURATED_PLUGIN_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -322,7 +320,6 @@ pub(crate) fn test_http_client_factory() -> HttpClientFactory {
 
 #[derive(Debug)]
 pub(crate) struct RecordingHttpClientSelector {
-    selected_urls: Arc<Mutex<Vec<String>>>,
     delegate: RouteAwareClientPool,
 }
 
@@ -333,24 +330,11 @@ impl RecordingHttpClientSelector {
             test_http_client_factory(),
             ClientRouteClass::Api,
         );
-        (
-            Arc::new(Self {
-                selected_urls: Arc::clone(&selected_urls),
-                delegate,
-            }),
-            selected_urls,
-        )
+        (Arc::new(Self { delegate }), selected_urls)
     }
 }
 
 impl HttpClientSelector for RecordingHttpClientSelector {
-    fn request(&self, method: Method, url: &str) -> RequestBuilder {
-        match self.selected_urls.lock() {
-            Ok(mut selected_urls) => selected_urls.push(url.to_string()),
-            Err(error) => panic!("selected URL recorder lock should not be poisoned: {error}"),
-        }
-        self.delegate.request(method, url)
-    }
     fn outbound_proxy_policy(&self) -> OutboundProxyPolicy {
         self.delegate.outbound_proxy_policy()
     }

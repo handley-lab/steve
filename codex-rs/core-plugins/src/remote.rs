@@ -13,14 +13,11 @@ use codex_app_server_protocol::ScheduledTaskSummary;
 use codex_app_server_protocol::SkillInterface;
 use codex_http_client::ClientRouteClass;
 use codex_http_client::HttpClientFactory;
-use codex_http_client::RequestBuilder;
 use codex_http_client::RouteAwareClientPool;
 use codex_http_client::RouteAwareRequestError;
 use codex_login::CodexAuth;
-use codex_login::default_client::default_headers;
 use codex_plugin::PluginCapabilitySummary;
 use codex_plugin::PluginId;
-use http::Method;
 use http::StatusCode;
 use serde::Deserialize;
 use serde::Serialize;
@@ -29,8 +26,6 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
-use url::Url;
 
 pub(crate) mod catalog_cache;
 mod plugin_capabilities;
@@ -70,9 +65,7 @@ pub const REMOTE_WORKSPACE_SHARED_WITH_ME_UNLISTED_MARKETPLACE_DISPLAY_NAME: &st
     "Shared with me (unlisted)";
 
 const OPENAI_CURATED_REMOTE_COLLECTION_KEY: &str = "vertical";
-const OAI_PRODUCT_SKU_HEADER: &str = "OAI-Product-Sku";
 pub(crate) const CODEX_PRODUCT_SKU: &str = "codex";
-const REMOTE_PLUGIN_CATALOG_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_REMOTE_DEFAULT_PROMPT_COUNT: usize = 3;
 const MAX_REMOTE_DEFAULT_PROMPT_LEN: usize = 128;
 const INVALID_REQUEST_ERROR_CODE: i64 = -32600;
@@ -130,12 +123,6 @@ impl RemotePluginServiceConfig {
             product_sku: product_sku.unwrap_or_else(|| CODEX_PRODUCT_SKU.to_string()),
             http_clients: Arc::new(http_clients),
         }
-    }
-
-    pub(crate) fn http_request(&self, method: Method, url: &str) -> RequestBuilder {
-        self.http_clients
-            .request(method, url)
-            .headers(default_headers())
     }
 }
 
@@ -292,11 +279,6 @@ pub struct RemotePluginSkill {
     pub short_description: Option<String>,
     pub interface: Option<SkillInterface>,
     pub enabled: bool,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct RemotePluginSkillDetail {
-    pub contents: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -498,13 +480,6 @@ struct RemotePluginSkillResponse {
     name: String,
     description: String,
     interface: Option<RemotePluginSkillInterfaceResponse>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-struct RemotePluginSkillDetailResponse {
-    plugin_id: String,
-    name: String,
-    skill_md_contents: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -974,46 +949,6 @@ pub fn group_remote_installed_plugins_by_marketplaces(
 
 
 
-pub async fn fetch_remote_plugin_skill_detail(
-    config: &RemotePluginServiceConfig,
-    auth: Option<&CodexAuth>,
-    marketplace_name: &str,
-    plugin_id: &str,
-    skill_name: &str,
-) -> Result<RemotePluginSkillDetail, RemotePluginCatalogError> {
-    let auth = ensure_chatgpt_auth(auth)?;
-    if RemotePluginScope::from_marketplace_name(marketplace_name).is_none() {
-        return Err(RemotePluginCatalogError::UnknownMarketplace {
-            marketplace_name: marketplace_name.to_string(),
-        });
-    }
-
-    let url = remote_plugin_skill_detail_url(config, plugin_id, skill_name)?;
-    let request = authenticated_request(
-        config.http_request(Method::GET, &url),
-        auth,
-        &config.product_sku,
-    );
-    let response: RemotePluginSkillDetailResponse = send_and_decode(request, &url).await?;
-    if response.plugin_id != plugin_id {
-        return Err(RemotePluginCatalogError::UnexpectedPluginId {
-            expected: plugin_id.to_string(),
-            actual: response.plugin_id,
-        });
-    }
-    if response.name != skill_name {
-        return Err(RemotePluginCatalogError::UnexpectedSkillName {
-            expected: skill_name.to_string(),
-            actual: response.name,
-        });
-    }
-
-    Ok(RemotePluginSkillDetail {
-        contents: response.skill_md_contents,
-    })
-}
-
-
 fn build_remote_plugin_summary(
     plugin: &RemotePluginDirectoryItem,
     installed_plugin: Option<&RemotePluginInstalledItem>,
@@ -1289,27 +1224,6 @@ async fn fetch_directory_plugins_for_scope_with_cache(
 
 
 
-fn remote_plugin_skill_detail_url(
-    config: &RemotePluginServiceConfig,
-    plugin_id: &str,
-    skill_name: &str,
-) -> Result<String, RemotePluginCatalogError> {
-    let mut url = Url::parse(config.chatgpt_base_url.trim_end_matches('/'))
-        .map_err(RemotePluginCatalogError::InvalidBaseUrl)?;
-    {
-        let mut segments = url
-            .path_segments_mut()
-            .map_err(|()| RemotePluginCatalogError::InvalidBaseUrlPath)?;
-        segments.pop_if_empty();
-        segments.push("ps");
-        segments.push("plugins");
-        segments.push(plugin_id);
-        segments.push("skills");
-        segments.push(skill_name);
-    }
-    Ok(url.to_string())
-}
-
 fn ensure_chatgpt_auth(auth: Option<&CodexAuth>) -> Result<&CodexAuth, RemotePluginCatalogError> {
     let Some(auth) = auth else {
         return Err(RemotePluginCatalogError::AuthRequired);
@@ -1318,48 +1232,4 @@ fn ensure_chatgpt_auth(auth: Option<&CodexAuth>) -> Result<&CodexAuth, RemotePlu
         return Err(RemotePluginCatalogError::UnsupportedAuthMode);
     }
     Ok(auth)
-}
-
-fn authenticated_request(
-    request: RequestBuilder,
-    auth: &CodexAuth,
-    product_sku: &str,
-) -> RequestBuilder {
-    request
-        .timeout(REMOTE_PLUGIN_CATALOG_TIMEOUT)
-        .headers(codex_model_provider::auth_provider_from_auth(auth).to_auth_headers())
-        .header(OAI_PRODUCT_SKU_HEADER, product_sku)
-}
-
-async fn send_and_decode<T: for<'de> Deserialize<'de>>(
-    request: RequestBuilder,
-    url: &str,
-) -> Result<T, RemotePluginCatalogError> {
-    let response = request
-        .send()
-        .await
-        .map_err(|source| RemotePluginCatalogError::Request {
-            url: url.to_string(),
-            source,
-        })?;
-    let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|source| RemotePluginCatalogError::Request {
-            url: url.to_string(),
-            source,
-        })?;
-    if !status.is_success() {
-        return Err(RemotePluginCatalogError::UnexpectedStatus {
-            url: url.to_string(),
-            status,
-            body,
-        });
-    }
-
-    serde_json::from_str(&body).map_err(|source| RemotePluginCatalogError::Decode {
-        url: url.to_string(),
-        source,
-    })
 }

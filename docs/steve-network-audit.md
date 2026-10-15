@@ -24,7 +24,7 @@ verify release-build update behavior. Sources:
 The reviewed remote plugin-service requests use `chatgpt_base_url` and require
 first-party backend authentication. Steve does not GET `/ps/plugins/{plugin_id}`
 for plugin detail, `/ps/plugins/workspace/shared`, or `/ps/plugins/installed`.
-Skill detail still GETs `/ps/plugins/{plugin_id}/skills/{skill_name}`.
+Steve does not GET `/ps/plugins/{plugin_id}/skills/{skill_name}`.
 Authentication and product SKU accompany the remaining plugin-service requests.
 
 Steve does not POST `/ps/plugins/{plugin_id}/install` or
@@ -135,7 +135,7 @@ GET `{chatgpt_base_url}/ps/plugins/list`. A cached directory may still be
 read. Installed plugins do not GET `{chatgpt_base_url}/ps/plugins/installed`.
 An in-memory installed snapshot may still be read. Shared workspace plugins
 do not GET `{chatgpt_base_url}/ps/plugins/workspace/shared`. Plugin detail does
-not GET `{chatgpt_base_url}/ps/plugins/{plugin_id}`. Skill detail still GETs
+not GET `{chatgpt_base_url}/ps/plugins/{plugin_id}`. Steve does not GET
 `/ps/plugins/{plugin_id}/skills/{skill_name}`. Steve does not POST
 `{chatgpt_base_url}/ps/plugins/{plugin_id}/install` or
 `{chatgpt_base_url}/ps/plugins/{plugin_id}/uninstall`. Share and bundle

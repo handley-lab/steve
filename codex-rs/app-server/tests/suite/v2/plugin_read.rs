@@ -19,8 +19,6 @@ use codex_app_server_protocol::PluginShareDiscoverability;
 use codex_app_server_protocol::PluginSharePrincipal;
 use codex_app_server_protocol::PluginSharePrincipalRole;
 use codex_app_server_protocol::PluginSharePrincipalType;
-use codex_app_server_protocol::PluginSkillReadParams;
-use codex_app_server_protocol::PluginSkillReadResponse;
 use codex_app_server_protocol::PluginSource;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ScheduledTaskSchedule;
@@ -35,13 +33,7 @@ use serde_json::json;
 use tempfile::TempDir;
 use test_case::test_case;
 use tokio::time::timeout;
-use wiremock::Mock;
 use wiremock::MockServer;
-use wiremock::ResponseTemplate;
-use wiremock::matchers::body_json;
-use wiremock::matchers::header;
-use wiremock::matchers::method;
-use wiremock::matchers::path;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -214,70 +206,6 @@ async fn plugin_read_rejects_multiple_read_sources() -> Result<()> {
 }
 
 
-
-
-#[tokio::test]
-async fn plugin_skill_read_reads_remote_skill_contents_when_remote_plugin_enabled() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    let server = MockServer::start().await;
-    write_remote_plugin_catalog_config(
-        codex_home.path(),
-        &format!("{}/backend-api/", server.uri()),
-    )?;
-    write_chatgpt_auth(
-        codex_home.path(),
-        ChatGptAuthFixture::new("chatgpt-token")
-            .account_id("account-123")
-            .chatgpt_user_id("user-123")
-            .chatgpt_account_id("account-123"),
-        AuthCredentialsStoreMode::File,
-    )?;
-
-    let skill_body = r##"{
-  "plugin_id": "plugins~Plugin_00000000000000000000000000000000",
-  "status": "ENABLED",
-  "plugin_release_id": "release-1",
-  "name": "plan-work",
-  "description": "Plan work from Linear issues",
-  "plugin_release_skill_id": "skill-1",
-  "skill_md_contents": "# Plan Work\n\nUse Linear issues to create a plan."
-}"##;
-
-    Mock::given(method("GET"))
-        .and(path(
-            "/backend-api/ps/plugins/plugins~Plugin_00000000000000000000000000000000/skills/plan-work",
-        ))
-        .and(header("authorization", "Bearer chatgpt-token"))
-        .and(header("chatgpt-account-id", "account-123"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(skill_body))
-        .mount(&server)
-        .await;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .without_auto_env()
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-
-    let request_id = mcp
-        .send_plugin_skill_read_request(PluginSkillReadParams {
-            remote_marketplace_name: "openai-curated-remote".to_string(),
-            remote_plugin_id: "plugins~Plugin_00000000000000000000000000000000".to_string(),
-            skill_name: "plan-work".to_string(),
-        })
-        .await?;
-
-    let response: PluginSkillReadResponse =
-        timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
-
-    assert_eq!(
-        response,
-        PluginSkillReadResponse {
-            contents: Some("# Plan Work\n\nUse Linear issues to create a plan.".to_string()),
-        }
-    );
-    Ok(())
-}
 
 
 #[tokio::test]

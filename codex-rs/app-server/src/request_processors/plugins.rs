@@ -971,23 +971,9 @@ impl PluginRequestProcessor {
             ));
         }
 
-        let auth = self.auth_manager.auth().await;
-        let remote_plugin_service_config = remote_plugin_service_config(&config);
-        let remote_skill_detail = codex_core_plugins::remote::fetch_remote_plugin_skill_detail(
-            &remote_plugin_service_config,
-            auth.as_ref(),
-            &remote_marketplace_name,
-            &remote_plugin_id,
-            &skill_name,
-        )
-        .await
-        .map_err(|err| {
-            remote_plugin_catalog_error_to_jsonrpc(err, "read remote plugin skill details")
-        })?;
-
-        Ok(PluginSkillReadResponse {
-            contents: remote_skill_detail.contents,
-        })
+        Err(invalid_request(format!(
+            "remote plugin skill read is not available for marketplace {remote_marketplace_name}"
+        )))
     }
 
     async fn plugin_install_response(
