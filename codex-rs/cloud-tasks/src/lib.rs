@@ -51,9 +51,7 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
         std::env::var("STEVE_CLOUD_TASKS_MODE").ok().as_deref(),
         Some("mock") | Some("MOCK")
     );
-    let base_url = std::env::var("STEVE_CLOUD_TASKS_BASE_URL")
-        .unwrap_or_else(|_| "https://chatgpt.com/backend-api".to_string());
-    let base_url = util::validate_chatgpt_base_url(&base_url)?;
+    let base_url = util::configured_cloud_tasks_base_url()?;
 
     set_user_agent_suffix(user_agent_suffix);
 

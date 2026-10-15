@@ -41,6 +41,16 @@ pub fn normalize_base_url(input: &str) -> String {
     base_url
 }
 
+/// Reads the configured cloud-tasks base URL.
+///
+/// A missing value is an error. This does not substitute a ChatGPT host.
+pub(crate) fn configured_cloud_tasks_base_url() -> anyhow::Result<String> {
+    let base_url = std::env::var("STEVE_CLOUD_TASKS_BASE_URL").map_err(|_| {
+        anyhow::anyhow!("STEVE_CLOUD_TASKS_BASE_URL is required")
+    })?;
+    validate_chatgpt_base_url(&base_url)
+}
+
 /// Validate the destination before loading saved ChatGPT credentials, including in mock mode:
 /// environment discovery still makes authenticated HTTP requests when the task backend is mocked.
 pub(crate) fn validate_chatgpt_base_url(input: &str) -> anyhow::Result<String> {
@@ -173,7 +183,69 @@ pub fn format_relative_time_now(ts: DateTime<Utc>) -> String {
 mod tests {
     use pretty_assertions::assert_eq;
 
+    use super::configured_cloud_tasks_base_url;
     use super::normalize_base_url;
+    use std::sync::Mutex;
+
+    static CLOUD_TASKS_BASE_URL_LOCK: Mutex<()> = Mutex::new(());
+
+    struct BaseUrlGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl BaseUrlGuard {
+        fn set(value: Option<&str>) -> Self {
+            let _lock = CLOUD_TASKS_BASE_URL_LOCK
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let previous = std::env::var_os("STEVE_CLOUD_TASKS_BASE_URL");
+            // SAFETY: this guard restores the previous value before releasing the test lock.
+            match value {
+                Some(value) => unsafe { std::env::set_var("STEVE_CLOUD_TASKS_BASE_URL", value) },
+                None => unsafe { std::env::remove_var("STEVE_CLOUD_TASKS_BASE_URL") },
+            }
+            Self { _lock, previous }
+        }
+    }
+
+    impl Drop for BaseUrlGuard {
+        fn drop(&mut self) {
+            // SAFETY: the same test lock is still held by `_lock`.
+            match self.previous.take() {
+                Some(value) => unsafe { std::env::set_var("STEVE_CLOUD_TASKS_BASE_URL", value) },
+                None => unsafe { std::env::remove_var("STEVE_CLOUD_TASKS_BASE_URL") },
+            }
+        }
+    }
+
+    #[test]
+    fn missing_cloud_tasks_base_url_does_not_select_chatgpt() {
+        let _guard = BaseUrlGuard::set(None);
+        let message = configured_cloud_tasks_base_url()
+            .expect_err("missing base url")
+            .to_string();
+        assert_eq!(message, "STEVE_CLOUD_TASKS_BASE_URL is required");
+        assert!(!message.contains("chatgpt.com"));
+    }
+
+    #[test]
+    fn explicit_cloud_tasks_base_url_is_used() {
+        let _guard = BaseUrlGuard::set(Some("https://chatgpt.com/backend-api"));
+        assert_eq!(
+            configured_cloud_tasks_base_url().expect("explicit url"),
+            "https://chatgpt.com/backend-api"
+        );
+    }
+
+    #[test]
+    fn explicit_non_chatgpt_base_url_is_not_replaced() {
+        let _guard = BaseUrlGuard::set(Some("https://llm.hpc.cam.ac.uk/v1"));
+        let message = configured_cloud_tasks_base_url()
+            .expect_err("non-chatgpt url")
+            .to_string();
+        assert!(!message.contains("https://chatgpt.com"));
+    }
 
     #[test]
     fn normalize_base_url_normalizes_urls() {

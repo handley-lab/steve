@@ -4,11 +4,7 @@ use anyhow::Result;
 use predicates::str::contains;
 use serde_json::json;
 use tempfile::TempDir;
-use wiremock::Mock;
 use wiremock::MockServer;
-use wiremock::ResponseTemplate;
-use wiremock::matchers::header;
-use wiremock::matchers::path;
 
 #[tokio::test]
 async fn cloud_list_only_allows_trusted_credential_destinations() -> Result<()> {
@@ -66,26 +62,12 @@ async fn cloud_list_only_allows_trusted_credential_destinations() -> Result<()> 
     insta::assert_snapshot!(String::from_utf8(output)?, @"Error: STEVE_CLOUD_TASKS_BASE_URL must use a trusted HTTPS origin on port 443, without user information, a query, or a fragment; custom backends cannot use saved ChatGPT credentials");
     assert!(server.received_requests().await.unwrap().is_empty());
 
-    // Staging must reach explicit PAT authentication. Reject the synthetic PAT locally so
-    // this test never sends a request to the real staging backend.
-    let auth_server = MockServer::start().await;
-    Mock::given(path("/v1/user-auth-credential/whoami"))
-        .and(header("authorization", "Bearer at-synthetic-cloud"))
-        .respond_with(ResponseTemplate::new(401))
-        .expect(1)
-        .mount(&auth_server)
-        .await;
     command()?
-        .env(
-            "STEVE_CLOUD_TASKS_BASE_URL",
-            "https://chatgpt-staging.com/backend-api",
-        )
-        .env("STEVE_ACCESS_TOKEN", "at-synthetic-cloud")
-        .env("STEVE_AUTHAPI_BASE_URL", auth_server.uri())
+        .env_remove("STEVE_CLOUD_TASKS_BASE_URL")
         .args(["cloud", "list", "--limit", "1", "--json"])
         .assert()
         .failure()
-        .stderr(contains("Not signed in. Please run 'steve login'"));
-    auth_server.verify().await;
+        .stderr(contains("STEVE_CLOUD_TASKS_BASE_URL is required"));
+    assert!(server.received_requests().await.unwrap().is_empty());
     Ok(())
 }

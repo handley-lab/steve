@@ -178,9 +178,10 @@ daemon diagnostic wording changes. Sources:
 
 ## Cloud-task submission
 
-Cloud-task initialization independently defaults to
-`https://chatgpt.com/backend-api`, with `STEVE_CLOUD_TASKS_BASE_URL` as its
-override. Cambridge inference configuration does not select this backend.
+Cloud-task initialization does not default to
+`https://chatgpt.com/backend-api`. `STEVE_CLOUD_TASKS_BASE_URL` is required,
+and an explicit value is used after the existing host check. Cambridge
+inference configuration does not select this backend.
 Environment discovery sends GitHub repository owner/name in request paths and
 uses configured authentication headers. Task creation sends the user prompt,
 environment ID, branch, QA setting and optional best-of-N metadata. A nonempty
