@@ -199,6 +199,7 @@ Sources: `codex-rs/cloud-tasks/src/lib.rs`,
 | Explicit OTLP | Configured HTTP/gRPC endpoints | Configured metrics, logs or traces and resource attributes; content depends on instrumentation and logging settings | Configure the individual exporters. Analytics consent does not override these explicitly configured collectors. |
 | App-server analytics | none | Steve does not POST `{chatgpt_base_url}/codex/analytics-events/events`. | `[analytics].enabled` still parses. A debug capture file can record events locally. |
 | Feedback | none | Steve does not submit feedback envelopes to the Sentry DSN. | `[feedback].enabled` still parses. Local feedback log capture remains. |
+| Login and token refresh | none | Steve does not build `auth.openai.com` authorize, token, revoke, device-code, or personal-access-token metadata requests, and it does not select `auth.api.openai.org` for workload identity. | Stored and explicitly supplied credentials still load. Browser and device-code ChatGPT login are unavailable. |
 | OpenAI docs MCP | Configured `https://developers.openai.com/mcp`, attributed as `?source=codex` | Initialization identity/capabilities, tool names/arguments, configured authentication and MCP metadata; receives documentation and protocol results | This wrapper does not register the server. Leaving it unconfigured prevents this configured path. Analytics/feedback settings do not disable MCP metadata. |
 
 A documentation request is still an outbound request. MCP metadata can include
@@ -239,7 +240,9 @@ Paths are relative to the repository root.
 
 A Cambridge profile with an explicit Cambridge base URL redirects ordinary
 inference and model discovery to that URL. Steve does not POST analytics events
-or submit a Sentry feedback envelope. These settings do not disable plugin acquisition
+or submit a Sentry feedback envelope. Steve does not exchange login or refresh
+tokens with auth.openai.com. The auth manager still loads stored and explicitly
+supplied credentials. These settings do not disable plugin acquisition
 or the other independently controlled paths described above. Effective
 configuration, registered transports and observed requests must be checked for
 the assembled executable; these settings do not prove absence of OpenAI traffic.
@@ -292,72 +295,40 @@ No asset request was made during this static audit.
 
 ## Browser and device-code login
 
-First-party browser login defaults to issuer `https://auth.openai.com`. Its
-`/oauth/authorize` URL carries client ID, redirect URI, requested scopes, PKCE,
-state, originator and optional allowed workspace IDs. The callback exchanges
-the authorization code and PKCE material through `/oauth/token` and stores
-returned credentials in Steve's auth store. These are credential exchanges,
-not model inference; changing the inference base does not retarget this issuer.
-
-Device login POSTs client ID to `/api/accounts/deviceauth/usercode`, then polls
-`/api/accounts/deviceauth/token` with the device-auth ID and user code before
-the token exchange. Avoid invoking first-party browser/device login when using
-Cambridge-only authentication. Sources: `codex-rs/login/src/server.rs` and
-`codex-rs/login/src/device_code_auth.rs`. No credential exchange was performed
-during this source audit.
+Steve does not build an `https://auth.openai.com/oauth/authorize` URL, and it
+does not exchange an authorization code at `/oauth/token`. CLI and app-server
+ChatGPT login entry points return an error without constructing those URLs and
+without clearing stored credentials. Device login does not POST
+`/api/accounts/deviceauth/usercode` or `/api/accounts/deviceauth/token`.
+Sources: `codex-rs/cli/src/login.rs` and
+`codex-rs/app-server/src/request_processors/account_processor.rs`.
 
 ## Managed token refresh and revocation
 
-Resolving managed ChatGPT auth can proactively refresh credentials when an
-access token approaches expiry, or by the stored refresh age when expiry is
-unavailable. Refresh sends the refresh token and OAuth client ID to
-`https://auth.openai.com/oauth/token` by default. The response can replace ID,
-access and refresh tokens. `STEVE_REFRESH_TOKEN_URL_OVERRIDE` selects another
-endpoint; the inference provider base does not. Source:
+Stored ChatGPT credentials still load. Refreshing them does not POST the refresh
+token to `https://auth.openai.com/oauth/token`, including when
+`STEVE_REFRESH_TOKEN_URL_OVERRIDE` is set. Logout removes local auth and does
+not POST `https://auth.openai.com/oauth/revoke`. An explicit gateway token URL
+remains a separate configured OAuth client. Source:
 `codex-rs/login/src/auth/manager.rs`.
-
-Logout attempts revocation only for managed ChatGPT credentials with a usable
-refresh or access token, preferring the refresh token. It POSTs the token, token
-type hint and optional client ID to `https://auth.openai.com/oauth/revoke`.
-An explicit `STEVE_REVOKE_TOKEN_URL_OVERRIDE` takes precedence; otherwise an
-overridden refresh endpoint can supply its origin. Local auth removal still
-proceeds if revocation fails. Source: `codex-rs/login/src/auth/revoke.rs`.
-Avoid storing first-party credentials in Steve's isolated state when these
-exchanges are unwanted. Analytics/feedback settings do not gate them.
-No refresh or revocation request was performed during this static audit.
 
 ## Personal access token metadata
 
-Loading a first-party personal access token performs an authenticated GET to
-`https://auth.openai.com/api/accounts/v1/user-auth-credential/whoami` by default.
-It sends that token in bearer authentication and receives email, user/account
-IDs, plan and account attributes. `STEVE_AUTHAPI_BASE_URL` overrides this auth
-service base; the inference provider URL does not. This is credential validation
-and metadata acquisition, not conversation inference. Avoid supplying first-party
-access-token credentials for Cambridge-only operation. Sources:
-`codex-rs/login/src/auth/personal_access_token.rs` and
-`codex-rs/login/src/auth/manager.rs`. No token was read or submitted during
-this static audit.
+A supplied or stored personal access token is held locally. Steve does not GET
+`https://auth.openai.com/api/accounts/v1/user-auth-credential/whoami`, so email,
+user id, account id, plan and FedRAMP metadata from that endpoint are absent.
+A forced workspace cannot be proven from the token alone and fails closed
+without a request. Sources: `codex-rs/login/src/auth/personal_access_token.rs`
+and `codex-rs/login/src/auth/manager.rs`.
 
 ## Workload identity
 
-First-party workload authentication uses the external environment contract
-`OPENAI_FEDERATION_RULE_ID`, `OPENAI_IDENTITY_TOKEN_FILE` and optional
-`OPENAI_WORKLOAD_IDENTITY_CONTEXT`, with a policy permitting ChatGPT login.
-The login adapter selects production `https://auth.openai.com/oauth/token`
-or staging `https://auth.api.openai.org/oauth/token` from its first-party
-ChatGPT environment. The exchange reads the assertion file and POSTs its
-contents, federation-rule ID, JWT-bearer grant type and optional context.
-It receives short-lived access credentials and account/user/plan/scope metadata;
-cache expiry or rejected credentials can require another exchange.
-
-This is an outbound identity assertion, not a model request. Cambridge's
-inference base does not select the first-party token URL. Avoid enrolling
-first-party workload credentials in the Steve process when this path is
-unwanted. Sources: `codex-rs/login/src/auth/workload_identity.rs`,
-`codex-rs/workload-identity/src/exchange.rs` and
-`codex-rs/protocol/src/shell_environment.rs`. No assertion file was read and
-no authentication request made during this source audit.
+`OPENAI_FEDERATION_RULE_ID` or `OPENAI_IDENTITY_TOKEN_FILE` still marks workload
+identity as selected, and logout stays refused while that marker is set. The
+login adapter does not choose `https://auth.openai.com/oauth/token` or
+`https://auth.api.openai.org/oauth/token` and does not construct a
+workload-identity token exchange. Source:
+`codex-rs/login/src/auth/workload_identity.rs`.
 
 ## Agent identity transport
 

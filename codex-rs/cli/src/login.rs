@@ -13,15 +13,10 @@ use codex_core::config::edit::ConfigEdit;
 use codex_core::config::edit::ConfigEditsBuilder;
 use codex_login::AuthKeyringBackendKind;
 use codex_login::AuthManager;
-use codex_login::AuthRouteConfig;
-use codex_login::CLIENT_ID;
-use codex_login::ServerOptions;
 use codex_login::is_workload_identity_selected;
 use codex_login::login_with_access_token;
 use codex_login::login_with_api_key;
 use codex_login::logout_with_revoke;
-use codex_login::run_device_code_login;
-use codex_login::run_login_server;
 use codex_mcp::ema_auth_scope;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::config_types::ForcedLoginMethod;
@@ -30,7 +25,6 @@ use codex_utils_cli::CliConfigOverrides;
 use std::fs::OpenOptions;
 use std::io::IsTerminal;
 use std::io::Read;
-use std::path::Path;
 use std::path::PathBuf;
 use tracing_appender::non_blocking;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -117,58 +111,14 @@ fn init_login_file_logging(config: &Config) -> Option<WorkerGuard> {
     Some(guard)
 }
 
-fn print_login_server_start(actual_port: u16, auth_url: &str) {
-    eprintln!(
-        "Starting local login server on http://localhost:{actual_port}.\nIf your browser did not open, navigate to this URL to authenticate:\n\n{auth_url}\n\nOn a remote or headless machine? Use `steve login --device-auth` instead."
-    );
-}
-
-async fn clear_existing_auth_before_login(
-    codex_home: &Path,
-    auth_credentials_store_mode: AuthCredentialsStoreMode,
-    auth_keyring_backend_kind: AuthKeyringBackendKind,
-    auth_route_config: &AuthRouteConfig,
-) {
-    if let Err(err) = logout_with_revoke(
-        codex_home,
-        auth_credentials_store_mode,
-        auth_keyring_backend_kind,
-        auth_route_config,
-    )
-    .await
-    {
-        tracing::warn!("failed to clear existing auth before login: {err}");
-    }
-}
-
 pub async fn login_with_chatgpt(
-    codex_home: PathBuf,
-    forced_chatgpt_workspace_id: Option<Vec<String>>,
-    cli_auth_credentials_store_mode: AuthCredentialsStoreMode,
-    auth_keyring_backend_kind: AuthKeyringBackendKind,
-    auth_route_config: AuthRouteConfig,
+    _codex_home: PathBuf,
+    _forced_chatgpt_workspace_id: Option<Vec<String>>,
+    _cli_auth_credentials_store_mode: AuthCredentialsStoreMode,
+    _auth_keyring_backend_kind: AuthKeyringBackendKind,
+    _auth_route_config: codex_login::AuthRouteConfig,
 ) -> std::io::Result<()> {
-    clear_existing_auth_before_login(
-        &codex_home,
-        cli_auth_credentials_store_mode,
-        auth_keyring_backend_kind,
-        &auth_route_config,
-    )
-    .await;
-
-    let opts = ServerOptions::new(
-        codex_home,
-        CLIENT_ID.to_string(),
-        forced_chatgpt_workspace_id,
-        cli_auth_credentials_store_mode,
-        auth_keyring_backend_kind,
-        auth_route_config,
-    );
-    let server = run_login_server(opts)?;
-
-    print_login_server_start(server.actual_port, &server.auth_url);
-
-    server.block_until_done().await
+    Err(std::io::Error::other("ChatGPT login is not available"))
 }
 
 pub async fn run_login_with_chatgpt(cli_config_overrides: CliConfigOverrides) -> ! {
@@ -319,11 +269,11 @@ fn read_stdin_secret(terminal_message: &str, reading_message: &str, empty_messag
     secret
 }
 
-/// Login using the OAuth device code flow.
+/// ChatGPT device-code login is not available.
 pub async fn run_login_with_device_code(
     cli_config_overrides: CliConfigOverrides,
-    issuer_base_url: Option<String>,
-    client_id: Option<String>,
+    _issuer_base_url: Option<String>,
+    _client_id: Option<String>,
 ) -> ! {
     let config = load_config_or_exit(cli_config_overrides).await;
     let _login_log_guard = init_login_file_logging(&config);
@@ -335,46 +285,15 @@ pub async fn run_login_with_device_code(
         eprintln!("{CHATGPT_LOGIN_DISABLED_MESSAGE}");
         std::process::exit(1);
     }
-    let auth_route_config = config.auth_route_config();
-    clear_existing_auth_before_login(
-        &config.codex_home,
-        config.cli_auth_credentials_store_mode,
-        config.auth_keyring_backend_kind(),
-        &auth_route_config,
-    )
-    .await;
-    let effective_chatgpt_workspaces = config.auth_config().effective_chatgpt_workspaces();
-    let mut opts = ServerOptions::new(
-        config.codex_home.to_path_buf(),
-        client_id.unwrap_or(CLIENT_ID.to_string()),
-        effective_chatgpt_workspaces,
-        config.cli_auth_credentials_store_mode,
-        config.auth_keyring_backend_kind(),
-        auth_route_config,
-    );
-    if let Some(iss) = issuer_base_url {
-        opts.issuer = iss;
-    }
-    match run_device_code_login(opts).await {
-        Ok(()) => {
-            eprintln!("{LOGIN_SUCCESS_MESSAGE}");
-            std::process::exit(0);
-        }
-        Err(e) => {
-            eprintln!("Error logging in with device code: {e}");
-            std::process::exit(1);
-        }
-    }
+    eprintln!("Error logging in with device code: ChatGPT login is not available");
+    std::process::exit(1);
 }
 
-/// Prefers device-code login (with `open_browser = false`) when headless environment is detected, but keeps
-/// `steve login` working in environments where device-code may be disabled/feature-gated.
-/// If `run_device_code_login` returns `ErrorKind::NotFound` ("device-code unsupported"), this
-/// falls back to starting the local browser login server.
+/// ChatGPT login is not available. Stored credentials are left in place.
 pub async fn run_login_with_device_code_fallback_to_browser(
     cli_config_overrides: CliConfigOverrides,
-    issuer_base_url: Option<String>,
-    client_id: Option<String>,
+    _issuer_base_url: Option<String>,
+    _client_id: Option<String>,
 ) -> ! {
     let config = load_config_or_exit(cli_config_overrides).await;
     let _login_log_guard = init_login_file_logging(&config);
@@ -386,62 +305,8 @@ pub async fn run_login_with_device_code_fallback_to_browser(
         eprintln!("{CHATGPT_LOGIN_DISABLED_MESSAGE}");
         std::process::exit(1);
     }
-    let auth_route_config = config.auth_route_config();
-    clear_existing_auth_before_login(
-        &config.codex_home,
-        config.cli_auth_credentials_store_mode,
-        config.auth_keyring_backend_kind(),
-        &auth_route_config,
-    )
-    .await;
-
-    let effective_chatgpt_workspaces = config.auth_config().effective_chatgpt_workspaces();
-    let mut opts = ServerOptions::new(
-        config.codex_home.to_path_buf(),
-        client_id.unwrap_or(CLIENT_ID.to_string()),
-        effective_chatgpt_workspaces,
-        config.cli_auth_credentials_store_mode,
-        config.auth_keyring_backend_kind(),
-        auth_route_config,
-    );
-    if let Some(iss) = issuer_base_url {
-        opts.issuer = iss;
-    }
-    opts.open_browser = false;
-
-    match run_device_code_login(opts.clone()).await {
-        Ok(()) => {
-            eprintln!("{LOGIN_SUCCESS_MESSAGE}");
-            std::process::exit(0);
-        }
-        Err(e) => {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                eprintln!("Device code login is not enabled; falling back to browser login.");
-                match run_login_server(opts) {
-                    Ok(server) => {
-                        print_login_server_start(server.actual_port, &server.auth_url);
-                        match server.block_until_done().await {
-                            Ok(()) => {
-                                eprintln!("{LOGIN_SUCCESS_MESSAGE}");
-                                std::process::exit(0);
-                            }
-                            Err(e) => {
-                                eprintln!("Error logging in: {e}");
-                                std::process::exit(1);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Error logging in: {e}");
-                        std::process::exit(1);
-                    }
-                }
-            } else {
-                eprintln!("Error logging in with device code: {e}");
-                std::process::exit(1);
-            }
-        }
-    }
+    eprintln!("Error logging in: ChatGPT login is not available");
+    std::process::exit(1);
 }
 
 pub async fn run_login_status(cli_config_overrides: CliConfigOverrides) -> ! {

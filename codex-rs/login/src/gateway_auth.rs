@@ -14,7 +14,6 @@ use crate::oauth::ErrorBodyLimit;
 use crate::oauth::OAuthClient;
 use crate::oauth::OAuthError;
 use crate::oauth::RefreshTokenGrant;
-use crate::oauth::TokenEncoding;
 use crate::oauth::TokenEndpoint;
 use crate::oauth::build_authorization_url;
 use crate::oauth::generate_pkce;
@@ -479,7 +478,6 @@ impl GatewayAuthManager {
             TokenEndpoint {
                 url: &self.state.config.token_url,
                 client_id: &self.state.config.client_id,
-                encoding: TokenEncoding::Form,
                 timeout: Some(HTTP_TIMEOUT),
                 error_body_limit: ErrorBodyLimit::Bytes(8 * 1024),
             },

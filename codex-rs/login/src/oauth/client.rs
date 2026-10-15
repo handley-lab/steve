@@ -1,6 +1,5 @@
 //! Executes OAuth grants without owning credential state or choosing a recovery policy.
 
-use std::collections::BTreeMap;
 use std::time::Duration;
 
 use codex_http_client::HttpClient;
@@ -12,18 +11,10 @@ use crate::oauth::PkceCodes;
 use crate::oauth::TokenRejection;
 use crate::oauth::diagnostics::redact_error_url;
 
-/// ChatGPT refresh uses JSON; authorization-code and gateway grants use form encoding.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum TokenEncoding {
-    Form,
-    Json,
-}
-
 /// Per-endpoint transport settings. The HTTP client already owns routing and CA policy.
 pub(crate) struct TokenEndpoint<'a> {
     pub url: &'a str,
     pub client_id: &'a str,
-    pub encoding: TokenEncoding,
     pub timeout: Option<Duration>,
     pub error_body_limit: ErrorBodyLimit,
 }
@@ -93,22 +84,19 @@ impl<'a> OAuthClient<'a> {
         parameters: &[(&str, &str)],
         secrets: &[&str],
     ) -> Result<T, OAuthError> {
-        let mut request = self.http_client.post(self.endpoint.url);
+        let body = {
+            let mut form = url::form_urlencoded::Serializer::new(String::new());
+            form.extend_pairs(parameters.iter().copied());
+            form.finish()
+        };
+        let mut request = self
+            .http_client
+            .post(self.endpoint.url)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(body);
         if let Some(timeout) = self.endpoint.timeout {
             request = request.timeout(timeout);
         }
-        request = match self.endpoint.encoding {
-            TokenEncoding::Form => {
-                let mut form = url::form_urlencoded::Serializer::new(String::new());
-                form.extend_pairs(parameters.iter().copied());
-                request
-                    .header("Content-Type", "application/x-www-form-urlencoded")
-                    .body(form.finish())
-            }
-            TokenEncoding::Json => request
-                .header("Content-Type", "application/json")
-                .json(&parameters.iter().copied().collect::<BTreeMap<_, _>>()),
-        };
         let response = request
             .send()
             .await

@@ -3857,7 +3857,6 @@ dependencies = [
  "codex-utils-cargo-bin",
  "codex-utils-process",
  "codex-utils-template",
- "codex-workload-identity",
  "core_test_support",
  "http 1.4.0",
  "jsonwebtoken",

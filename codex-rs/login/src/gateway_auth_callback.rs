@@ -60,9 +60,14 @@ impl CallbackListener {
                         );
                         continue;
                     }
-                    Err(CallbackError::Provider { .. }) => Err(io::Error::new(
+                    Err(CallbackError::Provider { code, description }) => Err(io::Error::new(
                         io::ErrorKind::PermissionDenied,
-                        "provider OAuth authorization was denied",
+                        match description {
+                            Some(description) => format!(
+                                "provider OAuth authorization was denied: {code}: {description}"
+                            ),
+                            None => format!("provider OAuth authorization was denied: {code}"),
+                        },
                     )),
                     Err(CallbackError::MissingCode) => {
                         Err(io::Error::other("provider OAuth callback omitted its code"))

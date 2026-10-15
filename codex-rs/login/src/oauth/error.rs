@@ -40,7 +40,6 @@ impl fmt::Debug for OAuthError {
 /// Preserve each caller's existing diagnostic-read contract.
 #[derive(Clone, Copy)]
 pub(crate) enum ErrorBodyLimit {
-    Unlimited,
     Bytes(usize),
 }
 
@@ -71,7 +70,6 @@ impl TokenRejection {
                     .collect()
             });
         let body = match limit {
-            ErrorBodyLimit::Unlimited => response.text().await,
             ErrorBodyLimit::Bytes(limit) => {
                 let mut body = Vec::new();
                 loop {
@@ -113,6 +111,9 @@ impl fmt::Display for TokenRejection {
         )?;
         if let Some(request_id) = &self.request_id {
             write!(formatter, " (request id: {request_id})")?;
+        }
+        if self.body_read_error.is_some() {
+            write!(formatter, " (response body was not read)")?;
         }
         Ok(())
     }

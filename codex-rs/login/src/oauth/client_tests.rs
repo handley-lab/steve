@@ -33,7 +33,6 @@ fn oauth<'a>(http: &'a HttpClient, url: &'a str, limit: ErrorBodyLimit) -> OAuth
         TokenEndpoint {
             url,
             client_id: "client id",
-            encoding: TokenEncoding::Form,
             timeout: None,
             error_body_limit: limit,
         },
@@ -57,7 +56,7 @@ async fn authorization_code_preserves_pkce_and_http_policy() {
         .build_direct()
         .unwrap();
     let endpoint = server.uri();
-    let form = oauth(&http, &endpoint, ErrorBodyLimit::Unlimited);
+    let form = oauth(&http, &endpoint, ErrorBodyLimit::Bytes(8 * 1024));
     let pkce = generate_pkce();
     let state = generate_state();
     let resource = "https://gateway.example.test/a?b=c&d=e";
@@ -133,13 +132,6 @@ async fn rejection_preserves_status_and_omits_oversized_diagnostics() {
     let form_encoded: String =
         url::form_urlencoded::byte_serialize(refresh_token.as_bytes()).collect();
     let long_body = format!("{}{form_encoded}", "x".repeat(BODY_LIMIT - 2));
-    let redacted = long_body.replace(&form_encoded, "[REDACTED]");
-    let top_level_error = json!({
-        "code": "configuration_error",
-        "message": format!("Unknown tenant: {form_encoded}"),
-    })
-    .to_string();
-    let redacted_top_level_error = top_level_error.replace(&form_encoded, "[REDACTED]");
     for (limit, body, expected_display) in [
         (
             ErrorBodyLimit::Bytes(BODY_LIMIT),
@@ -147,19 +139,9 @@ async fn rejection_preserves_status_and_omits_oversized_diagnostics() {
             "[REDACTED]",
         ),
         (
-            ErrorBodyLimit::Unlimited,
-            top_level_error,
-            redacted_top_level_error.as_str(),
-        ),
-        (
             ErrorBodyLimit::Bytes(BODY_LIMIT),
             long_body.clone(),
             "unknown error",
-        ),
-        (
-            ErrorBodyLimit::Unlimited,
-            long_body.clone(),
-            redacted.as_str(),
         ),
     ] {
         let server = MockServer::start().await;
@@ -223,7 +205,7 @@ async fn rejection_keeps_status_when_reading_the_body_fails() {
     });
     let http = HttpClientBuilder::new().build_direct().unwrap();
     let endpoint = format!("http://{address}");
-    let result = oauth(&http, &endpoint, ErrorBodyLimit::Unlimited)
+    let result = oauth(&http, &endpoint, ErrorBodyLimit::Bytes(8 * 1024))
         .refresh::<Value>(RefreshTokenGrant {
             refresh_token: "refresh",
             resource: None,
@@ -282,7 +264,7 @@ async fn success_body_revocation_preserves_the_policy_error() {
             },
         );
     };
-    let form = oauth(&http, &endpoint, ErrorBodyLimit::Unlimited);
+    let form = oauth(&http, &endpoint, ErrorBodyLimit::Bytes(8 * 1024));
     let (result, ()) = tokio::time::timeout(Duration::from_secs(/*secs*/ 5), async {
         tokio::join!(
             form.refresh::<Value>(RefreshTokenGrant {
