@@ -4,11 +4,7 @@ use codex_app_server_protocol::PluginSearchResponse;
 use codex_app_server_protocol::PluginSearchResult;
 use codex_app_server_protocol::PluginSearchScope;
 use codex_core_plugins::OPENAI_BUNDLED_MARKETPLACE_NAME;
-use codex_core_plugins::remote::RemotePluginSearchRequest;
-use codex_core_plugins::remote::search_remote_plugins;
 
-const DEFAULT_PLUGIN_SEARCH_LIMIT: u32 = 16;
-const MAX_PLUGIN_SEARCH_LIMIT: u32 = 1_000;
 const MAX_LOCAL_PLUGIN_SEARCH_RESULTS: usize = 100;
 const PLUGIN_SEARCH_NO_MATCH_RANK: usize = 6;
 
@@ -31,7 +27,7 @@ impl PluginRequestProcessor {
             scope,
             cwds,
             cursor,
-            limit,
+            limit: _,
         } = params;
         let search_term = search_term.trim();
         let empty_response = || PluginSearchResponse {
@@ -48,88 +44,19 @@ impl PluginRequestProcessor {
         if !config.features.enabled(Feature::Plugins) {
             return Ok(empty_response());
         }
-        let plugin_sharing_enabled = config.features.enabled(Feature::PluginSharing);
-
         let auth = self.auth_manager.auth().await;
         let auth_mode = auth.as_ref().map(CodexAuth::api_auth_mode);
         let remote_plugin_enabled = config.features.enabled(Feature::RemotePlugin);
         let use_remote_global_catalog =
             remote_plugin_enabled && auth_mode.is_some_and(DomainAuthMode::uses_codex_backend);
-        let remote_scope = if remote_plugin_enabled {
-            Some(scope.map(|scope| match scope {
-                PluginSearchScope::Global => RemotePluginScope::Global,
-                PluginSearchScope::Workspace => RemotePluginScope::Workspace,
-                PluginSearchScope::Personal => RemotePluginScope::User,
-            }))
-        } else {
-            match scope {
-                None | Some(PluginSearchScope::Workspace) => {
-                    Some(Some(RemotePluginScope::Workspace))
-                }
-                Some(PluginSearchScope::Global | PluginSearchScope::Personal) => None,
-            }
-        };
-        let limit = limit
-            .unwrap_or(DEFAULT_PLUGIN_SEARCH_LIMIT)
-            .clamp(1, MAX_PLUGIN_SEARCH_LIMIT);
-        let mut next_cursor = None;
-        let mut remote_results = Vec::new();
-        if auth_mode.is_some_and(DomainAuthMode::uses_codex_backend)
-            && let Some(remote_scope) = remote_scope
-        {
-            let page = search_remote_plugins(
-                &remote_plugin_service_config(&config),
-                auth.as_ref(),
-                RemotePluginSearchRequest {
-                    query: search_term,
-                    scope: remote_scope,
-                    limit,
-                    page_token: cursor.as_deref(),
-                },
-            )
-            .await
-            .map_err(|err| {
-                remote_plugin_catalog_error_to_jsonrpc(err, "search remote plugin catalog")
-            })?;
-
-            next_cursor = page.next_page_token;
-            remote_results.reserve(page.plugins.len());
-            let plugin_policy = &config.plugins;
-            for plugin in page.plugins {
-                let plugin_id = PluginId::parse(&plugin.id).map_err(|err| {
-                    internal_error(format!("invalid remote plugin search result id: {err}"))
-                })?;
-
-                // NOTE: (brisebois) filter out plugins from the results that belong to "shared"
-                // marketplaces if plugin sharing is disabled. There is a chance that this filters
-                // out all results and returns an empty list to the client. Ideally this filtering
-                // would be done server-side to avoid this problem.
-                if !plugin_sharing_enabled
-                    && matches!(
-                        plugin_id.marketplace_name.as_str(),
-                        REMOTE_WORKSPACE_SHARED_WITH_ME_MARKETPLACE_NAME
-                            | REMOTE_WORKSPACE_SHARED_WITH_ME_PRIVATE_MARKETPLACE_NAME
-                            | REMOTE_WORKSPACE_SHARED_WITH_ME_UNLISTED_MARKETPLACE_NAME
-                    )
-                {
-                    continue;
-                }
-                remote_results.push(plugin_search_result(
-                    remote_plugin_summary_to_info(plugin, plugin_policy),
-                    plugin_id.marketplace_name,
-                    /*marketplace_path*/ None,
-                ));
-            }
-        }
-
-        // All local results are stitched into the first page; if
-        // we are not on the first page, don't even check local
+        // A cursor page used to return only the remote search page. Plugin search
+        // does not request /ps/plugins/search, so that page is empty.
         if cursor.is_some() {
-            return Ok(PluginSearchResponse {
-                data: remote_results,
-                next_cursor,
-            });
+            return Ok(empty_response());
         }
+
+        let next_cursor = None;
+        let remote_results: Vec<PluginSearchResult> = Vec::new();
 
         let normalized_search_term = normalize_search_text(search_term);
         let mut local_results = Vec::new();

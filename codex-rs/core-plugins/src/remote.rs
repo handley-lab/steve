@@ -53,7 +53,6 @@ use url::Url;
 mod catalog_cache;
 mod plugin_capabilities;
 mod remote_installed_plugin_sync;
-mod search;
 mod share;
 
 #[cfg(test)]
@@ -70,9 +69,6 @@ pub use remote_installed_plugin_sync::mark_remote_plugin_cache_mutation_in_fligh
 pub(crate) use remote_installed_plugin_sync::remote_installed_plugin_bundle_sync_gate;
 pub use remote_installed_plugin_sync::sync_remote_installed_plugin_bundles_once;
 pub(crate) use remote_installed_plugin_sync::sync_remote_installed_plugin_bundles_once_with_snapshot;
-pub use search::RemotePluginSearchPage;
-pub use search::RemotePluginSearchRequest;
-pub use search::search_remote_plugins;
 pub use share::RemotePluginShareAccessPolicy;
 pub use share::RemotePluginShareDiscoverability;
 pub use share::RemotePluginSharePrincipal;

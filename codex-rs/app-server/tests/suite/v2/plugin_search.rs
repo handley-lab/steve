@@ -15,18 +15,12 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 use tempfile::TempDir;
 use tokio::time::timeout;
-use wiremock::Mock;
 use wiremock::MockServer;
-use wiremock::ResponseTemplate;
-use wiremock::matchers::method;
-use wiremock::matchers::path;
-use wiremock::matchers::query_param;
-use wiremock::matchers::query_param_is_missing;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[tokio::test]
-async fn plugin_search_omits_shared_workspace_results_when_plugin_sharing_disabled() -> Result<()> {
+async fn plugin_search_cursor_does_not_request_the_search_endpoint() -> Result<()> {
     let codex_home = TempDir::new()?;
     let server = MockServer::start().await;
     std::fs::write(
@@ -51,56 +45,12 @@ plugin_sharing = false
         AuthCredentialsStoreMode::File,
     )?;
 
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/search"))
-        .and(query_param("q", "linear"))
-        .and(query_param("limit", "16"))
-        .and(query_param("pageToken", "incoming-token"))
-        .and(query_param_is_missing("scope"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "plugins": [
-                remote_plugin_json(
-                    "plugin-global",
-                    "global-linear",
-                    "GLOBAL",
-                    /*discoverability*/ None,
-                ),
-                remote_plugin_json(
-                    "plugin-user",
-                    "personal-linear",
-                    "USER",
-                    /*discoverability*/ None,
-                ),
-                remote_plugin_json(
-                    "plugin-listed",
-                    "listed-linear",
-                    "WORKSPACE",
-                    /*discoverability*/ Some("LISTED"),
-                ),
-                remote_plugin_json(
-                    "plugin-private",
-                    "private-linear",
-                    "WORKSPACE",
-                    /*discoverability*/ Some("PRIVATE"),
-                ),
-                remote_plugin_json(
-                    "plugin-unlisted",
-                    "unlisted-linear",
-                    "WORKSPACE",
-                    /*discoverability*/ Some("UNLISTED"),
-                ),
-            ],
-            "pagination": {"next_page_token": "outgoing-token"},
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .without_auto_env()
         .build_initialized_with_timeout(DEFAULT_TIMEOUT)
         .await?;
+    let config_before = std::fs::read_to_string(codex_home.path().join("config.toml"))?;
 
     let request_id = mcp
         .send_plugin_search_request(PluginSearchParams {
@@ -114,30 +64,27 @@ plugin_sharing = false
     let response: PluginSearchResponse =
         timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
 
-    assert_eq!(response.next_cursor.as_deref(), Some("outgoing-token"));
     assert_eq!(
-        response
-            .data
-            .iter()
-            .map(|result| { (result.marketplace_name.as_str(), result.plugin.id.as_str(),) })
-            .collect::<Vec<_>>(),
-        vec![
-            (
-                "openai-curated-remote",
-                "global-linear@openai-curated-remote"
-            ),
-            (
-                "created-by-me-remote",
-                "personal-linear@created-by-me-remote"
-            ),
-            ("workspace-directory", "listed-linear@workspace-directory"),
-        ]
+        response,
+        PluginSearchResponse {
+            data: Vec::new(),
+            next_cursor: None,
+        }
     );
+    assert_no_plugin_search_get(&server).await;
+    assert_eq!(
+        std::fs::read_to_string(codex_home.path().join("config.toml"))?,
+        config_before
+    );
+    assert!(config_before.contains(&format!(
+        r#"chatgpt_base_url = "{}/backend-api/""#,
+        server.uri()
+    )));
     Ok(())
 }
 
 #[tokio::test]
-async fn plugin_search_only_searches_workspace_when_remote_plugin_disabled() -> Result<()> {
+async fn plugin_search_does_not_request_the_search_endpoint() -> Result<()> {
     let codex_home = TempDir::new()?;
     let server = MockServer::start().await;
     std::fs::write(
@@ -161,62 +108,23 @@ remote_plugin = false
         AuthCredentialsStoreMode::File,
     )?;
 
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/search"))
-        .and(query_param("q", "linear"))
-        .and(query_param("scope", "WORKSPACE"))
-        .and(query_param("limit", "16"))
-        .and(query_param_is_missing("pageToken"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "plugins": [remote_plugin_json(
-                "plugin-workspace",
-                "workspace-linear",
-                "WORKSPACE",
-                /*discoverability*/ Some("LISTED"),
-            )],
-            "pagination": {"next_page_token": null},
-        })))
-        .expect(2)
-        .mount(&server)
-        .await;
-
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .without_auto_env()
         .build_initialized_with_timeout(DEFAULT_TIMEOUT)
         .await?;
+    let config_before = std::fs::read_to_string(codex_home.path().join("config.toml"))?;
 
-    for scope in [None, Some(PluginSearchScope::Workspace)] {
+    for scope in [
+        None,
+        Some(PluginSearchScope::Workspace),
+        Some(PluginSearchScope::Global),
+        Some(PluginSearchScope::Personal),
+    ] {
         let request_id = mcp
             .send_plugin_search_request(PluginSearchParams {
                 search_term: "linear".to_string(),
                 scope,
-                cwds: None,
-                cursor: None,
-                limit: None,
-            })
-            .await?;
-        let response: PluginSearchResponse =
-            timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
-
-        assert_eq!(
-            response
-                .data
-                .iter()
-                .map(|result| (result.marketplace_name.as_str(), result.plugin.id.as_str(),))
-                .collect::<Vec<_>>(),
-            vec![(
-                "workspace-directory",
-                "workspace-linear@workspace-directory",
-            )]
-        );
-    }
-
-    for scope in [PluginSearchScope::Global, PluginSearchScope::Personal] {
-        let request_id = mcp
-            .send_plugin_search_request(PluginSearchParams {
-                search_term: "linear".to_string(),
-                scope: Some(scope),
                 cwds: None,
                 cursor: None,
                 limit: None,
@@ -234,32 +142,20 @@ remote_plugin = false
         );
     }
 
-    let search_requests = server
-        .received_requests()
-        .await
-        .expect("wiremock should record requests")
-        .into_iter()
-        .filter(|request| request.url.path() == "/backend-api/ps/plugins/search")
-        .collect::<Vec<_>>();
-    assert_eq!(search_requests.len(), 2);
+    assert_no_plugin_search_get(&server).await;
     assert_eq!(
-        search_requests
-            .iter()
-            .filter_map(|request| {
-                request
-                    .url
-                    .query_pairs()
-                    .find(|(name, _value)| name == "scope")
-                    .map(|(_name, value)| value.into_owned())
-            })
-            .collect::<Vec<_>>(),
-        vec!["WORKSPACE", "WORKSPACE"]
+        std::fs::read_to_string(codex_home.path().join("config.toml"))?,
+        config_before
     );
+    assert!(config_before.contains(&format!(
+        r#"chatgpt_base_url = "{}/backend-api/""#,
+        server.uri()
+    )));
     Ok(())
 }
 
 #[tokio::test]
-async fn plugin_search_stitches_local_results_into_the_first_remote_page() -> Result<()> {
+async fn plugin_search_returns_local_matches_without_requesting_search() -> Result<()> {
     let codex_home = TempDir::new()?;
     let repo_root = TempDir::new()?;
     let server = MockServer::start().await;
@@ -314,49 +210,12 @@ async fn plugin_search_stitches_local_results_into_the_first_remote_page() -> Re
     write_remote_plugin_search_config(codex_home.path(), &server, /*remote_plugin*/ true)?;
     write_chatgpt_search_auth(codex_home.path())?;
 
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/search"))
-        .and(query_param("q", "calendar"))
-        .and(query_param("limit", "1"))
-        .and(query_param_is_missing("pageToken"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "plugins": [
-                remote_plugin_json("remote-exact", "calendar", "GLOBAL", /*discoverability*/ None),
-                remote_plugin_json(
-                    "remote-substring",
-                    "connected-calendar",
-                    "GLOBAL",
-                    /*discoverability*/ None,
-                ),
-            ],
-            "pagination": {"next_page_token": "next-page"},
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/search"))
-        .and(query_param("q", "calendar"))
-        .and(query_param("limit", "1"))
-        .and(query_param("pageToken", "next-page"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "plugins": [remote_plugin_json(
-                "remote-later",
-                "calendar-later",
-                "GLOBAL",
-                /*discoverability*/ None,
-            )],
-            "pagination": {"next_page_token": null},
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-
     let mut app_server = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .without_auto_env()
         .build_initialized_with_timeout(DEFAULT_TIMEOUT)
         .await?;
+    let config_before = std::fs::read_to_string(codex_home.path().join("config.toml"))?;
     let roots = vec![AbsolutePathBuf::try_from(repo_root.path())?];
     let request_id = app_server
         .send_plugin_search_request(PluginSearchParams {
@@ -370,12 +229,10 @@ async fn plugin_search_stitches_local_results_into_the_first_remote_page() -> Re
     let response: PluginSearchResponse =
         timeout(DEFAULT_TIMEOUT, app_server.read_response(request_id)).await??;
 
-    assert_eq!(response.next_cursor.as_deref(), Some("next-page"));
+    assert_eq!(response.next_cursor, None);
     let mut expected_results = vec![
-        ("calendar", None, false),
         ("calendar-notes", Some(&marketplace_path), false),
         ("calendar-priority", Some(&marketplace_path), false),
-        ("connected-calendar", None, false),
         ("integrations", Some(&marketplace_path), false),
     ];
     expected_results.extend(
@@ -402,22 +259,29 @@ async fn plugin_search_stitches_local_results_into_the_first_remote_page() -> Re
             search_term: "calendar".to_string(),
             scope: None,
             cwds: Some(roots),
-            cursor: response.next_cursor,
+            cursor: Some("next-page".to_string()),
             limit: Some(1),
         })
         .await?;
     let response: PluginSearchResponse =
         timeout(DEFAULT_TIMEOUT, app_server.read_response(request_id)).await??;
 
-    assert_eq!(response.next_cursor, None);
     assert_eq!(
-        response
-            .data
-            .iter()
-            .map(|result| (result.plugin.name.as_str(), result.plugin.enabled))
-            .collect::<Vec<_>>(),
-        vec![("calendar-later", false)]
+        response,
+        PluginSearchResponse {
+            data: Vec::new(),
+            next_cursor: None,
+        }
     );
+    assert_no_plugin_search_get(&server).await;
+    assert_eq!(
+        std::fs::read_to_string(codex_home.path().join("config.toml"))?,
+        config_before
+    );
+    assert!(config_before.contains(&format!(
+        r#"chatgpt_base_url = "{}/backend-api/""#,
+        server.uri()
+    )));
     Ok(())
 }
 
@@ -485,6 +349,7 @@ async fn plugin_search_returns_local_matches_for_api_key_auth() -> Result<()> {
             .without_auto_env()
             .build_initialized_with_timeout(DEFAULT_TIMEOUT)
             .await?;
+        let config_before = std::fs::read_to_string(codex_home.path().join("config.toml"))?;
 
         for (scope, search_term, expected_names) in [
             (
@@ -516,8 +381,8 @@ async fn plugin_search_returns_local_matches_for_api_key_auth() -> Result<()> {
                     search_term: search_term.to_string(),
                     scope,
                     cwds: Some(vec![
-                        AbsolutePathBuf::try_from(repo_root.path())?,
-                        AbsolutePathBuf::try_from(bundled_alpha_root.as_path())?,
+                        AbsolutePathBuf::try_from(repo_root.path().canonicalize()?)?,
+                        AbsolutePathBuf::try_from(bundled_alpha_root.canonicalize()?)?,
                     ]),
                     cursor: None,
                     limit: None,
@@ -544,13 +409,20 @@ async fn plugin_search_returns_local_matches_for_api_key_auth() -> Result<()> {
                 .expect("wiremock should record requests")
                 .is_empty()
         );
+        assert_eq!(
+            std::fs::read_to_string(codex_home.path().join("config.toml"))?,
+            config_before
+        );
+        assert!(config_before.contains(&format!(
+            r#"chatgpt_base_url = "{}/backend-api/""#,
+            server.uri()
+        )));
     }
     Ok(())
 }
 
 #[tokio::test]
-async fn plugin_search_deduplicates_shared_remote_identities_while_ignoring_local_curated_plugins()
--> Result<()> {
+async fn plugin_search_returns_local_personal_matches_without_requesting_search() -> Result<()> {
     let codex_home = TempDir::new()?;
     let repo_root = TempDir::new()?;
     let curated_root = codex_home.path().join(".tmp/plugins");
@@ -631,35 +503,12 @@ enabled = true
     )?;
     write_chatgpt_search_auth(codex_home.path())?;
 
-    Mock::given(method("GET"))
-        .and(path("/backend-api/ps/plugins/search"))
-        .and(query_param("q", "calendar"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "plugins": [
-                remote_plugin_json(
-                    "remote-curated",
-                    "calendar",
-                    "GLOBAL",
-                    /*discoverability*/ None,
-                ),
-                remote_plugin_json(
-                    "remote-shared",
-                    "remote-calendar",
-                    "WORKSPACE",
-                    Some("LISTED"),
-                ),
-            ],
-            "pagination": {"next_page_token": null},
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-
     let mut app_server = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .without_auto_env()
         .build_initialized_with_timeout(DEFAULT_TIMEOUT)
         .await?;
+    let config_before = std::fs::read_to_string(codex_home.path().join("config.toml"))?;
     let request_id = app_server
         .send_plugin_search_request(PluginSearchParams {
             search_term: "calendar".to_string(),
@@ -680,7 +529,7 @@ enabled = true
                 .get("enabled")
                 .and_then(serde_json::Value::as_bool))
             .collect::<Vec<_>>(),
-        vec![Some(false), Some(false), Some(false)]
+        vec![Some(false)]
     );
     let response: PluginSearchResponse = serde_json::from_value(raw_response)?;
 
@@ -695,17 +544,22 @@ enabled = true
                 result.marketplace_path.as_ref(),
             ))
             .collect::<Vec<_>>(),
-        vec![
-            ("calendar@openai-curated-remote", false, false, None),
-            (
-                "calendar-local-only@personal-tools",
-                true,
-                false,
-                Some(&personal_marketplace_path),
-            ),
-            ("remote-calendar@workspace-directory", true, false, None),
-        ]
+        vec![(
+            "calendar-local-only@personal-tools",
+            true,
+            false,
+            Some(&personal_marketplace_path),
+        )]
     );
+    assert_no_plugin_search_get(&server).await;
+    assert_eq!(
+        std::fs::read_to_string(codex_home.path().join("config.toml"))?,
+        config_before
+    );
+    assert!(config_before.contains(&format!(
+        r#"chatgpt_base_url = "{}/backend-api/""#,
+        server.uri()
+    )));
     Ok(())
 }
 
@@ -819,23 +673,13 @@ fn write_installed_plugin(
     Ok(())
 }
 
-fn remote_plugin_json(
-    remote_plugin_id: &str,
-    plugin_name: &str,
-    scope: &str,
-    discoverability: Option<&str>,
-) -> serde_json::Value {
-    json!({
-        "id": remote_plugin_id,
-        "name": plugin_name,
-        "scope": scope,
-        "discoverability": discoverability,
-        "installation_policy": "AVAILABLE",
-        "authentication_policy": "ON_USE",
-        "release": {
-            "display_name": plugin_name,
-            "description": format!("{plugin_name} description"),
-            "interface": {},
-        },
-    })
+async fn assert_no_plugin_search_get(server: &MockServer) {
+    let search_requests = server
+        .received_requests()
+        .await
+        .expect("wiremock should record requests")
+        .into_iter()
+        .filter(|request| request.url.path().ends_with("/ps/plugins/search"))
+        .count();
+    assert_eq!(search_requests, 0);
 }

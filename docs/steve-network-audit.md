@@ -167,14 +167,17 @@ that repository, or `https://chatgpt.com/backend-api/plugins/export/curated`.
 A curated snapshot already stored under the Steve home is still read locally.
 User-configured Git marketplaces remain a separate client. Local plugin
 loading stays. Legacy plugin install and uninstall do not POST
-`{chatgpt_base_url}/plugins/{id}/enable` or `/uninstall`. The remote plugin
-catalogue, share, and bundle clients are separate.
+`{chatgpt_base_url}/plugins/{id}/enable` or `/uninstall`. Plugin search does
+not GET `{chatgpt_base_url}/ps/plugins/search`. Local marketplace search
+stays. The `/ps/plugins` list, install, uninstall, share, and bundle clients
+are separate.
 
 Raw local evidence: `~/.cache/codex-cambridge-build/steve-network-smoke-n05wyupc/`
 and `steve-network-smoke-cey30wqi/` contain configuration, structured model
 output, exit status and syscall traces. The tested archive predates later
 daemon diagnostic wording changes. Sources:
-`codex-rs/core-plugins/src/startup_sync.rs` and `manager.rs`.
+`codex-rs/core-plugins/src/startup_sync.rs`, `manager.rs`, and
+`codex-rs/app-server/src/request_processors/plugins/search.rs`.
 
 ## Cloud-task submission
 
