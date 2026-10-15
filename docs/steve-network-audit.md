@@ -282,17 +282,10 @@ still uses the configured model provider. Source:
 ## Built-in pet assets
 
 Loading a selected built-in pet checks its versioned cache under STEVE_HOME.
-If the spritesheet is absent or invalid, the TUI issues a GET to
-`https://persistent.oaistatic.com/codex/pets/v1/<spritesheet filename>`.
-The acquisition code adds no conversation body, tool evidence or explicit
-authentication header; transport defaults and network metadata still apply.
-The response is an image, validated for expected dimensions before caching.
-A valid cache avoids this request. Custom pets bypass built-in acquisition
-because their spritesheet source is local. Avoid selecting uncached built-in
-pets when this OpenAI asset request is unwanted. Analytics/feedback consent
-does not gate the download in this acquisition function. Sources:
-`codex-rs/tui/src/pets/asset_pack.rs` and `codex-rs/tui/src/pets/mod.rs`.
-No asset request was made during this static audit.
+A missing or invalid spritesheet is an error. Steve does not GET
+`https://persistent.oaistatic.com/codex/pets/v1`. Custom pets remain local
+files. Sources: `codex-rs/tui/src/pets/asset_pack.rs` and
+`codex-rs/tui/src/pets/mod.rs`.
 
 ## Browser and device-code login
 
