@@ -37,12 +37,12 @@ enum ToolSuggestFeature {
 }
 
 #[tokio::test]
-async fn first_turn_after_external_login_waits_for_recommended_plugins() -> Result<()> {
+async fn first_turn_after_external_login_does_not_request_suggested_plugins() -> Result<()> {
     recommended_plugins_after_external_login(ToolSuggestFeature::Enabled).await
 }
 
 #[tokio::test]
-async fn first_turn_after_external_login_waits_for_recommended_plugins_without_tool_suggest()
+async fn first_turn_after_external_login_does_not_request_suggested_plugins_without_tool_suggest()
 -> Result<()> {
     recommended_plugins_after_external_login(ToolSuggestFeature::Disabled).await
 }
@@ -61,19 +61,14 @@ async fn recommended_plugins_after_external_login(
     Mock::given(method("GET"))
         .and(path("/ps/plugins/suggested/codex"))
         .and(query_param("scope", "GLOBAL"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_delay(Duration::from_millis(250))
-                .set_body_json(json!({
-                    "enabled": true,
-                    "plugins": [{
-                        "id": "plugin_github",
-                        "name": "github",
-                        "display_name": "GitHub"
-                    }]
-                })),
-        )
-        .expect(1)
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "enabled": true,
+            "plugins": [{
+                "id": "plugin_github",
+                "name": "github",
+                "display_name": "GitHub"
+            }]
+        })))
         .mount(&server)
         .await;
     let response = responses::sse(vec![
@@ -91,12 +86,10 @@ async fn recommended_plugins_after_external_login(
     )?;
     let config_path = codex_home.path().join("config.toml");
     let config = std::fs::read_to_string(&config_path)?;
-    std::fs::write(
-        config_path,
-        format!(
-            "{config}\n[features]\napps = true\nplugins = true\ntool_suggest = {tool_suggest_enabled}\n{recommended_plugins_config}"
-        ),
-    )?;
+    let written_config = format!(
+        "{config}\n[features]\napps = true\nplugins = true\ntool_suggest = {tool_suggest_enabled}\n{recommended_plugins_config}"
+    );
+    std::fs::write(&config_path, &written_config)?;
 
     let sqlite_home = codex_home.path().to_string_lossy();
     let mut app_server = TestAppServer::builder()
@@ -130,8 +123,7 @@ async fn recommended_plugins_after_external_login(
         LoginAccountResponse::ChatgptAuthTokens {}
     );
 
-    // Login clears the recommendation cache after its RPC response. Wait for completion so
-    // thread startup and the background refresh share the same cache generation.
+    // Wait until login has completed before starting the thread.
     let notification = timeout(
         DEFAULT_READ_TIMEOUT,
         app_server.read_stream_until_notification_message("account/login/completed"),
@@ -199,15 +191,7 @@ async fn recommended_plugins_after_external_login(
         .into_iter()
         .filter(|text| text.starts_with("<recommended_plugins>"))
         .collect::<Vec<_>>();
-    assert_eq!(
-        recommendations,
-        vec![concat!(
-            "<recommended_plugins>\n",
-            "Here is a list of plugins that are available but not installed.\n\n",
-            "- GitHub (github@openai-curated-remote)\n",
-            "</recommended_plugins>",
-        )]
-    );
+    assert!(recommendations.is_empty());
     let body = request.body_json();
     let tool_names = body
         .get("tools")
@@ -216,10 +200,19 @@ async fn recommended_plugins_after_external_login(
         .flatten()
         .filter_map(|tool| tool.get("name").and_then(Value::as_str))
         .collect::<Vec<_>>();
+    if tool_names.contains(&"request_plugin_install") {
+        assert!(tool_names.contains(&"list_available_plugins_to_install"));
+    }
+    assert_eq!(std::fs::read_to_string(&config_path)?, written_config);
     assert_eq!(
-        tool_names.contains(&"request_plugin_install"),
-        tool_suggest_enabled
+        server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|request| request.url.path() == "/ps/plugins/suggested/codex")
+            .count(),
+        0
     );
-    assert!(!tool_names.contains(&"list_available_plugins_to_install"));
     Ok(())
 }

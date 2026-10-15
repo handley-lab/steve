@@ -217,10 +217,6 @@ impl AccountRequestProcessor {
         thread_manager: &Arc<ThreadManager>,
         auth: Option<CodexAuth>,
     ) {
-        thread_manager
-            .plugins_manager()
-            .clear_recommended_plugins_cache();
-
         match config_manager
             .load_latest_config(/*fallback_cwd*/ None)
             .await

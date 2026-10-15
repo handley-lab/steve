@@ -17,7 +17,6 @@ use crate::marketplace::MarketplacePluginInstallPolicy;
 use crate::remote::REMOTE_GLOBAL_MARKETPLACE_NAME;
 use crate::remote::REMOTE_WORKSPACE_MARKETPLACE_NAME;
 use crate::remote::REMOTE_WORKSPACE_SHARED_WITH_ME_MARKETPLACE_NAME;
-use crate::remote::RecommendedPlugin;
 use crate::remote::RemoteInstalledPlugin;
 use crate::startup_sync::curated_plugins_repo_path;
 use crate::test_support::TEST_CURATED_PLUGIN_CACHE_VERSION;
@@ -71,7 +70,6 @@ use toml::Value;
 use wiremock::Mock;
 use wiremock::MockServer;
 use wiremock::ResponseTemplate;
-use wiremock::matchers::header;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 use wiremock::matchers::query_param;
@@ -5987,322 +5985,21 @@ plugins = true
 }
 
 #[tokio::test]
-async fn remote_plugin_caches_refresh_warms_recommended_plugins_cache() {
-    let tmp = tempfile::tempdir().unwrap();
-    write_file(
-        &tmp.path().join(CONFIG_TOML_FILE),
-        r#"[features]
-plugins = true
-"#,
-    );
-
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/ps/plugins/suggested/codex"))
-        .and(query_param("scope", "GLOBAL"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "enabled": true,
-            "plugins": []
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    let mut config = load_config(tmp.path(), tmp.path()).await;
-    config.chatgpt_base_url = server.uri();
-    let manager = std::sync::Arc::new(test_plugins_manager(tmp.path().to_path_buf()));
-    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
-    let cache_key = recommended_plugins_cache_key(&config);
-
-    manager.maybe_start_remote_plugin_caches_refresh(
-        &config,
-        Some(auth.clone()),
-        /*on_effective_plugins_changed*/ None,
-    );
-
-    let mode = tokio::time::timeout(Duration::from_secs(2), async {
-        loop {
-            if let Some(mode) = manager.cached_recommended_plugins_mode(&cache_key) {
-                break mode;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("recommended plugins cache should be warmed");
-    assert_eq!(
-        mode,
-        RecommendedPluginsMode::Endpoint {
-            plugins: Vec::new()
-        }
-    );
-    assert_eq!(
-        manager
-            .recommended_plugins_mode_for_config(&config, Some(&auth))
-            .await,
-        mode
-    );
-    manager.clear_recommended_plugins_cache();
-    assert_eq!(manager.cached_recommended_plugins_mode(&cache_key), None);
-}
-
-#[tokio::test]
-async fn recommended_plugins_mode_deduplicates_concurrent_cache_misses() {
-    let tmp = tempfile::tempdir().unwrap();
-    write_file(
-        &tmp.path().join(CONFIG_TOML_FILE),
-        r#"[features]
-plugins = true
-"#,
-    );
-
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/ps/plugins/suggested/codex"))
-        .and(query_param("scope", "GLOBAL"))
-        .and(header("authorization", "Bearer Access Token"))
-        .and(header("chatgpt-account-id", "account_id"))
-        .and(header("OAI-Product-Sku", "codex"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(serde_json::json!({
-                    "enabled": true,
-                    "plugins": [
-                        {
-                            "id": "plugin_slack",
-                            "name": "slack",
-                            "display_name": "Slack"
-                        },
-                        {
-                            "id": "plugin_github",
-                            "name": "github",
-                            "display_name": "GitHub"
-                        }
-                    ]
-                }))
-                .set_delay(Duration::from_millis(100)),
-        )
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    let mut config = load_config(tmp.path(), tmp.path()).await;
-    config.chatgpt_base_url = server.uri();
-    let manager = test_plugins_manager(tmp.path().to_path_buf());
-    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
-    let expected = RecommendedPluginsMode::Endpoint {
-        plugins: vec![
-            RecommendedPlugin {
-                config_id: "github@openai-curated-remote".to_string(),
-                remote_plugin_id: "plugin_github".to_string(),
-                display_name: "GitHub".to_string(),
-            },
-            RecommendedPlugin {
-                config_id: "slack@openai-curated-remote".to_string(),
-                remote_plugin_id: "plugin_slack".to_string(),
-                display_name: "Slack".to_string(),
-            },
-        ],
-    };
-
-    let (left, right) = tokio::join!(
-        manager.recommended_plugins_mode_for_config(&config, Some(&auth)),
-        manager.recommended_plugins_mode_for_config(&config, Some(&auth)),
-    );
-    assert_eq!((left, right), (expected.clone(), expected.clone()));
-    assert_eq!(
-        manager
-            .recommended_plugins_mode_for_config(&config, Some(&auth))
-            .await,
-        expected
-    );
-}
-
-#[tokio::test]
-async fn recommended_plugins_cache_clear_rejects_stale_fetch_completion() {
+async fn recommended_plugins_do_not_request_suggested_plugins() {
     let tmp = tempfile::tempdir().unwrap();
     write_file(
         &tmp.path().join(CONFIG_TOML_FILE),
         "[features]\nplugins = true\n",
     );
-    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
+
     let server = MockServer::start().await;
-    let request_started = Arc::new(tokio::sync::Notify::new());
-    let started = Arc::clone(&request_started);
-    let (release_response, released) = std::sync::mpsc::channel();
-    let released = std::sync::Mutex::new(released);
-    let old_response = ResponseTemplate::new(200).set_body_json(serde_json::json!({
-        "enabled": true,
-        "plugins": [{"id": "plugin_old", "name": "old", "display_name": "Old"}]
-    }));
-    Mock::given(method("GET"))
-        .and(path("/ps/plugins/suggested/codex"))
-        .respond_with(move |_: &wiremock::Request| {
-            started.notify_one();
-            // Wiremock runs its own server thread. Dropping the sender also releases it.
-            let _ = released.lock().unwrap().recv();
-            old_response.clone()
-        })
-        .up_to_n_times(1)
-        .expect(1)
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/ps/plugins/suggested/codex"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "enabled": true,
-            "plugins": []
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-
     let mut config = load_config(tmp.path(), tmp.path()).await;
-    config.chatgpt_base_url = server.uri();
+    let base_url = server.uri();
+    config.chatgpt_base_url = base_url.clone();
     let manager = test_plugins_manager(tmp.path().to_path_buf());
-    let old_lookup = manager.recommended_plugins_mode_for_config(&config, Some(&auth));
-    tokio::pin!(old_lookup);
-    tokio::select! {
-        biased;
-        _ = request_started.notified() => {}
-        mode = old_lookup.as_mut() => panic!("old fetch finished before release: {mode:?}"),
-    }
-
-    manager.clear_recommended_plugins_cache();
-    release_response
-        .send(())
-        .expect("release old HTTP response");
-
-    // Keep the old initializer unpolled until the new fetch publishes. An invalidated
-    // fetch must not overwrite the fresh result.
-    let new_mode = tokio::time::timeout(
-        Duration::from_secs(10),
-        manager.recommended_plugins_mode_for_config(&config, Some(&auth)),
-    )
-    .await
-    .expect("new lookup should finish independently of the invalidated fetch");
-    assert_eq!(
-        new_mode,
-        RecommendedPluginsMode::Endpoint {
-            plugins: Vec::new()
-        }
-    );
-    assert_eq!(
-        old_lookup.await,
-        RecommendedPluginsMode::Endpoint {
-            plugins: vec![RecommendedPlugin {
-                config_id: "old@openai-curated-remote".to_string(),
-                remote_plugin_id: "plugin_old".to_string(),
-                display_name: "Old".to_string(),
-            }]
-        }
-    );
-    assert_eq!(
-        manager
-            .recommended_plugins_mode_for_config(&config, Some(&auth))
-            .await,
-        new_mode
-    );
-    server.verify().await;
-}
-
-#[tokio::test]
-async fn recommended_plugin_candidates_filter_installed_and_disabled_plugins() {
-    let tmp = tempfile::tempdir().unwrap();
-    write_file(
-        &tmp.path().join(CONFIG_TOML_FILE),
-        r#"[features]
-plugins = true
-"#,
-    );
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/ps/plugins/suggested/codex"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "enabled": true,
-            "plugins": [
-                {
-                    "id": "plugin_linear",
-                    "name": "linear",
-                    "display_name": "Linear"
-                },
-                {
-                    "id": "plugin_github",
-                    "name": "github",
-                    "display_name": "GitHub"
-                },
-                {
-                    "id": "plugin_slack",
-                    "name": "slack",
-                    "display_name": "Slack"
-                }
-            ]
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    let mut config = load_config(tmp.path(), tmp.path()).await;
-    config.chatgpt_base_url = server.uri();
-    let manager = test_plugins_manager(tmp.path().to_path_buf());
-    let mut installed_linear = remote_installed_plugin("linear");
-    installed_linear.id = "plugin_linear".to_string();
-    manager.write_remote_installed_plugins_cache(vec![installed_linear]);
     let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
-    let disabled_tools = [ToolSuggestDisabledTool::plugin(
-        "github@openai-curated-remote",
-    )];
     let loaded_plugins = manager.plugins_for_config(&config).await;
 
-    let candidates = manager
-        .recommended_plugin_candidates_for_config(RecommendedPluginCandidatesInput {
-            plugins_config: &config,
-            loaded_plugins: &loaded_plugins,
-            auth: Some(&auth),
-            disabled_tools: &disabled_tools,
-            app_server_client_name: None,
-        })
-        .await;
-
-    assert_eq!(
-        candidates,
-        Some(vec![DiscoverableTool::from(DiscoverablePluginInfo {
-            id: "slack@openai-curated-remote".to_string(),
-            remote_plugin_id: Some("plugin_slack".to_string()),
-            name: "Slack".to_string(),
-            description: None,
-            has_skills: false,
-            mcp_server_names: Vec::new(),
-            app_connector_ids: Vec::new(),
-        })])
-    );
-}
-
-#[tokio::test]
-async fn recommended_plugins_mode_caches_explicit_false() {
-    let tmp = tempfile::tempdir().unwrap();
-    write_file(
-        &tmp.path().join(CONFIG_TOML_FILE),
-        r#"[features]
-plugins = true
-"#,
-    );
-
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/ps/plugins/suggested/codex"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "enabled": false,
-            "plugins": []
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    let mut config = load_config(tmp.path(), tmp.path()).await;
-    config.chatgpt_base_url = server.uri();
-    let manager = test_plugins_manager(tmp.path().to_path_buf());
-    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
     assert_eq!(
         manager
             .recommended_plugins_mode_for_config(&config, Some(&auth))
@@ -6311,59 +6008,23 @@ plugins = true
     );
     assert_eq!(
         manager
-            .recommended_plugins_mode_for_config(&config, Some(&auth))
+            .recommended_plugin_candidates_for_config(RecommendedPluginCandidatesInput {
+                plugins_config: &config,
+                loaded_plugins: &loaded_plugins,
+                auth: Some(&auth),
+                disabled_tools: &[],
+                app_server_client_name: None,
+            })
             .await,
-        RecommendedPluginsMode::Legacy
+        None
     );
-}
-
-#[tokio::test]
-async fn recommended_plugins_mode_retries_after_fetch_failure() {
-    let tmp = tempfile::tempdir().unwrap();
-    write_file(
-        &tmp.path().join(CONFIG_TOML_FILE),
-        r#"[features]
-plugins = true
-"#,
-    );
-
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/ps/plugins/suggested/codex"))
-        .respond_with(ResponseTemplate::new(500).set_body_string("unavailable"))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    let mut config = load_config(tmp.path(), tmp.path()).await;
-    config.chatgpt_base_url = server.uri();
-    let manager = test_plugins_manager(tmp.path().to_path_buf());
-    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
-    assert_eq!(
-        manager
-            .recommended_plugins_mode_for_config(&config, Some(&auth))
-            .await,
-        RecommendedPluginsMode::Legacy
-    );
-
-    server.reset().await;
-    Mock::given(method("GET"))
-        .and(path("/ps/plugins/suggested/codex"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "enabled": true,
-            "plugins": []
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    assert_eq!(
-        manager
-            .recommended_plugins_mode_for_config(&config, Some(&auth))
-            .await,
-        RecommendedPluginsMode::Endpoint {
-            plugins: Vec::new()
-        }
+    assert_eq!(config.chatgpt_base_url, base_url);
+    let requests = server.received_requests().await.unwrap();
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.url.path() != "/ps/plugins/suggested/codex"),
+        "suggested plugin requests: {requests:?}"
     );
 }
 

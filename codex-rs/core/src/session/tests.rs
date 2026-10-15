@@ -5304,26 +5304,21 @@ async fn emit_subagent_session_started_includes_fork_lineage_and_originator() {
         /*resumed_created_at*/ None,
     );
 
-    let event = timeout(Duration::from_secs(1), async {
-        'wait_for_event: loop {
-            if let Some(requests) = server.received_requests().await {
-                for request in requests {
-                    let payload: serde_json::Value =
-                        serde_json::from_slice(&request.body).expect("valid analytics payload");
-                    if let Some(event) = payload["events"].as_array().and_then(|events| {
-                        events
-                            .iter()
-                            .find(|event| event["event_type"] == "codex_thread_initialized")
-                    }) {
-                        break 'wait_for_event event.clone();
-                    }
-                }
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("subagent initialization analytics should be emitted");
+    analytics_events_client.flush().await;
+    let event = std::fs::read_to_string(&analytics_capture_path)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| !line.is_empty())
+        .flat_map(|line| {
+            let payload: serde_json::Value =
+                serde_json::from_str(line).expect("valid analytics capture line");
+            payload["events"]
+                .as_array()
+                .expect("analytics events")
+                .clone()
+        })
+        .find(|event| event["event_type"] == "codex_thread_initialized")
+        .expect("subagent initialization analytics should be emitted");
 
     assert_eq!(event["event_params"]["initialization_mode"], "new");
     assert_eq!(event["event_params"]["thread_source"], "guardian_review");
@@ -10592,19 +10587,18 @@ async fn record_context_updates_emits_realtime_end_when_session_stops_being_live
 }
 
 #[tokio::test]
-async fn build_initial_context_reuses_in_flight_recommendation_prewarm() {
+async fn build_initial_context_does_not_request_suggested_plugins() {
     use wiremock::Mock;
     use wiremock::ResponseTemplate;
     use wiremock::matchers::method;
     use wiremock::matchers::path;
-    use wiremock::matchers::query_param;
 
     core_test_support::skip_if_no_network!();
 
     let server = start_mock_server().await;
+    let base_url = server.uri();
     Mock::given(method("GET"))
         .and(path("/ps/plugins/suggested/codex"))
-        .and(query_param("scope", "GLOBAL"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "enabled": true,
             "plugins": [{
@@ -10613,14 +10607,14 @@ async fn build_initial_context_reuses_in_flight_recommendation_prewarm() {
                 "display_name": "GitHub"
             }]
         })))
-        .expect(1)
+        .expect(0)
         .mount(&server)
         .await;
     let (session, turn_context, _rx_event) = make_session_and_context_with_auth_and_config_and_rx(
         CodexAuth::create_dummy_chatgpt_auth_for_testing(),
         /*dynamic_tools*/ Vec::new(),
         |config| {
-            config.chatgpt_base_url = server.uri();
+            config.chatgpt_base_url = base_url.clone();
             config
                 .features
                 .disable(Feature::ToolSuggest)
@@ -10642,38 +10636,27 @@ async fn build_initial_context_reuses_in_flight_recommendation_prewarm() {
     let plugins_manager = &session.services.plugins_manager;
     let plugins_config = turn_context.config.plugins_config_input();
     let auth = session.services.auth_manager.auth().await;
-    // Cached plugin loading and auth let initial context reach the shared recommendation lookup
-    // without awaiting unrelated I/O.
     plugins_manager.plugins_for_config(&plugins_config).await;
-    let prewarm =
-        plugins_manager.recommended_plugins_mode_for_config(&plugins_config, auth.as_ref());
-    tokio::pin!(prewarm);
-    assert!(futures::poll!(prewarm.as_mut()).is_pending());
+    assert_eq!(
+        plugins_manager
+            .recommended_plugins_mode_for_config(&plugins_config, auth.as_ref())
+            .await,
+        codex_core_plugins::RecommendedPluginsMode::Legacy
+    );
 
-    // Keep the OnceCell initializer unpolled while first-thread context joins its in-flight fetch.
-    // This does not depend on how quickly the HTTP server returns its response.
     let world_state = WorldState::default();
     let step_context = StepContext::for_test(Arc::clone(&turn_context));
-    let initial_context =
-        session.build_initial_context_with_world_state(&step_context, &world_state);
-    tokio::pin!(initial_context);
-    assert!(futures::poll!(initial_context.as_mut()).is_pending());
-
-    let (_, (initial_context, _)) = tokio::join!(prewarm, initial_context);
+    let (initial_context, _) = session
+        .build_initial_context_with_world_state(&step_context, &world_state)
+        .await;
     let initial_context =
         crate::context_manager::updates::merge_world_state_updates(initial_context);
-    assert_eq!(
+    assert!(
         developer_input_texts(&initial_context)
             .into_iter()
-            .filter(|text| text.starts_with("<recommended_plugins>"))
-            .collect::<Vec<_>>(),
-        vec![concat!(
-            "<recommended_plugins>\n",
-            "Here is a list of plugins that are available but not installed.\n\n",
-            "- GitHub (github@openai-curated-remote)\n",
-            "</recommended_plugins>",
-        )]
+            .all(|text| !text.contains("<recommended_plugins>"))
     );
+    assert_eq!(turn_context.config.chatgpt_base_url, base_url);
     server.verify().await;
 }
 

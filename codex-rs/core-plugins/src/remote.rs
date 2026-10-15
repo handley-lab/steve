@@ -107,9 +107,6 @@ pub(crate) const CODEX_PRODUCT_SKU: &str = "codex";
 const REMOTE_PLUGIN_CATALOG_TIMEOUT: Duration = Duration::from_secs(30);
 const RECOMMENDED_PLUGINS_TIMEOUT: Duration = Duration::from_secs(5);
 const REMOTE_PLUGIN_LIST_PAGE_LIMIT: u32 = 200;
-const MAX_RECOMMENDED_PLUGINS: usize = 50;
-const MAX_RECOMMENDED_PLUGIN_NAME_LEN: usize = 64;
-const MAX_RECOMMENDED_PLUGIN_DISPLAY_NAME_LEN: usize = 64;
 const MAX_REMOTE_DEFAULT_PROMPT_COUNT: usize = 3;
 const MAX_REMOTE_DEFAULT_PROMPT_LEN: usize = 128;
 const INVALID_REQUEST_ERROR_CODE: i64 = -32600;
@@ -775,19 +772,6 @@ struct RemotePluginListResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-struct RecommendedPluginsResponse {
-    enabled: bool,
-    plugins: Vec<RecommendedPluginItem>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-struct RecommendedPluginItem {
-    id: String,
-    name: String,
-    display_name: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 struct RemotePluginInstalledResponse {
     plugins: Vec<RemotePluginInstalledItem>,
     pagination: RemotePluginPagination,
@@ -1025,27 +1009,6 @@ pub fn invalidate_cached_remote_plugin_catalog_scopes(
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn fetch_recommended_plugins(
-    config: &RemotePluginServiceConfig,
-    auth: Option<&CodexAuth>,
-) -> Result<RecommendedPluginsMode, RemotePluginCatalogError> {
-    let auth = ensure_chatgpt_auth(auth)?;
-    let base_url = config.chatgpt_base_url.trim_end_matches('/');
-    let mut url = Url::parse(&format!("{base_url}/ps/plugins/suggested/codex"))
-        .map_err(RemotePluginCatalogError::InvalidBaseUrl)?;
-    url.query_pairs_mut().append_pair("scope", "GLOBAL");
-    let url = url.to_string();
-    let request = authenticated_request(
-        config.http_request(Method::GET, &url),
-        auth,
-        &config.product_sku,
-    )
-    .timeout(RECOMMENDED_PLUGINS_TIMEOUT);
-    let response: RecommendedPluginsResponse = send_and_decode(request, &url).await?;
-    Ok(recommended_plugins_mode(response))
-}
-
-#[instrument(level = "trace", skip_all)]
 pub(crate) async fn fetch_recommended_plugin_install_metadata(
     config: &RemotePluginServiceConfig,
     auth: Option<&CodexAuth>,
@@ -1083,55 +1046,6 @@ pub(crate) async fn fetch_recommended_plugin_install_metadata(
     let (app_connector_ids, _) =
         effective_remote_plugin_apps_and_mcp_servers(&plugin.release, auth);
     Ok(Some(app_connector_ids))
-}
-
-fn recommended_plugins_mode(response: RecommendedPluginsResponse) -> RecommendedPluginsMode {
-    if !response.enabled {
-        return RecommendedPluginsMode::Legacy;
-    }
-
-    let mut plugins = BTreeMap::new();
-    for plugin in response.plugins {
-        if !is_valid_remote_plugin_id(&plugin.id)
-            || plugin.name.chars().count() > MAX_RECOMMENDED_PLUGIN_NAME_LEN
-        {
-            continue;
-        }
-        let plugin_id = match PluginId::new(
-            plugin.name.clone(),
-            REMOTE_GLOBAL_MARKETPLACE_NAME.to_string(),
-        ) {
-            Ok(plugin_id) => plugin_id,
-            Err(err) => {
-                tracing::warn!(
-                    plugin_name = plugin.name,
-                    error = %err,
-                    "ignoring invalid recommended plugin"
-                );
-                continue;
-            }
-        };
-        let display_name = non_empty_string(Some(&plugin.display_name))
-            .unwrap_or_else(|| plugin.name.clone())
-            .chars()
-            .take(MAX_RECOMMENDED_PLUGIN_DISPLAY_NAME_LEN)
-            .collect();
-        let config_id = plugin_id.as_key();
-        plugins
-            .entry(config_id.clone())
-            .or_insert(RecommendedPlugin {
-                config_id,
-                remote_plugin_id: plugin.id,
-                display_name,
-            });
-    }
-
-    RecommendedPluginsMode::Endpoint {
-        plugins: plugins
-            .into_values()
-            .take(MAX_RECOMMENDED_PLUGINS)
-            .collect(),
-    }
 }
 
 pub(crate) fn has_fresh_cached_remote_plugin_catalog(
