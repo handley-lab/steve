@@ -31,7 +31,6 @@ use codex_http_client::DestinationPolicy;
 use codex_http_client::NetworkPolicyController;
 use codex_login::CodexAuth;
 use codex_mcp::CODEX_APPS_MCP_SERVER_NAME;
-use codex_mcp::codex_apps_mcp_server_config;
 use codex_models_manager::bundled_models_response;
 use codex_protocol::config_types::ApprovalsReviewer;
 use codex_protocol::config_types::CollaborationMode;
@@ -2021,11 +2020,7 @@ async fn code_mode_mcp_metadata_keeps_originating_window_after_compaction() -> R
     let (release_tx, release_rx) = oneshot::channel();
     let control = Arc::new(ResultMetadataTestControl {
         server: Mutex::new(McpServerContribution::HostedApps {
-            config: Box::new(codex_apps_mcp_server_config(
-                &apps_server.chatgpt_base_url,
-                /*apps_mcp_product_sku*/ None,
-                /*originator*/ None,
-            )),
+            config: Box::new(serde_json::from_value::<McpServerConfig>(serde_json::json!({"url": format!("{}/api/codex/ps/mcp", apps_server.chatgpt_base_url.trim_end_matches('/'))})).expect("mcp server config")),
             protocol_mode: None,
         }),
         gate: Mutex::new(Some((reached_tx, release_rx))),
@@ -2608,11 +2603,7 @@ async fn result_metadata_follows_call_binding(
         extensions.mcp_server_contributor(Arc::new(ResultMetadataTestControl {
             server: Mutex::new(McpServerContribution::Set {
                 name: CODEX_APPS_MCP_SERVER_NAME.to_string(),
-                config: Box::new(codex_apps_mcp_server_config(
-                    &apps_server.chatgpt_base_url,
-                    /*apps_mcp_product_sku*/ None,
-                    /*originator*/ None,
-                )),
+                config: Box::new(serde_json::from_value::<McpServerConfig>(serde_json::json!({"url": format!("{}/api/codex/ps/mcp", apps_server.chatgpt_base_url.trim_end_matches('/'))})).expect("mcp server config")),
             }),
             gate: Mutex::new(None),
         }));
@@ -2845,11 +2836,7 @@ async fn code_mode_result_metadata_keeps_prepared_call_binding_across_runtime_re
     let (release_tx, release_rx) = oneshot::channel();
     let control = Arc::new(ResultMetadataTestControl {
         server: Mutex::new(McpServerContribution::HostedApps {
-            config: Box::new(codex_apps_mcp_server_config(
-                &apps_server.chatgpt_base_url,
-                /*apps_mcp_product_sku*/ None,
-                /*originator*/ None,
-            )),
+            config: Box::new(serde_json::from_value::<McpServerConfig>(serde_json::json!({"url": format!("{}/api/codex/ps/mcp", apps_server.chatgpt_base_url.trim_end_matches('/'))})).expect("mcp server config")),
             protocol_mode: None,
         }),
         gate: Mutex::new(Some((reached_tx, release_rx))),
@@ -2914,11 +2901,7 @@ async fn code_mode_result_metadata_keeps_prepared_call_binding_across_runtime_re
     // The next call uses an extension-owned binding, but the held call keeps its host proof.
     *control.server.lock().unwrap() = McpServerContribution::Set {
         name: CODEX_APPS_MCP_SERVER_NAME.to_string(),
-        config: Box::new(codex_apps_mcp_server_config(
-            &refreshed_apps.chatgpt_base_url,
-            /*apps_mcp_product_sku*/ None,
-            /*originator*/ None,
-        )),
+        config: Box::new(serde_json::from_value::<McpServerConfig>(serde_json::json!({"url": format!("{}/api/codex/ps/mcp", refreshed_apps.chatgpt_base_url.trim_end_matches('/'))})).expect("mcp server config")),
     };
     let current_config = test.codex.config().await;
     let _ = test
@@ -2996,11 +2979,7 @@ async fn code_mode_late_result_metadata_with_large_arguments_survives_waits() ->
     let (release_tx, release_rx) = oneshot::channel();
     let control = Arc::new(ResultMetadataTestControl {
         server: Mutex::new(McpServerContribution::HostedApps {
-            config: Box::new(codex_apps_mcp_server_config(
-                &apps_server.chatgpt_base_url,
-                /*apps_mcp_product_sku*/ None,
-                /*originator*/ None,
-            )),
+            config: Box::new(serde_json::from_value::<McpServerConfig>(serde_json::json!({"url": format!("{}/api/codex/ps/mcp", apps_server.chatgpt_base_url.trim_end_matches('/'))})).expect("mcp server config")),
             protocol_mode: None,
         }),
         gate: Mutex::new(Some((reached_tx, release_rx))),
@@ -3765,6 +3744,21 @@ if (!tool) {
                 .find(|model| model.slug == "gpt-5.5")
                 .expect("gpt-5.5 exists in bundled models.json");
             config.chatgpt_base_url = apps_base_url;
+            let mut servers = config.mcp_servers.get().clone();
+            servers.insert(
+                codex_mcp::CODEX_APPS_MCP_SERVER_NAME.to_string(),
+                serde_json::from_value(serde_json::json!({
+                    "url": format!(
+                        "{}/api/codex/ps/mcp",
+                        config.chatgpt_base_url.trim_end_matches('/')
+                    ),
+                }))
+                .expect("mcp server config"),
+            );
+            config
+                .mcp_servers
+                .set(servers)
+                .expect("test mcp servers should accept any configuration");
             config.model = Some("gpt-5.5".to_string());
             model.supports_search_tool = true;
             model

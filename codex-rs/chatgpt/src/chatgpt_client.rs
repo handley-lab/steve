@@ -2,13 +2,11 @@ use codex_core::config::Config;
 use codex_http_client::HttpClient;
 use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
-use codex_login::CodexAuth;
 use codex_login::default_client::RESIDENCY_HEADER_NAME;
 use codex_login::default_client::create_client_with_chatgpt_cookies;
 use codex_login::default_client::default_headers;
 
 use anyhow::Context;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::sync::LazyLock;
 use std::sync::Mutex;
@@ -107,60 +105,6 @@ pub(crate) async fn chatgpt_get_request_with_timeout<T: DeserializeOwned>(
             .await
             .context("Failed to parse JSON response")?;
         Ok(result)
-    } else {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("Request failed with status {status}: {body}")
-    }
-}
-
-/// Make a POST request to the ChatGPT backend API with an already-captured auth identity.
-///
-/// Callers must capture `auth` and `config.application_network_policy` together and preserve
-/// that snapshot rather than reacquiring either while the request is in flight.
-pub(crate) async fn chatgpt_post_request_with_timeout<
-    TResponse: DeserializeOwned,
-    TRequest: Serialize + ?Sized,
->(
-    config: &Config,
-    auth: &CodexAuth,
-    path: String,
-    body: &TRequest,
-    timeout: Duration,
-    product_sku: &str,
-) -> anyhow::Result<TResponse> {
-    anyhow::ensure!(
-        auth.uses_codex_backend(),
-        "ChatGPT backend requests require Codex backend auth"
-    );
-    anyhow::ensure!(
-        auth.get_account_id().is_some(),
-        "ChatGPT account ID not available, please re-run codex login"
-    );
-
-    let url = format!(
-        "{}/{}",
-        config.chatgpt_base_url.trim_end_matches('/'),
-        path.trim_start_matches('/')
-    );
-    let client = chatgpt_client(config.http_client_factory());
-    let response = client
-        .post(&url)
-        .headers(default_headers())
-        .headers(codex_model_provider::auth_provider_from_auth(auth).to_auth_headers())
-        .header(OAI_PRODUCT_SKU_HEADER, product_sku)
-        .header("Content-Type", "application/json")
-        .timeout(timeout)
-        .json(body)
-        .send()
-        .await
-        .context("Failed to send request")?;
-
-    if response.status().is_success() {
-        response
-            .json()
-            .await
-            .context("Failed to parse JSON response")
     } else {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();

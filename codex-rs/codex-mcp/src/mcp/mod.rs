@@ -14,7 +14,6 @@ pub(crate) mod auth;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -65,7 +64,6 @@ pub const CODEX_APPS_MCP_SERVER_NAME: &str = "codex_apps";
 pub(crate) const DEFAULT_CODEX_APPS_MCP_PRODUCT_SKU: &str = "codex";
 const MCP_TOOL_NAME_PREFIX: &str = "mcp";
 const MCP_TOOL_NAME_DELIMITER: &str = "__";
-const CODEX_CONNECTORS_TOKEN_ENV_VAR: &str = "STEVE_CONNECTORS_TOKEN";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum McpSnapshotDetail {
@@ -593,101 +591,6 @@ pub(crate) fn sanitize_responses_api_tool_name(name: &str) -> String {
         "_".to_string()
     } else {
         sanitized
-    }
-}
-
-fn codex_apps_mcp_bearer_token_env_var() -> Option<String> {
-    match env::var(CODEX_CONNECTORS_TOKEN_ENV_VAR) {
-        Ok(value) if !value.trim().is_empty() => Some(CODEX_CONNECTORS_TOKEN_ENV_VAR.to_string()),
-        Ok(_) => None,
-        Err(env::VarError::NotPresent) => None,
-        Err(env::VarError::NotUnicode(_)) => Some(CODEX_CONNECTORS_TOKEN_ENV_VAR.to_string()),
-    }
-}
-
-fn normalize_codex_apps_base_url(base_url: &str) -> String {
-    let mut base_url = base_url.trim_end_matches('/').to_string();
-    if (base_url.starts_with("https://chatgpt.com")
-        || base_url.starts_with("https://chat.openai.com"))
-        && !base_url.contains("/backend-api")
-    {
-        base_url = format!("{base_url}/backend-api");
-    }
-    base_url
-}
-
-fn codex_apps_mcp_url_for_base_url(base_url: &str) -> String {
-    let base_url = normalize_codex_apps_base_url(base_url);
-    let base_url = if base_url.contains("/backend-api") || base_url.contains("/api/codex") {
-        base_url
-    } else {
-        format!("{base_url}/api/codex")
-    };
-    format!("{base_url}/ps/mcp")
-}
-
-pub fn codex_apps_mcp_server_config(
-    chatgpt_base_url: &str,
-    apps_mcp_product_sku: Option<&str>,
-    originator: Option<&str>,
-) -> McpServerConfig {
-    mcp_server_config_for_url(
-        codex_apps_mcp_url_for_base_url(chatgpt_base_url),
-        apps_mcp_product_sku,
-        originator,
-        McpServerAuth::ChatGpt,
-    )
-}
-
-/// Builds the ChatGPT-hosted plugin runtime served by plugin-service.
-pub fn hosted_plugin_runtime_mcp_server_config(
-    chatgpt_base_url: &str,
-    apps_mcp_product_sku: Option<&str>,
-    originator: Option<&str>,
-) -> McpServerConfig {
-    codex_apps_mcp_server_config(chatgpt_base_url, apps_mcp_product_sku, originator)
-}
-
-fn mcp_server_config_for_url(
-    url: String,
-    apps_mcp_product_sku: Option<&str>,
-    originator: Option<&str>,
-    auth_mode: McpServerAuth,
-) -> McpServerConfig {
-    let product_sku = apps_mcp_product_sku.unwrap_or(DEFAULT_CODEX_APPS_MCP_PRODUCT_SKU);
-    let mut http_headers =
-        HashMap::from([("X-OpenAI-Product-Sku".to_string(), product_sku.to_string())]);
-    if let Some(originator) = originator {
-        http_headers.insert("originator".to_string(), originator.to_string());
-    }
-    let env_http_headers = None;
-
-    McpServerConfig {
-        transport: McpServerTransportConfig::StreamableHttp {
-            url,
-            bearer_token_env_var: codex_apps_mcp_bearer_token_env_var(),
-            http_headers: Some(http_headers),
-            env_http_headers,
-            http_headers_helper: None,
-        },
-        auth: auth_mode,
-        environment_id: codex_config::DEFAULT_MCP_SERVER_ENVIRONMENT_ID.to_string(),
-        enabled: true,
-        required: false,
-        startup_readiness: Default::default(),
-        supports_parallel_tool_calls: false,
-        tool_input_schema_max_bytes: None,
-        omit_tools_from: None,
-        disabled_reason: None,
-        startup_timeout_sec: Some(Duration::from_secs(30)),
-        tool_timeout_sec: None,
-        default_tools_approval_mode: None,
-        enabled_tools: None,
-        disabled_tools: None,
-        scopes: None,
-        oauth: None,
-        oauth_resource: None,
-        tools: HashMap::new(),
     }
 }
 

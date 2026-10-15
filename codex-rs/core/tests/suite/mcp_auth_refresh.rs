@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use anyhow::Result;
+use codex_config::McpServerConfig;
 use codex_config::McpServerTransportConfig;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::Constrained;
@@ -64,11 +65,14 @@ async fn hosted_plugin_runtime_ps_mcp_tool_calls_use_current_auth_manager_token(
     // Build the hosted-plugin config directly so the local test origin can
     // exercise the connection-manager auth path. Effective server resolution
     // correctly strips ChatGPT auth from untrusted localhost origins.
-    let mut hosted_plugin_runtime_config = codex_mcp::hosted_plugin_runtime_mcp_server_config(
-        &apps_server.chatgpt_base_url,
-        /*apps_mcp_product_sku*/ None,
-        /*originator*/ None,
-    );
+    let mut hosted_plugin_runtime_config: McpServerConfig = serde_json::from_value(serde_json::json!({
+        "url": format!(
+            "{}/api/codex/ps/mcp",
+            apps_server.chatgpt_base_url.trim_end_matches('/'),
+        ),
+        "auth": "chatgpt",
+    }))
+    .expect("mcp server config");
     let McpServerTransportConfig::StreamableHttp {
         bearer_token_env_var,
         ..

@@ -67,14 +67,12 @@ fn user_verification_is_projected_only_to_the_host_owned_plugin_service() {
     use crate::catalog::McpServerRegistration;
     use crate::catalog::ResolvedMcpCatalog;
     use crate::mcp::CODEX_APPS_MCP_SERVER_NAME;
-    use crate::mcp::codex_apps_mcp_server_config;
     use codex_rmcp_client::McpProtocolMode;
 
-    let config = codex_apps_mcp_server_config(
-        "https://example.com",
-        /*apps_mcp_product_sku*/ None,
-        /*originator*/ None,
-    );
+    let config = serde_json::from_value(serde_json::json!({
+        "url": "https://example.com",
+    }))
+    .expect("mcp server config");
     let extensions = ClientMcpExtensions::new([(
         OPENAI_ELICITATION_EXTENSION_ID.to_string(),
         json!({"form": {}, "userVerification": {}}),

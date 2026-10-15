@@ -15,6 +15,7 @@ use axum::response::IntoResponse;
 use axum::response::sse::Event;
 use axum::response::sse::Sse;
 use axum::routing::post;
+use codex_config::McpServerConfig;
 use codex_config::McpServerTransportConfig;
 use codex_core::config::ConfigBuilder;
 use codex_core::plugins_manager_for_config;
@@ -135,9 +136,11 @@ impl Fixture {
             .await?;
         let plugins = plugins_manager_for_config(&config, Arc::clone(&auth));
         let mut config = config.to_mcp_config(&plugins).await;
-        let mut server_config = codex_mcp::hosted_plugin_runtime_mcp_server_config(
-            &url, /*apps_mcp_product_sku*/ None, /*originator*/ None,
-        );
+        let mut server_config: McpServerConfig = serde_json::from_value(serde_json::json!({
+                "url": url,
+                "auth": "chatgpt",
+            }))
+            .expect("mcp server config");
         let McpServerTransportConfig::StreamableHttp {
             bearer_token_env_var,
             ..

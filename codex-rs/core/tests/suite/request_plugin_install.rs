@@ -131,6 +131,21 @@ fn configure_apps_without_search_tool(config: &mut Config, apps_base_url: &str) 
         .find(|model| model.slug == "gpt-5.5")
         .expect("gpt-5.5 exists in bundled models.json");
     config.chatgpt_base_url = apps_base_url.to_string();
+    let mut servers = config.mcp_servers.get().clone();
+    servers.insert(
+        codex_mcp::CODEX_APPS_MCP_SERVER_NAME.to_string(),
+        serde_json::from_value(serde_json::json!({
+            "url": format!(
+                "{}/api/codex/ps/mcp",
+                config.chatgpt_base_url.trim_end_matches('/')
+            ),
+        }))
+        .expect("mcp server config"),
+    );
+    config
+        .mcp_servers
+        .set(servers)
+        .expect("test mcp servers should accept any configuration");
     config.model = Some("gpt-5.5".to_string());
     config.tool_suggest.discoverables = vec![ToolSuggestDiscoverable {
         kind: ToolSuggestDiscoverableType::Connector,

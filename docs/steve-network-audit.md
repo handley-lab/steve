@@ -72,28 +72,15 @@ API client. No voice session was exercised for this audit. Sources:
 
 ## Hosted Apps and connector discovery
 
-Connector directory requests use `chatgpt_base_url` and first-party backend
-authentication. They GET `/connectors/directory/list` (with pagination tokens
-and `external_logos=true`) and, for workspace accounts, `list_workspace`.
-These download catalogue metadata but send authentication, client headers and
-product SKU. Metadata lookup POSTs requested app IDs and `include_tools` to
-`/ps/apps/batch`; its response supplies app metadata and optional tool summaries.
-Neither operation uses the Cambridge inference base.
-
-The hosted Apps/plugin MCP constructor targets `/ps/mcp` beneath the ChatGPT
-backend base (or `/api/codex` for other bases). It configures ChatGPT
-authentication, product SKU and optional originator headers; the optional
-`STEVE_CONNECTORS_TOKEN` selects a bearer-token environment input. Calls through
-this transport send MCP tool arguments and metadata, rather than merely fetching
-documentation. The general MCP metadata section below applies.
-
-The reviewed directory and host-owned Apps paths require the Apps feature and
-backend authentication; `features.apps=false` disables those paths. Apps is
-enabled by default, so changing only the inference provider is insufficient
-when first-party credentials remain available. This does not prove that every
-explicitly configured or plugin-registered MCP endpoint is suppressed. Inspect
-the effective catalogue and the selected plugin transports as well. No hosted
-Apps request was made for this audit. Sources:
+Steve does not GET `/connectors/directory/list` or
+`/connectors/directory/list_workspace`. It does not POST `/ps/apps/batch`. It
+does not construct a hosted Apps MCP client at `{chatgpt_base_url}/ps/mcp`.
+A previously recorded connector directory or app-metadata cache can still be
+read. `app/list` and `app/read` use that cache and local plugin manifests.
+An explicit `mcp_servers` URL stays in use, including a user-configured
+`codex_apps` server. `features.apps=false` still omits the server named
+`codex_apps`. This does not prove that every explicitly configured or
+plugin-registered MCP endpoint is suppressed. Sources:
 `codex-rs/chatgpt/src/connectors.rs`, `chatgpt_client.rs`,
 `codex-rs/connectors/src/lib.rs`, `codex-rs/codex-mcp/src/mcp/mod.rs` and
 `codex-rs/features/src/lib.rs`.

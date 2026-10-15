@@ -195,7 +195,7 @@ impl AppsRequestProcessor {
                 loaded_plugins.capability_summaries(),
             );
         let plugin_apps = connector_snapshot.connector_ids().to_vec();
-        let (mut accessible_connectors, mut all_connectors) = tokio::join!(
+        let (mut accessible_connectors, all_connectors) = tokio::join!(
             connectors::list_cached_accessible_connectors_from_mcp_tools(&config),
             connectors::list_cached_all_connectors(&config, &plugin_apps)
         );
@@ -204,7 +204,6 @@ impl AppsRequestProcessor {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
         let accessible_config = config.clone();
-        let accessible_tx = tx.clone();
         tokio::spawn(async move {
             let result = connectors::list_accessible_connectors_from_mcp_tools_with_mcp_manager(
                 &accessible_config,
@@ -214,26 +213,13 @@ impl AppsRequestProcessor {
             )
             .await
             .map_err(|err| format!("failed to load accessible apps: {err}"));
-            let _ = accessible_tx.send(AppListLoadResult::Accessible(result));
-        });
-
-        let all_config = config.clone();
-        let all_plugin_apps = plugin_apps.clone();
-        tokio::spawn(async move {
-            let result = connectors::list_all_connectors_with_options(
-                &all_config,
-                force_refetch,
-                &all_plugin_apps,
-            )
-            .await
-            .map_err(|err| format!("failed to list apps: {err}"));
-            let _ = tx.send(AppListLoadResult::Directory(result));
+            let _ = tx.send(AppListLoadResult::Accessible(result));
         });
 
         let app_list_deadline = tokio::time::Instant::now() + APP_LIST_LOAD_TIMEOUT;
         let mut accessible_loaded = false;
-        let mut all_loaded = false;
-        let mut codex_apps_ready = true;
+        let all_loaded = true;
+        let mut codex_apps_ready;
         let mut last_notified_apps = None;
         let mut sent_app_list_update = false;
         let app_policy = AppToolPolicyEvaluator::new(&config.config_layer_stack);
@@ -277,13 +263,6 @@ impl AppsRequestProcessor {
                     codex_apps_ready = status.codex_apps_ready;
                 }
                 AppListLoadResult::Accessible(Err(err)) => {
-                    return Err(internal_error(err));
-                }
-                AppListLoadResult::Directory(Ok(connectors)) => {
-                    all_connectors = Some(connectors);
-                    all_loaded = true;
-                }
-                AppListLoadResult::Directory(Err(err)) => {
                     return Err(internal_error(err));
                 }
             }
@@ -387,7 +366,6 @@ fn record_legacy_apps_installed_duration(started_at: Instant, reload: bool) {
 }
 enum AppListLoadResult {
     Accessible(Result<AccessibleConnectorsStatus, String>),
-    Directory(Result<Vec<AppInfo>, String>),
 }
 
 fn merge_loaded_apps(

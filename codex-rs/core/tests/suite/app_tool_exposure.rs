@@ -32,11 +32,13 @@ impl McpServerContributor<Config> for AppsServer {
         context: McpServerContributionContext<'a, Config>,
     ) -> ExtensionFuture<'a, Vec<McpServerContribution>> {
         Box::pin(async move {
-            let mut config = codex_mcp::hosted_plugin_runtime_mcp_server_config(
-                &context.config().chatgpt_base_url,
-                /*apps_mcp_product_sku*/ None,
-                context.originator(),
-            );
+            let mut config: codex_config::McpServerConfig = serde_json::from_value(serde_json::json!({
+                    "url": format!(
+                            "{}/api/codex/ps/mcp",
+                            context.config().chatgpt_base_url.trim_end_matches('/'),
+                        ),
+                }))
+                .expect("mcp server config");
             config.omit_tools_from = Some(self.0.clone());
             vec![McpServerContribution::HostedApps {
                 config: Box::new(config),

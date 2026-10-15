@@ -416,6 +416,21 @@ async fn run_cloud_catalog_refresh_lifecycle() -> anyhow::Result<()> {
                 .enable(Feature::Apps)
                 .expect("enable apps in fixture");
             config.chatgpt_base_url = apps_server.chatgpt_base_url;
+            let mut servers = config.mcp_servers.get().clone();
+            servers.insert(
+                codex_mcp::CODEX_APPS_MCP_SERVER_NAME.to_string(),
+                serde_json::from_value(serde_json::json!({
+                    "url": format!(
+                        "{}/api/codex/ps/mcp",
+                        config.chatgpt_base_url.trim_end_matches('/')
+                    ),
+                }))
+                .expect("mcp server config"),
+            );
+            config
+                .mcp_servers
+                .set(servers)
+                .expect("test mcp servers should accept any configuration");
         });
     let test = builder.build_with_auto_env(&server).await?;
     let calendar = ("calendar", "list_events", "Cloud Demo");

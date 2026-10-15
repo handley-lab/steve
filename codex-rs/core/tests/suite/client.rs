@@ -2132,6 +2132,21 @@ async fn includes_apps_guidance_as_developer_message_for_chatgpt_auth() {
                 .enable(Feature::Apps)
                 .expect("test config should allow feature update");
             config.chatgpt_base_url = apps_base_url;
+            let mut servers = config.mcp_servers.get().clone();
+            servers.insert(
+                codex_mcp::CODEX_APPS_MCP_SERVER_NAME.to_string(),
+                serde_json::from_value(serde_json::json!({
+                    "url": format!(
+                        "{}/api/codex/ps/mcp",
+                        config.chatgpt_base_url.trim_end_matches('/')
+                    ),
+                }))
+                .expect("mcp server config"),
+            );
+            config
+                .mcp_servers
+                .set(servers)
+                .expect("test mcp servers should accept any configuration");
         });
     let codex = builder
         .build(&server)
@@ -2189,6 +2204,21 @@ async fn omits_apps_guidance_for_api_key_auth_even_when_feature_enabled() {
                 .enable(Feature::Apps)
                 .expect("test config should allow feature update");
             config.chatgpt_base_url = apps_base_url;
+            let mut servers = config.mcp_servers.get().clone();
+            servers.insert(
+                codex_mcp::CODEX_APPS_MCP_SERVER_NAME.to_string(),
+                serde_json::from_value(serde_json::json!({
+                    "url": format!(
+                        "{}/api/codex/ps/mcp",
+                        config.chatgpt_base_url.trim_end_matches('/')
+                    ),
+                }))
+                .expect("mcp server config"),
+            );
+            config
+                .mcp_servers
+                .set(servers)
+                .expect("test mcp servers should accept any configuration");
         });
     let codex = builder
         .build(&server)
@@ -2241,6 +2271,21 @@ async fn omits_apps_guidance_when_configured_off() {
                 .enable(Feature::Apps)
                 .expect("test config should allow feature update");
             config.chatgpt_base_url = apps_base_url;
+            let mut servers = config.mcp_servers.get().clone();
+            servers.insert(
+                codex_mcp::CODEX_APPS_MCP_SERVER_NAME.to_string(),
+                serde_json::from_value(serde_json::json!({
+                    "url": format!(
+                        "{}/api/codex/ps/mcp",
+                        config.chatgpt_base_url.trim_end_matches('/')
+                    ),
+                }))
+                .expect("mcp server config"),
+            );
+            config
+                .mcp_servers
+                .set(servers)
+                .expect("test mcp servers should accept any configuration");
             config.include_apps_instructions = false;
         });
     let codex = builder
@@ -2312,6 +2357,21 @@ async fn omits_apps_guidance_when_orchestrator_mcp_is_disabled() {
                 .enable(Feature::Apps)
                 .expect("test config should allow feature update");
             config.chatgpt_base_url = apps_base_url;
+            let mut servers = config.mcp_servers.get().clone();
+            servers.insert(
+                codex_mcp::CODEX_APPS_MCP_SERVER_NAME.to_string(),
+                serde_json::from_value(serde_json::json!({
+                    "url": format!(
+                        "{}/api/codex/ps/mcp",
+                        config.chatgpt_base_url.trim_end_matches('/')
+                    ),
+                }))
+                .expect("mcp server config"),
+            );
+            config
+                .mcp_servers
+                .set(servers)
+                .expect("test mcp servers should accept any configuration");
             config.orchestrator_mcp_enabled = false;
         });
     let codex = builder

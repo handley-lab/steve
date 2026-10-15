@@ -1546,6 +1546,21 @@ async fn code_mode_catalog_messages(ranked_search: bool) -> Result<()> {
         .with_config(move |config| {
             configure_scenario_catalog(config);
             config.chatgpt_base_url = apps.chatgpt_base_url;
+            let mut servers = config.mcp_servers.get().clone();
+            servers.insert(
+                codex_mcp::CODEX_APPS_MCP_SERVER_NAME.to_string(),
+                serde_json::from_value(serde_json::json!({
+                    "url": format!(
+                        "{}/api/codex/ps/mcp",
+                        config.chatgpt_base_url.trim_end_matches('/')
+                    ),
+                }))
+                .expect("mcp server config"),
+            );
+            config
+                .mcp_servers
+                .set(servers)
+                .expect("test mcp servers should accept any configuration");
             config.features.enable(Feature::Apps).expect("enable apps");
             config.features.set_enabled(Feature::CodeModeToolSearch, ranked_search)
                 .expect("set ranked tool search");

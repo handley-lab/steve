@@ -793,6 +793,21 @@ async fn run_cloud_plugin_projection_scenarios() -> anyhow::Result<()> {
                         .is_ok()
                 );
                 config.chatgpt_base_url = apps.chatgpt_base_url;
+                let mut servers = config.mcp_servers.get().clone();
+                servers.insert(
+                    codex_mcp::CODEX_APPS_MCP_SERVER_NAME.to_string(),
+                    serde_json::from_value(serde_json::json!({
+                        "url": format!(
+                            "{}/api/codex/ps/mcp",
+                            config.chatgpt_base_url.trim_end_matches('/')
+                        ),
+                    }))
+                    .expect("mcp server config"),
+                );
+                config
+                    .mcp_servers
+                    .set(servers)
+                    .expect("test mcp servers should accept any configuration");
             });
         let test = builder.build(&server).await?;
         if installed {

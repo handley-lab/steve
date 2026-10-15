@@ -382,9 +382,8 @@ impl McpConnectionSet {
             );
             let resolved_environment =
                 runtime_context.resolve_server_environment(&server_name, &configured_config);
-            // For built-in Codex Apps, `STEVE_CONNECTORS_TOKEN` is a debug
-            // override: it supplies runtime auth but bypasses the shared tools
-            // cache.
+            // A bearer-token environment variable supplies runtime auth and
+            // bypasses the shared tools cache.
             let uses_env_bearer_token = match &configured_config.transport {
                 McpServerTransportConfig::StreamableHttp {
                     bearer_token_env_var,
@@ -404,8 +403,7 @@ impl McpConnectionSet {
                     ..
                 } = &mut transport
                 {
-                    // mcp_server_config_for_url in codex-rs/codex-mcp/src/mcp/mod.rs
-                    // adds thread attribution that threadless discovery does not carry.
+                    // The shared tools cache key ignores an originator header.
                     headers.retain(|name, _| !name.eq_ignore_ascii_case("originator"));
                 }
                 let mut scope = serde_json::json!([
@@ -420,8 +418,7 @@ impl McpConnectionSet {
                     .with_live_scope(scope.to_string())
             });
             // The reserved Codex Apps registration follows the shared
-            // AuthManager across refreshes. In the hosted-plugin path, this
-            // is the ChatGPT /ps/mcp connection. User-configured MCP
+            // AuthManager across refreshes. User-configured MCP
             // registrations keep their existing configured auth path.
             let chatgpt_auth_provider = if server_name == CODEX_APPS_MCP_SERVER_NAME {
                 codex_apps_auth_provider

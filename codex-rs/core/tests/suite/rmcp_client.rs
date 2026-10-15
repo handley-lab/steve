@@ -1514,6 +1514,21 @@ async fn apps_enabled_turn_skips_pending_optional_mcp_without_cached_tools() -> 
                 .enable(Feature::Apps)
                 .expect("test config should allow Apps override");
             config.chatgpt_base_url = apps_base_url;
+            let mut servers = config.mcp_servers.get().clone();
+            servers.insert(
+                codex_mcp::CODEX_APPS_MCP_SERVER_NAME.to_string(),
+                serde_json::from_value(serde_json::json!({
+                    "url": format!(
+                        "{}/api/codex/ps/mcp",
+                        config.chatgpt_base_url.trim_end_matches('/')
+                    ),
+                }))
+                .expect("mcp server config"),
+            );
+            config
+                .mcp_servers
+                .set(servers)
+                .expect("test mcp servers should accept any configuration");
             insert_mcp_server(
                 config,
                 "pending_optional",

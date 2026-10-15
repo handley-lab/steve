@@ -312,6 +312,21 @@ async fn build_apps_enabled_plugin_test_codex(
                 .enable(Feature::Apps)
                 .expect("test config should allow feature update");
             config.chatgpt_base_url = chatgpt_base_url;
+            let mut servers = config.mcp_servers.get().clone();
+            servers.insert(
+                codex_mcp::CODEX_APPS_MCP_SERVER_NAME.to_string(),
+                serde_json::from_value(serde_json::json!({
+                    "url": format!(
+                        "{}/api/codex/ps/mcp",
+                        config.chatgpt_base_url.trim_end_matches('/')
+                    ),
+                }))
+                .expect("mcp server config"),
+            );
+            config
+                .mcp_servers
+                .set(servers)
+                .expect("test mcp servers should accept any configuration");
         });
     builder.build_with_remote_and_local_env(server).await
 }
@@ -907,6 +922,21 @@ async fn thread_disabled_plugins_filter_skills_and_tools_without_changing_shared
         .with_config(move |config| {
             config.features.enable(Feature::Apps).unwrap();
             config.chatgpt_base_url = apps.chatgpt_base_url;
+            let mut servers = config.mcp_servers.get().clone();
+            servers.insert(
+                codex_mcp::CODEX_APPS_MCP_SERVER_NAME.to_string(),
+                serde_json::from_value(serde_json::json!({
+                    "url": format!(
+                        "{}/api/codex/ps/mcp",
+                        config.chatgpt_base_url.trim_end_matches('/')
+                    ),
+                }))
+                .expect("mcp server config"),
+            );
+            config
+                .mcp_servers
+                .set(servers)
+                .expect("test mcp servers should accept any configuration");
         });
     let test = builder.build_with_remote_and_local_env(&server).await?;
     let manager = test.thread_manager.plugins_manager();

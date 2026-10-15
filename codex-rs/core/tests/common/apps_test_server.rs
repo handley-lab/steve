@@ -311,6 +311,21 @@ fn configure_apps(config: &mut Config, apps_base_url: &str) {
         .enable(Feature::Apps)
         .expect("test config should allow feature update");
     config.chatgpt_base_url = apps_base_url.to_string();
+    let mut servers = config.mcp_servers.get().clone();
+    servers.insert(
+        codex_mcp::CODEX_APPS_MCP_SERVER_NAME.to_string(),
+        serde_json::from_value(serde_json::json!({
+            "url": format!(
+                "{}/api/codex/ps/mcp",
+                config.chatgpt_base_url.trim_end_matches('/')
+            ),
+        }))
+        .expect("mcp server config"),
+    );
+    config
+        .mcp_servers
+        .set(servers)
+        .expect("test mcp servers should accept any configuration");
 }
 
 pub fn configure_search_capable_apps(config: &mut Config, apps_base_url: &str) {

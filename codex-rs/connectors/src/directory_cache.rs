@@ -80,25 +80,6 @@ pub(crate) fn load_cached_directory_connectors_from_disk(
     }
 }
 
-pub(crate) fn write_cached_directory_connectors_to_disk(
-    cache_context: &ConnectorDirectoryCacheContext,
-    connectors: &[AppInfo],
-) {
-    let cache_path = cache_context.cache_path();
-    if let Some(parent) = cache_path.parent()
-        && std::fs::create_dir_all(parent).is_err()
-    {
-        return;
-    }
-    let Ok(bytes) = serde_json::to_vec_pretty(&ConnectorDirectoryDiskCache {
-        schema_version: CONNECTOR_DIRECTORY_DISK_CACHE_SCHEMA_VERSION,
-        connectors: connectors.to_vec(),
-    }) else {
-        return;
-    };
-    let _ = std::fs::write(cache_path, bytes);
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ConnectorDirectoryDiskCache {
     schema_version: u8,

@@ -761,11 +761,10 @@ async fn reused_elicitation_senders_follow_each_servers_latest_permission_author
     config.apps_enabled = true;
     let auth = codex_login::CodexAuth::create_dummy_chatgpt_auth_for_testing();
 
-    let hosted_server = crate::codex_apps_mcp_server_config(
-        "https://example.com",
-        /*apps_mcp_product_sku*/ None,
-        /*originator*/ None,
-    );
+    let hosted_server: codex_config::McpServerConfig = serde_json::from_value(serde_json::json!({
+        "url": "https://example.com",
+    }))
+    .expect("mcp server config");
     let mut attached_server = hosted_server.clone();
     attached_server.environment_id = "attached".to_string();
     let mut catalog = crate::ResolvedMcpCatalog::builder();
@@ -874,11 +873,10 @@ fn verification_fixture(
     catalog.register(crate::catalog::McpServerRegistration::from_hosted_apps(
         "verification-test",
         /*contribution_order*/ 0,
-        crate::mcp::codex_apps_mcp_server_config(
-            "https://example.com",
-            /*apps_mcp_product_sku*/ None,
-            /*originator*/ None,
-        ),
+        serde_json::from_value(serde_json::json!({
+                "url": "https://example.com",
+            }))
+            .expect("mcp server config"),
     ));
     Arc::make_mut(&mut config).mcp_server_catalog = catalog.build();
     let manager = ElicitationRequestManager::new(
@@ -1067,11 +1065,10 @@ async fn user_verification_rejects_attached_servers_even_if_they_use_the_plugin_
             let mut catalog = crate::catalog::ResolvedMcpCatalog::builder();
             catalog.register(crate::catalog::McpServerRegistration::from_config(
                 name.into(),
-                crate::mcp::codex_apps_mcp_server_config(
-                    "https://example.com",
-                    /*apps_mcp_product_sku*/ None,
-                    /*originator*/ None,
-                ),
+                serde_json::from_value(serde_json::json!({
+                        "url": "https://example.com",
+                    }))
+                    .expect("mcp server config"),
             ));
             config.mcp_server_catalog = catalog.build();
         }

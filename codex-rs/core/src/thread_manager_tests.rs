@@ -1654,11 +1654,10 @@ async fn start_thread_seeds_extension_data_for_mcp_and_lifecycle_contributors() 
                             .expect("thread-scoped MCP resolution should identify its source")
                             .clone(),
                     ));
-                let mut server = codex_mcp::codex_apps_mcp_server_config(
-                    "https://selected.invalid",
-                    /*apps_mcp_product_sku*/ None,
-                    /*originator*/ None,
-                );
+                let mut server: codex_config::McpServerConfig = serde_json::from_value(serde_json::json!({
+                        "url": "https://selected.invalid",
+                    }))
+                    .expect("mcp server config");
                 let CapabilityRootLocation::Environment { environment_id, .. } =
                     &selected_root.location;
                 let source_environment_id = environment_id.clone();

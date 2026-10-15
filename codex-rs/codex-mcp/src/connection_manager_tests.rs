@@ -4418,11 +4418,10 @@ async fn list_all_tools_adds_server_metadata_to_tools() {
 
 #[test]
 fn server_metadata_preserves_tool_approval_policy() {
-    let mut config = crate::codex_apps_mcp_server_config(
-        "https://docs.example",
-        /*apps_mcp_product_sku*/ None,
-        /*originator*/ None,
-    );
+    let mut config: McpServerConfig = serde_json::from_value(serde_json::json!({
+        "url": "https://docs.example",
+    }))
+    .expect("mcp server config");
     config.environment_id = "remote".to_string();
     config.default_tools_approval_mode = Some(AppToolApproval::Prompt);
     config.tools.insert(
@@ -4456,11 +4455,10 @@ fn hosted_actor_credentials_are_only_available_to_host_owned_mcp_servers() {
     );
     let hosted_auth = CodexAuth::Headers(AuthHeaders::new(actor_headers));
     let provider = codex_model_provider::auth_provider_from_auth(&hosted_auth);
-    let mut local_config = crate::codex_apps_mcp_server_config(
-        "https://chatgpt.com",
-        /*apps_mcp_product_sku*/ None,
-        /*originator*/ None,
-    );
+    let mut local_config: McpServerConfig = serde_json::from_value(serde_json::json!({
+        "url": "https://chatgpt.com",
+    }))
+    .expect("mcp server config");
     local_config.auth = McpServerAuth::ChatGpt;
 
     let local_server = EffectiveMcpServer::from_host_config(local_config.clone());
