@@ -1,5 +1,3 @@
-use crate::types::CodeTaskDetailsResponse;
-use crate::types::PaginatedListTaskListItem;
 use crate::types::TurnAttemptsSiblingTurnsResponse;
 use anyhow::Result;
 use codex_api::SharedAuthProvider;
@@ -318,72 +316,6 @@ impl Client {
         }
     }
 
-
-    pub async fn list_tasks(
-        &self,
-        limit: Option<i32>,
-        task_filter: Option<&str>,
-        environment_id: Option<&str>,
-        cursor: Option<&str>,
-    ) -> Result<PaginatedListTaskListItem> {
-        let url = self.list_tasks_url(limit, task_filter, environment_id, cursor)?;
-        let req = self.request(Method::GET, &url).headers(self.headers());
-        let (body, ct) = self.exec_request(req, "GET", &url).await?;
-        self.decode_json::<PaginatedListTaskListItem>(&url, &ct, &body)
-    }
-
-    fn list_tasks_url(
-        &self,
-        limit: Option<i32>,
-        task_filter: Option<&str>,
-        environment_id: Option<&str>,
-        cursor: Option<&str>,
-    ) -> Result<String> {
-        let url = match self.path_style {
-            PathStyle::CodexApi => format!("{}/api/codex/tasks/list", self.base_url),
-            PathStyle::ChatGptApi => format!("{}/wham/tasks/list", self.base_url),
-        };
-        if limit.is_none() && task_filter.is_none() && environment_id.is_none() && cursor.is_none()
-        {
-            return Ok(url);
-        }
-        let mut url = url::Url::parse(&url)?;
-        {
-            let mut query = url.query_pairs_mut();
-            if let Some(limit) = limit {
-                query.append_pair("limit", &limit.to_string());
-            }
-            if let Some(task_filter) = task_filter {
-                query.append_pair("task_filter", task_filter);
-            }
-            if let Some(cursor) = cursor {
-                query.append_pair("cursor", cursor);
-            }
-            if let Some(environment_id) = environment_id {
-                query.append_pair("environment_id", environment_id);
-            }
-        }
-        Ok(url.to_string())
-    }
-
-    pub async fn get_task_details(&self, task_id: &str) -> Result<CodeTaskDetailsResponse> {
-        let (parsed, _body, _ct) = self.get_task_details_with_body(task_id).await?;
-        Ok(parsed)
-    }
-
-    pub async fn get_task_details_with_body(
-        &self,
-        task_id: &str,
-    ) -> Result<(CodeTaskDetailsResponse, String, String)> {
-        let url = match self.path_style {
-            PathStyle::CodexApi => format!("{}/api/codex/tasks/{}", self.base_url, task_id),
-            PathStyle::ChatGptApi => format!("{}/wham/tasks/{}", self.base_url, task_id),
-        };
-        let req = self.request(Method::GET, &url).headers(self.headers());
-        let (body, ct) = self.exec_request(req, "GET", &url).await?;
-        let parsed: CodeTaskDetailsResponse = self.decode_json(&url, &ct, &body)?;
-        Ok((parsed, body, ct))
-    }
 
     pub async fn list_sibling_turns(
         &self,

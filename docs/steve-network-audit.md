@@ -181,7 +181,7 @@ Cloud-task initialization does not default to
 and an explicit value is used after the existing host check. Cambridge
 inference configuration does not select this backend. The CLI apply command is gone. Steve does not GET
 `{chatgpt_base_url}/wham/tasks/{task_id}` from that command.
-Environment discovery sends GitHub repository owner/name in request paths and
+Steve does not GET `/wham/tasks/list` or `/api/codex/tasks/list`, and does not GET `/wham/tasks/{id}` or `/api/codex/tasks/{id}`. Environment discovery sends GitHub repository owner/name in request paths and
 uses configured authentication headers. Task creation sends the user prompt,
 environment ID, branch, QA setting and optional best-of-N metadata. A nonempty
 `STEVE_STARTING_DIFF` adds the patch itself to the request body. These are

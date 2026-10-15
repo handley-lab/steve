@@ -32,6 +32,7 @@ pub struct ScrollableDiff {
 }
 
 impl ScrollableDiff {
+    #[cfg(test)]
     pub fn new() -> Self {
         Self::default()
     }

@@ -134,18 +134,6 @@ impl Default for TaskText {
 }
 
 pub trait CloudBackend: Send + Sync {
-    fn list_tasks<'a>(
-        &'a self,
-        env: Option<&'a str>,
-        limit: Option<i64>,
-        cursor: Option<&'a str>,
-    ) -> CloudBackendFuture<'a, TaskListPage>;
-    fn get_task_summary(&self, id: TaskId) -> CloudBackendFuture<'_, TaskSummary>;
-    fn get_task_diff(&self, id: TaskId) -> CloudBackendFuture<'_, Option<String>>;
-    /// Return assistant output messages (no diff) when available.
-    fn get_task_messages(&self, id: TaskId) -> CloudBackendFuture<'_, Vec<String>>;
-    /// Return the creating prompt and assistant messages (when available).
-    fn get_task_text(&self, id: TaskId) -> CloudBackendFuture<'_, TaskText>;
     /// Return any sibling attempts (best-of-N) for the given assistant turn.
     fn list_sibling_attempts(
         &self,

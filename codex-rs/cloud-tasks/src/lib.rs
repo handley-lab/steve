@@ -8,8 +8,6 @@ pub(crate) mod util;
 pub use cli::Cli;
 
 use anyhow::anyhow;
-use chrono::Utc;
-use codex_cloud_tasks_client::TaskStatus;
 use codex_git_utils::current_branch_name;
 use codex_git_utils::default_branch_name;
 use codex_http_client::ClientRouteClass;
@@ -17,21 +15,16 @@ use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
 use codex_http_client::RouteAwareClientPool;
 use codex_login::default_client::get_codex_user_agent;
-use owo_colors::OwoColorize;
-use owo_colors::Stream;
-use std::cmp::Ordering;
 use std::io::IsTerminal;
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
-use supports_color::Stream as SupportStream;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use util::append_error_log;
-use util::format_relative_time;
 use util::set_user_agent_suffix;
 
 struct ApplyJob {
@@ -271,358 +264,6 @@ fn resolve_query_input(query_arg: Option<String>) -> anyhow::Result<String> {
     }
 }
 
-fn parse_task_id(raw: &str) -> anyhow::Result<codex_cloud_tasks_client::TaskId> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        anyhow::bail!("task id must not be empty");
-    }
-    let without_fragment = trimmed.split('#').next().unwrap_or(trimmed);
-    let without_query = without_fragment
-        .split('?')
-        .next()
-        .unwrap_or(without_fragment);
-    let id = without_query
-        .rsplit('/')
-        .next()
-        .unwrap_or(without_query)
-        .trim();
-    if id.is_empty() {
-        anyhow::bail!("task id must not be empty");
-    }
-    Ok(codex_cloud_tasks_client::TaskId(id.to_string()))
-}
-
-#[derive(Clone, Debug)]
-struct AttemptDiffData {
-    placement: Option<i64>,
-    created_at: Option<chrono::DateTime<Utc>>,
-    diff: String,
-}
-
-fn cmp_attempt(lhs: &AttemptDiffData, rhs: &AttemptDiffData) -> Ordering {
-    match (lhs.placement, rhs.placement) {
-        (Some(a), Some(b)) => a.cmp(&b),
-        (Some(_), None) => Ordering::Less,
-        (None, Some(_)) => Ordering::Greater,
-        (None, None) => match (lhs.created_at, rhs.created_at) {
-            (Some(a), Some(b)) => a.cmp(&b),
-            (Some(_), None) => Ordering::Less,
-            (None, Some(_)) => Ordering::Greater,
-            (None, None) => Ordering::Equal,
-        },
-    }
-}
-
-async fn collect_attempt_diffs(
-    backend: &dyn codex_cloud_tasks_client::CloudBackend,
-    task_id: &codex_cloud_tasks_client::TaskId,
-) -> anyhow::Result<Vec<AttemptDiffData>> {
-    let text =
-        codex_cloud_tasks_client::CloudBackend::get_task_text(backend, task_id.clone()).await?;
-    let mut attempts = Vec::new();
-    if let Some(diff) =
-        codex_cloud_tasks_client::CloudBackend::get_task_diff(backend, task_id.clone()).await?
-    {
-        attempts.push(AttemptDiffData {
-            placement: text.attempt_placement,
-            created_at: None,
-            diff,
-        });
-    }
-    if let Some(turn_id) = text.turn_id {
-        let siblings = codex_cloud_tasks_client::CloudBackend::list_sibling_attempts(
-            backend,
-            task_id.clone(),
-            turn_id,
-        )
-        .await?;
-        for sibling in siblings {
-            if let Some(diff) = sibling.diff {
-                attempts.push(AttemptDiffData {
-                    placement: sibling.attempt_placement,
-                    created_at: sibling.created_at,
-                    diff,
-                });
-            }
-        }
-    }
-    attempts.sort_by(cmp_attempt);
-    if attempts.is_empty() {
-        anyhow::bail!(
-            "No diff available for task {}; it may still be running.",
-            task_id.0
-        );
-    }
-    Ok(attempts)
-}
-
-fn select_attempt(
-    attempts: &[AttemptDiffData],
-    attempt: Option<usize>,
-) -> anyhow::Result<&AttemptDiffData> {
-    if attempts.is_empty() {
-        anyhow::bail!("No attempts available");
-    }
-    let desired = attempt.unwrap_or(1);
-    let idx = desired
-        .checked_sub(1)
-        .ok_or_else(|| anyhow!("attempt must be at least 1"))?;
-    if idx >= attempts.len() {
-        anyhow::bail!(
-            "Attempt {desired} not available; only {} attempt(s) found",
-            attempts.len()
-        );
-    }
-    Ok(&attempts[idx])
-}
-
-fn task_status_label(status: &TaskStatus) -> &'static str {
-    match status {
-        TaskStatus::Pending => "PENDING",
-        TaskStatus::Ready => "READY",
-        TaskStatus::Applied => "APPLIED",
-        TaskStatus::Error => "ERROR",
-    }
-}
-
-fn summary_line(summary: &codex_cloud_tasks_client::DiffSummary, colorize: bool) -> String {
-    if summary.files_changed == 0 && summary.lines_added == 0 && summary.lines_removed == 0 {
-        let base = "no diff";
-        return if colorize {
-            base.if_supports_color(Stream::Stdout, |t| t.dimmed())
-                .to_string()
-        } else {
-            base.to_string()
-        };
-    }
-    let adds = summary.lines_added;
-    let dels = summary.lines_removed;
-    let files = summary.files_changed;
-    if colorize {
-        let adds_raw = format!("+{adds}");
-        let adds_str = adds_raw
-            .as_str()
-            .if_supports_color(Stream::Stdout, |t| t.green())
-            .to_string();
-        let dels_raw = format!("-{dels}");
-        let dels_str = dels_raw
-            .as_str()
-            .if_supports_color(Stream::Stdout, |t| t.red())
-            .to_string();
-        let bullet = "•"
-            .if_supports_color(Stream::Stdout, |t| t.dimmed())
-            .to_string();
-        let file_label = format!("file{}", if files == 1 { "" } else { "s" })
-            .if_supports_color(Stream::Stdout, |t| t.dimmed())
-            .to_string();
-        format!("{adds_str}/{dels_str}  {bullet}  {files} {file_label}")
-    } else {
-        format!(
-            "+{adds}/-{dels} • {files} file{}",
-            if files == 1 { "" } else { "s" }
-        )
-    }
-}
-
-fn format_task_status_lines(
-    task: &codex_cloud_tasks_client::TaskSummary,
-    now: chrono::DateTime<Utc>,
-    colorize: bool,
-) -> Vec<String> {
-    let mut lines = Vec::new();
-    let status = task_status_label(&task.status);
-    let status = if colorize {
-        match task.status {
-            TaskStatus::Ready => status
-                .if_supports_color(Stream::Stdout, |t| t.green())
-                .to_string(),
-            TaskStatus::Pending => status
-                .if_supports_color(Stream::Stdout, |t| t.magenta())
-                .to_string(),
-            TaskStatus::Applied => status
-                .if_supports_color(Stream::Stdout, |t| t.blue())
-                .to_string(),
-            TaskStatus::Error => status
-                .if_supports_color(Stream::Stdout, |t| t.red())
-                .to_string(),
-        }
-    } else {
-        status.to_string()
-    };
-    lines.push(format!("[{status}] {}", task.title));
-    let mut meta_parts = Vec::new();
-    if let Some(label) = task.environment_label.as_deref().filter(|s| !s.is_empty()) {
-        if colorize {
-            meta_parts.push(
-                label
-                    .if_supports_color(Stream::Stdout, |t| t.dimmed())
-                    .to_string(),
-            );
-        } else {
-            meta_parts.push(label.to_string());
-        }
-    } else if let Some(id) = task.environment_id.as_deref() {
-        if colorize {
-            meta_parts.push(
-                id.if_supports_color(Stream::Stdout, |t| t.dimmed())
-                    .to_string(),
-            );
-        } else {
-            meta_parts.push(id.to_string());
-        }
-    }
-    let when = format_relative_time(now, task.updated_at);
-    meta_parts.push(if colorize {
-        when.as_str()
-            .if_supports_color(Stream::Stdout, |t| t.dimmed())
-            .to_string()
-    } else {
-        when
-    });
-    let sep = if colorize {
-        "  •  "
-            .if_supports_color(Stream::Stdout, |t| t.dimmed())
-            .to_string()
-    } else {
-        "  •  ".to_string()
-    };
-    lines.push(meta_parts.join(&sep));
-    lines.push(summary_line(&task.summary, colorize));
-    lines
-}
-
-fn format_task_list_lines(
-    tasks: &[codex_cloud_tasks_client::TaskSummary],
-    base_url: &str,
-    now: chrono::DateTime<Utc>,
-    colorize: bool,
-) -> Vec<String> {
-    let mut lines = Vec::new();
-    for (idx, task) in tasks.iter().enumerate() {
-        lines.push(util::task_url(base_url, &task.id.0));
-        for line in format_task_status_lines(task, now, colorize) {
-            lines.push(format!("  {line}"));
-        }
-        if idx + 1 < tasks.len() {
-            lines.push(String::new());
-        }
-    }
-    lines
-}
-
-async fn run_status_command(args: crate::cli::StatusCommand) -> anyhow::Result<()> {
-    let ctx = init_backend("codex_cloud_tasks_status").await?;
-    let task_id = parse_task_id(&args.task_id)?;
-    let summary =
-        codex_cloud_tasks_client::CloudBackend::get_task_summary(&*ctx.backend, task_id).await?;
-    let now = Utc::now();
-    let colorize = supports_color::on(SupportStream::Stdout).is_some();
-    for line in format_task_status_lines(&summary, now, colorize) {
-        println!("{line}");
-    }
-    if !matches!(summary.status, TaskStatus::Ready) {
-        std::process::exit(1);
-    }
-    Ok(())
-}
-
-async fn run_list_command(args: crate::cli::ListCommand) -> anyhow::Result<()> {
-    let ctx = init_backend("codex_cloud_tasks_list").await?;
-    let env_filter = if let Some(env) = args.environment {
-        Some(resolve_environment_id(&ctx, &env).await?)
-    } else {
-        None
-    };
-    let page = codex_cloud_tasks_client::CloudBackend::list_tasks(
-        &*ctx.backend,
-        env_filter.as_deref(),
-        Some(args.limit),
-        args.cursor.as_deref(),
-    )
-    .await?;
-    if args.json {
-        let tasks: Vec<_> = page
-            .tasks
-            .iter()
-            .map(|task| {
-                serde_json::json!({
-                    "id": task.id.0,
-                    "url": util::task_url(&ctx.base_url, &task.id.0),
-                    "title": task.title,
-                    "status": task.status,
-                    "updated_at": task.updated_at,
-                    "environment_id": task.environment_id,
-                    "environment_label": task.environment_label,
-                    "summary": {
-                        "files_changed": task.summary.files_changed,
-                        "lines_added": task.summary.lines_added,
-                        "lines_removed": task.summary.lines_removed,
-                    },
-                    "is_review": task.is_review,
-                    "attempt_total": task.attempt_total,
-                })
-            })
-            .collect();
-        let payload = serde_json::json!({
-            "tasks": tasks,
-            "cursor": page.cursor,
-        });
-        println!("{}", serde_json::to_string_pretty(&payload)?);
-        return Ok(());
-    }
-    if page.tasks.is_empty() {
-        println!("No tasks found.");
-        return Ok(());
-    }
-    let now = Utc::now();
-    let colorize = supports_color::on(SupportStream::Stdout).is_some();
-    for line in format_task_list_lines(&page.tasks, &ctx.base_url, now, colorize) {
-        println!("{line}");
-    }
-    if let Some(cursor) = page.cursor {
-        let command = format!("codex cloud list --cursor='{cursor}'");
-        if colorize {
-            println!(
-                "\nTo fetch the next page, run {}",
-                command.if_supports_color(Stream::Stdout, |text| text.cyan())
-            );
-        } else {
-            println!("\nTo fetch the next page, run {command}");
-        }
-    }
-    Ok(())
-}
-
-async fn run_diff_command(args: crate::cli::DiffCommand) -> anyhow::Result<()> {
-    let ctx = init_backend("codex_cloud_tasks_diff").await?;
-    let task_id = parse_task_id(&args.task_id)?;
-    let attempts = collect_attempt_diffs(&*ctx.backend, &task_id).await?;
-    let selected = select_attempt(&attempts, args.attempt)?;
-    print!("{}", selected.diff);
-    Ok(())
-}
-
-async fn run_apply_command(args: crate::cli::ApplyCommand) -> anyhow::Result<()> {
-    let ctx = init_backend("codex_cloud_tasks_apply").await?;
-    let task_id = parse_task_id(&args.task_id)?;
-    let attempts = collect_attempt_diffs(&*ctx.backend, &task_id).await?;
-    let selected = select_attempt(&attempts, args.attempt)?;
-    let outcome = codex_cloud_tasks_client::CloudBackend::apply_task(
-        &*ctx.backend,
-        task_id,
-        Some(selected.diff.clone()),
-    )
-    .await?;
-    println!("{}", outcome.message);
-    if !matches!(
-        outcome.status,
-        codex_cloud_tasks_client::ApplyStatus::Success
-    ) {
-        std::process::exit(1);
-    }
-    Ok(())
-}
-
 fn level_from_status(status: codex_cloud_tasks_client::ApplyStatus) -> app::ApplyResultLevel {
     match status {
         codex_cloud_tasks_client::ApplyStatus::Success => app::ApplyResultLevel::Success,
@@ -752,10 +393,6 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
     if let Some(command) = cli.command {
         return match command {
             crate::cli::Command::Exec(args) => run_exec_command(args).await,
-            crate::cli::Command::Status(args) => run_status_command(args).await,
-            crate::cli::Command::List(args) => run_list_command(args).await,
-            crate::cli::Command::Apply(args) => run_apply_command(args).await,
-            crate::cli::Command::Diff(args) => run_diff_command(args).await,
         };
     }
     let Cli { .. } = cli;
@@ -824,13 +461,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
         force_internal,
         get_codex_user_agent()
     ));
-    // Non-blocking initial load so the in-box spinner can animate
-    app.status = "Loading tasks…".to_string();
-    app.refresh_inflight = true;
-    // New list generation; reset background enrichment coordination
-    app.list_generation = app.list_generation.saturating_add(1);
     app.in_flight.clear();
-    // reset any in-flight enrichment state
 
     // Event stream
     use crossterm::event::Event;
@@ -844,18 +475,6 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
     // Channel for non-blocking background loads
     use tokio::sync::mpsc::unbounded_channel;
     let (tx, mut rx) = unbounded_channel::<app::AppEvent>();
-    // Kick off the initial load in background
-    {
-        let backend = Arc::clone(&backend);
-        let tx = tx.clone();
-        tokio::spawn(async move {
-            let res = app::load_tasks(&*backend, /*env*/ None).await;
-            let _ = tx.send(app::AppEvent::TasksLoaded {
-                env: None,
-                result: res,
-            });
-        });
-    }
     // Fetch environment list in parallel so the header can show friendly names quickly.
     spawn_environment_load(tx.clone(), base_url.clone(), environment_http.clone());
 
@@ -973,54 +592,13 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
             maybe_app_event = rx.recv() => {
                 if let Some(ev) = maybe_app_event {
                     match ev {
-                        app::AppEvent::TasksLoaded { env, result } => {
-                            // Only apply results for the current filter to avoid races.
-                            if env.as_deref() != app.env_filter.as_deref() {
-                                append_error_log(format!(
-                                    "refresh.drop: env={} current={}",
-                                    env.clone().unwrap_or_else(|| "<all>".to_string()),
-                                    app.env_filter.clone().unwrap_or_else(|| "<all>".to_string())
-                                ));
-                                continue;
-                            }
-                            app.refresh_inflight = false;
-                            match result {
-                                Ok(tasks) => {
-                                    append_error_log(format!(
-                                        "refresh.apply: env={} count={}",
-                                        env.clone().unwrap_or_else(|| "<all>".to_string()),
-                                        tasks.len()
-                                    ));
-                                    app.tasks = tasks;
-                                    if app.selected >= app.tasks.len() { app.selected = app.tasks.len().saturating_sub(1); }
-                                    app.status = "Loaded tasks".to_string();
-                                }
-                                Err(e) => {
-                                    append_error_log(format!("refresh load_tasks failed: {e}"));
-                                    app.status = format!("Failed to load tasks: {e}");
-                                }
-                            }
-                            needs_redraw = true;
-                            let _ = frame_tx.send(Instant::now());
-                        }
                         app::AppEvent::NewTaskSubmitted(result) => {
                             match result {
                                 Ok(created) => {
                                     append_error_log(format!("new-task: created id={}", created.id.0));
                                     app.status = format!("Submitted as {}", created.id.0);
                                     app.new_task = None;
-                                    // Refresh tasks in background for current filter
-                                    app.status = format!("Submitted as {} — refreshing…", created.id.0);
-                                    app.refresh_inflight = true;
-                                    app.list_generation = app.list_generation.saturating_add(1);
                                     needs_redraw = true;
-                                    let backend = Arc::clone(&backend);
-                                    let tx = tx.clone();
-                                    let env_sel = app.env_filter.clone();
-                                    tokio::spawn(async move {
-                                        let res = app::load_tasks(&*backend, env_sel.as_deref()).await;
-                                        let _ = tx.send(app::AppEvent::TasksLoaded { env: env_sel, result: res });
-                                    });
                                     let _ = frame_tx.send(Instant::now());
                                 }
                                 Err(msg) => {
@@ -1080,21 +658,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                         }
                                     }
                                     app.env_filter = Some(sel.id);
-                                    app.status = "Loading tasks…".to_string();
-                                    app.refresh_inflight = true;
-                                    app.list_generation = app.list_generation.saturating_add(1);
-                                    app.in_flight.clear();
-                            // reset spinner state
                                     needs_redraw = true;
-                                    {
-                                        let backend = Arc::clone(&backend);
-                                        let tx = tx.clone();
-                                        let env_sel = app.env_filter.clone();
-                                        tokio::spawn(async move {
-                                            let res = app::load_tasks(&*backend, env_sel.as_deref()).await;
-                                            let _ = tx.send(app::AppEvent::TasksLoaded { env: env_sel, result: res });
-                                        });
-                                    }
                                     // Proactively fetch environments to resolve a friendly name for the header.
                                     app.env_loading = true;
                                     spawn_environment_load(
@@ -1106,193 +670,6 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                 }
                             }
                             // on Err, silently continue with All
-                        }
-                        app::AppEvent::DetailsDiffLoaded { id, title, diff } => {
-                            if let Some(ov) = &app.diff_overlay
-                                && ov.task_id != id {
-                                    continue;
-                                }
-                            let diff_lines: Vec<String> = diff.lines().map(str::to_string).collect();
-                            if let Some(ov) = app.diff_overlay.as_mut() {
-                                ov.title = title;
-                                {
-                                    let base = ov.base_attempt_mut();
-                                    base.diff_lines = diff_lines.clone();
-                                    base.diff_raw = Some(diff.clone());
-                                }
-                                ov.base_can_apply = true;
-                                ov.apply_selection_to_fields();
-                            } else {
-                                let mut overlay = app::DiffOverlay::new(id.clone(), title, /*attempt_total_hint*/ None);
-                                {
-                                    let base = overlay.base_attempt_mut();
-                                    base.diff_lines = diff_lines.clone();
-                                    base.diff_raw = Some(diff.clone());
-                                }
-                                overlay.base_can_apply = true;
-                                overlay.current_view = app::DetailView::Diff;
-                                overlay.apply_selection_to_fields();
-                                app.diff_overlay = Some(overlay);
-                            }
-                            app.details_inflight = false;
-                            app.status.clear();
-                            needs_redraw = true;
-                        }
-                        app::AppEvent::DetailsMessagesLoaded {
-                            id,
-                            title,
-                            messages,
-                            prompt,
-                            turn_id,
-                            sibling_turn_ids,
-                            attempt_placement,
-                            attempt_status,
-                        } => {
-                            if let Some(ov) = &app.diff_overlay
-                                && ov.task_id != id {
-                                    continue;
-                                }
-                            let conv = conversation_lines(prompt.clone(), &messages);
-                            if let Some(ov) = app.diff_overlay.as_mut() {
-                                ov.title = title.clone();
-                                {
-                                    let base = ov.base_attempt_mut();
-                                    base.text_lines = conv.clone();
-                                    base.prompt = prompt.clone();
-                                    base.turn_id = turn_id.clone();
-                                    base.status = attempt_status;
-                                    base.attempt_placement = attempt_placement;
-                                }
-                                ov.base_turn_id = turn_id.clone();
-                                ov.sibling_turn_ids = sibling_turn_ids.clone();
-                                ov.attempt_total_hint = Some(sibling_turn_ids.len().saturating_add(1));
-                                if !ov.base_can_apply {
-                                    ov.current_view = app::DetailView::Prompt;
-                                }
-                                ov.apply_selection_to_fields();
-                                if let (Some(turn_id), true) = (turn_id.clone(), !sibling_turn_ids.is_empty())
-                                    && ov.attempts.len() == 1 {
-                                        let backend = Arc::clone(&backend);
-                                        let tx = tx.clone();
-                                        let task_id = id.clone();
-                                        tokio::spawn(async move {
-                                            match codex_cloud_tasks_client::CloudBackend::list_sibling_attempts(
-                                                &*backend,
-                                                task_id.clone(),
-                                                turn_id,
-                                            )
-                                            .await
-                                            {
-                                                Ok(attempts) => {
-                                                    let _ = tx.send(app::AppEvent::AttemptsLoaded { id: task_id, attempts });
-                                                }
-                                                Err(e) => {
-                                                    crate::util::append_error_log(format!(
-                                                        "attempts.load failed for {}: {e}",
-                                                        task_id.0
-                                                    ));
-                                                }
-                                            }
-                                        });
-                                    }
-                            } else {
-                                let mut overlay = app::DiffOverlay::new(id.clone(), title, /*attempt_total_hint*/ None);
-                                {
-                                    let base = overlay.base_attempt_mut();
-                                    base.text_lines = conv.clone();
-                                    base.prompt = prompt.clone();
-                                    base.turn_id = turn_id.clone();
-                                    base.status = attempt_status;
-                                    base.attempt_placement = attempt_placement;
-                                }
-                                overlay.base_turn_id = turn_id.clone();
-                                overlay.sibling_turn_ids = sibling_turn_ids.clone();
-                                overlay.attempt_total_hint = Some(sibling_turn_ids.len().saturating_add(1));
-                                overlay.current_view = app::DetailView::Prompt;
-                                overlay.apply_selection_to_fields();
-                                app.diff_overlay = Some(overlay);
-                            }
-                            app.details_inflight = false;
-                            app.status.clear();
-                            needs_redraw = true;
-                        }
-                        app::AppEvent::AttemptsLoaded { id, attempts } => {
-                            if let Some(ov) = app.diff_overlay.as_mut() {
-                                if ov.task_id != id {
-                                    continue;
-                                }
-                                for attempt in attempts {
-                                    if ov
-                                        .attempts
-                                        .iter()
-                                        .any(|existing| existing.turn_id.as_deref() == Some(attempt.turn_id.as_str()))
-                                    {
-                                        continue;
-                                    }
-                                    let diff_lines = attempt
-                                        .diff
-                                        .as_ref()
-                                        .map(|d| d.lines().map(str::to_string).collect())
-                                        .unwrap_or_default();
-                                    let text_lines = conversation_lines(/*prompt*/ None, &attempt.messages);
-                                    ov.attempts.push(app::AttemptView {
-                                        turn_id: Some(attempt.turn_id.clone()),
-                                        status: attempt.status,
-                                        attempt_placement: attempt.attempt_placement,
-                                        diff_lines,
-                                        text_lines,
-                                        prompt: None,
-                                        diff_raw: attempt.diff.clone(),
-                                    });
-                                }
-                                if ov.attempts.len() > 1 {
-                                    let (_, rest) = ov.attempts.split_at_mut(1);
-                                    rest.sort_by(|a, b| match (a.attempt_placement, b.attempt_placement) {
-                                        (Some(lhs), Some(rhs)) => lhs.cmp(&rhs),
-                                        (Some(_), None) => std::cmp::Ordering::Less,
-                                        (None, Some(_)) => std::cmp::Ordering::Greater,
-                                        (None, None) => a.turn_id.cmp(&b.turn_id),
-                                    });
-                                }
-                                if ov.selected_attempt >= ov.attempts.len() {
-                                    ov.selected_attempt = ov.attempts.len().saturating_sub(1);
-                                }
-                                ov.attempt_total_hint = Some(ov.attempts.len());
-                                ov.apply_selection_to_fields();
-                                needs_redraw = true;
-                            }
-                        }
-                        app::AppEvent::DetailsFailed { id, title, error } => {
-                            if let Some(ov) = &app.diff_overlay
-                                && ov.task_id != id {
-                                    continue;
-                                }
-                            append_error_log(format!("details failed for {}: {error}", id.0));
-                            let pretty = pretty_lines_from_error(&error);
-                            if let Some(ov) = app.diff_overlay.as_mut() {
-                                ov.title = title.clone();
-                                {
-                                    let base = ov.base_attempt_mut();
-                                    base.diff_lines.clear();
-                                    base.text_lines = pretty.clone();
-                                    base.prompt = None;
-                                }
-                                ov.base_can_apply = false;
-                                ov.current_view = app::DetailView::Prompt;
-                                ov.apply_selection_to_fields();
-                            } else {
-                                let mut overlay = app::DiffOverlay::new(id.clone(), title, /*attempt_total_hint*/ None);
-                                {
-                                    let base = overlay.base_attempt_mut();
-                                    base.text_lines = pretty;
-                                }
-                                overlay.base_can_apply = false;
-                                overlay.current_view = app::DetailView::Prompt;
-                                overlay.apply_selection_to_fields();
-                                app.diff_overlay = Some(overlay);
-                            }
-                            app.details_inflight = false;
-                            needs_redraw = true;
                         }
                         app::AppEvent::ApplyFinished { id, result } => {
                             // Only update if the modal still corresponds to this id.
@@ -1308,14 +685,6 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                     if matches!(outcome.status, codex_cloud_tasks_client::ApplyStatus::Success) {
                                         app.apply_modal = None;
                                         app.diff_overlay = None;
-                                        // Refresh tasks after successful apply
-                                        let backend = Arc::clone(&backend);
-                                        let tx = tx.clone();
-                                        let env_sel = app.env_filter.clone();
-                                        tokio::spawn(async move {
-                                            let res = app::load_tasks(&*backend, env_sel.as_deref()).await;
-                                            let _ = tx.send(app::AppEvent::TasksLoaded { env: env_sel, result: res });
-                                        });
                                     }
                                 }
                                 Err(e) => {
@@ -1774,20 +1143,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                         if let Some(page) = app.new_task.as_mut() {
                                             page.env_id = app.env_filter.clone();
                                         }
-                                        // Trigger tasks refresh with the selected filter
-                                        app.status = "Loading tasks…".to_string();
-                                        app.refresh_inflight = true;
-                                        app.list_generation = app.list_generation.saturating_add(1);
-                                        app.in_flight.clear();
-                                        // reset spinner state
                                         needs_redraw = true;
-                                        let backend = Arc::clone(&backend);
-                                        let tx = tx.clone();
-                                        let env_sel = app.env_filter.clone();
-                                        tokio::spawn(async move {
-                                            let res = app::load_tasks(&*backend, env_sel.as_deref()).await;
-                                            let _ = tx.send(app::AppEvent::TasksLoaded { env: env_sel, result: res });
-                                        });
                                     }
                                 }
                                 _ => {}
@@ -1807,27 +1163,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                     needs_redraw = true;
                                 }
                                 // Ensure 'r' does not refresh tasks when the env modal is open.
-                                KeyCode::Char('r') | KeyCode::Char('R') => {
-                                    if app.env_modal.is_some() { break 0; }
-                                    append_error_log(format!(
-                                        "refresh.request: env={}",
-                                        app.env_filter.clone().unwrap_or_else(|| "<all>".to_string())
-                                    ));
-                                    app.status = "Refreshing…".to_string();
-                                    app.refresh_inflight = true;
-                                    app.list_generation = app.list_generation.saturating_add(1);
-                                    app.in_flight.clear();
-                                        // reset spinner state
-                                    needs_redraw = true;
-                                    // Spawn background refresh
-                                    let backend = Arc::clone(&backend);
-                                    let tx = tx.clone();
-                                    let env_sel = app.env_filter.clone();
-                                    tokio::spawn(async move {
-                                        let res = app::load_tasks(&*backend, env_sel.as_deref()).await;
-                                        let _ = tx.send(app::AppEvent::TasksLoaded { env: env_sel, result: res });
-                                    });
-                                }
+                                KeyCode::Char('r') | KeyCode::Char('R') => {}
                                 KeyCode::Char('o') | KeyCode::Char('O') => {
                                     app.env_modal = Some(app::EnvModalState { query: String::new(), selected: 0 });
                                     // Cache environments while the modal is open to avoid repeated fetches.
@@ -1848,101 +1184,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                     app.status = "New Task: Enter to submit; Esc to cancel".to_string();
                                     needs_redraw = true;
                                 }
-                                KeyCode::Enter => {
-                                    if let Some(task) = app.tasks.get(app.selected).cloned() {
-                                        app.status = format!("Loading details for {title}…", title = task.title);
-                                        app.details_inflight = true;
-                                        // Open empty overlay immediately; content arrives via events
-                                        let overlay = app::DiffOverlay::new(
-                                            task.id.clone(),
-                                            task.title.clone(),
-                                            task.attempt_total,
-                                        );
-                                        app.diff_overlay = Some(overlay);
-                                        needs_redraw = true;
-                                        // Spawn background details load (diff first, then messages fallback)
-                                        let id = task.id.clone();
-                                        let title = task.title.clone();
-                                        {
-                                            let backend = Arc::clone(&backend);
-                                            let tx = tx.clone();
-                                            let diff_id = id.clone();
-                                            let diff_title = title.clone();
-                                            tokio::spawn(async move {
-                                                match codex_cloud_tasks_client::CloudBackend::get_task_diff(&*backend, diff_id.clone()).await {
-                                                    Ok(Some(diff)) => {
-                                                        let _ = tx.send(app::AppEvent::DetailsDiffLoaded { id: diff_id, title: diff_title, diff });
-                                                    }
-                                                    Ok(None) => {
-                                                        match codex_cloud_tasks_client::CloudBackend::get_task_text(&*backend, diff_id.clone()).await {
-                                                            Ok(text) => {
-                                                                let evt = app::AppEvent::DetailsMessagesLoaded {
-                                                                    id: diff_id,
-                                                                    title: diff_title,
-                                                                    messages: text.messages,
-                                                                    prompt: text.prompt,
-                                                                    turn_id: text.turn_id,
-                                                                    sibling_turn_ids: text.sibling_turn_ids,
-                                                                    attempt_placement: text.attempt_placement,
-                                                                    attempt_status: text.attempt_status,
-                                                                };
-                                                                let _ = tx.send(evt);
-                                                            }
-                                                            Err(e2) => {
-                                                                let _ = tx.send(app::AppEvent::DetailsFailed { id: diff_id, title: diff_title, error: format!("{e2}") });
-                                                            }
-                                                        }
-                                                    }
-                                                    Err(e) => {
-                                                        append_error_log(format!("get_task_diff failed for {}: {e}", diff_id.0));
-                                                        match codex_cloud_tasks_client::CloudBackend::get_task_text(&*backend, diff_id.clone()).await {
-                                                            Ok(text) => {
-                                                                let evt = app::AppEvent::DetailsMessagesLoaded {
-                                                                    id: diff_id,
-                                                                    title: diff_title,
-                                                                    messages: text.messages,
-                                                                    prompt: text.prompt,
-                                                                    turn_id: text.turn_id,
-                                                                    sibling_turn_ids: text.sibling_turn_ids,
-                                                                    attempt_placement: text.attempt_placement,
-                                                                    attempt_status: text.attempt_status,
-                                                                };
-                                                                let _ = tx.send(evt);
-                                                            }
-                                                            Err(e2) => {
-                                                                let _ = tx.send(app::AppEvent::DetailsFailed { id: diff_id, title: diff_title, error: format!("{e2}") });
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            });
-                                        }
-                                        // Also fetch conversation text even when diff exists
-                                        {
-                                            let backend = Arc::clone(&backend);
-                                            let tx = tx.clone();
-                                            let msg_id = id;
-                                            let msg_title = title;
-                                            tokio::spawn(async move {
-                                                if let Ok(text) = codex_cloud_tasks_client::CloudBackend::get_task_text(&*backend, msg_id.clone()).await {
-                                                    let evt = app::AppEvent::DetailsMessagesLoaded {
-                                                        id: msg_id,
-                                                        title: msg_title,
-                                                        messages: text.messages,
-                                                        prompt: text.prompt,
-                                                        turn_id: text.turn_id,
-                                                        sibling_turn_ids: text.sibling_turn_ids,
-                                                        attempt_placement: text.attempt_placement,
-                                                        attempt_status: text.attempt_status,
-                                                    };
-                                                    let _ = tx.send(evt);
-                                                }
-                                            });
-                                        }
-                                        // Animate spinner while details load.
-                                        let _ = frame_tx.send(Instant::now() + Duration::from_millis(100));
-                                    }
-                                }
+                                KeyCode::Enter => {}
                                 KeyCode::Char('a') => {
                                     if app.apply_inflight || app.apply_preflight_inflight {
                                         app.status = "Finish the current apply/preflight before starting another.".to_string();
@@ -1950,40 +1192,8 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                         continue;
                                     }
 
-                                    if let Some(task) = app.tasks.get(app.selected).cloned() {
-                                        match codex_cloud_tasks_client::CloudBackend::get_task_diff(&*backend, task.id.clone()).await {
-                                            Ok(Some(diff)) => {
-                                                let diff_override = Some(diff.clone());
-                                                let task_id = task.id.clone();
-                                                let title = task.title.clone();
-                                                let job = ApplyJob {
-                                                    task_id: task_id.clone(),
-                                                    diff_override: diff_override.clone(),
-                                                };
-                                                if spawn_preflight(
-                                                    &mut app,
-                                                    &backend,
-                                                    &tx,
-                                                    &frame_tx,
-                                                    title.clone(),
-                                                    job,
-                                                ) {
-                                                    app.apply_modal = Some(app::ApplyModalState {
-                                                        task_id,
-                                                        title: title.clone(),
-                                                        result_message: None,
-                                                        result_level: None,
-                                                        skipped_paths: Vec::new(),
-                                                        conflict_paths: Vec::new(),
-                                                        diff_override,
-                                                    });
-                                                    app.status = format!("Preflighting '{title}'...");
-                                                }
-                                            }
-                                            Ok(None) | Err(_) => {
-                                                app.status = "No diff available to apply".to_string();
-                                            }
-                                        }
+                                    if app.tasks.get(app.selected).is_some() {
+                                        app.status = "No diff available to apply".to_string();
                                         needs_redraw = true;
                                     }
                                 }
@@ -2036,123 +1246,10 @@ fn spawn_environment_load(
 
 // extract_chatgpt_account_id moved to util.rs
 
-/// Build plain-text conversation lines: a labeled user prompt followed by assistant messages.
-fn conversation_lines(prompt: Option<String>, messages: &[String]) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    if let Some(p) = prompt {
-        out.push("user:".to_string());
-        for l in p.lines() {
-            out.push(l.to_string());
-        }
-        out.push(String::new());
-    }
-    if !messages.is_empty() {
-        out.push("assistant:".to_string());
-        for (i, m) in messages.iter().enumerate() {
-            for l in m.lines() {
-                out.push(l.to_string());
-            }
-            if i + 1 < messages.len() {
-                out.push(String::new());
-            }
-        }
-    }
-    if out.is_empty() {
-        out.push("<no output>".to_string());
-    }
-    out
-}
-
-/// Convert a verbose HTTP error with embedded JSON body into concise, user-friendly lines
-/// for the details overlay. Falls back to a short raw message when parsing fails.
-fn pretty_lines_from_error(raw: &str) -> Vec<String> {
-    let mut lines: Vec<String> = Vec::new();
-    let is_no_diff = raw.contains("No output_diff in response.");
-    let is_no_msgs = raw.contains("No assistant text messages in response.");
-    if is_no_diff {
-        lines.push("No diff available for this task.".to_string());
-    } else if is_no_msgs {
-        lines.push("No assistant messages found for this task.".to_string());
-    } else {
-        lines.push("Failed to load task details.".to_string());
-    }
-
-    // Try to parse the embedded JSON body: find the first '{' after " body=" and decode.
-    if let Some(body_idx) = raw.find(" body=")
-        && let Some(json_start_rel) = raw[body_idx..].find('{')
-    {
-        let json_start = body_idx + json_start_rel;
-        let json_str = raw[json_start..].trim();
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str) {
-            // Prefer assistant turn context.
-            let turn = v
-                .get("current_assistant_turn")
-                .and_then(|x| x.as_object())
-                .cloned()
-                .or_else(|| {
-                    v.get("current_diff_task_turn")
-                        .and_then(|x| x.as_object())
-                        .cloned()
-                });
-            if let Some(t) = turn {
-                if let Some(err) = t.get("error").and_then(|e| e.as_object()) {
-                    let code = err.get("code").and_then(|s| s.as_str()).unwrap_or("");
-                    let msg = err.get("message").and_then(|s| s.as_str()).unwrap_or("");
-                    if !code.is_empty() || !msg.is_empty() {
-                        let summary = if code.is_empty() {
-                            msg.to_string()
-                        } else if msg.is_empty() {
-                            code.to_string()
-                        } else {
-                            format!("{code}: {msg}")
-                        };
-                        lines.push(format!("Assistant error: {summary}"));
-                    }
-                }
-                if let Some(status) = t.get("turn_status").and_then(|s| s.as_str()) {
-                    lines.push(format!("Status: {status}"));
-                }
-                if let Some(text) = t
-                    .get("latest_event")
-                    .and_then(|e| e.get("text"))
-                    .and_then(|s| s.as_str())
-                    && !text.trim().is_empty()
-                {
-                    lines.push(format!("Latest event: {}", text.trim()));
-                }
-            }
-        }
-    }
-
-    if lines.len() == 1 {
-        // Parsing yielded nothing; include a trimmed, short raw message tail for context.
-        let tail = if raw.len() > 320 {
-            format!("{}…", &raw[..320])
-        } else {
-            raw.to_string()
-        };
-        lines.push(tail);
-    } else if lines.len() >= 2 {
-        // Add a hint to refresh when still in progress.
-        if lines.iter().any(|l| l.contains("in_progress")) {
-            lines.push("This task may still be running. Press 'r' to refresh.".to_string());
-        }
-        // Avoid an empty overlay
-        lines.push(String::new());
-    }
-    lines
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::resolve_git_ref_with_git_info;
-    use codex_cloud_tasks_client::DiffSummary;
-    use codex_cloud_tasks_client::TaskId;
-    use codex_cloud_tasks_client::TaskStatus;
-    use codex_cloud_tasks_client::TaskSummary;
-    use codex_cloud_tasks_mock_client::MockClient;
-    use pretty_assertions::assert_eq;
 
     struct StubGitInfo {
         default_branch: Option<String>,
@@ -2236,146 +1333,4 @@ mod tests {
         assert_eq!(git_ref, "main");
     }
 
-    #[test]
-    fn format_task_status_lines_with_diff_and_label() {
-        let now = Utc::now();
-        let task = TaskSummary {
-            id: TaskId("task_1".to_string()),
-            title: "Example task".to_string(),
-            status: TaskStatus::Ready,
-            updated_at: now,
-            environment_id: Some("env-1".to_string()),
-            environment_label: Some("Env".to_string()),
-            summary: DiffSummary {
-                files_changed: 3,
-                lines_added: 5,
-                lines_removed: 2,
-            },
-            is_review: false,
-            attempt_total: None,
-        };
-        let lines = format_task_status_lines(&task, now, /*colorize*/ false);
-        assert_eq!(
-            lines,
-            vec![
-                "[READY] Example task".to_string(),
-                "Env  •  0s ago".to_string(),
-                "+5/-2 • 3 files".to_string(),
-            ]
-        );
-    }
-
-    #[test]
-    fn format_task_status_lines_without_diff_falls_back() {
-        let now = Utc::now();
-        let task = TaskSummary {
-            id: TaskId("task_2".to_string()),
-            title: "No diff task".to_string(),
-            status: TaskStatus::Pending,
-            updated_at: now,
-            environment_id: Some("env-2".to_string()),
-            environment_label: None,
-            summary: DiffSummary::default(),
-            is_review: false,
-            attempt_total: Some(1),
-        };
-        let lines = format_task_status_lines(&task, now, /*colorize*/ false);
-        assert_eq!(
-            lines,
-            vec![
-                "[PENDING] No diff task".to_string(),
-                "env-2  •  0s ago".to_string(),
-                "no diff".to_string(),
-            ]
-        );
-    }
-
-    #[test]
-    fn format_task_list_lines_formats_urls() {
-        let now = Utc::now();
-        let tasks = vec![
-            TaskSummary {
-                id: TaskId("task_1".to_string()),
-                title: "Example task".to_string(),
-                status: TaskStatus::Ready,
-                updated_at: now,
-                environment_id: Some("env-1".to_string()),
-                environment_label: Some("Env".to_string()),
-                summary: DiffSummary {
-                    files_changed: 3,
-                    lines_added: 5,
-                    lines_removed: 2,
-                },
-                is_review: false,
-                attempt_total: None,
-            },
-            TaskSummary {
-                id: TaskId("task_2".to_string()),
-                title: "No diff task".to_string(),
-                status: TaskStatus::Pending,
-                updated_at: now,
-                environment_id: Some("env-2".to_string()),
-                environment_label: None,
-                summary: DiffSummary::default(),
-                is_review: false,
-                attempt_total: Some(1),
-            },
-        ];
-        let lines = format_task_list_lines(
-            &tasks,
-            "https://chatgpt.com/backend-api",
-            now,
-            /*colorize*/ false,
-        );
-        assert_eq!(
-            lines,
-            vec![
-                "https://chatgpt.com/codex/tasks/task_1".to_string(),
-                "  [READY] Example task".to_string(),
-                "  Env  •  0s ago".to_string(),
-                "  +5/-2 • 3 files".to_string(),
-                String::new(),
-                "https://chatgpt.com/codex/tasks/task_2".to_string(),
-                "  [PENDING] No diff task".to_string(),
-                "  env-2  •  0s ago".to_string(),
-                "  no diff".to_string(),
-            ]
-        );
-    }
-
-    #[tokio::test]
-    async fn collect_attempt_diffs_includes_sibling_attempts() {
-        let backend = MockClient;
-        let task_id = parse_task_id("https://chatgpt.com/codex/tasks/T-1000").expect("id");
-        let attempts = collect_attempt_diffs(&backend, &task_id)
-            .await
-            .expect("attempts");
-        assert_eq!(attempts.len(), 2);
-        assert_eq!(attempts[0].placement, Some(0));
-        assert_eq!(attempts[1].placement, Some(1));
-        assert!(!attempts[0].diff.is_empty());
-        assert!(!attempts[1].diff.is_empty());
-    }
-
-    #[test]
-    fn select_attempt_validates_bounds() {
-        let attempts = vec![AttemptDiffData {
-            placement: Some(0),
-            created_at: None,
-            diff: "diff --git a/file b/file\n".to_string(),
-        }];
-        let first = select_attempt(&attempts, Some(1)).expect("attempt 1");
-        assert_eq!(first.diff, "diff --git a/file b/file\n");
-        assert!(select_attempt(&attempts, Some(2)).is_err());
-    }
-
-    #[test]
-    fn parse_task_id_from_url_and_raw() {
-        let raw = parse_task_id("task_i_abc123").expect("raw id");
-        assert_eq!(raw.0, "task_i_abc123");
-        let url =
-            parse_task_id("https://chatgpt.com/codex/tasks/task_i_123456?foo=bar").expect("url id");
-        assert_eq!(url.0, "task_i_123456");
-        assert!(parse_task_id("   ").is_err());
-    }
 }
