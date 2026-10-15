@@ -651,13 +651,6 @@ async fn respond_to_refresh_request(
 
 async fn mount_disabled_attribution_settings(mock_server: &MockServer) {
     app_test_support::mount_workspace_routing(mock_server).await;
-    Mock::given(method("GET"))
-        .and(path("/backend-api/wham/settings/user"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "commit_attribution_enabled": false,
-        })))
-        .mount(mock_server)
-        .await;
 }
 
 #[test_case("/v1"; "responses")]

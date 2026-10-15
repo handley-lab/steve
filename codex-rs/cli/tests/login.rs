@@ -272,56 +272,6 @@ fn login_with_access_token_rejects_invalid_jwt() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn debug_prompt_input_follows_authenticated_attribution_setting() -> Result<()> {
-    let server = MockServer::start().await;
-    let request_count = Arc::new(AtomicUsize::new(0));
-    Mock::given(method("GET"))
-        .and(path("/backend-api/wham/settings/user"))
-        .and(header("chatgpt-account-id", "workspace-123"))
-        .respond_with(move |_request: &wiremock::Request| {
-            ResponseTemplate::new(200).set_body_json(json!({
-                "commit_attribution_enabled": request_count.fetch_add(1, Ordering::SeqCst) == 0,
-            }))
-        })
-        .expect(2)
-        .mount(&server)
-        .await;
-    let codex_home = TempDir::new()?;
-    std::fs::write(
-        codex_home.path().join("config.toml"),
-        format!(
-            "cli_auth_credentials_store = \"file\"\nchatgpt_base_url = \"{}/backend-api\"\n",
-            server.uri()
-        ),
-    )?;
-    write_chatgpt_auth(
-        codex_home.path(),
-        ChatGptAuthFixture::new("chatgpt-token")
-            .account_id("workspace-123")
-            .plan_type("enterprise"),
-        AuthCredentialsStoreMode::File,
-    )?;
-    for enabled in [true, false] {
-        let output = codex_command(codex_home.path())?
-            .env("NO_PROXY", "127.0.0.1,localhost")
-            .env("no_proxy", "127.0.0.1,localhost")
-            .env_remove("STEVE_ACCESS_TOKEN")
-            .env_remove("OPENAI_API_KEY")
-            .args(["debug", "prompt-input"])
-            .output()?;
-        assert!(output.status.success());
-        let prompt = String::from_utf8(output.stdout)?;
-        assert_eq!(
-            prompt.contains("Co-authored-by: Steve <noreply@openai.com>"),
-            enabled
-        );
-        assert!(!prompt.contains("attribution is disabled for the current workspace"));
-    }
-    server.verify().await;
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn device_login_revokes_existing_auth_before_requesting_new_tokens() -> Result<()> {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

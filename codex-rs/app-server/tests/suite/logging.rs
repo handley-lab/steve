@@ -231,14 +231,6 @@ async fn credentials_stay_out_of_persisted_and_feedback_logs() -> Result<()> {
         vec![success.clone(), ResponseTemplate::new(401), success],
     )
     .await;
-    Mock::given(method("GET"))
-        .and(path("/backend-api/wham/settings/user"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "commit_attribution_enabled": false,
-        })))
-        .mount(&server)
-        .await;
-
     let codex_home = TempDir::new()?;
     let server_uri = server.uri();
     MockResponsesConfig::new(&server_uri)
