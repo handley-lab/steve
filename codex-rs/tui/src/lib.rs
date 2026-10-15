@@ -261,7 +261,6 @@ mod vim_search;
 mod width;
 mod windows_sandbox;
 mod workspace_command;
-mod workspace_messages;
 
 mod wrapping;
 

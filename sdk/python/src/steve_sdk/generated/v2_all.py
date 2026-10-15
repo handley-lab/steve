@@ -86,16 +86,6 @@ class ActivePermissionProfile(BaseModel):
     ]
 
 
-class AddCreditsNudgeCreditType(Enum):
-    credits = "credits"
-    usage_limit = "usage_limit"
-
-
-class AddCreditsNudgeEmailStatus(Enum):
-    sent = "sent"
-    cooldown_active = "cooldown_active"
-
-
 class AdditionalContextKind(Enum):
     untrusted = "untrusted"
     application = "application"
@@ -1074,40 +1064,6 @@ class ConnectorMetadata(BaseModel):
     tool_summaries: Annotated[list[AppToolSummary] | None, Field(alias="toolSummaries")] = None
 
 
-class ConsumeAccountRateLimitResetCreditOutcome(Enum):
-    reset = "reset"
-    nothing_to_reset = "nothingToReset"
-    no_credit = "noCredit"
-    already_redeemed = "alreadyRedeemed"
-
-
-class ConsumeAccountRateLimitResetCreditParams(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    credit_id: Annotated[
-        str | None,
-        Field(
-            alias="creditId",
-            description="Opaque reset-credit identifier to redeem. When omitted, the backend selects the next available credit.",
-        ),
-    ] = None
-    idempotency_key: Annotated[
-        str,
-        Field(
-            alias="idempotencyKey",
-            description="Identifies one logical reset attempt. A UUID is recommended; reuse the same value when retrying that attempt.",
-        ),
-    ]
-
-
-class ConsumeAccountRateLimitResetCreditResponse(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    outcome: ConsumeAccountRateLimitResetCreditOutcome
-
-
 class InputTextContentItem(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -1867,26 +1823,6 @@ class GetAccountParams(BaseModel):
         Field(
             alias="refreshToken",
             description="When `true`, requests a proactive token refresh before returning.\n\nIn managed auth mode this triggers the normal refresh-token flow. In external auth mode this flag is ignored. Clients should refresh tokens themselves and call `account/login/start` with `chatgptAuthTokens`.",
-        ),
-    ] = None
-
-
-class GetAccountRateLimitsParams(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    exclude_reset_credit_details: Annotated[
-        bool | None,
-        Field(
-            alias="excludeResetCreditDetails",
-            description="Skip the separate reset-credit detail lookup for background usage polls. The usage response still includes the available count; omitted/false preserves detailed reads.",
-        ),
-    ] = None
-    supports_luna_reserve: Annotated[
-        bool | None,
-        Field(
-            alias="supportsLunaReserve",
-            description="The client supports automatic Luna Reserve fallback. For eligible ChatGPT CLI users, allow the backend to record experiment exposure after ordinary usage is blocked.",
         ),
     ] = None
 
@@ -3002,15 +2938,6 @@ class NonSteerableTurnKind(Enum):
     compact = "compact"
 
 
-class NullableGetAccountRateLimitsParams(RootModel[GetAccountRateLimitsParams | None]):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    root: Annotated[
-        GetAccountRateLimitsParams | None, Field(title="Nullable_GetAccountRateLimitsParams")
-    ]
-
-
 class NullableGetAccountTokenUsageParams(RootModel[GetAccountTokenUsageParams | None]):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -3583,18 +3510,6 @@ class RateLimitReachedType(Enum):
     workspace_member_credits_depleted = "workspace_member_credits_depleted"
     workspace_owner_usage_limit_reached = "workspace_owner_usage_limit_reached"
     workspace_member_usage_limit_reached = "workspace_member_usage_limit_reached"
-
-
-class RateLimitResetCreditStatus(Enum):
-    available = "available"
-    redeeming = "redeeming"
-    redeemed = "redeemed"
-    unknown = "unknown"
-
-
-class RateLimitResetType(Enum):
-    codex_rate_limits = "codexRateLimits"
-    unknown = "unknown"
 
 
 class RateLimitWindow(BaseModel):
@@ -4248,20 +4163,6 @@ class SelectedCapabilityRoot(BaseModel):
     location: Annotated[
         CapabilityRootLocation, Field(description="Where the selected root can be resolved.")
     ]
-
-
-class SendAddCreditsNudgeEmailParams(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    credit_type: Annotated[AddCreditsNudgeCreditType, Field(alias="creditType")]
-
-
-class SendAddCreditsNudgeEmailResponse(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    status: AddCreditsNudgeEmailStatus
 
 
 class ServerDiagnosticsGauge(BaseModel):
@@ -6647,12 +6548,6 @@ class WindowsWorldWritableWarningNotification(BaseModel):
     sample_paths: Annotated[list[str], Field(alias="samplePaths")]
 
 
-class WorkspaceMessageType(Enum):
-    headline = "headline"
-    announcement = "announcement"
-    unknown = "unknown"
-
-
 class WorkspaceRouting(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -7533,29 +7428,6 @@ class AccountLogoutRequest(BaseModel):
     params: None = None
 
 
-class AccountRateLimitsReadRequest(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    id: RequestId
-    method: Annotated[
-        Literal["account/rateLimits/read"], Field(title="Account/rateLimits/readRequestMethod")
-    ]
-    params: GetAccountRateLimitsParams | None = None
-
-
-class AccountRateLimitResetCreditConsumeRequest(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    id: RequestId
-    method: Annotated[
-        Literal["account/rateLimitResetCredit/consume"],
-        Field(title="Account/rateLimitResetCredit/consumeRequestMethod"),
-    ]
-    params: ConsumeAccountRateLimitResetCreditParams
-
-
 class AccountUsageReadRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -7563,30 +7435,6 @@ class AccountUsageReadRequest(BaseModel):
     id: RequestId
     method: Annotated[Literal["account/usage/read"], Field(title="Account/usage/readRequestMethod")]
     params: GetAccountTokenUsageParams | None = None
-
-
-class AccountWorkspaceMessagesReadRequest(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    id: RequestId
-    method: Annotated[
-        Literal["account/workspaceMessages/read"],
-        Field(title="Account/workspaceMessages/readRequestMethod"),
-    ]
-    params: None = None
-
-
-class AccountSendAddCreditsNudgeEmailRequest(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    id: RequestId
-    method: Annotated[
-        Literal["account/sendAddCreditsNudgeEmail"],
-        Field(title="Account/sendAddCreditsNudgeEmailRequestMethod"),
-    ]
-    params: SendAddCreditsNudgeEmailParams
 
 
 class FeedbackUploadRequest(BaseModel):
@@ -8889,53 +8737,6 @@ class QueuedSubmission(BaseModel):
     client_user_message_id: Annotated[str, Field(alias="clientUserMessageId")]
     id: str
     input: list[UserInput]
-
-
-class RateLimitResetCredit(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    description: Annotated[
-        str | None,
-        Field(
-            description="Backend-provided display description for this credit, or `null` when unavailable."
-        ),
-    ] = None
-    expires_at: Annotated[
-        int | None,
-        Field(
-            alias="expiresAt",
-            description="Unix timestamp in seconds when the credit expires, or `null` if it does not expire.",
-        ),
-    ] = None
-    granted_at: Annotated[
-        int,
-        Field(
-            alias="grantedAt", description="Unix timestamp in seconds when the credit was granted."
-        ),
-    ]
-    id: Annotated[str, Field(description="Opaque backend identifier for this reset credit.")]
-    reset_type: Annotated[RateLimitResetType, Field(alias="resetType")]
-    status: RateLimitResetCreditStatus
-    title: Annotated[
-        str | None,
-        Field(
-            description="Backend-provided display title for this credit, or `null` when unavailable."
-        ),
-    ] = None
-
-
-class RateLimitResetCreditsSummary(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    available_count: Annotated[int, Field(alias="availableCount")]
-    credits: Annotated[
-        list[RateLimitResetCredit] | None,
-        Field(
-            description="Detail rows for available reset credits, when the backend provides them.\n\n`null` means only `availableCount` is known, while an empty array means details were fetched and no available credits were returned. The backend may cap this list, so its length can be less than `availableCount`."
-        ),
-    ] = None
 
 
 class RateLimitSnapshot(BaseModel):
@@ -10468,29 +10269,6 @@ class WindowsSandboxSetupCompletedNotification(BaseModel):
     success: bool
 
 
-class WorkspaceMessage(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    archived_at: Annotated[
-        int | None,
-        Field(
-            alias="archivedAt",
-            description="Unix timestamp (in seconds) when the message was archived.",
-        ),
-    ] = None
-    created_at: Annotated[
-        int | None,
-        Field(
-            alias="createdAt",
-            description="Unix timestamp (in seconds) when the message was created.",
-        ),
-    ] = None
-    message_body: Annotated[str, Field(alias="messageBody")]
-    message_id: Annotated[str, Field(alias="messageId")]
-    message_type: Annotated[WorkspaceMessageType, Field(alias="messageType")]
-
-
 class AccountRateLimitsUpdatedNotification(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -10879,50 +10657,6 @@ class FunctionCallOutputBody(RootModel[str | list[FunctionCallOutputContentItem]
     root: str | list[FunctionCallOutputContentItem]
 
 
-class GetAccountRateLimitsResponse(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    account_id: Annotated[
-        str | None,
-        Field(
-            alias="accountId",
-            description="Account associated with this usage snapshot, when supplied by the backend.",
-        ),
-    ] = None
-    ordinary_usage_allowed: Annotated[
-        bool | None,
-        Field(
-            alias="ordinaryUsageAllowed",
-            description="Backend permission for ordinary included usage, validated against the active account. Null means unavailable; clients must not infer recovery from percentages or reset times.",
-        ),
-    ] = None
-    rate_limit_reset_credits: Annotated[
-        RateLimitResetCreditsSummary | None, Field(alias="rateLimitResetCredits")
-    ] = None
-    rate_limit_upsell: Annotated[
-        Any | None,
-        Field(
-            alias="rateLimitUpsell",
-            description="Optional backend-owned banner from the same usage read. Its nested keys retain the backend's snake_case contract; an absent banner leaves the client's existing UI unchanged.",
-        ),
-    ] = None
-    rate_limits: Annotated[
-        RateLimitSnapshot,
-        Field(
-            alias="rateLimits",
-            description="Backward-compatible single-bucket view; mirrors the historical payload.",
-        ),
-    ]
-    rate_limits_by_limit_id: Annotated[
-        dict[str, Any] | None,
-        Field(
-            alias="rateLimitsByLimitId",
-            description="Multi-bucket view keyed by metered `limit_id` (for example, `codex`).",
-        ),
-    ] = None
-
-
 class GetAccountTokenUsageResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -10938,23 +10672,6 @@ class GetAccountTokenUsageResponse(BaseModel):
             description="Estimated usage when a thread was requested and its billing route is available.",
         ),
     ] = None
-
-
-class GetWorkspaceMessagesResponse(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    feature_enabled: Annotated[
-        bool,
-        Field(
-            alias="featureEnabled",
-            description="Whether the workspace-message backend route is available for this client.",
-        ),
-    ]
-    messages: Annotated[
-        list[WorkspaceMessage],
-        Field(description="Active workspace messages returned by the backend."),
-    ]
 
 
 class HookCompletedNotification(BaseModel):
@@ -12651,11 +12368,7 @@ class ClientRequest(
         | AccountLoginStartRequest
         | AccountLoginCancelRequest
         | AccountLogoutRequest
-        | AccountRateLimitsReadRequest
-        | AccountRateLimitResetCreditConsumeRequest
         | AccountUsageReadRequest
-        | AccountWorkspaceMessagesReadRequest
-        | AccountSendAddCreditsNudgeEmailRequest
         | FeedbackUploadRequest
         | CommandExecRequest
         | CommandExecWriteRequest
@@ -12757,11 +12470,7 @@ class ClientRequest(
         | AccountLoginStartRequest
         | AccountLoginCancelRequest
         | AccountLogoutRequest
-        | AccountRateLimitsReadRequest
-        | AccountRateLimitResetCreditConsumeRequest
         | AccountUsageReadRequest
-        | AccountWorkspaceMessagesReadRequest
-        | AccountSendAddCreditsNudgeEmailRequest
         | FeedbackUploadRequest
         | CommandExecRequest
         | CommandExecWriteRequest

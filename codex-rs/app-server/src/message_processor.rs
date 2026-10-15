@@ -1737,9 +1737,6 @@ impl MessageProcessor {
             ClientRequest::GetAccountTokenUsage { params, .. } => {
                 self.account_processor.get_account_token_usage(params).await
             }
-            ClientRequest::GetWorkspaceMessages { .. } => {
-                self.account_processor.get_workspace_messages().await
-            }
             ClientRequest::GitDiffToRemote { params, .. } => {
                 self.git_processor.git_diff_to_remote(params).await
             }

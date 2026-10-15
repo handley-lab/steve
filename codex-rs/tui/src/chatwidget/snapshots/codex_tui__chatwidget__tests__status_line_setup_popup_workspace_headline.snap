@@ -16,5 +16,5 @@ expression: status_line_popup_snapshot(&mut chat)
   [ ] current-dir           Current working directory
   [ ] project-name          Project name (omitted when unavailable)
 ↓
-  Workspace maintenance starts at 5pm
+  Workspace headline
   space toggle · ←/→ reorder · enter save · esc cancel

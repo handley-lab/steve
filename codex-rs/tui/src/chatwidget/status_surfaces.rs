@@ -73,11 +73,6 @@ impl StatusSurfaceSelections {
                 .contains(&StatusLineItem::BranchChanges)
     }
 
-    fn uses_workspace_headline(&self) -> bool {
-        self.status_line_items
-            .contains(&StatusLineItem::WorkspaceHeadline)
-    }
-
     fn uses_thread_usage(&self) -> bool {
         self.status_line_items.iter().any(|item| {
             matches!(
@@ -182,15 +177,6 @@ impl ChatWidget {
             if !self.status_line_git_summary_lookup_complete {
                 self.request_status_line_git_summary(cwd);
             }
-        }
-
-        if !selections.uses_workspace_headline() {
-            self.status_line_workspace_headline = None;
-            self.status_line_workspace_headline_pending_request_id = None;
-            self.status_line_workspace_headline_last_requested_at = None;
-            self.status_line_workspace_messages_disabled = false;
-        } else {
-            self.request_status_line_workspace_headline_if_due(Instant::now());
         }
 
         if selections.uses_thread_usage() {
@@ -642,85 +628,6 @@ impl ChatWidget {
         });
     }
 
-    fn request_status_line_workspace_headline_if_due(&mut self, now: Instant) {
-        if !self.status_line_workspace_headline_should_fetch(now) {
-            return;
-        }
-        let request_id = self.next_status_line_workspace_headline_request_id;
-        self.next_status_line_workspace_headline_request_id = self
-            .next_status_line_workspace_headline_request_id
-            .wrapping_add(/*rhs*/ 1);
-        self.status_line_workspace_headline_pending_request_id = Some(request_id);
-        self.status_line_workspace_headline_last_requested_at = Some(now);
-        self.app_event_tx
-            .send(AppEvent::RefreshStatusLineWorkspaceHeadline { request_id });
-    }
-
-    fn status_line_workspace_headline_should_fetch(&self, now: Instant) -> bool {
-        if self
-            .status_line_workspace_headline_pending_request_id
-            .is_some()
-            || self.status_line_workspace_messages_disabled
-            || !self.has_codex_backend_auth
-        {
-            return false;
-        }
-
-        self.status_line_workspace_headline_last_requested_at
-            .is_none_or(|last_requested_at| {
-                now.saturating_duration_since(last_requested_at)
-                    >= crate::workspace_messages::WORKSPACE_HEADLINE_REFRESH_INTERVAL
-            })
-    }
-
-    pub(super) fn refresh_status_line_if_workspace_headline_due(&mut self) {
-        let now = Instant::now();
-        if self.status_line_workspace_headline_should_fetch(now)
-            && self
-                .status_line_items_with_invalids()
-                .0
-                .contains(&StatusLineItem::WorkspaceHeadline)
-        {
-            self.refresh_status_line();
-        }
-    }
-
-    pub(crate) fn set_status_line_workspace_headline(
-        &mut self,
-        request_id: u64,
-        result: Result<crate::workspace_messages::WorkspaceHeadlineFetchResult, String>,
-    ) -> bool {
-        if self.status_line_workspace_headline_pending_request_id != Some(request_id) {
-            return false;
-        }
-        self.status_line_workspace_headline_pending_request_id = None;
-        match result {
-            Ok(crate::workspace_messages::WorkspaceHeadlineFetchResult::Available(headline)) => {
-                self.status_line_workspace_messages_disabled = false;
-                self.status_line_workspace_headline = headline;
-            }
-            Ok(crate::workspace_messages::WorkspaceHeadlineFetchResult::FeatureDisabled) => {
-                self.status_line_workspace_messages_disabled = true;
-                self.status_line_workspace_headline = None;
-            }
-            Err(err) => {
-                tracing::debug!(error = %err, "failed to fetch workspace headline");
-            }
-        }
-
-        if !self.status_line_workspace_messages_disabled
-            && self
-                .status_line_items_with_invalids()
-                .0
-                .contains(&StatusLineItem::WorkspaceHeadline)
-        {
-            self.frame_requester
-                .schedule_frame_in(crate::workspace_messages::WORKSPACE_HEADLINE_REFRESH_INTERVAL);
-        }
-        self.refresh_status_line();
-        true
-    }
-
     /// Resolves a display string for one configured status-line item.
     ///
     /// Returning `None` means "omit this item for now", not "configuration error". Callers rely on
@@ -848,7 +755,7 @@ impl ChatWidget {
                 .as_deref()
                 .and_then(normalize_thread_name)
                 .or_else(|| self.thread_id.map(|id| id.to_string())),
-            StatusLineItem::WorkspaceHeadline => self.status_line_workspace_headline.clone(),
+            StatusLineItem::WorkspaceHeadline => None,
             StatusLineItem::TaskProgress => self.terminal_title_task_progress(),
         }
     }

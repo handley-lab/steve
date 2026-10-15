@@ -285,10 +285,6 @@ impl ChatWidget {
         if had_refreshing_status_outputs {
             self.request_redraw();
         }
-        self.status_line_workspace_headline = None;
-        self.status_line_workspace_headline_pending_request_id = None;
-        self.status_line_workspace_headline_last_requested_at = None;
-        self.status_line_workspace_messages_disabled = false;
         self.clear_thread_usage_state();
         self.status_account_display = status_account_display;
         self.plan_type = plan_type;

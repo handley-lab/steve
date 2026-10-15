@@ -171,7 +171,8 @@ stays in use. Steve does not POST
 `/api/codex/accounts/send_add_credits_nudge_email`. Steve does not GET
 `/wham/profiles/me` or `/api/codex/profiles/me`. Thread usage remains a
 separate request. Steve does not GET `/wham/settings/user` or
-`/api/codex/settings/user`.
+`/api/codex/settings/user`. Steve does not GET `/wham/workspace-messages` or
+`/api/codex/workspace-messages`.
 
 ## Cloud-task submission
 

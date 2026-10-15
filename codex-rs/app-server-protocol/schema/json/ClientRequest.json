@@ -5,13 +5,6 @@
       "description": "A path that is guaranteed to be absolute and normalized (though it is not guaranteed to be canonicalized or exist on the filesystem).\n\nIMPORTANT: When deserializing an `AbsolutePathBuf`, a base path must be set using [AbsolutePathBufGuard::new]. If no base path is set, the deserialization will fail unless the path being deserialized is already absolute.",
       "type": "string"
     },
-    "AddCreditsNudgeCreditType": {
-      "enum": [
-        "credits",
-        "usage_limit"
-      ],
-      "type": "string"
-    },
     "AdditionalContextEntry": {
       "properties": {
         "kind": {
@@ -615,25 +608,6 @@
       },
       "required": [
         "effort"
-      ],
-      "type": "object"
-    },
-    "ConsumeAccountRateLimitResetCreditParams": {
-      "properties": {
-        "creditId": {
-          "description": "Opaque reset-credit identifier to redeem. When omitted, the backend selects the next available credit.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "idempotencyKey": {
-          "description": "Identifies one logical reset attempt. A UUID is recommended; reuse the same value when retrying that attempt.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "idempotencyKey"
       ],
       "type": "object"
     },
@@ -1592,20 +1566,6 @@
       "properties": {
         "refreshToken": {
           "description": "When `true`, requests a proactive token refresh before returning.\n\nIn managed auth mode this triggers the normal refresh-token flow. In external auth mode this flag is ignored. Clients should refresh tokens themselves and call `account/login/start` with `chatgptAuthTokens`.",
-          "type": "boolean"
-        }
-      },
-      "type": "object"
-    },
-    "GetAccountRateLimitsParams": {
-      "description": "Usage-read capabilities of the requesting client, never inferred from its experiment arm.",
-      "properties": {
-        "excludeResetCreditDetails": {
-          "description": "Skip the separate reset-credit detail lookup for background usage polls. The usage response still includes the available count; omitted/false preserves detailed reads.",
-          "type": "boolean"
-        },
-        "supportsLunaReserve": {
-          "description": "The client supports automatic Luna Reserve fallback. For eligible ChatGPT CLI users, allow the backend to record experiment exposure after ordinary usage is blocked.",
           "type": "boolean"
         }
       },
@@ -3993,17 +3953,6 @@
       "required": [
         "id",
         "location"
-      ],
-      "type": "object"
-    },
-    "SendAddCreditsNudgeEmailParams": {
-      "properties": {
-        "creditType": {
-          "$ref": "#/definitions/AddCreditsNudgeCreditType"
-        }
-      },
-      "required": [
-        "creditType"
       ],
       "type": "object"
     },
@@ -8017,60 +7966,6 @@
         },
         "method": {
           "enum": [
-            "account/rateLimits/read"
-          ],
-          "title": "Account/rateLimits/readRequestMethod",
-          "type": "string"
-        },
-        "params": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/GetAccountRateLimitsParams"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "id",
-        "method"
-      ],
-      "title": "Account/rateLimits/readRequest",
-      "type": "object"
-    },
-    {
-      "properties": {
-        "id": {
-          "$ref": "#/definitions/RequestId"
-        },
-        "method": {
-          "enum": [
-            "account/rateLimitResetCredit/consume"
-          ],
-          "title": "Account/rateLimitResetCredit/consumeRequestMethod",
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/ConsumeAccountRateLimitResetCreditParams"
-        }
-      },
-      "required": [
-        "id",
-        "method",
-        "params"
-      ],
-      "title": "Account/rateLimitResetCredit/consumeRequest",
-      "type": "object"
-    },
-    {
-      "properties": {
-        "id": {
-          "$ref": "#/definitions/RequestId"
-        },
-        "method": {
-          "enum": [
             "account/usage/read"
           ],
           "title": "Account/usage/readRequestMethod",
@@ -8092,53 +7987,6 @@
         "method"
       ],
       "title": "Account/usage/readRequest",
-      "type": "object"
-    },
-    {
-      "properties": {
-        "id": {
-          "$ref": "#/definitions/RequestId"
-        },
-        "method": {
-          "enum": [
-            "account/workspaceMessages/read"
-          ],
-          "title": "Account/workspaceMessages/readRequestMethod",
-          "type": "string"
-        },
-        "params": {
-          "type": "null"
-        }
-      },
-      "required": [
-        "id",
-        "method"
-      ],
-      "title": "Account/workspaceMessages/readRequest",
-      "type": "object"
-    },
-    {
-      "properties": {
-        "id": {
-          "$ref": "#/definitions/RequestId"
-        },
-        "method": {
-          "enum": [
-            "account/sendAddCreditsNudgeEmail"
-          ],
-          "title": "Account/sendAddCreditsNudgeEmailRequestMethod",
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/SendAddCreditsNudgeEmailParams"
-        }
-      },
-      "required": [
-        "id",
-        "method",
-        "params"
-      ],
-      "title": "Account/sendAddCreditsNudgeEmailRequest",
       "type": "object"
     },
     {

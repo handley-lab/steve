@@ -743,11 +743,6 @@ pub(crate) enum AppEvent {
         result: Result<ThreadUsageOutcome, String>,
     },
 
-    /// Fetch workspace messages for the status-line headline item.
-    RefreshStatusLineWorkspaceHeadline {
-        request_id: u64,
-    },
-
     /// Commit settled asynchronous usage output after active-output barriers clear.
     CommitPendingUsageOutput,
 
@@ -1517,11 +1512,6 @@ pub(crate) enum AppEvent {
     StatusLineGitSummaryUpdated {
         cwd: PathBuf,
         summary: crate::chatwidget::StatusLineGitSummary,
-    },
-    /// Async update of the workspace notification headline for status line rendering.
-    StatusLineWorkspaceHeadlineUpdated {
-        request_id: u64,
-        result: Result<crate::workspace_messages::WorkspaceHeadlineFetchResult, String>,
     },
     /// Apply a user-confirmed status-line item ordering/selection.
     StatusLineSetup {

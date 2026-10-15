@@ -1,5 +1,4 @@
 use crate::types::CodeTaskDetailsResponse;
-use crate::types::CodexWorkspaceMessagesResponse;
 use crate::types::PaginatedListTaskListItem;
 use crate::types::TurnAttemptsSiblingTurnsResponse;
 use anyhow::Result;
@@ -12,7 +11,6 @@ use codex_login::CodexAuth;
 use codex_login::default_client::get_codex_user_agent;
 use http::Method;
 use http::StatusCode;
-use http::header::CACHE_CONTROL;
 use http::header::CONTENT_TYPE;
 use http::header::HeaderMap;
 use http::header::HeaderName;
@@ -407,19 +405,6 @@ impl Client {
         self.decode_json::<TurnAttemptsSiblingTurnsResponse>(&url, &ct, &body)
     }
 
-    pub async fn list_workspace_messages(
-        &self,
-    ) -> std::result::Result<CodexWorkspaceMessagesResponse, RequestError> {
-        let url = self.workspace_messages_url();
-        let req = self
-            .request(Method::GET, &url)
-            .headers(self.headers())
-            .header(CACHE_CONTROL, HeaderValue::from_static("no-store"));
-        let (body, ct) = self.exec_request_detailed(req, "GET", &url).await?;
-        self.decode_json::<CodexWorkspaceMessagesResponse>(&url, &ct, &body)
-            .map_err(RequestError::from)
-    }
-
     /// Create a new task (user turn) by POSTing to the appropriate backend path
     /// based on `path_style`. Returns the created task id.
     pub async fn create_task(&self, request_body: serde_json::Value) -> Result<String> {
@@ -454,14 +439,6 @@ impl Client {
         }
     }
 
-
-    fn workspace_messages_url(&self) -> String {
-        match self.path_style {
-            PathStyle::CodexApi => format!("{}/api/codex/workspace-messages", self.base_url),
-            PathStyle::ChatGptApi => format!("{}/wham/workspace-messages", self.base_url),
-        }
-    }
-
 }
 
 #[cfg(test)]
@@ -472,21 +449,6 @@ mod request_tests;
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
-
-    #[test]
-    fn workspace_messages_uses_expected_paths() {
-        let codex_client = test_client("https://example.test", PathStyle::CodexApi);
-        assert_eq!(
-            codex_client.workspace_messages_url(),
-            "https://example.test/api/codex/workspace-messages"
-        );
-
-        let chatgpt_client = test_client("https://chatgpt.com/backend-api", PathStyle::ChatGptApi);
-        assert_eq!(
-            chatgpt_client.workspace_messages_url(),
-            "https://chatgpt.com/backend-api/wham/workspace-messages"
-        );
-    }
 
     #[test]
     fn authenticated_user_settings_client_uses_active_workspace_headers() {
@@ -514,20 +476,5 @@ mod tests {
             ],
             [Some("Bearer e30.e30.c2ln"), Some("workspace-123")]
         );
-    }
-
-    fn test_client(base_url: &str, path_style: PathStyle) -> Client {
-        Client {
-            base_url: base_url.to_string(),
-            http: RouteAwareClientPool::new(
-                HttpClientFactory::new(codex_http_client::OutboundProxyPolicy::ReqwestDefault),
-                ClientRouteClass::Api,
-            ),
-            auth_provider: codex_model_provider::unauthenticated_auth_provider(),
-            user_agent: None,
-            chatgpt_account_id: None,
-            chatgpt_account_is_fedramp: false,
-            path_style,
-        }
     }
 }

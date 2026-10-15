@@ -2126,60 +2126,6 @@
             },
             "method": {
               "enum": [
-                "account/rateLimits/read"
-              ],
-              "title": "Account/rateLimits/readRequestMethod",
-              "type": "string"
-            },
-            "params": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/v2/GetAccountRateLimitsParams"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "required": [
-            "id",
-            "method"
-          ],
-          "title": "Account/rateLimits/readRequest",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "$ref": "#/definitions/v2/RequestId"
-            },
-            "method": {
-              "enum": [
-                "account/rateLimitResetCredit/consume"
-              ],
-              "title": "Account/rateLimitResetCredit/consumeRequestMethod",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/definitions/v2/ConsumeAccountRateLimitResetCreditParams"
-            }
-          },
-          "required": [
-            "id",
-            "method",
-            "params"
-          ],
-          "title": "Account/rateLimitResetCredit/consumeRequest",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "$ref": "#/definitions/v2/RequestId"
-            },
-            "method": {
-              "enum": [
                 "account/usage/read"
               ],
               "title": "Account/usage/readRequestMethod",
@@ -2201,53 +2147,6 @@
             "method"
           ],
           "title": "Account/usage/readRequest",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "$ref": "#/definitions/v2/RequestId"
-            },
-            "method": {
-              "enum": [
-                "account/workspaceMessages/read"
-              ],
-              "title": "Account/workspaceMessages/readRequestMethod",
-              "type": "string"
-            },
-            "params": {
-              "type": "null"
-            }
-          },
-          "required": [
-            "id",
-            "method"
-          ],
-          "title": "Account/workspaceMessages/readRequest",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "$ref": "#/definitions/v2/RequestId"
-            },
-            "method": {
-              "enum": [
-                "account/sendAddCreditsNudgeEmail"
-              ],
-              "title": "Account/sendAddCreditsNudgeEmailRequestMethod",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/definitions/v2/SendAddCreditsNudgeEmailParams"
-            }
-          },
-          "required": [
-            "id",
-            "method",
-            "params"
-          ],
-          "title": "Account/sendAddCreditsNudgeEmailRequest",
           "type": "object"
         },
         {
@@ -6834,20 +6733,6 @@
         ],
         "type": "object"
       },
-      "AddCreditsNudgeCreditType": {
-        "enum": [
-          "credits",
-          "usage_limit"
-        ],
-        "type": "string"
-      },
-      "AddCreditsNudgeEmailStatus": {
-        "enum": [
-          "sent",
-          "cooldown_active"
-        ],
-        "type": "string"
-      },
       "AdditionalContextEntry": {
         "properties": {
           "kind": {
@@ -10444,72 +10329,6 @@
         ],
         "type": "object"
       },
-      "ConsumeAccountRateLimitResetCreditOutcome": {
-        "oneOf": [
-          {
-            "description": "A reset credit was consumed and the eligible rate-limit windows were reset.",
-            "enum": [
-              "reset"
-            ],
-            "type": "string"
-          },
-          {
-            "description": "No current rate-limit window is eligible for a reset.",
-            "enum": [
-              "nothingToReset"
-            ],
-            "type": "string"
-          },
-          {
-            "description": "The account has no earned reset credits available.",
-            "enum": [
-              "noCredit"
-            ],
-            "type": "string"
-          },
-          {
-            "description": "The same idempotency key already completed a reset successfully.",
-            "enum": [
-              "alreadyRedeemed"
-            ],
-            "type": "string"
-          }
-        ]
-      },
-      "ConsumeAccountRateLimitResetCreditParams": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "creditId": {
-            "description": "Opaque reset-credit identifier to redeem. When omitted, the backend selects the next available credit.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "idempotencyKey": {
-            "description": "Identifies one logical reset attempt. A UUID is recommended; reuse the same value when retrying that attempt.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "idempotencyKey"
-        ],
-        "title": "ConsumeAccountRateLimitResetCreditParams",
-        "type": "object"
-      },
-      "ConsumeAccountRateLimitResetCreditResponse": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "outcome": {
-            "$ref": "#/definitions/v2/ConsumeAccountRateLimitResetCreditOutcome"
-          }
-        },
-        "required": [
-          "outcome"
-        ],
-        "title": "ConsumeAccountRateLimitResetCreditResponse",
-        "type": "object"
-      },
       "ContentItem": {
         "oneOf": [
           {
@@ -12638,75 +12457,6 @@
         "title": "GetAccountParams",
         "type": "object"
       },
-      "GetAccountRateLimitsParams": {
-        "description": "Usage-read capabilities of the requesting client, never inferred from its experiment arm.",
-        "properties": {
-          "excludeResetCreditDetails": {
-            "description": "Skip the separate reset-credit detail lookup for background usage polls. The usage response still includes the available count; omitted/false preserves detailed reads.",
-            "type": "boolean"
-          },
-          "supportsLunaReserve": {
-            "description": "The client supports automatic Luna Reserve fallback. For eligible ChatGPT CLI users, allow the backend to record experiment exposure after ordinary usage is blocked.",
-            "type": "boolean"
-          }
-        },
-        "type": "object"
-      },
-      "GetAccountRateLimitsResponse": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "accountId": {
-            "description": "Account associated with this usage snapshot, when supplied by the backend.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "ordinaryUsageAllowed": {
-            "description": "Backend permission for ordinary included usage, validated against the active account. Null means unavailable; clients must not infer recovery from percentages or reset times.",
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "rateLimitResetCredits": {
-            "anyOf": [
-              {
-                "$ref": "#/definitions/v2/RateLimitResetCreditsSummary"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "rateLimitUpsell": {
-            "description": "Optional backend-owned banner from the same usage read. Its nested keys retain the backend's snake_case contract; an absent banner leaves the client's existing UI unchanged."
-          },
-          "rateLimits": {
-            "allOf": [
-              {
-                "$ref": "#/definitions/v2/RateLimitSnapshot"
-              }
-            ],
-            "description": "Backward-compatible single-bucket view; mirrors the historical payload."
-          },
-          "rateLimitsByLimitId": {
-            "additionalProperties": {
-              "$ref": "#/definitions/v2/RateLimitSnapshot"
-            },
-            "description": "Multi-bucket view keyed by metered `limit_id` (for example, `codex`).",
-            "type": [
-              "object",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "rateLimits"
-        ],
-        "title": "GetAccountRateLimitsResponse",
-        "type": "object"
-      },
       "GetAccountResponse": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "properties": {
@@ -12774,28 +12524,6 @@
           "summary"
         ],
         "title": "GetAccountTokenUsageResponse",
-        "type": "object"
-      },
-      "GetWorkspaceMessagesResponse": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "featureEnabled": {
-            "description": "Whether the workspace-message backend route is available for this client.",
-            "type": "boolean"
-          },
-          "messages": {
-            "description": "Active workspace messages returned by the backend.",
-            "items": {
-              "$ref": "#/definitions/v2/WorkspaceMessage"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "featureEnabled",
-          "messages"
-        ],
-        "title": "GetWorkspaceMessagesResponse",
         "type": "object"
       },
       "GitInfo": {
@@ -16029,18 +15757,6 @@
         ],
         "type": "string"
       },
-      "NullableGetAccountRateLimitsParams": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "anyOf": [
-          {
-            "$ref": "#/definitions/v2/GetAccountRateLimitsParams"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "title": "Nullable_GetAccountRateLimitsParams"
-      },
       "NullableGetAccountTokenUsageParams": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "anyOf": [
@@ -17631,92 +17347,6 @@
           "workspace_member_credits_depleted",
           "workspace_owner_usage_limit_reached",
           "workspace_member_usage_limit_reached"
-        ],
-        "type": "string"
-      },
-      "RateLimitResetCredit": {
-        "properties": {
-          "description": {
-            "description": "Backend-provided display description for this credit, or `null` when unavailable.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "expiresAt": {
-            "description": "Unix timestamp in seconds when the credit expires, or `null` if it does not expire.",
-            "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "grantedAt": {
-            "description": "Unix timestamp in seconds when the credit was granted.",
-            "format": "int64",
-            "type": "integer"
-          },
-          "id": {
-            "description": "Opaque backend identifier for this reset credit.",
-            "type": "string"
-          },
-          "resetType": {
-            "$ref": "#/definitions/v2/RateLimitResetType"
-          },
-          "status": {
-            "$ref": "#/definitions/v2/RateLimitResetCreditStatus"
-          },
-          "title": {
-            "description": "Backend-provided display title for this credit, or `null` when unavailable.",
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "grantedAt",
-          "id",
-          "resetType",
-          "status"
-        ],
-        "type": "object"
-      },
-      "RateLimitResetCreditStatus": {
-        "enum": [
-          "available",
-          "redeeming",
-          "redeemed",
-          "unknown"
-        ],
-        "type": "string"
-      },
-      "RateLimitResetCreditsSummary": {
-        "properties": {
-          "availableCount": {
-            "format": "int64",
-            "type": "integer"
-          },
-          "credits": {
-            "description": "Detail rows for available reset credits, when the backend provides them.\n\n`null` means only `availableCount` is known, while an empty array means details were fetched and no available credits were returned. The backend may cap this list, so its length can be less than `availableCount`.",
-            "items": {
-              "$ref": "#/definitions/v2/RateLimitResetCredit"
-            },
-            "type": [
-              "array",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "availableCount"
-        ],
-        "type": "object"
-      },
-      "RateLimitResetType": {
-        "enum": [
-          "codexRateLimits",
-          "unknown"
         ],
         "type": "string"
       },
@@ -19755,32 +19385,6 @@
           "id",
           "location"
         ],
-        "type": "object"
-      },
-      "SendAddCreditsNudgeEmailParams": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "creditType": {
-            "$ref": "#/definitions/v2/AddCreditsNudgeCreditType"
-          }
-        },
-        "required": [
-          "creditType"
-        ],
-        "title": "SendAddCreditsNudgeEmailParams",
-        "type": "object"
-      },
-      "SendAddCreditsNudgeEmailResponse": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "status": {
-            "$ref": "#/definitions/v2/AddCreditsNudgeEmailStatus"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "SendAddCreditsNudgeEmailResponse",
         "type": "object"
       },
       "ServerDiagnosticsGauge": {
@@ -26505,49 +26109,6 @@
         ],
         "title": "WindowsWorldWritableWarningNotification",
         "type": "object"
-      },
-      "WorkspaceMessage": {
-        "properties": {
-          "archivedAt": {
-            "description": "Unix timestamp (in seconds) when the message was archived.",
-            "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "createdAt": {
-            "description": "Unix timestamp (in seconds) when the message was created.",
-            "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "messageBody": {
-            "type": "string"
-          },
-          "messageId": {
-            "type": "string"
-          },
-          "messageType": {
-            "$ref": "#/definitions/v2/WorkspaceMessageType"
-          }
-        },
-        "required": [
-          "messageBody",
-          "messageId",
-          "messageType"
-        ],
-        "type": "object"
-      },
-      "WorkspaceMessageType": {
-        "enum": [
-          "headline",
-          "announcement",
-          "unknown"
-        ],
-        "type": "string"
       },
       "WorkspaceRouting": {
         "properties": {

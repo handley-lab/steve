@@ -748,16 +748,6 @@ pub(crate) struct ChatWidget {
     status_line_git_summary_pending: bool,
     // True once we've attempted a Git summary lookup for the current CWD.
     status_line_git_summary_lookup_complete: bool,
-    // Cached workspace notification headline for the status line.
-    status_line_workspace_headline: Option<String>,
-    // Request ID for the async workspace headline fetch currently in flight.
-    status_line_workspace_headline_pending_request_id: Option<u64>,
-    // Request ID to assign to the next workspace headline fetch.
-    next_status_line_workspace_headline_request_id: u64,
-    // Last time a workspace headline fetch was requested.
-    status_line_workspace_headline_last_requested_at: Option<Instant>,
-    // Set after the backend reports the workspace-message feature gate is disabled.
-    status_line_workspace_messages_disabled: bool,
     // Cached backend-estimated cost and bounded refresh state for the current thread.
     thread_usage: thread_usage::ThreadUsageState,
     // Current thread-goal status shown in the status line when plan mode is inactive.
@@ -1170,7 +1160,6 @@ impl ChatWidget {
         {
             self.refresh_terminal_title();
         }
-        self.refresh_status_line_if_workspace_headline_due();
         self.refresh_thread_usage_if_settlement_due();
         self.refresh_terminal_program_status();
     }
