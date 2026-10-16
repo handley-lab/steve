@@ -352,18 +352,6 @@ async fn unsupported_workspace_plans_hide_top_chats_and_skip_loading() {
         press(&mut view, KeyCode::Char('6'));
         assert_eq!(view.section, selected);
     }
-    for plan in [
-        "business",
-        "enterprise_cbp_usage_based",
-        "enterprise_cbp_automation",
-    ] {
-        let server = test_support::server().await;
-        let (_home, _app_server, mut view) = client::tests::connected_view(&server, plan).await;
-        test_support::settle(&mut view).await;
-        assert!(view.visible_sections().contains(&Section::Chats), "{plan}");
-        press(&mut view, KeyCode::Char('6'));
-        assert_eq!(view.section, Section::Chats);
-    }
 }
 
 #[test]

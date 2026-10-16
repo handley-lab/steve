@@ -287,7 +287,6 @@ use codex_app_server_protocol::WindowsSandboxSetupMode;
 use codex_app_server_protocol::WindowsSandboxSetupStartParams;
 use codex_app_server_protocol::WindowsSandboxSetupStartResponse;
 use codex_arg0::Arg0DispatchPaths;
-use codex_backend_client::Client as BackendClient;
 use codex_chatgpt::connectors;
 use codex_config::CloudConfigBundleLoadError;
 use codex_config::CloudConfigBundleLoadErrorCode;

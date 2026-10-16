@@ -1147,95 +1147,10 @@ pub(super) fn mcp_inventory_maps_from_statuses(statuses: Vec<McpServerStatus>) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::test_support::make_test_app;
-    use app_test_support::ChatGptAuthFixture;
-    use app_test_support::write_chatgpt_auth;
     use codex_app_server_protocol::PluginMarketplaceEntry;
-    use codex_app_server_protocol::ThreadUsage;
-    use codex_config::types::AuthCredentialsStoreMode;
     use codex_protocol::mcp::Tool;
     use codex_utils_absolute_path::AbsolutePathBuf;
     use pretty_assertions::assert_eq;
-
-    #[tokio::test]
-    async fn fetch_thread_usage_uses_app_server_auth_after_persisted_account_changes() {
-        let mut app = make_test_app().await;
-        let server = wiremock::MockServer::start().await;
-        let thread_id = ThreadId::new();
-        app.config.chatgpt_base_url = server.uri();
-        app.cli_kv_overrides = vec![(
-            "chatgpt_base_url".to_string(),
-            toml::Value::String(server.uri()),
-        )];
-        app.config.cli_auth_credentials_store_mode = AuthCredentialsStoreMode::File;
-        wiremock::Mock::given(wiremock::matchers::method("GET"))
-            .and(wiremock::matchers::path("/api/codex/config/bundle"))
-            .respond_with(wiremock::ResponseTemplate::new(/*s*/ 200).set_body_string("{}"))
-            .mount(&server)
-            .await;
-        write_chatgpt_auth(
-            app.config.codex_home.as_path(),
-            ChatGptAuthFixture::new("chatgpt-token").account_id("account-123"),
-            AuthCredentialsStoreMode::File,
-        )
-        .expect("write ChatGPT authentication");
-        let app_server = crate::start_app_server_for_picker(
-            &app.config,
-            &crate::AppServerTarget::Embedded,
-            app.cli_kv_overrides.clone(),
-            app.loader_overrides.clone(),
-            /*state_db*/ None,
-            app.environment_manager.clone(),
-        )
-        .await
-        .expect("start authenticated embedded app server");
-        write_chatgpt_auth(
-            app.config.codex_home.as_path(),
-            ChatGptAuthFixture::new("different-token").account_id("different-account"),
-            AuthCredentialsStoreMode::File,
-        )
-        .expect("replace persisted ChatGPT authentication");
-
-        wiremock::Mock::given(wiremock::matchers::method("POST"))
-            .and(wiremock::matchers::path(
-                "/api/codex/usage/thread_usage/query",
-            ))
-            .and(wiremock::matchers::header(
-                "authorization",
-                "Bearer chatgpt-token",
-            ))
-            .and(wiremock::matchers::header(
-                "chatgpt-account-id",
-                "account-123",
-            ))
-            .and(wiremock::matchers::body_json(serde_json::json!({
-                "thread_ids": [thread_id.to_string()]
-            })))
-            .respond_with(wiremock::ResponseTemplate::new(/*s*/ 200).set_body_json(
-                serde_json::json!({
-                    "threads": [{
-                        "thread_id": thread_id.to_string(),
-                        "estimated_usage_credits_micros": 46_000_000,
-                        "estimated_usage_usd_micros": 1_820_000
-                    }]
-                }),
-            ))
-            .expect(/*r*/ 1)
-            .mount(&server)
-            .await;
-
-        assert_eq!(
-            fetch_thread_usage(app_server.request_handle(), thread_id)
-                .await
-                .expect("read thread usage through the authenticated app server"),
-            ThreadUsageOutcome::Available(ThreadUsage {
-                thread_id: thread_id.to_string(),
-                estimated_usage_credits_micros: 46_000_000,
-                estimated_usage_usd_micros: Some(1_820_000),
-                groups: Vec::new(),
-            })
-        );
-    }
 
     fn test_absolute_path(path: &str) -> AbsolutePathBuf {
         AbsolutePathBuf::try_from(PathBuf::from(path)).expect("absolute test path")

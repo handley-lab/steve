@@ -2,7 +2,6 @@
 //! Resolving the account precedes report loading; reopening drops all account-owned data.
 
 use super::AnalyticsView;
-use super::chats;
 use super::data::Load;
 use super::models::AccountKind;
 
@@ -176,18 +175,6 @@ impl AnalyticsView {
                 Section::Skills,
                 Section::Chats,
             ],
-            Some(AccountKind::Business | AccountKind::Enterprise)
-                if super::models::thread_usage_supported(self.account.ready().copied()) =>
-            {
-                &[
-                    Section::Summary,
-                    Section::Credits,
-                    Section::Usage,
-                    Section::Plugins,
-                    Section::Skills,
-                    Section::Chats,
-                ]
-            }
             Some(AccountKind::Business | AccountKind::Enterprise) => &[
                 Section::Summary,
                 Section::Credits,
@@ -244,25 +231,15 @@ impl AnalyticsView {
             let live = std::sync::Arc::clone(live);
             self.plan.report = Load::start(async move { live.plan_history().await }, frame.clone());
         }
-        if visible.contains(&Section::Chats) && !self.business() {
-            if let (Some((_, handle, frame)), Some(live)) = (&self.connection, &self.live) {
-                self.tasks = Load::start_with_timeout(
-                    super::tasks::read(handle.clone(), std::sync::Arc::clone(live)),
-                    frame.clone(),
-                    std::time::Duration::from_secs(/*secs*/ 120),
-                );
-            }
-        } else if visible.contains(&Section::Chats) {
-            self.chats =
-                if let (Some((_, handle, frame)), Some(live)) = (&self.connection, &self.live) {
-                    Load::start_with_timeout(
-                        chats::read(handle.clone(), std::sync::Arc::clone(live)),
-                        frame.clone(),
-                        std::time::Duration::from_secs(/*secs*/ 90),
-                    )
-                } else {
-                    Load::Unavailable
-                };
+        if visible.contains(&Section::Chats)
+            && !self.business()
+            && let (Some((_, handle, frame)), Some(live)) = (&self.connection, &self.live)
+        {
+            self.tasks = Load::start_with_timeout(
+                super::tasks::read(handle.clone(), std::sync::Arc::clone(live)),
+                frame.clone(),
+                std::time::Duration::from_secs(/*secs*/ 120),
+            );
         }
     }
 
