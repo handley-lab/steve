@@ -175,6 +175,3 @@ fn output_modality_value(output_modality: RealtimeOutputModality) -> &'static st
     }
 }
 
-pub(super) fn websocket_intent() -> Option<&'static str> {
-    None
-}

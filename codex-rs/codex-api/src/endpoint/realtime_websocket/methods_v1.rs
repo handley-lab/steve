@@ -78,6 +78,3 @@ pub(super) fn session_update_session(
     }
 }
 
-pub(super) fn websocket_intent() -> Option<&'static str> {
-    Some("quicksilver")
-}

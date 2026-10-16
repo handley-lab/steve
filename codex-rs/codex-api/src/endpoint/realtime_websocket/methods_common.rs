@@ -5,11 +5,9 @@ use crate::endpoint::realtime_websocket::methods_frameless_bidi::session_update_
 use crate::endpoint::realtime_websocket::methods_v1::conversation_handoff_append_message as v1_conversation_handoff_append_message;
 use crate::endpoint::realtime_websocket::methods_v1::conversation_item_create_message as v1_conversation_item_create_message;
 use crate::endpoint::realtime_websocket::methods_v1::session_update_session as v1_session_update_session;
-use crate::endpoint::realtime_websocket::methods_v1::websocket_intent as v1_websocket_intent;
 use crate::endpoint::realtime_websocket::methods_v2::conversation_function_call_output_message as v2_conversation_function_call_output_message;
 use crate::endpoint::realtime_websocket::methods_v2::conversation_item_create_message as v2_conversation_item_create_message;
 use crate::endpoint::realtime_websocket::methods_v2::session_update_session as v2_session_update_session;
-use crate::endpoint::realtime_websocket::methods_v2::websocket_intent as v2_websocket_intent;
 use crate::endpoint::realtime_websocket::protocol::RealtimeContextAppendChannel;
 use crate::endpoint::realtime_websocket::protocol::RealtimeOutboundMessage;
 use crate::endpoint::realtime_websocket::protocol::RealtimeOutputModality;
@@ -166,13 +164,6 @@ pub fn session_update_session_json(config: RealtimeSessionConfig) -> JsonResult<
     }
 }
 
-pub(super) fn websocket_intent(wire_adapter: RealtimeWireAdapter) -> Option<&'static str> {
-    match wire_adapter {
-        RealtimeWireAdapter::V1 => v1_websocket_intent(),
-        RealtimeWireAdapter::FramelessBidi => None,
-        RealtimeWireAdapter::RealtimeV2 => v2_websocket_intent(),
-    }
-}
 
 #[cfg(test)]
 #[path = "methods_common_tests.rs"]
