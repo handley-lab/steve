@@ -161,8 +161,9 @@ bundle. Local configuration still loads.
 Steve does not GET `/wham/usage` or `/api/codex/usage`. Steve does not POST
 `/wham/usage/thread-estimates/query` or `/api/codex/usage/thread-estimates/query`.
 Steve does not POST `/wham/usage/thread_usage/query` or
-`/api/codex/usage/thread_usage/query`. Task usage `query_v2`, the API-key
-turn-cost request, and plan history are separate requests.
+`/api/codex/usage/thread_usage/query`. Steve does not POST
+`/wham/usage/thread_usage/query_v2` or `/api/codex/usage/thread_usage/query_v2`.
+The API-key turn-cost request and plan history are separate requests.
 Steve does not GET `/wham/rate-limit-reset-credits` or
 `/api/codex/rate-limit-reset-credits`, and does not POST either path with
 `/consume`.

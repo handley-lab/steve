@@ -17,7 +17,6 @@ fn account_layouts_show_reports_and_wrap_navigation() {
                 Section::Activity,
                 Section::Plugins,
                 Section::Skills,
-                Section::Chats,
             ],
         ),
         (

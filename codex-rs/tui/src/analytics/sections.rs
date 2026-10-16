@@ -165,7 +165,6 @@ impl AnalyticsView {
                 Section::Activity,
                 Section::Plugins,
                 Section::Skills,
-                Section::Chats,
             ],
             Some(AccountKind::Consumer) => &[
                 Section::Summary,
@@ -173,7 +172,6 @@ impl AnalyticsView {
                 Section::Activity,
                 Section::Plugins,
                 Section::Skills,
-                Section::Chats,
             ],
             Some(AccountKind::Business | AccountKind::Enterprise) => &[
                 Section::Summary,
@@ -230,16 +228,6 @@ impl AnalyticsView {
         {
             let live = std::sync::Arc::clone(live);
             self.plan.report = Load::start(async move { live.plan_history().await }, frame.clone());
-        }
-        if visible.contains(&Section::Chats)
-            && !self.business()
-            && let (Some((_, handle, frame)), Some(live)) = (&self.connection, &self.live)
-        {
-            self.tasks = Load::start_with_timeout(
-                super::tasks::read(handle.clone(), std::sync::Arc::clone(live)),
-                frame.clone(),
-                std::time::Duration::from_secs(/*secs*/ 120),
-            );
         }
     }
 

@@ -108,11 +108,6 @@ impl<T: Send + 'static> Load<T> {
     }
 }
 
-/// Keep untyped server and transport diagnostics out of account reports.
-pub(super) fn error(_error: codex_app_server_client::TypedRequestError) -> String {
-    "Couldn't load analytics. Press R to retry.".into()
-}
-
 /// Keep tiny refunds visible while avoiding noise on ordinary credit amounts.
 pub(super) fn amount(value: f64) -> String {
     if value == 0.0 {

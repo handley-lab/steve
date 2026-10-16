@@ -1,15 +1,9 @@
-//! Consumer task accounting: current allowance percentages and actual balance debits.
-//! This contract is deliberately separate from enterprise estimated lifetime credits.
+//! Consumer task rows. Nothing requests them.
+//! These amounts are separate from enterprise estimated lifetime credits.
 
-use super::Client;
-use super::PathStyle;
-use super::RequestError;
-use http::Method;
 use serde::Deserialize;
-use serde::Serialize;
-use std::collections::HashSet;
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 pub struct TaskUsageThread {
     pub thread_id: String,
     pub created_at: Option<String>,
@@ -70,70 +64,6 @@ pub struct TaskUsageGroup {
     pub speed: Option<String>,
     #[serde(flatten)]
     pub amounts: TaskUsageAmounts,
-}
-
-impl Client {
-    /// Queries disjoint tasks, including legacy descendants, without selecting a comparison plan.
-    pub async fn get_task_usage(
-        &self,
-        threads: &[TaskUsageThread],
-    ) -> Result<TaskUsageResponse, RequestError> {
-        let mut ids = HashSet::new();
-        if threads.is_empty()
-            || threads.len() > 100
-            || threads.iter().any(|thread| {
-                std::iter::once(&thread.thread_id)
-                    .chain(&thread.descendant_thread_ids)
-                    .any(|id| id.trim().is_empty() || id.len() > 512 || !ids.insert(id.as_str()))
-            })
-            || ids.len() > 1_000
-        {
-            return Err(RequestError::Other(anyhow::anyhow!(
-                "Expected at most 100 disjoint tasks and 1,000 thread IDs."
-            )));
-        }
-        let prefix = match self.path_style {
-            PathStyle::CodexApi => "api/codex",
-            PathStyle::ChatGptApi => "wham",
-        };
-        let url = format!("{}/{prefix}/usage/thread_usage/query_v2", self.base_url);
-        #[derive(Serialize)]
-        struct Query<'a> {
-            threads: &'a [TaskUsageThread],
-        }
-        let request = self
-            .request(Method::POST, &url)
-            .headers(self.headers())
-            .json(&Query { threads });
-        let (body, _) = self.exec_request_detailed(request, "POST", &url).await?;
-        let response: TaskUsageResponse = serde_json::from_str(&body)
-            .map_err(|_| RequestError::Other(anyhow::anyhow!("Invalid task usage response.")))?;
-        let roots: HashSet<_> = threads
-            .iter()
-            .map(|thread| thread.thread_id.as_str())
-            .collect();
-        let mut seen = HashSet::new();
-        if response.threads.iter().any(|thread| {
-            !roots.contains(thread.thread_id.as_str())
-                || !seen.insert(&thread.thread_id)
-                || std::iter::once(&thread.amounts)
-                    .chain(thread.groups.iter().map(|group| &group.amounts))
-                    .any(|amounts| {
-                        [
-                            amounts.five_hour_limit_percent,
-                            amounts.weekly_limit_percent,
-                        ]
-                        .into_iter()
-                        .flatten()
-                        .any(|value| !value.is_finite())
-                    })
-        }) {
-            return Err(RequestError::Other(anyhow::anyhow!(
-                "Invalid task usage response."
-            )));
-        }
-        Ok(response)
-    }
 }
 
 /// Decimal strings retain all backend digits for both rendering and sorting.
