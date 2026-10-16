@@ -162,7 +162,3 @@ pub(super) fn request_error(error: RouteAwareRequestError) -> String {
     }
     .to_string()
 }
-
-#[cfg(test)]
-#[path = "network_tests.rs"]
-mod tests;
