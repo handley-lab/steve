@@ -38,7 +38,7 @@ const RESPONSES_LITE_HEADER: &str = "x-openai-internal-codex-responses-lite";
 fn responses_extensions(auth: &CodexAuth) -> Arc<ExtensionRegistry<Config>> {
     let auth_manager = codex_core::test_support::auth_manager_from_auth(auth.clone());
     let mut extension_builder = ExtensionRegistryBuilder::<Config>::new();
-    install_web_search_extension(&mut extension_builder, Arc::clone(&auth_manager));
+    install_web_search_extension(&mut extension_builder);
     install_image_generation_extension(&mut extension_builder, auth_manager, |config| {
         Some(config.codex_home.clone())
     });

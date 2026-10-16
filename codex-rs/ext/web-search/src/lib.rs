@@ -1,6 +1,4 @@
 mod extension;
-mod history;
-mod output;
 mod schema;
 mod tool;
 

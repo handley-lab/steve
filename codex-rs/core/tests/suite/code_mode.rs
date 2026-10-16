@@ -27,8 +27,6 @@ use codex_extension_api::ToolLifecycleFuture;
 use codex_extension_api::ToolStartInput;
 use codex_features::CurrentTimeSource;
 use codex_features::Feature;
-use codex_http_client::DestinationPolicy;
-use codex_http_client::NetworkPolicyController;
 use codex_login::CodexAuth;
 use codex_mcp::CODEX_APPS_MCP_SERVER_NAME;
 use codex_models_manager::bundled_models_response;
@@ -36,7 +34,6 @@ use codex_protocol::config_types::ApprovalsReviewer;
 use codex_protocol::config_types::CollaborationMode;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::config_types::Settings;
-use codex_protocol::config_types::WebSearchMode;
 use codex_protocol::dynamic_tools::DynamicToolCallOutputContentItem;
 use codex_protocol::dynamic_tools::DynamicToolFunctionSpec;
 use codex_protocol::dynamic_tools::DynamicToolNamespaceSpec;
@@ -69,7 +66,6 @@ use codex_tools::ToolName;
 use codex_tools::ToolOutput;
 use codex_tools::ToolPayload;
 use codex_tools::ToolSpec;
-use codex_web_search_extension::install as install_web_search_extension;
 use core_test_support::apps_test_server::AppsTestServer;
 use core_test_support::apps_test_server::AppsTestToolLoading;
 use core_test_support::apps_test_server::DIRECT_CALENDAR_APP_ONLY_TOOL;
@@ -112,7 +108,6 @@ use image::codecs::png::PngEncoder;
 use image::metadata::Orientation;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
-use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Cursor;
@@ -484,176 +479,6 @@ async fn disabled_process_host_with_fallback_disabled_attempts_the_host() -> Res
     assert!(
         output.contains("failed to spawn code-mode host"),
         "disabled fallback must still attempt the standalone host: {output}"
-    );
-
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn code_mode_can_call_standalone_web_search() -> Result<()> {
-    assert_code_mode_standalone_web_search(
-        WebSearchMode::Live,
-        serde_json::json!(true),
-        SearchPolicy::Unmanaged,
-    )
-    .await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn code_mode_can_call_indexed_standalone_web_search() -> Result<()> {
-    assert_code_mode_standalone_web_search(
-        WebSearchMode::Indexed,
-        serde_json::json!("indexed"),
-        SearchPolicy::Unmanaged,
-    )
-    .await
-}
-
-#[test_case(SearchPolicy::DenySearch; "initial_request")]
-#[test_case(SearchPolicy::DenyRedirect; "redirect")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn code_mode_web_search_preserves_managed_policy(policy: SearchPolicy) -> Result<()> {
-    assert_code_mode_standalone_web_search(WebSearchMode::Live, serde_json::json!(true), policy)
-        .await
-}
-
-enum SearchPolicy {
-    Unmanaged,
-    DenySearch,
-    DenyRedirect,
-}
-
-async fn assert_code_mode_standalone_web_search(
-    web_search_mode: WebSearchMode,
-    expected_external_web_access: Value,
-    policy: SearchPolicy,
-) -> Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let server = responses::start_mock_server().await;
-    let denied = responses::start_mock_server().await;
-    let managed = !matches!(policy, SearchPolicy::Unmanaged);
-    let deny_search = matches!(policy, SearchPolicy::DenySearch);
-    let search_response = match policy {
-        SearchPolicy::DenyRedirect => {
-            ResponseTemplate::new(/*s*/ 307).insert_header("location", denied.uri())
-        }
-        SearchPolicy::Unmanaged | SearchPolicy::DenySearch => {
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({"output": "Search result"}))
-        }
-    };
-    let controller = NetworkPolicyController::default();
-    let mut allowed_endpoints = BTreeSet::from([format!("{}/v1/responses", server.uri()).parse()?]);
-    if !deny_search {
-        allowed_endpoints.insert(format!("{}/v1/alpha/search", server.uri()).parse()?);
-    }
-    let policy = controller.policy().restrict_to_endpoints(allowed_endpoints);
-    assert!(controller.publish(policy.revision(), DestinationPolicy::Unrestricted));
-    Mock::given(method("POST"))
-        .and(path("/v1/alpha/search"))
-        .respond_with(search_response)
-        .expect(if deny_search { 0 } else { 1 })
-        .mount(&server)
-        .await;
-
-    responses::mount_sse_once(
-        &server,
-        sse(vec![
-            ev_response_created("resp-1"),
-            ev_custom_tool_call(
-                "call-1",
-                "exec",
-                r#"
-const result = await tools.web__run({
-  search_query: [{ q: "standalone web search" }],
-});
-text(result);
-"#,
-            ),
-            ev_completed("resp-1"),
-        ]),
-    )
-    .await;
-    let follow_up_mock = responses::mount_sse_once(
-        &server,
-        sse(vec![
-            ev_assistant_message("msg-1", "done"),
-            ev_completed("resp-2"),
-        ]),
-    )
-    .await;
-
-    let auth = CodexAuth::from_api_key("dummy");
-    let auth_manager = codex_core::test_support::auth_manager_from_auth(auth.clone());
-    let mut extension_builder = ExtensionRegistryBuilder::<Config>::new();
-    install_web_search_extension(&mut extension_builder, auth_manager);
-    let mut builder = test_codex()
-        .with_auth(auth)
-        .with_extensions(Arc::new(extension_builder.build()))
-        .with_model("test-gpt-5.1-codex")
-        .with_config(move |config| {
-            if managed {
-                config.application_network_policy = policy;
-                config.respect_system_proxy = false;
-            }
-            config
-                .features
-                .enable(Feature::CodeMode)
-                .expect("code mode should be enabled");
-            config
-                .features
-                .enable(Feature::StandaloneWebSearch)
-                .expect("standalone web search should be enabled");
-            config
-                .web_search_mode
-                .set(web_search_mode)
-                .expect("web search mode should be accepted");
-        });
-    let test = builder.build_with_auto_env(&server).await?;
-
-    test.submit_turn("Search the web from code mode").await?;
-
-    if managed {
-        let output =
-            custom_tool_output_body_and_success(&follow_up_mock.single_request(), "call-1").0;
-        assert!(
-            output.contains("destination denied by application network policy"),
-            "{output}"
-        );
-        assert!(denied.received_requests().await.unwrap().is_empty());
-        return Ok(());
-    }
-
-    let search_request = server
-        .received_requests()
-        .await
-        .expect("received requests should be available")
-        .into_iter()
-        .find(|request| request.url.path() == "/v1/alpha/search")
-        .expect("standalone search request should be sent");
-    let search_body = search_request
-        .body_json::<Value>()
-        .expect("search request body should be JSON");
-    assert_eq!(
-        search_body["model"],
-        serde_json::json!("test-gpt-5.1-codex")
-    );
-    assert_eq!(
-        search_body["commands"],
-        serde_json::json!({
-            "search_query": [{"q": "standalone web search"}],
-        })
-    );
-    assert_eq!(
-        search_body["settings"],
-        serde_json::json!({
-            "allowed_callers": ["direct"],
-            "external_web_access": expected_external_web_access,
-        })
-    );
-    assert_eq!(
-        custom_tool_output_last_non_empty_text(&follow_up_mock.single_request(), "call-1"),
-        Some("Search result".to_string())
     );
 
     Ok(())

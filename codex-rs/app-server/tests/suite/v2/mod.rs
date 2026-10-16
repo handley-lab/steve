@@ -155,7 +155,6 @@ mod turn_settings_update;
 mod turn_start;
 mod turn_steer;
 mod view_image;
-mod web_search;
 mod windows_sandbox_setup;
 mod workspace_routing;
 
