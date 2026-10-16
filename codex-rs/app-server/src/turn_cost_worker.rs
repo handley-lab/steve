@@ -417,13 +417,11 @@ impl WorkerRuntime {
                     .model_provider
                     .to_api_provider(Some(AuthMode::ApiKey))
                     .map_err(|error| RequestError::Other(error.into()))?;
-                let client = BackendClient::from_auth(
-                    self.config.chatgpt_base_url.clone(),
-                    &auth,
-                    http_client_factory,
-                );
+                let endpoint = provider.url_for_path("analytics/codex/turn-costs");
+                let client = BackendClient::new(provider.base_url.clone(), http_client_factory)
+                    .with_auth_provider(codex_model_provider::auth_provider_from_auth(&auth));
                 client
-                    .query_api_key_turn_costs(turn_ids, &provider.headers)
+                    .query_api_key_turn_costs_at(&endpoint, turn_ids, &provider.headers)
                     .await
                     .map(Some)
             }

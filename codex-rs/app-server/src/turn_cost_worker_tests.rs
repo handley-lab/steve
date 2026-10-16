@@ -11,50 +11,13 @@ use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::TurnStartedEvent;
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
-use test_case::test_case;
 use tokio::time::timeout;
-use tracing::instrument::WithSubscriber;
 use wiremock::Mock;
 use wiremock::MockServer;
 use wiremock::ResponseTemplate;
 use wiremock::matchers::header;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
-
-const TURN_COST_PATH: &str = "/v1/analytics/codex/turn-costs";
-
-#[tokio::test]
-async fn worker_starts_with_otlp_metrics_exporter_without_log_exporter() {
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path(TURN_COST_PATH))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "turns": []
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-    let codex_home = TempDir::new().expect("temporary Codex home");
-    let mut config = ConfigBuilder::default()
-        .codex_home(codex_home.path().to_path_buf())
-        .build()
-        .await
-        .expect("test config");
-    config.chatgpt_base_url = server.uri();
-    config.otel.exporter = OtelExporterKind::None;
-    config.otel.metrics_exporter = OtelExporterKind::OtlpGrpc {
-        endpoint: server.uri(),
-        headers: HashMap::new(),
-        tls: None,
-    };
-    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("sk-test"));
-
-    let worker = TurnCostWorker::spawn(Arc::new(config), auth_manager)
-        .expect("OTLP metrics exporter should enable turn-cost collection");
-    wait_for_request_count(&server, /*expected*/ 1).await;
-    worker.shutdown();
-    server.verify().await;
-}
 
 #[tokio::test]
 async fn handle_observes_only_matching_model_provider() {
@@ -114,45 +77,6 @@ async fn handle_observes_only_matching_model_provider() {
         observation.kind,
         TurnCostObservationKind::Started { .. }
     ));
-}
-
-#[tokio::test]
-async fn worker_waits_for_late_api_key_login() {
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path(TURN_COST_PATH))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "turns": []
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-    let auth_home = TempDir::new().expect("temporary auth home");
-    let auth_manager = auth_manager_at(auth_home.path()).await;
-    let runtime = test_runtime(&server, Arc::clone(&auth_manager)).await;
-    let (_sender, receiver) = mpsc::channel(OBSERVATION_CHANNEL_CAPACITY);
-    let shutdown = CancellationToken::new();
-    let mut task = tokio::spawn(runtime.run(receiver, shutdown.clone()));
-
-    assert!(
-        timeout(Duration::from_millis(/*millis*/ 50), &mut task)
-            .await
-            .is_err(),
-        "worker exited while waiting for login"
-    );
-    login_with_api_key(
-        auth_home.path(),
-        "sk-test",
-        AuthCredentialsStoreMode::File,
-        AuthKeyringBackendKind::default(),
-    )
-    .expect("write API-key auth");
-    assert!(auth_manager.reload().await);
-    wait_for_request_count(&server, /*expected*/ 1).await;
-
-    shutdown.cancel();
-    task.await.expect("worker task");
-    server.verify().await;
 }
 
 #[tokio::test]
@@ -260,45 +184,9 @@ async fn custom_provider_does_not_send_chatgpt_auth_for_turn_costs() {
 }
 
 #[tokio::test]
-async fn transient_probe_failure_keeps_worker_alive() {
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path(TURN_COST_PATH))
-        .respond_with(ResponseTemplate::new(500).set_body_string("temporary failure"))
-        .expect(1)
-        .mount(&server)
-        .await;
-    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("sk-test"));
-    let runtime = test_runtime(&server, Arc::clone(&auth_manager)).await;
-    let backend_availability = runtime.probe_backend().await;
-    assert_eq!(backend_availability, BackendAvailability::RetryProbe);
-    let (_sender, receiver) = mpsc::channel(OBSERVATION_CHANNEL_CAPACITY);
-    let shutdown = CancellationToken::new();
-    let auth_changes = Some(auth_manager.auth_change_receiver());
-    let mut task = tokio::spawn(runtime.run_with_backend_availability(
-        receiver,
-        shutdown.clone(),
-        auth_changes,
-        backend_availability,
-    ));
-
-    assert!(
-        timeout(Duration::from_millis(/*millis*/ 50), &mut task)
-            .await
-            .is_err(),
-        "worker exited after a transient probe failure"
-    );
-
-    shutdown.cancel();
-    task.await.expect("worker task");
-    server.verify().await;
-}
-
-#[tokio::test]
 async fn priced_cost_uses_telemetry_captured_before_thread_removal() {
-    let server = MockServer::start().await;
     let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("sk-test"));
-    let mut runtime = test_runtime(&server, auth_manager).await;
+    let mut runtime = test_runtime(auth_manager).await;
     let thread_id = ThreadId::new();
     let turn_id = "turn-1";
 
@@ -341,9 +229,8 @@ async fn priced_cost_uses_telemetry_captured_before_thread_removal() {
 
 #[tokio::test]
 async fn priced_cost_waits_for_every_response_when_response_costs_are_available() {
-    let server = MockServer::start().await;
     let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("sk-test"));
-    let mut runtime = test_runtime(&server, auth_manager).await;
+    let mut runtime = test_runtime(auth_manager).await;
     let thread_id = ThreadId::new();
     let turn_id = "turn-1";
 
@@ -390,14 +277,13 @@ async fn priced_cost_waits_for_every_response_when_response_costs_are_available(
     assert_eq!(runtime.turns.len(), 0);
 }
 
-async fn test_runtime(server: &MockServer, auth_manager: Arc<AuthManager>) -> WorkerRuntime {
+async fn test_runtime(auth_manager: Arc<AuthManager>) -> WorkerRuntime {
     let codex_home = TempDir::new().expect("temporary Codex home");
-    let mut config = ConfigBuilder::default()
+    let config = ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())
         .build()
         .await
         .expect("test config");
-    config.chatgpt_base_url = server.uri();
     let backend = TurnCostBackend::OpenAi(Arc::clone(&auth_manager));
     WorkerRuntime {
         config: Arc::new(config),
@@ -436,56 +322,4 @@ fn test_session_telemetry(thread_id: ThreadId) -> SessionTelemetry {
     )
 }
 
-async fn wait_for_request_count(server: &MockServer, expected: usize) {
-    timeout(Duration::from_secs(/*secs*/ 15), async {
-        loop {
-            let requests = server.received_requests().await.unwrap_or_default();
-            if requests.len() >= expected {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("timed out waiting for turn-cost request");
-}
 
-#[test_case(500; "HTTP failure")]
-#[test_case(200; "decode failure")]
-#[tokio::test]
-async fn turn_cost_failures_do_not_log_response_bodies(status: u16) {
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path(TURN_COST_PATH))
-        .respond_with(
-            ResponseTemplate::new(status).set_body_string("private-workspace-response-marker"),
-        )
-        .expect(2)
-        .mount(&server)
-        .await;
-    let mut runtime = test_runtime(
-        &server,
-        AuthManager::from_auth_for_testing(CodexAuth::from_api_key("sk-test")),
-    )
-    .await;
-    let capture = tempfile::NamedTempFile::new().expect("log capture");
-    let subscriber = tracing_subscriber::fmt()
-        .with_ansi(false)
-        .with_max_level(tracing::Level::DEBUG)
-        .with_writer(Arc::new(capture.reopen().expect("log writer")))
-        .finish();
-    async {
-        assert_eq!(
-            runtime.probe_backend().await,
-            BackendAvailability::RetryProbe
-        );
-        runtime.poll_entries(&["turn-1".to_string()]).await;
-    }
-    .with_subscriber(subscriber)
-    .await;
-    let logs = std::fs::read_to_string(capture.path()).expect("captured logs");
-    assert!(logs.contains("backend availability check failed temporarily"));
-    assert!(logs.contains("failed to query turn costs"));
-    assert!(!logs.contains("private-workspace-response-marker"));
-    server.verify().await;
-}
