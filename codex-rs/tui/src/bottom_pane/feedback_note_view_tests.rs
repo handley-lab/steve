@@ -78,17 +78,12 @@ fn feedback_view_safety_check() {
 fn feedback_disclosure_matches_audience_at_normal_and_narrow_widths() {
     let mut rendered = Vec::new();
     for (audience, name, url, link_label) in [
-        (
-            FeedbackAudience::External,
-            "external",
-            FEEDBACK_POLICY_URL,
-            "Learnmore",
-        ),
+        (FeedbackAudience::External, "external", None, None),
         (
             FeedbackAudience::OpenAiEmployee,
             "employee",
-            EMPLOYEE_FEEDBACK_FAQ_URL,
-            "here",
+            Some(EMPLOYEE_FEEDBACK_FAQ_URL),
+            Some("here"),
         ),
     ] {
         let mut view = make_view(FeedbackCategory::Bug);
@@ -103,13 +98,15 @@ fn feedback_disclosure_matches_audience_at_normal_and_narrow_widths() {
             let mut buf = Buffer::empty(area);
             view.render(area, &mut buf);
 
-            let linked_text = buf
-                .content
-                .iter()
-                .filter(|cell| cell.symbol().contains(&format!("\x1b]8;;{url}\x07")))
-                .map(|cell| crate::terminal_hyperlinks::strip_osc8(cell.symbol()))
-                .collect::<String>();
-            assert_eq!(linked_text, link_label);
+            if let (Some(url), Some(link_label)) = (url, link_label) {
+                let linked_text = buf
+                    .content
+                    .iter()
+                    .filter(|cell| cell.symbol().contains(&format!("\x1b]8;;{url}\x07")))
+                    .map(|cell| crate::terminal_hyperlinks::strip_osc8(cell.symbol()))
+                    .collect::<String>();
+                assert_eq!(linked_text, link_label);
+            }
             rendered.push(format!(
                 "{name} ({width} columns)\n{}",
                 render_buffer(area, &buf)
