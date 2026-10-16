@@ -27,16 +27,8 @@ pub fn append_error_log(message: impl AsRef<str>) {
 
 /// Normalize the configured base URL to a canonical form used by the backend client.
 /// - trims trailing '/'
-/// - appends '/backend-api' for ChatGPT hosts when missing
 pub fn normalize_base_url(input: &str) -> String {
-    let mut base_url = input.trim_end_matches('/').to_string();
-    if (base_url.starts_with("https://chatgpt.com")
-        || base_url.starts_with("https://chat.openai.com"))
-        && !base_url.contains("/backend-api")
-    {
-        base_url = format!("{base_url}/backend-api");
-    }
-    base_url
+    input.trim_end_matches('/').to_string()
 }
 
 /// Reads the configured cloud-tasks base URL.
