@@ -142,12 +142,6 @@ impl Client {
         while base_url.ends_with('/') {
             base_url.pop();
         }
-        if (base_url.starts_with("https://chatgpt.com")
-            || base_url.starts_with("https://chat.openai.com"))
-            && !base_url.contains("/backend-api")
-        {
-            base_url = format!("{base_url}/backend-api");
-        }
         let path_style = PathStyle::from_base_url(&base_url);
         Self {
             base_url,
