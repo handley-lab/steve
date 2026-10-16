@@ -1123,6 +1123,7 @@ mod tests {
     use codex_app_server_client::InProcessClientStartArgs;
     use codex_app_server_client::RemoteAppServerEndpoint;
     use codex_arg0::Arg0DispatchPaths;
+    use codex_config::CloudConfigBundleLoader;
     use codex_utils_absolute_path::AbsolutePathBuf;
     use pretty_assertions::assert_eq;
     use std::sync::Arc;

@@ -511,7 +511,6 @@ async fn dynamic_service_tier_command_returns_to_latest() -> Result<()> {
 
 
 #[tokio::test]
-#[tokio::test]
 async fn usage_picker_opens_analytics_without_moving_the_background_transcript() -> Result<()> {
     let (mut app, mut events, _op_rx) = make_test_app_with_channels().await;
     set_chatgpt_auth(&mut app.chat_widget);

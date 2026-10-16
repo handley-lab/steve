@@ -88,7 +88,6 @@ async fn fresh_logo_returns_only_to_the_ordinary_composer() -> Result<()> {
 
 
 #[tokio::test]
-#[tokio::test]
 async fn non_startup_history_dismisses_logo_until_a_new_thread() -> Result<()> {
     let mut app = crate::app::test_support::make_test_app().await;
     app.local_settings.tui.animations = true;

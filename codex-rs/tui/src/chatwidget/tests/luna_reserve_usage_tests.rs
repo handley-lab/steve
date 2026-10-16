@@ -41,17 +41,6 @@ async fn luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_withou
         chat.on_rate_limit_snapshot(Some(reserve_snapshot(
             /*primary_used*/ 48, /*weekly_used*/ 20,
         )));
-        let response = serde_json::from_value(json!({
-            "accountId": "account-preview", "rateLimits": {},
-            "rateLimitUpsell": {
-                "banner_type": "luna_reserve", "presentation": "dismissible",
-                "title": "You’re now using Luna, a faster model for simpler tasks.",
-                "description": "Add credits or upgrade to continue using the most advanced models.",
-                "ctas": [{"action": "add_credits", "label": "Add credits"},
-                    {"action": "open_pricing_dialog", "label": "Upgrade"}]
-            }
-        }))
-        .unwrap();
         let rendered = normalize_snapshot_paths(render_bottom_popup(&chat, /*width*/ 90));
         assert!(
             !rendered.contains("saved draft"),

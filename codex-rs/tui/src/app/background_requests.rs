@@ -1365,7 +1365,7 @@ mod tests {
 
     #[tokio::test]
     async fn mcp_inventory_omits_thread_id_for_closed_agent_thread() {
-        let mut app = make_test_app().await;
+        let mut app = crate::app::test_support::make_test_app().await;
         let thread_id = ThreadId::new();
         app.active_thread_id = Some(thread_id);
         app.agent_navigation.upsert(

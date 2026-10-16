@@ -73,8 +73,6 @@ async fn analytics_requires_local_chatgpt_authentication() {
 }
 
 #[tokio::test]
-
-#[tokio::test]
 async fn unknown_plan_exposes_no_credit_breakdowns() {
     let server = MockServer::start().await;
     let (_home, live) = live(&server, "unknown").await;

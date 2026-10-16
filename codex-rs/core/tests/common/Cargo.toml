@@ -27,6 +27,7 @@ codex-home = { workspace = true }
 codex-features = { workspace = true }
 codex-hooks = { workspace = true }
 codex-login = { workspace = true }
+codex-mcp = { workspace = true }
 codex-model-provider-info = { workspace = true }
 codex-models-manager = { workspace = true }
 codex-protocol = { workspace = true }

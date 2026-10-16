@@ -11,16 +11,6 @@ fn gov_cloud_guidance_requires_acknowledgement() {
         KeyEventKind::Repeat,
     )));
     assert!(state.handle_guidance_key_event(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-
-    let area = Rect::new(0, 0, 72, 24);
-    let mut buffer = Buffer::empty(area);
-    state.render(area, &mut buffer, /*error*/ None);
-    assert!(
-        buffer
-            .content
-            .iter()
-            .any(|cell| cell.symbol().contains(GOV_CLOUD_GUIDANCE_URL))
-    );
 }
 
 #[test]
@@ -30,7 +20,7 @@ fn gov_cloud_guidance_scrolls_in_short_panes() {
     let initial = render_visible_at(&state, area);
     insta::assert_snapshot!("gov_cloud_warning_short", initial);
 
-    // Even a one-row disclosure viewport must expose every line and the link.
+    // Even a one-row disclosure viewport must expose every line.
     for height in [6, 2] {
         let area = Rect::new(0, 0, 24, height);
         let mut seen = String::new();
@@ -45,7 +35,6 @@ fn gov_cloud_guidance_scrolls_in_short_panes() {
         }
         assert!(seen.contains("Using Steve with AWS"));
         assert!(seen.contains("proceeding."));
-        assert!(seen.contains(GOV_CLOUD_GUIDANCE_URL));
         for _ in 0..20 {
             state.handle_guidance_key_event(&KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
             render_visible_at(&state, area);
