@@ -155,13 +155,7 @@ pub(crate) fn new_safety_access_block_event() -> SafetyAccessBlockCell {
     SafetyAccessBlockCell {
         title: "This content can't be shown",
         body: "We take extra caution with requests involving biological research and applications that could pose safety risks. Eligible researchers can apply for Trusted Access.",
-        actions: &[
-            (
-                "Trusted Access",
-                "https://chatgpt.com/r/b749fb02595e04c3007a54375f3f4374",
-            ),
-            ("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL),
-        ],
+        actions: &[("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL)],
     }
 }
 
