@@ -34,7 +34,6 @@ pub use sandbox_metadata::MCP_SANDBOX_STATE_META_CAPABILITY;
 pub use sandbox_metadata::SandboxState;
 pub use tool_catalog_cache::McpToolCatalogCache;
 pub use tools::ToolInfo;
-pub use trusted_access::TrustedAccessContext;
 
 /// Backward-compatible name for the shared Codex Apps tools runtime.
 pub type CodexAppsToolsCache = codex_connectors::ConnectorRuntimeManager<ToolInfo>;
@@ -128,4 +127,3 @@ mod sandbox_metadata;
 pub(crate) mod server;
 mod tool_catalog_cache;
 pub(crate) mod tools;
-mod trusted_access;

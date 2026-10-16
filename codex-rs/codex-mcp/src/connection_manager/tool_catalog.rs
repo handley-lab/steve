@@ -603,7 +603,6 @@ impl McpConnectionSet {
             )
         };
         PreparedMcpCall::new(
-            Arc::clone(self),
             client,
             config,
             tool_catalog_snapshot,

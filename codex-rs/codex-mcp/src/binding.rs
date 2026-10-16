@@ -170,7 +170,6 @@ impl fmt::Debug for McpBinding {
 /// A call bound to an exact client, catalog revision, timeout, and permission authority.
 #[derive(Clone)]
 pub struct PreparedMcpCall {
-    connections: Arc<McpConnectionSet>,
     client: Arc<ManagedClient>,
     config: Arc<McpConfig>,
     catalog_snapshot: Arc<ToolCatalogSnapshot>,
@@ -211,12 +210,7 @@ impl From<ToolInfo> for PreparedToolInfo {
 }
 
 impl PreparedMcpCall {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the exact call authority stays together"
-    )]
     pub(crate) fn new(
-        connections: Arc<McpConnectionSet>,
         client: Arc<ManagedClient>,
         config: Arc<McpConfig>,
         catalog_snapshot: Arc<ToolCatalogSnapshot>,
@@ -229,7 +223,6 @@ impl PreparedMcpCall {
         let server_name = tool_info.get().server_name.clone();
         config.permission_profile_for_server(&server_name)?;
         Some(Self {
-            connections,
             client,
             config,
             catalog_snapshot,
@@ -399,22 +392,6 @@ impl PreparedMcpCall {
                 let (arguments, meta) = prepare().await?;
                 let timeout_deadline =
                     effective_timeout.map(|timeout| tokio::time::Instant::now() + timeout);
-                let add_trusted_access_context = self.connections.add_trusted_access_context(
-                    self.tool_info(),
-                    &self.server_metadata,
-                    arguments.as_ref(),
-                    meta,
-                );
-                let meta = match effective_timeout.zip(timeout_deadline) {
-                    Some((timeout, deadline)) => {
-                        tokio::time::timeout_at(deadline, add_trusted_access_context)
-                            .await
-                            .map_err(|_| {
-                                anyhow::anyhow!("timed out awaiting tools/call after {timeout:.0?}")
-                            })?
-                    }
-                    None => add_trusted_access_context.await,
-                };
                 let remaining_timeout = match effective_timeout.zip(timeout_deadline) {
                     Some((timeout, deadline)) => {
                         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());

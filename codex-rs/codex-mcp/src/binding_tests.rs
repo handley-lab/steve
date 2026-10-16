@@ -119,7 +119,6 @@ async fn test_step(
         .insert(format!("{label}-environment"), label == "new");
     let config = Arc::new(config);
     let prepared = PreparedMcpCall::new(
-        Arc::clone(&connections),
         managed_client,
         Arc::clone(&config),
         tool_catalog.read(Arc::new).await,

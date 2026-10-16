@@ -37,14 +37,8 @@ use codex_connectors::ConnectorRuntimeContext;
 use codex_connectors::ConnectorRuntimeContextKey;
 use codex_connectors::ConnectorRuntimeFetchSource;
 use codex_connectors::ConnectorRuntimeManager;
-use codex_exec_server::ExecServerError;
-use codex_exec_server::HttpClient;
-use codex_exec_server::HttpRequestParams;
-use codex_exec_server::HttpRequestResponse;
-use codex_exec_server::HttpResponseBodyStream;
 use codex_exec_server_test_support::environment_manager_without_environments;
 use codex_login::AuthHeaders;
-use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_protocol::ToolName;
 use codex_protocol::approvals::ElicitationRequest;
@@ -121,7 +115,6 @@ impl McpConnectionSet {
                 /*lifecycle*/ None,
                 ElicitationRequestRouter::default(),
             ),
-            trusted_access: None,
         }
     }
 
@@ -251,24 +244,6 @@ fn create_test_server_info(title: &str) -> McpServerInfo {
 }
 
 struct TestInProcessTransportFactory;
-
-struct PendingHttpClient;
-
-impl HttpClient for PendingHttpClient {
-    fn http_request(
-        &self,
-        _params: HttpRequestParams,
-    ) -> BoxFuture<'_, Result<HttpRequestResponse, ExecServerError>> {
-        futures::future::pending().boxed()
-    }
-
-    fn http_request_stream(
-        &self,
-        _params: HttpRequestParams,
-    ) -> BoxFuture<'_, Result<(HttpRequestResponse, HttpResponseBodyStream), ExecServerError>> {
-        futures::future::pending().boxed()
-    }
-}
 
 impl InProcessTransportFactory for TestInProcessTransportFactory {
     fn open(&self) -> BoxFuture<'static, io::Result<DuplexStream>> {
@@ -472,82 +447,6 @@ async fn create_test_managed_client(tools: Vec<ToolInfo>) -> ManagedClient {
         server_supports_sandbox_state_meta_capability: false,
         codex_apps_tools_cache_context: None,
     }
-}
-
-#[tokio::test(start_paused = true)]
-async fn prepared_call_timeout_includes_trusted_access_lookup() {
-    let mut tool = create_test_tool("docs", "access");
-    tool.tool.annotations = Some(rmcp::model::ToolAnnotations::new().read_only(true));
-    let mut tool_meta = rmcp::model::MetaObject::new();
-    tool_meta.insert(
-        "openai/requestedEntitlements".to_string(),
-        serde_json::json!(["cyber_trusted_access"]),
-    );
-    tool.tool.meta = Some(tool_meta);
-
-    let approval_policy = Constrained::allow_any(AskForApproval::OnRequest);
-    let permission_profile = Constrained::allow_any(PermissionProfile::default());
-    let mut manager = McpConnectionSet::new_uninitialized(
-        &approval_policy,
-        &permission_profile,
-        /*prefix_mcp_tool_names*/ true,
-    );
-    let mut config = crate::mcp::tests::test_mcp_config(std::env::temp_dir());
-    let mut catalog = crate::ResolvedMcpCatalog::builder();
-    catalog.register(crate::McpServerRegistration::from_plugin(
-        "docs".to_string(),
-        crate::McpPluginAttribution::new("docs@test".to_string(), "Docs".to_string()),
-        /*plugin_order*/ 0,
-        serde_json::from_value(serde_json::json!({ "command": "docs" }))
-            .expect("plugin MCP config"),
-    ));
-    config.mcp_server_catalog = catalog.build();
-    config
-        .server_permission_profiles
-        .insert("docs".to_string(), PermissionProfile::default());
-    manager.tool_plugin_context = Arc::new(crate::tool_plugin_context(&config));
-    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
-    manager.trusted_access = Some(TrustedAccessContext::new(
-        auth.clone(),
-        AuthManager::from_auth_for_testing(auth),
-        "https://chatgpt.com/backend-api".to_string(),
-        Arc::new(PendingHttpClient),
-    ));
-    let manager = Arc::new(manager);
-    let server_metadata = McpServerMetadata {
-        environment_id: codex_config::DEFAULT_MCP_SERVER_ENVIRONMENT_ID.to_string(),
-        pollutes_memory: true,
-        origin: Some(McpServerOrigin::Stdio),
-        supports_parallel_tool_calls: false,
-        default_tools_approval_mode: None,
-        tool_approval_modes: HashMap::new(),
-    };
-    let client = Arc::new(create_test_managed_client(vec![tool.clone()]).await);
-    let catalog_snapshot = client.tool_catalog.read(Arc::new).await;
-    let prepared = crate::PreparedMcpCall::new(
-        manager,
-        client,
-        Arc::new(config),
-        catalog_snapshot,
-        tool,
-        server_metadata,
-        Some("docs@test".to_string()),
-        /*selected_plugin_server*/ false,
-    )
-    .expect("docs should retain its permission profile");
-
-    let started = tokio::time::Instant::now();
-    let error = prepared
-        .call(
-            Some(serde_json::json!({})),
-            /*meta*/ None,
-            Some(Duration::from_secs(1)),
-        )
-        .await
-        .expect_err("trusted access lookup should consume the call timeout");
-
-    assert_eq!(started.elapsed(), Duration::from_secs(1));
-    assert!(format!("{error:#}").contains("timed out awaiting tools/call after 1s"));
 }
 
 pub(crate) async fn create_ready_async_managed_client(tools: Vec<ToolInfo>) -> AsyncManagedClient {

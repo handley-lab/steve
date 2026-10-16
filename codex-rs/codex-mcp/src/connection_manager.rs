@@ -57,8 +57,7 @@ use crate::tool_catalog_cache::McpToolCatalogCacheContext;
 use crate::tools::ToolFilter;
 use crate::tools::ToolInfo;
 use crate::tools::filter_tools;
-use crate::trusted_access::ENTITLEMENT_CONTEXT_KEY;
-use crate::trusted_access::TrustedAccessContext;
+const ENTITLEMENT_CONTEXT_KEY: &str = "openai/entitlementContext";
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
@@ -235,7 +234,6 @@ pub(crate) struct McpConnectionSet {
     prefix_mcp_tool_names: bool,
     non_prefixed_mcp_tool_servers: Vec<String>,
     elicitation_requests: ElicitationRequestManager,
-    pub(crate) trusted_access: Option<TrustedAccessContext>,
 }
 
 impl McpConnectionSet {
@@ -247,7 +245,6 @@ impl McpConnectionSet {
         input: McpRuntimeInput,
         elicitation_router: ElicitationRequestRouter,
     ) -> Self {
-        let trusted_access = TrustedAccessContext::from_runtime(&input);
         let McpRuntimeInput {
             startup_policy,
             config,
@@ -805,7 +802,6 @@ impl McpConnectionSet {
             prefix_mcp_tool_names,
             non_prefixed_mcp_tool_servers,
             elicitation_requests: elicitation_requests.clone(),
-            trusted_access,
         };
         let summary_publication_gate = publication_gate;
         tokio::spawn(async move {
@@ -863,7 +859,6 @@ impl McpConnectionSet {
             prefix_mcp_tool_names,
             non_prefixed_mcp_tool_servers: Vec::new(),
             elicitation_requests: ElicitationRequestManager::default(),
-            trusted_access: None,
         }
     }
 
