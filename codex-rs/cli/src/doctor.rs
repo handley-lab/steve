@@ -2758,7 +2758,7 @@ async fn provider_reachability_check(plan: ReachabilityPlan) -> DoctorCheck {
                     )
                     .measured(format!("{route_probe_url} returned {status}"))
                     .expected("GET /models returns 2xx, 401, or 403")
-                    .remedy("Set base_url to the provider API root, for example https://api.openai.com/v1")
+                    .remedy("Set base_url to the provider API root")
                     .field("route probe"),
                 );
             }
@@ -3740,7 +3740,7 @@ mod tests {
         assert_eq!(check.issues.len(), 1);
         assert_eq!(
             check.issues[0].remedy.as_deref(),
-            Some("Set base_url to the provider API root, for example https://api.openai.com/v1")
+            Some("Set base_url to the provider API root")
         );
     }
 
