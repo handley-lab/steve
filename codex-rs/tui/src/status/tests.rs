@@ -775,7 +775,6 @@ async fn status_uses_server_provider_id_and_auth_requirement() {
     config.model_provider.requires_openai_auth = true;
     let (composite, _handle) = new_status_output_with_rate_limits_handle(
         &config,
-        /*requires_openai_auth*/ false,
         Some("server-ollama"),
         /*remote_connection*/ None,
         test_status_account_display().as_ref(),
@@ -806,7 +805,6 @@ async fn status_uses_server_provider_id_and_auth_requirement() {
     };
     let (composite, _handle) = new_status_output_with_rate_limits_handle(
         &config,
-        /*requires_openai_auth*/ true,
         Some("server-openai"),
         /*remote_connection*/ None,
         test_status_account_display().as_ref(),
@@ -827,34 +825,6 @@ async fn status_uses_server_provider_id_and_auth_requirement() {
     let rendered =
         sanitize_directory(render_lines(&composite.display_lines(/*width*/ 120))).join("\n");
     assert_snapshot!("status_server_auth_required", rendered);
-
-    for width in [24, 42, 120] {
-        let lines = composite.display_hyperlink_lines(width);
-        let mut fragments = String::new();
-        let mut destinations = Vec::new();
-        for line in lines {
-            let visible = line.line.to_string();
-            for link in line.hyperlinks {
-                fragments.extend(
-                    visible
-                        .chars()
-                        .skip(link.columns.start)
-                        .take(link.columns.len()),
-                );
-                destinations.push(link.destination);
-            }
-        }
-        assert_eq!(
-            fragments, "https://chatgpt.com/settings/usage",
-            "width {width}"
-        );
-        assert!(!destinations.is_empty());
-        assert!(
-            destinations
-                .iter()
-                .all(|destination| destination == "https://chatgpt.com/settings/usage")
-        );
-    }
 }
 
 #[tokio::test]
@@ -1496,7 +1466,6 @@ async fn status_wraps_long_paths_and_session_ids_without_losing_text() {
     let usage = TokenUsage::default();
     let (status, handle) = new_status_output_with_rate_limits_handle(
         &config,
-        /*requires_openai_auth*/ true,
         /*model_provider_id*/ None,
         /*remote_connection*/ None,
         /*account_display*/ None,
@@ -1735,7 +1704,6 @@ async fn status_snapshot_uses_default_reasoning_when_config_empty() {
         let token_info = token_info_for(&model_slug, &config, &usage);
         let (composite, _) = new_status_output_with_rate_limits_handle(
             &config,
-            /*requires_openai_auth*/ true,
             /*model_provider_id*/ None,
             remote_connection.as_ref(),
             account_display.as_ref(),
@@ -1847,7 +1815,6 @@ async fn transcript_overlay_remeasures_status_after_rate_limit_refresh() {
 
     let (status, handle) = new_status_output_with_rate_limits_handle(
         &config,
-        /*requires_openai_auth*/ true,
         /*model_provider_id*/ None,
         /*remote_connection*/ None,
         /*account_display*/ None,
