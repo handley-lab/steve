@@ -4,7 +4,7 @@ use super::RealtimeSessionKind;
 use super::RealtimeSidebandSessionInitialization;
 use super::RealtimeTranscriptTailFlush;
 use super::RealtimeWebrtcSidebandInputTask;
-use super::spawn_webrtc_sideband_input_task;
+use super::sideband::spawn_webrtc_sideband_input_task;
 use crate::client::ModelClient;
 use async_channel::Sender;
 use codex_api::RealtimeEvent;

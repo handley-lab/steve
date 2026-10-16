@@ -95,14 +95,12 @@ use test_case::test_case;
 use test_case::test_matrix;
 use tokio::time::timeout;
 use uuid::Uuid;
-use wiremock::Match;
 use wiremock::Mock;
 use wiremock::MockServer;
 use wiremock::Request as WiremockRequest;
 use wiremock::Respond;
 use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
-use wiremock::matchers::path;
 use wiremock::matchers::path_regex;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -123,38 +121,6 @@ mod transcript_tests;
 enum StartupContextConfig<'a> {
     Generated,
     Override(&'a str),
-}
-
-#[derive(Debug, Clone)]
-struct RealtimeCallRequestCapture {
-    requests: Arc<Mutex<Vec<WiremockRequest>>>,
-}
-
-impl RealtimeCallRequestCapture {
-    fn new() -> Self {
-        Self {
-            requests: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-
-    fn single_request(&self) -> WiremockRequest {
-        let requests = self
-            .requests
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        assert_eq!(requests.len(), 1, "expected one realtime call request");
-        requests[0].clone()
-    }
-}
-
-impl Match for RealtimeCallRequestCapture {
-    fn matches(&self, request: &WiremockRequest) -> bool {
-        self.requests
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(request.clone());
-        true
-    }
 }
 
 fn normalized_json_string(raw: &str) -> Result<String> {
@@ -211,11 +177,6 @@ impl RealtimeTestSandbox {
     }
 }
 
-#[derive(Debug, PartialEq)]
-struct StartedWebrtcRealtime {
-    started: ThreadRealtimeStartedNotification,
-    sdp: ThreadRealtimeSdpNotification,
-}
 
 // Scripted SSE responses for the normal background agent loop. Realtime can ask for a delegated
 // background agent turn; that turn talks to this mock `/responses` endpoint and may request
@@ -235,7 +196,6 @@ struct RealtimeE2eHarness {
     _codex_home: TempDir,
     main_loop_responses_server: MockServer,
     realtime_server: WebSocketTestServer,
-    call_capture: RealtimeCallRequestCapture,
     thread_id: String,
 }
 
@@ -295,28 +255,6 @@ impl RealtimeE2eHarness {
         realtime_sideband: RealtimeSidebandScript,
         sandbox: RealtimeTestSandbox,
     ) -> Result<Self> {
-        let call_capture = RealtimeCallRequestCapture::new();
-        Mock::given(method("POST"))
-            .and(path("/v1/realtime/calls"))
-            .and(call_capture.clone())
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .insert_header("Location", "/v1/realtime/calls/rtc_e2e")
-                    .set_body_string("v=answer\r\n"),
-            )
-            .mount(&main_loop_responses_server)
-            .await;
-        Mock::given(method("POST"))
-            .and(path("/v1/live"))
-            .and(call_capture.clone())
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .insert_header("Location", "/v1/live/rtc_e2e")
-                    .set_body_string("v=answer\r\n"),
-            )
-            .mount(&main_loop_responses_server)
-            .await;
-
         let realtime_server =
             start_websocket_server_with_headers(realtime_sideband.connections).await;
         let codex_home = TempDir::new()?;
@@ -346,91 +284,12 @@ impl RealtimeE2eHarness {
             _codex_home: codex_home,
             main_loop_responses_server,
             realtime_server,
-            call_capture,
             thread_id: thread_start.thread.id,
         })
     }
 
-    async fn start_webrtc_realtime(&mut self, offer_sdp: &str) -> Result<StartedWebrtcRealtime> {
-        self.start_webrtc_realtime_with_codex_response_routing(
-            offer_sdp,
-            /*client_managed_handoffs*/ None,
-            /*codex_responses_as_items*/ None,
-            /*codex_response_handoff_mode*/ None,
-            /*delegation_ack_filler*/ None,
-            RealtimeConversationVersion::V1,
-        )
-        .await
-    }
 
-    async fn start_webrtc_realtime_with_codex_response_items(
-        &mut self,
-        offer_sdp: &str,
-    ) -> Result<StartedWebrtcRealtime> {
-        self.start_webrtc_realtime_with_codex_response_routing(
-            offer_sdp,
-            /*client_managed_handoffs*/ None,
-            /*codex_responses_as_items*/ Some(true),
-            /*codex_response_handoff_mode*/ None,
-            /*delegation_ack_filler*/ None,
-            RealtimeConversationVersion::V1,
-        )
-        .await
-    }
 
-    async fn start_webrtc_realtime_with_codex_response_routing(
-        &mut self,
-        offer_sdp: &str,
-        client_managed_handoffs: Option<bool>,
-        codex_responses_as_items: Option<bool>,
-        codex_response_handoff_mode: Option<CodexResponseHandoffMode>,
-        delegation_ack_filler: Option<bool>,
-        version: RealtimeConversationVersion,
-    ) -> Result<StartedWebrtcRealtime> {
-        // Starts realtime through the public JSON-RPC method, then waits for the same client-visible
-        // notifications a desktop app needs: started first, SDP answer second.
-        let start_request_id = self
-            .mcp
-            .send_thread_realtime_start_request(ThreadRealtimeStartParams {
-                client_managed_handoffs,
-                delegation_ack_filler,
-                flush_transcript_tail_on_session_end: None,
-                thread_id: self.thread_id.clone(),
-                codex_response_item_prefix: codex_responses_as_items
-                    .unwrap_or(false)
-                    .then(|| RESPONSE_ITEM_PREFIX.to_string()),
-                codex_response_handoff_mode,
-                backend_reasoning_status: false,
-                codex_response_handoff_channel_prefixes: None,
-                codex_responses_as_items,
-                model: None,
-                output_modality: RealtimeOutputModality::Audio,
-                include_startup_context: None,
-                initial_items: None,
-                realtime_start_instructions: None,
-                realtime_end_instructions: None,
-                prompt: Some(Some("backend prompt".to_string())),
-                realtime_session_id: None,
-                voice_session_id: None,
-                transport: Some(ThreadRealtimeStartTransport::Webrtc {
-                    sdp: offer_sdp.to_string(),
-                }),
-                version: Some(version),
-                voice: None,
-            })
-            .await?;
-        let _: ThreadRealtimeStartResponse =
-            timeout(DEFAULT_TIMEOUT, self.mcp.read_response(start_request_id)).await??;
-
-        let started = self
-            .read_notification::<ThreadRealtimeStartedNotification>("thread/realtime/started")
-            .await?;
-        let sdp = self
-            .read_notification::<ThreadRealtimeSdpNotification>("thread/realtime/sdp")
-            .await?;
-
-        Ok(StartedWebrtcRealtime { started, sdp })
-    }
 
     async fn start_websocket_realtime(&mut self) -> Result<ThreadRealtimeStartedNotification> {
         self.start_websocket_realtime_with_codex_responses_as_items(
@@ -2063,7 +1922,6 @@ const PROVIDER_RESIDENCY_ENV_VAR: &str = "STEVE_TEST_REALTIME_RESIDENCY_HEADER";
 #[derive(Clone, Copy, Debug)]
 enum RealtimeTransport {
     Websocket,
-    Webrtc,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2079,7 +1937,7 @@ enum ProviderHeaders {
 }
 
 #[test_matrix(
-    [RealtimeTransport::Websocket, RealtimeTransport::Webrtc],
+    [RealtimeTransport::Websocket],
     [ResidencyPolicy::Required, ResidencyPolicy::Unmanaged],
     [ProviderHeaders::Static, ProviderHeaders::StaticAndEnvironment]
 )]
@@ -2092,17 +1950,6 @@ async fn realtime_respects_managed_residency(
     skip_if_no_network!(Ok(()));
 
     let responses_server = create_mock_responses_server_sequence_unchecked(Vec::new()).await;
-    let call_capture = RealtimeCallRequestCapture::new();
-    Mock::given(method("POST"))
-        .and(path("/v1/realtime/calls"))
-        .and(call_capture.clone())
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("Location", "/v1/realtime/calls/rtc_residency")
-                .set_body_string("v=answer\r\n"),
-        )
-        .mount(&responses_server)
-        .await;
     let realtime_server = start_websocket_server_with_headers(vec![
         open_realtime_sideband_connection(vec![vec![session_updated("sess_residency")]]),
     ])
@@ -2113,7 +1960,6 @@ async fn realtime_respects_managed_residency(
     let mut config = MockResponsesConfig::new(&responses_uri)
         .with_root_config(&format!(
             "experimental_realtime_ws_base_url = \"{realtime_uri}\"\n\
-             experimental_realtime_webrtc_call_base_url = \"{responses_uri}/v1\"\n\
              experimental_realtime_ws_startup_context = \"startup context\""
         ))
         .with_extra_config("[realtime]\nversion = \"v1\"\ntype = \"conversational\"")
@@ -2161,7 +2007,6 @@ async fn realtime_respects_managed_residency(
         _codex_home: codex_home,
         main_loop_responses_server: responses_server,
         realtime_server,
-        call_capture,
         thread_id: thread.thread.id,
     };
 
@@ -2169,28 +2014,7 @@ async fn realtime_respects_managed_residency(
         RealtimeTransport::Websocket => {
             harness.start_websocket_realtime().await?;
         }
-        RealtimeTransport::Webrtc => {
-            harness.start_webrtc_realtime("v=offer\r\n").await?;
-            let request = harness.call_capture.single_request();
-            assert_eq!(
-                request
-                    .headers
-                    .get_all(RESIDENCY_HEADER_NAME)
-                    .iter()
-                    .map(|value| value.to_str().expect("residency header should be text"))
-                    .collect::<Vec<_>>(),
-                vec![expected_residency]
-            );
-            assert_eq!(
-                request
-                    .headers
-                    .get("x-provider-header")
-                    .expect("unrelated provider header should be preserved"),
-                "preserved"
-            );
-        }
     }
-    // The WebRTC started event precedes the asynchronous sideband connection.
     harness.sideband_outbound_request(/*request_index*/ 0).await;
     let handshake = harness.realtime_server.single_handshake();
     assert_eq!(
@@ -2208,236 +2032,7 @@ async fn realtime_respects_managed_residency(
     Ok(())
 }
 
-#[tokio::test]
-async fn realtime_webrtc_start_emits_sdp_notification() -> Result<()> {
-    skip_if_no_network!(Ok(()));
 
-    let responses_server = create_mock_responses_server_sequence_unchecked(Vec::new()).await;
-    let call_capture = RealtimeCallRequestCapture::new();
-    Mock::given(method("POST"))
-        .and(path("/v1/realtime/calls"))
-        .and(call_capture.clone())
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("Location", "/v1/realtime/calls/rtc_app_test")
-                .set_body_string("v=answer\r\n"),
-        )
-        .mount(&responses_server)
-        .await;
-    let realtime_server = start_websocket_server_with_headers(vec![WebSocketConnectionConfig {
-        requests: vec![vec![json!({
-            "type": "session.updated",
-            "session": { "id": "sess_webrtc", "instructions": "backend prompt" }
-        })]],
-        response_headers: Vec::new(),
-        accept_delay: None,
-        close_after_requests: false,
-    }])
-    .await;
-
-    let codex_home = TempDir::new()?;
-    create_config_toml(
-        codex_home.path(),
-        &responses_server.uri(),
-        realtime_server.uri(),
-        StartupContextConfig::Override("startup context"),
-    )?;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-    login_with_api_key(&mut mcp, "sk-test-key").await?;
-
-    let thread_start_request_id = mcp
-        .send_thread_start_request_with_auto_env(ThreadStartParams::default())
-        .await?;
-    let thread_start: ThreadStartResponse =
-        timeout(DEFAULT_TIMEOUT, mcp.read_response(thread_start_request_id)).await??;
-
-    let thread_id = thread_start.thread.id;
-    let start_request_id = mcp
-        .send_thread_realtime_start_request(ThreadRealtimeStartParams {
-            client_managed_handoffs: None,
-            delegation_ack_filler: None,
-            flush_transcript_tail_on_session_end: None,
-            codex_responses_as_items: None,
-            codex_response_item_prefix: None,
-            codex_response_handoff_mode: None,
-            backend_reasoning_status: false,
-            codex_response_handoff_channel_prefixes: None,
-            thread_id: thread_id.clone(),
-            model: None,
-            output_modality: RealtimeOutputModality::Audio,
-            include_startup_context: None,
-            initial_items: None,
-            realtime_start_instructions: None,
-            realtime_end_instructions: None,
-            prompt: Some(Some("backend prompt".to_string())),
-            realtime_session_id: None,
-            voice_session_id: None,
-            transport: Some(ThreadRealtimeStartTransport::Webrtc {
-                sdp: "v=offer\r\n".to_string(),
-            }),
-            version: Some(RealtimeConversationVersion::V1),
-            voice: None,
-        })
-        .await?;
-    let _: ThreadRealtimeStartResponse =
-        timeout(DEFAULT_TIMEOUT, mcp.read_response(start_request_id)).await??;
-
-    let started =
-        read_notification::<ThreadRealtimeStartedNotification>(&mut mcp, "thread/realtime/started")
-            .await?;
-    assert_eq!(started.thread_id, thread_id);
-    assert_eq!(started.version, RealtimeConversationVersion::V1);
-
-    let sdp_notification =
-        read_notification::<ThreadRealtimeSdpNotification>(&mut mcp, "thread/realtime/sdp").await?;
-    assert_eq!(
-        sdp_notification,
-        ThreadRealtimeSdpNotification {
-            thread_id: thread_id.clone(),
-            sdp: "v=answer\r\n".to_string()
-        }
-    );
-
-    let session_update = realtime_server
-        .wait_for_request(/*connection_index*/ 0, /*request_index*/ 0)
-        .await;
-    assert_eq!(
-        session_update.body_json()["type"].as_str(),
-        Some("session.update")
-    );
-    assert!(
-        session_update.body_json()["session"]["instructions"]
-            .as_str()
-            .context("expected session.update instructions")?
-            .contains("startup context")
-    );
-    assert_eq!(
-        realtime_server.single_handshake().uri(),
-        "/v1/realtime?intent=quicksilver&call_id=rtc_app_test"
-    );
-
-    let stop_request_id = mcp
-        .send_thread_realtime_stop_request(ThreadRealtimeStopParams {
-            thread_id: thread_id.clone(),
-        })
-        .await?;
-    let _: ThreadRealtimeStopResponse =
-        timeout(DEFAULT_TIMEOUT, mcp.read_response(stop_request_id)).await??;
-
-    let closed_notification =
-        read_notification::<ThreadRealtimeClosedNotification>(&mut mcp, "thread/realtime/closed")
-            .await?;
-    assert_eq!(closed_notification.thread_id, thread_id);
-    assert!(
-        matches!(
-            closed_notification.reason.as_deref(),
-            Some("requested" | "transport_closed")
-        ),
-        "unexpected close reason: {closed_notification:?}"
-    );
-
-    let request = call_capture.single_request();
-    assert_eq!(request.url.path(), "/v1/realtime/calls");
-    assert_eq!(
-        request.url.query(),
-        Some("intent=quicksilver&architecture=avas")
-    );
-    assert_eq!(
-        request
-            .headers
-            .get("content-type")
-            .and_then(|value| value.to_str().ok()),
-        Some("multipart/form-data; boundary=codex-realtime-call-boundary")
-    );
-    let body = String::from_utf8(request.body).context("multipart body should be utf-8")?;
-    let session = normalized_json_string(v1_session_create_json())?;
-    assert_eq!(
-        body,
-        format!(
-            "--codex-realtime-call-boundary\r\n\
-             Content-Disposition: form-data; name=\"sdp\"\r\n\
-             Content-Type: application/sdp\r\n\
-             \r\n\
-             v=offer\r\n\
-             \r\n\
-             --codex-realtime-call-boundary\r\n\
-             Content-Disposition: form-data; name=\"session\"\r\n\
-             Content-Type: application/json\r\n\
-             \r\n\
-             {session}\r\n\
-             --codex-realtime-call-boundary--\r\n"
-        )
-    );
-
-    realtime_server.shutdown().await;
-    Ok(())
-}
-
-#[tokio::test]
-async fn webrtc_v1_start_posts_offer_returns_sdp_and_joins_sideband() -> Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    // Phase 1: build a v1 realtime thread with a mocked call-create response and a sideband socket
-    // that immediately proves the joined connection can receive server events.
-    let mut harness = RealtimeE2eHarness::new(
-        RealtimeTestVersion::V1,
-        no_main_loop_responses(),
-        realtime_sideband(vec![open_realtime_sideband_connection(vec![vec![
-            session_updated("sess_v1_webrtc"),
-        ]])]),
-    )
-    .await?;
-
-    // Phase 2: start through app-server and assert the app receives both the started notification
-    // and the answer SDP.
-    let started = harness.start_webrtc_realtime("v=offer\r\n").await?;
-    assert_eq!(
-        started,
-        StartedWebrtcRealtime {
-            started: ThreadRealtimeStartedNotification {
-                thread_id: harness.thread_id.clone(),
-                realtime_session_id: Some(harness.thread_id.clone()),
-                version: RealtimeConversationVersion::V1,
-            },
-            sdp: ThreadRealtimeSdpNotification {
-                thread_id: harness.thread_id.clone(),
-                sdp: "v=answer\r\n".to_string(),
-            },
-        }
-    );
-
-    // Phase 3: verify the HTTP call-create leg, the direct sideband join, and the normal v1
-    // session.update; the WebRTC transport should remain alive instead of closing after SDP.
-    assert_call_create_multipart(
-        harness.call_capture.single_request(),
-        "v=offer\r\n",
-        v1_session_create_json(),
-        "/v1/realtime/calls?intent=quicksilver&architecture=avas",
-    )?;
-
-    let session_update = harness.sideband_outbound_request(/*request_index*/ 0).await;
-    assert_v1_session_update(&session_update)?;
-    assert_eq!(
-        harness.realtime_server.single_handshake().uri(),
-        "/v1/realtime?intent=quicksilver&call_id=rtc_e2e"
-    );
-
-    let closed = timeout(
-        Duration::from_millis(100),
-        harness
-            .mcp
-            .read_stream_until_notification_message("thread/realtime/closed"),
-    )
-    .await;
-    assert!(closed.is_err(), "WebRTC start should not close immediately");
-
-    harness.shutdown().await;
-    Ok(())
-}
 
 #[test_case(
     None,
@@ -2546,15 +2141,6 @@ async fn existing_call_attaches_without_reinitializing_the_client_session(
         harness.realtime_server.single_connection().is_empty(),
         "attaching to an existing call must not overwrite the client session"
     );
-    assert!(
-        harness
-            .call_capture
-            .requests
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .is_empty(),
-        "an existing call must not issue a second call-create request"
-    );
 
     harness.shutdown().await;
     Ok(())
@@ -2637,374 +2223,10 @@ async fn existing_call_rejects_client_owned_session_configuration(option: &str) 
     Ok(())
 }
 
-#[tokio::test]
-async fn webrtc_v3_start_posts_live_session_and_joins_without_session_update() -> Result<()> {
-    skip_if_no_network!(Ok(()));
 
-    let mut harness = RealtimeE2eHarness::new(
-        RealtimeTestVersion::V1,
-        no_main_loop_responses(),
-        realtime_sideband(vec![open_realtime_sideband_connection(vec![vec![]])]),
-    )
-    .await?;
 
-    let started = harness
-        .start_webrtc_realtime_with_codex_response_routing(
-            "v=offer\r\n",
-            /*client_managed_handoffs*/ None,
-            /*codex_responses_as_items*/ None,
-            /*codex_response_handoff_mode*/ None,
-            /*delegation_ack_filler*/ Some(false),
-            RealtimeConversationVersion::V3,
-        )
-        .await?;
-    assert_eq!(
-        started,
-        StartedWebrtcRealtime {
-            started: ThreadRealtimeStartedNotification {
-                thread_id: harness.thread_id.clone(),
-                realtime_session_id: Some(harness.thread_id.clone()),
-                version: RealtimeConversationVersion::V3,
-            },
-            sdp: ThreadRealtimeSdpNotification {
-                thread_id: harness.thread_id.clone(),
-                sdp: "v=answer\r\n".to_string(),
-            },
-        }
-    );
 
-    assert_call_create_multipart(
-        harness.call_capture.single_request(),
-        "v=offer\r\n",
-        r#"{"audio":{"output":{"voice":"cove"}},"delegation":{"ack_filler":false,"type":"client"},"instructions":"backend prompt\n\nstartup context","model":"gpt-live-1-codex"}"#,
-        "/v1/live",
-    )?;
-    assert!(
-        harness
-            .realtime_server
-            .wait_for_handshakes(/*expected*/ 1, DEFAULT_TIMEOUT)
-            .await,
-        "Frameless sideband should connect"
-    );
-    assert_eq!(
-        harness.realtime_server.single_handshake().uri(),
-        "/v1/live/rtc_e2e"
-    );
-    assert_eq!(
-        harness
-            .realtime_server
-            .single_handshake()
-            .header("openai-alpha")
-            .as_deref(),
-        Some("quicksilver=v2")
-    );
-    assert!(
-        harness.realtime_server.single_connection().is_empty(),
-        "Frameless WebRTC sideband must not send a second session.update"
-    );
 
-    harness.shutdown().await;
-    Ok(())
-}
-
-#[tokio::test]
-async fn webrtc_v1_default_automatic_output_uses_handoff_append() -> Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let mut harness = RealtimeE2eHarness::new(
-        RealtimeTestVersion::V1,
-        main_loop_responses(vec![create_final_assistant_message_sse_response(
-            "legacy automatic speech",
-        )?]),
-        realtime_sideband(vec![realtime_sideband_connection(vec![
-            vec![session_updated("sess_v1_default_handoff")],
-            vec![],
-            vec![],
-        ])]),
-    )
-    .await?;
-
-    let started = harness.start_webrtc_realtime("v=offer\r\n").await?;
-    assert_eq!(started.started.version, RealtimeConversationVersion::V1);
-    assert_v1_session_update(&harness.sideband_outbound_request(/*request_index*/ 0).await)?;
-
-    let turn_request_id = harness
-        .mcp
-        .send_turn_start_request(TurnStartParams {
-            thread_id: harness.thread_id.clone(),
-            input: vec![V2UserInput::Text {
-                text: "say the default output".to_string(),
-                text_elements: Vec::new(),
-            }],
-            ..Default::default()
-        })
-        .await?;
-    let _: TurnStartResponse =
-        timeout(DEFAULT_TIMEOUT, harness.mcp.read_response(turn_request_id)).await??;
-    let _ = harness
-        .read_notification::<TurnCompletedNotification>("turn/completed")
-        .await?;
-
-    assert_eq!(
-        harness.sideband_outbound_request(/*request_index*/ 1).await,
-        json!({
-            "type": "conversation.handoff.append",
-            "handoff_id": "codex",
-            "output_text": "\"Agent Final Message\":\n\nlegacy automatic speech",
-        })
-    );
-
-    harness.shutdown().await;
-    Ok(())
-}
-
-#[tokio::test]
-async fn webrtc_v1_client_managed_handoffs_disable_automatic_output() -> Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let mut harness = RealtimeE2eHarness::new(
-        RealtimeTestVersion::V1,
-        main_loop_responses(vec![create_final_assistant_message_sse_response(
-            "client-managed output",
-        )?]),
-        realtime_sideband(vec![realtime_sideband_connection(vec![
-            vec![session_updated("sess_v1_client_managed_handoffs")],
-            vec![],
-        ])]),
-    )
-    .await?;
-
-    let started = harness
-        .start_webrtc_realtime_with_codex_response_routing(
-            "v=offer\r\n",
-            /*client_managed_handoffs*/ Some(true),
-            /*codex_responses_as_items*/ None,
-            /*codex_response_handoff_mode*/ None,
-            /*delegation_ack_filler*/ None,
-            RealtimeConversationVersion::V1,
-        )
-        .await?;
-    assert_eq!(started.started.version, RealtimeConversationVersion::V1);
-    assert_v1_session_update(&harness.sideband_outbound_request(/*request_index*/ 0).await)?;
-
-    let turn_request_id = harness
-        .mcp
-        .send_turn_start_request(TurnStartParams {
-            thread_id: harness.thread_id.clone(),
-            input: vec![V2UserInput::Text {
-                text: "leave realtime delivery to the client".to_string(),
-                text_elements: Vec::new(),
-            }],
-            ..Default::default()
-        })
-        .await?;
-    let _: TurnStartResponse =
-        timeout(DEFAULT_TIMEOUT, harness.mcp.read_response(turn_request_id)).await??;
-    let _ = harness
-        .read_notification::<TurnCompletedNotification>("turn/completed")
-        .await?;
-
-    let automatic_handoff = timeout(
-        Duration::from_millis(200),
-        harness
-            .realtime_server
-            .wait_for_request(/*connection_index*/ 0, /*request_index*/ 1),
-    )
-    .await;
-    assert!(
-        automatic_handoff.is_err(),
-        "automatic Codex output should not reach realtime in client-managed handoff mode"
-    );
-
-    harness
-        .append_speech(harness.thread_id.clone(), "client-selected speech")
-        .await?;
-    assert_eq!(
-        harness.sideband_outbound_request(/*request_index*/ 1).await,
-        json!({
-            "type": "conversation.handoff.append",
-            "handoff_id": "codex",
-            "output_text": "client-selected speech",
-        })
-    );
-
-    harness.shutdown().await;
-    Ok(())
-}
-
-#[tokio::test]
-async fn webrtc_v1_ignores_codex_response_handoff_mode() -> Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let mut commentary = responses::ev_assistant_message("msg-commentary", "background progress");
-    commentary["item"]["phase"] = json!("commentary");
-    let mut final_answer = responses::ev_assistant_message("msg-final", "background complete");
-    final_answer["item"]["phase"] = json!("final_answer");
-    let mut harness = RealtimeE2eHarness::new(
-        RealtimeTestVersion::V1,
-        main_loop_responses(vec![responses::sse(vec![
-            responses::ev_response_created("resp-1"),
-            commentary,
-            final_answer,
-            responses::ev_completed("resp-1"),
-        ])]),
-        realtime_sideband(vec![realtime_sideband_connection(vec![
-            vec![
-                session_updated("sess_v1_channel_handoff"),
-                json!({
-                    "type": "conversation.handoff.requested",
-                    "handoff_id": "handoff_channel",
-                    "item_id": "item_channel",
-                    "input_transcript": "run the background task"
-                }),
-            ],
-            vec![],
-            vec![],
-            vec![],
-        ])]),
-    )
-    .await?;
-
-    let started = harness
-        .start_webrtc_realtime_with_codex_response_routing(
-            "v=offer\r\n",
-            /*client_managed_handoffs*/ None,
-            /*codex_responses_as_items*/ None,
-            /*codex_response_handoff_mode*/ Some(CodexResponseHandoffMode::BemTags),
-            /*delegation_ack_filler*/ None,
-            RealtimeConversationVersion::V1,
-        )
-        .await?;
-    assert_eq!(started.started.version, RealtimeConversationVersion::V1);
-    let _ = harness
-        .read_notification::<TurnCompletedNotification>("turn/completed")
-        .await?;
-
-    assert_eq!(
-        harness.sideband_outbound_request(/*request_index*/ 1).await,
-        json!({
-            "type": "conversation.handoff.append",
-            "handoff_id": "handoff_channel",
-            "output_text": "background progress",
-        })
-    );
-    assert_eq!(
-        harness.sideband_outbound_request(/*request_index*/ 2).await,
-        json!({
-            "type": "conversation.handoff.append",
-            "handoff_id": "handoff_channel",
-            "output_text": "\"Agent Final Message\":\n\nbackground complete",
-        })
-    );
-
-    harness.shutdown().await;
-    Ok(())
-}
-
-#[tokio::test]
-async fn webrtc_v1_handoff_request_delegates_context_and_manual_append_speaks() -> Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    // Phase 1: script one v1 handoff request on the sideband and one delegated Responses turn.
-    let mut harness = RealtimeE2eHarness::new(
-        RealtimeTestVersion::V1,
-        main_loop_responses(vec![create_final_assistant_message_sse_response(
-            "delegated from v1",
-        )?]),
-        realtime_sideband(vec![realtime_sideband_connection(vec![
-            vec![
-                session_updated("sess_v1_handoff"),
-                json!({
-                    "type": "conversation.item.input_audio_transcription.completed",
-                    "transcript": "delegate from v1"
-                }),
-                json!({
-                    "type": "response.output_audio_transcript.delta",
-                    "delta": "the secret word is "
-                }),
-                json!({
-                    "type": "response.output_audio_transcript.delta",
-                    "delta": "kumquat"
-                }),
-                json!({
-                    "type": "conversation.handoff.requested",
-                    "handoff_id": "handoff_v1",
-                    "item_id": "item_v1",
-                    "input_transcript": "delegate from v1"
-                }),
-            ],
-            vec![],
-            vec![],
-        ])]),
-    )
-    .await?;
-
-    let started = harness
-        .start_webrtc_realtime_with_codex_response_items("v=offer\r\n")
-        .await?;
-    assert_eq!(started.started.version, RealtimeConversationVersion::V1);
-    assert_call_create_multipart(
-        harness.call_capture.single_request(),
-        "v=offer\r\n",
-        v1_session_create_json(),
-        "/v1/realtime/calls?intent=quicksilver&architecture=avas",
-    )?;
-    assert_v1_session_update(&harness.sideband_outbound_request(/*request_index*/ 0).await)?;
-
-    // Phase 2: wait for the delegated background agent turn that is launched by the handoff request.
-    let turn_started = harness
-        .read_notification::<TurnStartedNotification>("turn/started")
-        .await?;
-    assert_eq!(turn_started.thread_id, harness.thread_id);
-    let turn_completed = harness
-        .read_notification::<TurnCompletedNotification>("turn/completed")
-        .await?;
-    assert_eq!(turn_completed.thread_id, harness.thread_id);
-
-    // Phase 3: assert the delegated prompt went to Responses, then the automatic v1 output went
-    // back over the existing sideband connection as a conversation item.
-    let requests = harness.main_loop_responses_requests().await?;
-    assert_eq!(requests.len(), 1);
-    assert!(
-        response_request_contains_text(
-            &requests[0],
-            "<realtime_delegation>\n  <input>delegate from v1</input>\n  <transcript_delta>user: delegate from v1\nassistant: the secret word is kumquat</transcript_delta>\n</realtime_delegation>",
-        ),
-        "delegated Responses request should contain realtime delegation envelope: {}",
-        requests[0]
-    );
-    let context_update = harness.sideband_outbound_request(/*request_index*/ 1).await;
-    assert_eq!(
-        context_update,
-        json!({
-            "type": "conversation.item.create",
-            "item": {
-                "type": "message",
-                "role": "developer",
-                "content": [{
-                    "type": "input_text",
-                    "text": format!("{RESPONSE_ITEM_PREFIX}\n\ndelegated from v1")
-                }]
-            }
-        })
-    );
-
-    harness
-        .append_speech(harness.thread_id.clone(), "manual spoken v1 update")
-        .await?;
-    let spoken_append = harness.sideband_outbound_request(/*request_index*/ 2).await;
-    assert_eq!(
-        spoken_append,
-        json!({
-            "type": "conversation.handoff.append",
-            "handoff_id": "codex",
-            "output_text": "manual spoken v1 update",
-        })
-    );
-
-    harness.shutdown().await;
-    Ok(())
-}
 
 #[tokio::test]
 async fn realtime_automatic_standalone_output_is_item_and_append_speaks() -> Result<()> {
@@ -4062,177 +3284,6 @@ async fn websocket_v2_tool_call_does_not_block_sideband_audio() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn realtime_webrtc_start_surfaces_backend_error() -> Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    // Phase 1: make call creation fail before any sideband connection can matter.
-    let responses_server = create_mock_responses_server_sequence_unchecked(Vec::new()).await;
-    Mock::given(method("POST"))
-        .and(path("/v1/realtime/calls"))
-        .respond_with(ResponseTemplate::new(500).set_body_string("boom"))
-        .mount(&responses_server)
-        .await;
-    let realtime_server = start_websocket_server(vec![vec![]]).await;
-
-    let codex_home = TempDir::new()?;
-    create_config_toml(
-        codex_home.path(),
-        &responses_server.uri(),
-        realtime_server.uri(),
-        StartupContextConfig::Override("startup context"),
-    )?;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-        .await?;
-    login_with_api_key(&mut mcp, "sk-test-key").await?;
-
-    // Phase 2: start a normal app-server thread and request realtime over WebRTC.
-    let thread_start_request_id = mcp
-        .send_thread_start_request_with_auto_env(ThreadStartParams::default())
-        .await?;
-    let thread_start: ThreadStartResponse =
-        timeout(DEFAULT_TIMEOUT, mcp.read_response(thread_start_request_id)).await??;
-
-    let start_request_id = mcp
-        .send_thread_realtime_start_request(ThreadRealtimeStartParams {
-            client_managed_handoffs: None,
-            delegation_ack_filler: None,
-            flush_transcript_tail_on_session_end: None,
-            codex_responses_as_items: None,
-            codex_response_item_prefix: None,
-            codex_response_handoff_mode: None,
-            backend_reasoning_status: false,
-            codex_response_handoff_channel_prefixes: None,
-            thread_id: thread_start.thread.id,
-            model: None,
-            output_modality: RealtimeOutputModality::Audio,
-            include_startup_context: None,
-            initial_items: None,
-            realtime_start_instructions: None,
-            realtime_end_instructions: None,
-            prompt: Some(Some("backend prompt".to_string())),
-            realtime_session_id: None,
-            voice_session_id: None,
-            transport: Some(ThreadRealtimeStartTransport::Webrtc {
-                sdp: "v=offer\r\n".to_string(),
-            }),
-            version: Some(RealtimeConversationVersion::V1),
-            voice: None,
-        })
-        .await?;
-    let _: ThreadRealtimeStartResponse =
-        timeout(DEFAULT_TIMEOUT, mcp.read_response(start_request_id)).await??;
-
-    // Phase 3: the JSON-RPC start request returns, and the realtime failure is delivered as the
-    // typed realtime error notification.
-    let error =
-        read_notification::<ThreadRealtimeErrorNotification>(&mut mcp, "thread/realtime/error")
-            .await?;
-    assert!(error.message.contains("currently experiencing high demand"));
-
-    realtime_server.shutdown().await;
-    Ok(())
-}
-
-#[derive(Debug, Clone, Copy)]
-enum RealtimeThreadLoad {
-    Fork,
-    ColdResume,
-}
-
-#[test_case(RealtimeThreadLoad::Fork, None; "fork without opt in")]
-#[test_case(RealtimeThreadLoad::ColdResume, None; "cold resume without opt in")]
-#[test_case(RealtimeThreadLoad::Fork, Some(false); "fork with legacy disabled flag")]
-#[test_case(RealtimeThreadLoad::ColdResume, Some(false); "cold resume with legacy disabled flag")]
-#[test_case(RealtimeThreadLoad::Fork, Some(true); "fork with legacy enabled flag")]
-#[tokio::test]
-async fn realtime_starts_on_forked_and_resumed_threads(
-    load: RealtimeThreadLoad,
-    legacy_flag: Option<bool>,
-) -> Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let mut harness = RealtimeE2eHarness::new(
-        RealtimeTestVersion::V1,
-        main_loop_responses(vec![create_final_assistant_message_sse_response("Done")?]),
-        realtime_sideband(vec![open_realtime_sideband_connection(vec![vec![
-            session_updated("sess_fork"),
-        ]])]),
-    )
-    .await?;
-
-    // Persist ordinary text history before forking it into a Voice-capable thread.
-    timeout(
-        DEFAULT_TIMEOUT,
-        harness
-            .mcp
-            .start_turn_and_wait_for_completion(TurnStartParams {
-                thread_id: harness.thread_id.clone(),
-                input: vec![V2UserInput::Text {
-                    text: "hello".to_string(),
-                    text_elements: Vec::new(),
-                }],
-                ..Default::default()
-            }),
-    )
-    .await??;
-    let config = legacy_flag.map(|enabled| {
-        HashMap::from([("features.realtime_conversation".to_string(), json!(enabled))])
-    });
-    let fork_id = harness
-        .mcp
-        .send_thread_fork_request(ThreadForkParams {
-            thread_id: harness.thread_id.clone(),
-            config: config.clone(),
-            ..Default::default()
-        })
-        .await?;
-    let fork: ThreadForkResponse =
-        timeout(DEFAULT_TIMEOUT, harness.mcp.read_response(fork_id)).await??;
-    assert_ne!(fork.thread.id, harness.thread_id);
-    harness.thread_id = fork.thread.id;
-
-    if let RealtimeThreadLoad::ColdResume = load {
-        timeout(DEFAULT_TIMEOUT, harness.mcp.shutdown_gracefully()).await??;
-        harness.mcp = TestAppServer::builder()
-            .with_codex_home(harness._codex_home.path())
-            .build_initialized_with_timeout(DEFAULT_TIMEOUT)
-            .await?;
-        let resume_id = harness
-            .mcp
-            .send_thread_resume_request(ThreadResumeParams {
-                thread_id: harness.thread_id.clone(),
-                config,
-                ..Default::default()
-            })
-            .await?;
-        let resumed: ThreadResumeResponse =
-            timeout(DEFAULT_TIMEOUT, harness.mcp.read_response(resume_id)).await??;
-        assert_eq!(resumed.thread.id, harness.thread_id);
-    }
-
-    let started = harness.start_webrtc_realtime("v=offer\r\n").await?;
-    assert_eq!(
-        started,
-        StartedWebrtcRealtime {
-            started: ThreadRealtimeStartedNotification {
-                thread_id: harness.thread_id.clone(),
-                realtime_session_id: Some(harness.thread_id.clone()),
-                version: RealtimeConversationVersion::V1,
-            },
-            sdp: ThreadRealtimeSdpNotification {
-                thread_id: harness.thread_id.clone(),
-                sdp: "v=answer\r\n".to_string(),
-            },
-        }
-    );
-    assert_v1_session_update(&harness.sideband_outbound_request(/*request_index*/ 0).await)?;
-    harness.shutdown().await;
-    Ok(())
-}
 
 async fn read_notification<T: DeserializeOwned>(
     mcp: &mut TestAppServer,
@@ -4445,51 +3496,6 @@ fn assert_v2_session_update(request: &Value) -> Result<()> {
     Ok(())
 }
 
-fn assert_call_create_multipart(
-    request: WiremockRequest,
-    offer_sdp: &str,
-    expected_session: &str,
-    expected_path_and_query: &str,
-) -> Result<()> {
-    let path_and_query = match request.url.query() {
-        Some(query) => format!("{}?{query}", request.url.path()),
-        None => request.url.path().to_string(),
-    };
-    assert_eq!(path_and_query, expected_path_and_query);
-    assert_eq!(
-        request
-            .headers
-            .get("content-type")
-            .and_then(|value| value.to_str().ok()),
-        Some("multipart/form-data; boundary=codex-realtime-call-boundary")
-    );
-    let body = String::from_utf8(request.body).context("multipart body should be utf-8")?;
-    let session_prefix = format!(
-        "--codex-realtime-call-boundary\r\n\
-             Content-Disposition: form-data; name=\"sdp\"\r\n\
-             Content-Type: application/sdp\r\n\
-             \r\n\
-             {offer_sdp}\r\n\
-             --codex-realtime-call-boundary\r\n\
-             Content-Disposition: form-data; name=\"session\"\r\n\
-             Content-Type: application/json\r\n\
-             \r\n"
-    );
-    let actual_session = body
-        .strip_prefix(&session_prefix)
-        .and_then(|body| body.strip_suffix("\r\n--codex-realtime-call-boundary--\r\n"))
-        .context("multipart body should contain one JSON session part")?;
-    let actual_session: Value =
-        serde_json::from_str(actual_session).context("session part should be valid JSON")?;
-    let expected_session: Value = serde_json::from_str(expected_session)
-        .context("expected session fixture should be valid JSON")?;
-    assert_eq!(actual_session, expected_session);
-    Ok(())
-}
-
-fn v1_session_create_json() -> &'static str {
-    r#"{"audio":{"input":{"format":{"type":"audio/pcm","rate":24000}},"output":{"voice":"cove"}},"type":"quicksilver","model":"gpt-realtime-1.5","instructions":"backend prompt\n\nstartup context"}"#
-}
 
 fn create_config_toml(
     codex_home: &Path,

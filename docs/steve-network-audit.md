@@ -51,26 +51,23 @@ unpack a local plugin archive.
 
 ## Realtime voice
 
-Realtime setup starts from the selected provider. WebSocket and WebRTC call
-base URLs can be overridden separately by
-`experimental_realtime_ws_base_url` and
-`experimental_realtime_webrtc_call_base_url`; an existing call can also supply
-its sideband base. These overrides need inspection even when ordinary inference
-uses Cambridge. The WebRTC sideband does not default to
+Realtime setup starts from the selected provider. The WebSocket base URL can
+be overridden by `experimental_realtime_ws_base_url`. An existing call can
+also supply its sideband base. These overrides need inspection even when
+ordinary inference uses Cambridge. The WebRTC sideband does not default to
 `https://api.openai.com/v1`. It connects only when an explicit sideband base
-URL is set. This source routing does not establish Cambridge support for
-the realtime protocols.
+URL is set. `experimental_realtime_webrtc_call_base_url` still parses and is
+not used to build a request. Steve does not POST `realtime/calls` or `live`.
+This source routing does not establish Cambridge support for the realtime
+protocols.
 
-WebRTC creation POSTs SDP and session configuration to `realtime/calls`
-(or `live` for the reviewed frameless API shape). Backend requests use JSON;
-the other reviewed session shape uses multipart SDP and session JSON. Realtime
-WebSocket messages include conversation text and encoded audio frames. These
-are outgoing inference inputs, with response audio/text coming back, rather
-than diagnostic uploads or asset downloads. Authentication is attached by the
-API client. No voice session was exercised for this audit. Sources:
-`codex-rs/core/src/realtime_conversation.rs`, `client.rs`,
-`codex-rs/codex-api/src/endpoint/realtime_call.rs` and
-`realtime_websocket/methods.rs`, `methods_v1.rs`.
+Realtime WebSocket messages include conversation text and encoded audio frames.
+These are outgoing inference inputs, with response audio/text coming back,
+rather than diagnostic uploads or asset downloads. Authentication is attached
+by the API client. No voice session was exercised for this audit. Sources:
+`codex-rs/core/src/realtime_conversation.rs`, `client.rs`, and
+`codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs`,
+`methods_v1.rs`.
 
 ## Hosted Apps and connector discovery
 

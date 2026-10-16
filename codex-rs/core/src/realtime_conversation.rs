@@ -54,7 +54,6 @@ use codex_protocol::protocol::Event;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::RealtimeConversationClosedEvent;
 use codex_protocol::protocol::RealtimeConversationRealtimeEvent;
-use codex_protocol::protocol::RealtimeConversationSdpEvent;
 use codex_protocol::protocol::RealtimeConversationStartedEvent;
 use codex_protocol::protocol::RealtimeHandoffRequested;
 use codex_protocol::protocol::RealtimeOutputModality;
@@ -92,7 +91,6 @@ mod transcript_tail;
 
 use self::bem::ChannelParser as BemChannelParser;
 use self::bem::message_phase as bem_message_phase;
-use self::sideband::spawn_webrtc_sideband_input_task;
 
 const AUDIO_IN_QUEUE_CAPACITY: usize = 256;
 const TEXT_IN_QUEUE_CAPACITY: usize = 64;
@@ -539,10 +537,8 @@ struct RealtimeStart {
     codex_response_handoff_mode: CodexResponseHandoffMode,
     backend_reasoning_status: bool,
     codex_response_handoff_channel_prefixes: Option<BTreeMap<String, Vec<String>>>,
-    realtime_call_api_provider: Option<ApiProvider>,
     session_config: RealtimeSessionConfig,
     model_client: ModelClient,
-    sdp: Option<String>,
     existing_call_id: Option<String>,
 }
 
@@ -551,7 +547,6 @@ struct RealtimeStartOutput {
     route_handoffs: Arc<RealtimeHandoffAdmission>,
     events_rx: Receiver<RealtimeEvent>,
     transcript_tail_rx: Receiver<String>,
-    sdp: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -656,10 +651,8 @@ impl RealtimeConversationManager {
             codex_response_handoff_mode,
             backend_reasoning_status,
             codex_response_handoff_channel_prefixes,
-            realtime_call_api_provider,
             session_config,
             model_client,
-            sdp,
             existing_call_id,
         } = start;
         let event_parser = session_config.event_parser;
@@ -711,33 +704,8 @@ impl RealtimeConversationManager {
             enabled: flush_transcript_tail_on_session_end,
             tx: transcript_tail_tx,
         };
-        let (task, sdp) = if let Some(sdp) = sdp {
-            let call = model_client
-                .create_realtime_call_with_headers(
-                    sdp,
-                    session_config.clone(),
-                    extra_headers.unwrap_or_default(),
-                    realtime_call_api_provider,
-                )
-                .await?;
-            let task = spawn_webrtc_sideband_input_task(RealtimeWebrtcSidebandInputTask {
-                client,
-                session_config,
-                call_id: call.call_id,
-                sideband_headers: call.sideband_headers,
-                session_initialization: RealtimeSidebandSessionInitialization::CoreCreated,
-                input_channels,
-                events_tx,
-                handoff_state: handoff.clone(),
-                session_kind,
-                event_parser,
-                realtime_active: Arc::clone(&realtime_active),
-                transcript_tail_flush,
-                stop_token: stop_token.clone(),
-            });
-            (task, Some(call.sdp))
-        } else if let Some(call_id) = existing_call_id {
-            let task = existing_call::attach(existing_call::ExistingCallAttachment {
+        let task = if let Some(call_id) = existing_call_id {
+            existing_call::attach(existing_call::ExistingCallAttachment {
                 client,
                 model_client,
                 session_config,
@@ -752,8 +720,7 @@ impl RealtimeConversationManager {
                 transcript_tail_flush,
                 stop_token: stop_token.clone(),
             })
-            .await?;
-            (task, None)
+            .await?
         } else {
             let connection = client
                 .connect(
@@ -763,7 +730,7 @@ impl RealtimeConversationManager {
                 )
                 .await
                 .map_err(map_api_error)?;
-            let task = spawn_realtime_input_task(
+            spawn_realtime_input_task(
                 RealtimeInputTask {
                     writer: connection.writer(),
                     events: connection.events(),
@@ -777,8 +744,7 @@ impl RealtimeConversationManager {
                     stop_token: stop_token.clone(),
                 },
                 transcript_tail_flush,
-            );
-            (task, None)
+            )
         };
 
         let mut state = self.state.lock().await;
@@ -802,7 +768,6 @@ impl RealtimeConversationManager {
             route_handoffs,
             events_rx,
             transcript_tail_rx,
-            sdp,
         })
     }
 
@@ -1334,7 +1299,6 @@ struct PreparedRealtimeConversationStart {
     codex_response_handoff_channel_prefixes: Option<BTreeMap<String, Vec<String>>>,
     realtime_start_instructions: Option<String>,
     realtime_end_instructions: Option<String>,
-    realtime_call_api_provider: Option<ApiProvider>,
     requested_realtime_session_id: Option<String>,
     version: RealtimeWsVersion,
     session_config: RealtimeSessionConfig,
@@ -1379,30 +1343,26 @@ async fn prepare_realtime_start(
         } => sideband_base_url
             .clone()
             .or_else(|| config.experimental_realtime_ws_base_url.clone()),
-        ConversationStartTransport::Websocket | ConversationStartTransport::Webrtc { .. } => {
-            config.experimental_realtime_ws_base_url.clone()
+        ConversationStartTransport::Websocket => config.experimental_realtime_ws_base_url.clone(),
+        ConversationStartTransport::Webrtc { .. } => {
+            return Err(CodexErr::InvalidRequest(
+                "Realtime calls are not available.".to_string(),
+            ));
         }
     };
     if let Some(realtime_ws_base_url) = &realtime_sideband_base_url {
         api_provider.base_url = realtime_ws_base_url.clone();
     }
-    let realtime_call_api_provider =
-        if let Some(realtime_call_base_url) = &config.experimental_realtime_webrtc_call_base_url {
-            let mut api_provider = provider.to_api_provider(Some(AuthMode::ApiKey))?;
-            api_provider.base_url = realtime_call_base_url.clone();
-            Some(api_provider)
-        } else {
-            None
-        };
     let version = params.version.unwrap_or(match &transport {
         ConversationStartTransport::Websocket => config.realtime.version,
-        ConversationStartTransport::Webrtc { .. }
-        | ConversationStartTransport::ExistingCall { .. } => RealtimeWsVersion::V1,
+        ConversationStartTransport::ExistingCall { .. } => RealtimeWsVersion::V1,
+        ConversationStartTransport::Webrtc { .. } => {
+            return Err(CodexErr::InvalidRequest(
+                "Realtime calls are not available.".to_string(),
+            ));
+        }
     });
     match &transport {
-        ConversationStartTransport::Webrtc { .. } => {
-            validate_avas_webrtc_start(version, config.realtime.session_type)?;
-        }
         ConversationStartTransport::ExistingCall { .. } => {
             if version == RealtimeWsVersion::V2 {
                 return Err(CodexErr::InvalidRequest(
@@ -1423,12 +1383,19 @@ async fn prepare_realtime_start(
             }
         }
         ConversationStartTransport::Websocket => {}
+        ConversationStartTransport::Webrtc { .. } => {
+            return Err(CodexErr::InvalidRequest(
+                "Realtime calls are not available.".to_string(),
+            ));
+        }
     }
     let configured_voice = match (&transport, params.version) {
-        (ConversationStartTransport::ExistingCall { .. }, _)
-        | (ConversationStartTransport::Webrtc { .. }, None) => ConfiguredRealtimeVoice::Ignore,
-        (ConversationStartTransport::Webrtc { .. } | ConversationStartTransport::Websocket, _) => {
-            ConfiguredRealtimeVoice::Use
+        (ConversationStartTransport::ExistingCall { .. }, _) => ConfiguredRealtimeVoice::Ignore,
+        (ConversationStartTransport::Websocket, _) => ConfiguredRealtimeVoice::Use,
+        (ConversationStartTransport::Webrtc { .. }, _) => {
+            return Err(CodexErr::InvalidRequest(
+                "Realtime calls are not available.".to_string(),
+            ));
         }
     };
     let mut session_config =
@@ -1450,8 +1417,7 @@ async fn prepare_realtime_start(
                 originator.as_str(),
             )?
         }
-        ConversationStartTransport::Webrtc { .. }
-        | ConversationStartTransport::ExistingCall { .. } => {
+        ConversationStartTransport::ExistingCall { .. } => {
             realtime_request_headers(
                 requested_realtime_session_id.as_deref(),
                 params.voice_session_id.as_deref(),
@@ -1459,6 +1425,11 @@ async fn prepare_realtime_start(
                 event_parser,
                 originator.as_str(),
             )?
+        }
+        ConversationStartTransport::Webrtc { .. } => {
+            return Err(CodexErr::InvalidRequest(
+                "Realtime calls are not available.".to_string(),
+            ));
         }
     }
     .unwrap_or_default();
@@ -1488,29 +1459,11 @@ async fn prepare_realtime_start(
         codex_response_handoff_channel_prefixes: params.codex_response_handoff_channel_prefixes,
         realtime_start_instructions: params.realtime_start_instructions,
         realtime_end_instructions: params.realtime_end_instructions,
-        realtime_call_api_provider,
         requested_realtime_session_id,
         version,
         session_config,
         transport,
     })
-}
-
-fn validate_avas_webrtc_start(
-    version: RealtimeWsVersion,
-    session_type: RealtimeWsMode,
-) -> CodexResult<()> {
-    if version == RealtimeWsVersion::V2 {
-        return Err(CodexErr::InvalidRequest(
-            "AVAS realtime calls require realtime v1 or v3".to_string(),
-        ));
-    }
-    if session_type != RealtimeWsMode::Conversational {
-        return Err(CodexErr::InvalidRequest(
-            "AVAS realtime calls require conversational realtime".to_string(),
-        ));
-    }
-    Ok(())
 }
 
 pub(crate) async fn build_realtime_session_config(
@@ -1713,17 +1666,20 @@ async fn handle_start_inner(
         codex_response_handoff_channel_prefixes,
         realtime_start_instructions,
         realtime_end_instructions,
-        realtime_call_api_provider,
         requested_realtime_session_id,
         version,
         session_config,
         transport,
     } = prepared_start;
     info!("starting realtime conversation");
-    let (sdp, existing_call_id) = match transport {
-        ConversationStartTransport::Websocket => (None, None),
-        ConversationStartTransport::Webrtc { sdp } => (Some(sdp), None),
-        ConversationStartTransport::ExistingCall { call_id, .. } => (None, Some(call_id)),
+    let existing_call_id = match transport {
+        ConversationStartTransport::Websocket => None,
+        ConversationStartTransport::Webrtc { .. } => {
+            return Err(CodexErr::InvalidRequest(
+                "Realtime calls are not available.".to_string(),
+            ));
+        }
+        ConversationStartTransport::ExistingCall { call_id, .. } => Some(call_id),
     };
     let mode_instructions = RealtimeModeInstructions {
         start: realtime_start_instructions,
@@ -1741,10 +1697,8 @@ async fn handle_start_inner(
         codex_response_handoff_mode,
         backend_reasoning_status,
         codex_response_handoff_channel_prefixes,
-        realtime_call_api_provider,
         session_config,
         model_client: sess.services.model_client.clone(),
-        sdp,
         existing_call_id,
     };
     let start_output = sess
@@ -1768,15 +1722,7 @@ async fn handle_start_inner(
         route_handoffs,
         events_rx,
         transcript_tail_rx,
-        sdp,
     } = start_output;
-    if let Some(sdp) = sdp {
-        sess.send_event_raw(Event {
-            id: sub_id.to_string(),
-            msg: EventMsg::RealtimeConversationSdp(RealtimeConversationSdpEvent { sdp }),
-        })
-        .await;
-    }
 
     let sess_clone = Arc::clone(sess);
     let sub_id = sub_id.to_string();
@@ -2113,7 +2059,6 @@ struct RealtimeWebrtcSidebandInputTask {
 }
 
 enum RealtimeSidebandSessionInitialization {
-    CoreCreated,
     ExistingCall {
         initial_connection: Option<RealtimeWebsocketConnection>,
     },

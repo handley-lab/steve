@@ -51,8 +51,7 @@ pub(super) fn spawn_webrtc_sideband_input_task(
             RealtimeSidebandSessionInitialization::ExistingCall {
                 initial_connection: Some(connection),
             } => connection.events().transcript_state(),
-            RealtimeSidebandSessionInitialization::CoreCreated
-            | RealtimeSidebandSessionInitialization::ExistingCall {
+            RealtimeSidebandSessionInitialization::ExistingCall {
                 initial_connection: None,
             } => RealtimeTranscriptState::default(),
         };
@@ -62,15 +61,6 @@ pub(super) fn spawn_webrtc_sideband_input_task(
                 _ = stop_token.cancelled() => break,
                 connection = async {
                     match &mut session_initialization {
-                        RealtimeSidebandSessionInitialization::CoreCreated => {
-                            client.connect_webrtc_sideband(
-                                session_config.clone(),
-                                &call_id,
-                                sideband_headers.clone(),
-                                default_headers(),
-                                transcript_state.clone(),
-                            ).await
-                        }
                         RealtimeSidebandSessionInitialization::ExistingCall { initial_connection } => {
                             match initial_connection.take() {
                                 Some(connection) => Ok(connection),
