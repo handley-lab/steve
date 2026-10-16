@@ -170,7 +170,6 @@ use tracing::warn;
 const DEFAULT_MODEL_DISPLAY_NAME: &str = "loading";
 const TRUSTED_ACCESS_FOR_CYBER_VERIFICATION_WARNING: &str = "Your conversations have multiple flags for possible cybersecurity risk. Responses may take longer because extra safety checks are on. To get authorized for security work, join the Trusted Access for Cyber program.";
 const MEMORIES_ENABLE_NOTICE: &str = "Memories will be enabled in the next session.";
-const MEMORIES_DOC_URL: &str = "https://developers.openai.com/codex/memories";
 const PLAN_MODE_REASONING_SCOPE_TITLE: &str = "Apply reasoning change";
 const PLAN_MODE_REASONING_SCOPE_PLAN_ONLY: &str = "Apply to Plan mode override";
 const PLAN_MODE_REASONING_SCOPE_ALL_MODES: &str = "Apply to global default and Plan mode override";
@@ -1034,12 +1033,7 @@ impl ChatWidget {
         self.bottom_pane.show_selection_view(SelectionViewParams {
             title: Some(format!("Enable {name}?")),
             subtitle: Some(format!("{label} are disabled in this TUI session.")),
-            footer_note: (feature == Feature::MemoryTool).then(|| {
-                Line::from(vec![
-                    "Learn more: ".dim(),
-                    MEMORIES_DOC_URL.cyan().underlined(),
-                ])
-            }),
+            footer_note: None,
             footer_hint: Some(standard_popup_hint_line()),
             items: vec![
                 SelectionItem {

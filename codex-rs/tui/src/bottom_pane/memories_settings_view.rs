@@ -19,8 +19,6 @@ use crate::key_hint;
 use crate::key_hint::KeyBindingListExt;
 use crate::keymap::ListAction;
 use crate::keymap::ListKeymap;
-use crate::render::Insets;
-use crate::render::RectExt as _;
 use crate::render::renderable::ColumnRenderable;
 use crate::render::renderable::Renderable;
 use crate::style::user_message_style;
@@ -32,8 +30,6 @@ use super::picker_rows::render_rows;
 use super::popup_consts::MAX_POPUP_ROWS;
 use super::scroll_state::ScrollState;
 use super::selection_popup_common::GenericDisplayRow;
-
-const MEMORIES_DOC_URL: &str = "https://developers.openai.com/codex/memories";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum MemoriesSetting {
@@ -66,7 +62,6 @@ pub(crate) struct MemoriesSettingsView {
     reset_confirmation: Option<ScrollState>,
     complete: bool,
     app_event_tx: AppEventSender,
-    docs_link: Line<'static>,
     keymap: ListKeymap,
 }
 
@@ -101,12 +96,6 @@ impl MemoriesSettingsView {
             reset_confirmation: None,
             complete: false,
             app_event_tx,
-            docs_link: Line::from(vec![
-                "Learn more: ".dim(),
-                MEMORIES_DOC_URL
-                    .fg(crate::style::accent_color())
-                    .underlined(),
-            ]),
             keymap,
         };
         view.initialize_selection();
@@ -421,14 +410,8 @@ impl Renderable for MemoriesSettingsView {
             MAX_POPUP_ROWS,
             content_area.width,
         );
-        let docs_height = if self.reset_confirmation.is_some() {
-            0
-        } else {
-            2
-        };
-        let [body_area, docs_area] =
-            Layout::vertical([Constraint::Fill(1), Constraint::Length(docs_height)])
-                .areas(content_area);
+        let [body_area, _] =
+            Layout::vertical([Constraint::Fill(1), Constraint::Length(0)]).areas(content_area);
         let [header_area, _, render_area] =
             super::picker_rows::layout(body_area, header_height, /*search*/ 0, rows_height);
 
@@ -444,14 +427,6 @@ impl Renderable for MemoriesSettingsView {
                 "  No memory settings available",
             );
         }
-        if self.reset_confirmation.is_none() {
-            let docs_area = docs_area.inset(Insets::tlbr(
-                /*top*/ 0, /*left*/ 2, /*bottom*/ 0, /*right*/ 2,
-            ));
-            self.docs_link.clone().render(docs_area, buf);
-            crate::terminal_hyperlinks::mark_url_hyperlink(buf, docs_area, MEMORIES_DOC_URL);
-        }
-
         let hint_area = Rect {
             x: footer_area.x + 2,
             y: footer_area.y,
@@ -470,13 +445,8 @@ impl Renderable for MemoriesSettingsView {
         let rows = self.build_rows();
         let rows_height = measure_rows_height(&rows, self.active_state(), MAX_POPUP_ROWS, width);
 
-        let docs_height = if self.reset_confirmation.is_some() {
-            0
-        } else {
-            1
-        };
         let mut height = header.desired_height(width.saturating_sub(4));
-        height = height.saturating_add(rows_height + 4 + docs_height);
+        height = height.saturating_add(rows_height + 4);
         height.saturating_add(
             super::selection_popup_common::wrap_styled_line(
                 &self.footer_hint(),
