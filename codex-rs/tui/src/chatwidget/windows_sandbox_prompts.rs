@@ -35,12 +35,11 @@ impl ChatWidget {
         header.push(*Box::new(
             crate::terminal_hyperlinks::HyperlinkText::new(if allow_unelevated {
                 vec![
-                    line!["Set up the Steve agent sandbox to protect your files and control network access. Learn more <https://developers.openai.com/codex/windows>"],
+                    line!["Set up the Steve agent sandbox to protect your files and control network access."],
                 ]
             } else {
                 vec![
                     line!["Your organization requires the default Steve agent sandbox to continue. Set it up to protect your files and control network access."],
-                    line!["Learn more <https://developers.openai.com/codex/windows>"],
                 ]
             }),
         ));
@@ -164,9 +163,6 @@ impl ChatWidget {
                 "Your organization requires the default sandbox before Steve can continue."
             ]);
         }
-        lines.push(line![
-            "Learn more <https://developers.openai.com/codex/windows>"
-        ]);
 
         let mut header = ColumnRenderable::new();
         header.push(crate::terminal_hyperlinks::HyperlinkText::new(lines));

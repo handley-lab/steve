@@ -5,7 +5,6 @@ expression: popup
   Couldn't set up your sandbox with Administrator permissions
 
   Your organization requires the default sandbox before Codex can continue.
-  Learn more <https://developers.openai.com/codex/windows>
 
 
 › 1. Try setting up admin sandbox again
