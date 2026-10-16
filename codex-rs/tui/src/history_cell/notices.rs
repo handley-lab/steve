@@ -164,10 +164,7 @@ pub(crate) fn new_cyber_policy_error_event(
     let (body, actions): (_, &'static [(&str, &str)]) = match notice {
         Notice::Apply => (
             "We take extra care with some cybersecurity requests. If you’re doing authorized security work, apply for Daybreak to get broader access.",
-            &[(
-                "Apply for Daybreak",
-                "https://openai.com/form/enterprise-trusted-access-for-cyber/",
-            )],
+            &[],
         ),
         Notice::Disabled => (
             "Daybreak is currently off. If you’re doing authorized security work, turn it on and try your request again.",

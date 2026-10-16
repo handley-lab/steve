@@ -201,7 +201,7 @@ impl ChatWidget {
                         if crate::daybreak::availability(&self.model_catalog.models) == Some(false)
                         {
                             self.add_info_message(
-                                "Daybreak is not available for this account. Apply at https://openai.com/form/enterprise-trusted-access-for-cyber/.".into(),
+                                "Daybreak is not available for this account.".into(),
                                 /*hint*/ None,
                             );
                         } else {
