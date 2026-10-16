@@ -25,7 +25,7 @@ const WINDOWS_APP_TOOLTIP: &str =
     "Use the **desktop app**. Install it and run `steve app`.";
 const MACOS_APP_TOOLTIP: &str =
     "Use the **desktop app**. Run `steve app` to open it. It installs automatically if needed.";
-const LINUX_APP_TOOLTIP: &str = "Use the **desktop app**. Install it from https://learn.chatgpt.com/docs/linux/linux-app and run `chatgpt`.";
+const LINUX_APP_TOOLTIP: &str = "Use the **desktop app**. Install it and run `chatgpt`.";
 
 const RAW_TOOLTIPS: &str = include_str!("../assets/tooltips.txt");
 
