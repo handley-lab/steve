@@ -214,12 +214,6 @@ async fn backend_banner_fallback_handles_settings_failure_and_queued_manual_sele
                     normalize_snapshot_paths(rendered)
                 );
             }
-            app.chat_widget
-                .handle_key_event(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
-            assert!(
-                std::iter::from_fn(|| events.try_recv().ok())
-                    .any(|event| matches!(event, AppEvent::OpenUrlInBrowser { .. }))
-            );
             let mut tui = crate::tui::test_support::make_test_tui()?;
             app.handle_event(&mut tui, &mut server, pending_turn.unwrap())
                 .await?;

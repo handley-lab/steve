@@ -2,7 +2,6 @@
 //!
 //! The backend owns eligibility, copy, actions, and ordered model fallback instructions.
 
-use codex_protocol::account::PlanType;
 use serde::Deserialize;
 
 mod actions;
@@ -27,8 +26,6 @@ pub(crate) struct BackendBanner {
     request_url: Option<String>,
     #[serde(skip)]
     pub(crate) account_id: String,
-    #[serde(skip)]
-    pub(crate) plan_type: Option<PlanType>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]

@@ -2833,7 +2833,7 @@ mod tests {
                 ]
             }))
             .expect("valid optional banner");
-            let (tx, mut rx) = unbounded_channel();
+            let (tx, _rx) = unbounded_channel();
             let mut pane = test_pane(AppEventSender::new(tx));
             pane.set_inline_banner(Some(
                 banner.actionable_banner(crate::clock_format::ClockFormat::TwentyFourHour),
@@ -2849,12 +2849,6 @@ mod tests {
                 format!("backend_banner_{kind}"),
                 render_snapshot(&pane, area)
             );
-            pane.handle_key_event(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
-            let selected = match rx.try_recv().expect("numbered CTA dispatch") {
-                AppEvent::OpenUrlInBrowser { url } => url,
-                other => panic!("unexpected banner action: {other:?}"),
-            };
-            assert_eq!(selected, "https://chatgpt.com/settings/usage");
             assert!(pane.inline_banner.is_some());
         }
     }

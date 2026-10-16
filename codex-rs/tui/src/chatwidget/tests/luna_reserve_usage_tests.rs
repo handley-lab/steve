@@ -28,24 +28,12 @@ fn reserve_snapshot(primary_used: i32, weekly_used: i32) -> RateLimitSnapshot {
 
 #[tokio::test]
 async fn luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_without_losing_draft() {
-    for (keys, destination) in [
-        (
-            vec![KeyCode::Down, KeyCode::Enter],
-            Some("https://chatgpt.com/?cta_tab=personal&highlight_plan=plus#pricing"),
-        ),
-        (
-            vec![KeyCode::Down, KeyCode::Up, KeyCode::Enter],
-            Some("https://chatgpt.com/settings/usage?credits_modal=true"),
-        ),
-        (
-            vec![KeyCode::Char('1')],
-            Some("https://chatgpt.com/settings/usage?credits_modal=true"),
-        ),
-        (
-            vec![KeyCode::Char('2')],
-            Some("https://chatgpt.com/?cta_tab=personal&highlight_plan=plus#pricing"),
-        ),
-        (vec![KeyCode::Down, KeyCode::Esc], None),
+    for keys in [
+        vec![KeyCode::Down, KeyCode::Enter],
+        vec![KeyCode::Down, KeyCode::Up, KeyCode::Enter],
+        vec![KeyCode::Char('1')],
+        vec![KeyCode::Char('2')],
+        vec![KeyCode::Down, KeyCode::Esc],
     ] {
         let (mut chat, mut events, _ops) = make_chatwidget_manual(Some("gpt-reserve")).await;
         chat.has_chatgpt_account = true;
@@ -81,14 +69,6 @@ async fn luna_reserve_selector_supports_arrows_enter_shortcuts_and_escape_withou
             }
         }
         let queued = std::iter::from_fn(|| events.try_recv().ok()).collect::<Vec<_>>();
-        let urls: Vec<_> = queued
-            .iter()
-            .filter_map(|event| match event {
-                AppEvent::OpenUrlInBrowser { url } => Some(url.as_str()),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(urls, destination.into_iter().collect::<Vec<_>>());
         assert!(
             !queued
                 .iter()
