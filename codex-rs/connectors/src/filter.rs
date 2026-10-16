@@ -29,7 +29,6 @@ pub fn filter_tool_suggest_discoverable_connectors(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metadata::connector_install_url;
     use pretty_assertions::assert_eq;
 
     fn app(id: &str) -> AppInfo {
@@ -54,9 +53,7 @@ mod tests {
 
     fn named_app(id: &str, name: &str) -> AppInfo {
         AppInfo {
-            id: id.to_string(),
             name: name.to_string(),
-            install_url: Some(connector_install_url(name, id)),
             ..app(id)
         }
     }

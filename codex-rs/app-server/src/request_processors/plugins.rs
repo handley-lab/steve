@@ -1446,9 +1446,7 @@ async fn load_plugin_app_summaries(
                 .unwrap_or_else(|| (app_id.clone(), None));
             let category = app_category_by_id.get(&app_id).cloned();
             AppSummary {
-                install_url: Some(codex_connectors::metadata::connector_install_url(
-                    &name, &app_id,
-                )),
+                install_url: None,
                 id: app_id,
                 name,
                 description,

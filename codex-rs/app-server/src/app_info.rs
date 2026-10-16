@@ -12,7 +12,6 @@ use codex_connectors::AppReview;
 use codex_connectors::AppScreenshot;
 use codex_connectors::ConnectorMetadata;
 use codex_connectors::ConnectorToolSummary;
-use codex_connectors::metadata::connector_install_url;
 
 /// Converts connector-domain app metadata owned by `codex-connectors` into the app-server wire
 /// type owned by `codex-app-server-protocol`.
@@ -71,7 +70,6 @@ pub(crate) fn connector_metadata_to_api(metadata: ConnectorMetadata) -> ApiConne
         distribution_channel,
         tool_summaries,
     } = metadata;
-    let install_url = Some(connector_install_url(&name, &id));
     ApiConnectorMetadata {
         id,
         name,
@@ -79,7 +77,7 @@ pub(crate) fn connector_metadata_to_api(metadata: ConnectorMetadata) -> ApiConne
         icon_url,
         icon_url_dark,
         distribution_channel,
-        install_url,
+        install_url: None,
         plugin_display_names: Vec::new(),
         tool_summaries: tool_summaries.map(|tools| {
             tools

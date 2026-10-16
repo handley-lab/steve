@@ -600,7 +600,7 @@ async fn plugin_install_returns_apps_needing_auth() -> Result<()> {
                 id: "alpha".to_string(),
                 name: "Alpha".to_string(),
                 description: Some("Alpha connector".to_string()),
-                install_url: Some("https://chatgpt.com/apps/alpha/alpha".to_string()),
+                install_url: None,
                 category: Some("Communication".to_string()),
             }],
         }
@@ -961,10 +961,7 @@ async fn plugin_install_starts_mcp_oauth_with_formerly_disallowed_plugin_app() -
                 id: "asdk_app_6938a94a61d881918ef32cb999ff937c".to_string(),
                 name: "asdk_app_6938a94a61d881918ef32cb999ff937c".to_string(),
                 description: None,
-                install_url: Some(
-                    "https://chatgpt.com/apps/asdk-app-6938a94a61d881918ef32cb999ff937c/asdk_app_6938a94a61d881918ef32cb999ff937c"
-                        .to_string(),
-                ),
+                install_url: None,
                 category: None,
             }],
         }
@@ -1444,17 +1441,14 @@ async fn plugin_install_includes_formerly_disallowed_apps_needing_auth() -> Resu
                 id: "alpha".to_string(),
                 name: "Alpha".to_string(),
                 description: Some("Alpha connector".to_string()),
-                install_url: Some("https://chatgpt.com/apps/alpha/alpha".to_string()),
+                install_url: None,
                 category: None,
             },
             AppSummary {
                 id: "asdk_app_6938a94a61d881918ef32cb999ff937c".to_string(),
                 name: "asdk_app_6938a94a61d881918ef32cb999ff937c".to_string(),
                 description: None,
-                install_url: Some(
-                    "https://chatgpt.com/apps/asdk-app-6938a94a61d881918ef32cb999ff937c/asdk_app_6938a94a61d881918ef32cb999ff937c"
-                        .to_string(),
-                ),
+                install_url: None,
                 category: None,
             }],
         }

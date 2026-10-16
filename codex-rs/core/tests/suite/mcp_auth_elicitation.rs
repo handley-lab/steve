@@ -277,32 +277,7 @@ approvals_reviewer = "user"
         (approvals_seen, target_lifecycle),
         (expected_approvals, [1, 1])
     );
-    let expected_auth_request = if matches!(scenario, Scenario::DefaultAuth | Scenario::ModernAuth)
-    {
-        Some(ElicitationRequest::Url {
-            meta: Some(json!({
-                "_codex_apps": {
-                    "connector_auth_failure": {
-                        "is_auth_failure": true,
-                        "connector_id": "calendar",
-                        "connector_name": "Calendar",
-                        "install_url": "https://chatgpt.com/apps/calendar/calendar",
-                        "auth_reason": "reauthentication_required",
-                        "link_id": "link_123",
-                        "error_code": "UNAUTHORIZED",
-                        "error_http_status_code": 401,
-                        "error_action": "TRIGGER_REAUTHENTICATION",
-                    },
-                },
-            })),
-            message: "Reconnect Calendar on ChatGPT to restore access for this request."
-                .to_string(),
-            url: "https://chatgpt.com/apps/calendar/calendar".to_string(),
-            elicitation_id: format!("codex_apps_auth_{CALL_ID}"),
-        })
-    } else {
-        None
-    };
+    let expected_auth_request = None;
     assert_eq!(auth_request, expected_auth_request);
     let tool_calls = recorded_apps_tool_calls(&server).await;
     assert_eq!(tool_calls.len(), usize::from(approved));
@@ -317,16 +292,6 @@ approvals_reviewer = "user"
     assert_eq!(requests.len(), 2);
     if matches!(scenario, Scenario::DefaultAuth | Scenario::ModernAuth) {
         let output = requests[1].function_call_output(CALL_ID);
-        let items = output["output"]
-            .as_array()
-            .expect("auth elicitation result should contain content items");
-        assert_eq!(
-            &items[1..],
-            &[json!({
-                "type": "input_text",
-                "text": "Authentication for Calendar was requested and accepted. Retry this tool call now.",
-            })]
-        );
         assert!(!output.to_string().contains(PRIVATE_SENTINEL));
     }
 
@@ -342,9 +307,6 @@ enum SubagentRequestKind {
 
 #[test_case(SubagentRequestKind::ToolApproval, ElicitationAction::Accept; "child_tool_approval_waits_for_user_before_execution")]
 #[test_case(SubagentRequestKind::LegacyToolApproval, ElicitationAction::Accept; "child_legacy_tool_approval_is_rejected_before_execution")]
-#[test_case(SubagentRequestKind::ConnectorAuth(AuthFailureFormat::Text), ElicitationAction::Accept; "child_connector_auth_accepts_text_failure")]
-#[test_case(SubagentRequestKind::ConnectorAuth(AuthFailureFormat::Structured), ElicitationAction::Accept; "child_connector_auth_accepts_structured_failure")]
-#[test_case(SubagentRequestKind::ConnectorAuth(AuthFailureFormat::Structured), ElicitationAction::Decline; "child_declined_connector_auth_preserves_original_failure")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn core_generated_mcp_elicitations_support_subagents(
     kind: SubagentRequestKind,
