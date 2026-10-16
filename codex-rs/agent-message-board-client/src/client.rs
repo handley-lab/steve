@@ -72,6 +72,7 @@ impl RemoteAgentMessageBoard {
         board: SessionId,
         token: AccessToken,
     ) -> anyhow::Result<Self> {
+        codex_http_client::reject_forbidden_openai_request_url(endpoint)?;
         let mut board_url = Url::parse(endpoint).context("invalid message-board endpoint")?;
         anyhow::ensure!(
             matches!(board_url.scheme(), "http" | "https") && board_url.host_str().is_some(),

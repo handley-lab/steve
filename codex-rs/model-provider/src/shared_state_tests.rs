@@ -139,7 +139,8 @@ async fn gateway_credentials_accompany_primary_auth_in_models_and_responses() {
         let transport = ReqwestTransport::from_http_client(
             create_client_for_route(
                 &factory,
-                &api.url_for_path("responses"),
+                &api.url_for_path("responses")
+                    .expect("loopback provider URL should build"),
                 ClientRouteClass::Api,
                 ClientRedirectPolicy::Default,
             )

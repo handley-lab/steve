@@ -19,6 +19,8 @@ pub(crate) enum OAuthError {
     InvalidResponse,
     #[error("{0}")]
     Rejected(Box<TokenRejection>),
+    #[error("{0}")]
+    Forbidden(codex_http_client::ForbiddenOpenAiRequestHost),
 }
 
 impl fmt::Debug for OAuthError {
@@ -33,6 +35,7 @@ impl fmt::Debug for OAuthError {
             Self::Rejected(rejection) => {
                 formatter.debug_tuple("Rejected").field(rejection).finish()
             }
+            Self::Forbidden(error) => formatter.debug_tuple("Forbidden").field(error).finish(),
         }
     }
 }

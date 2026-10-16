@@ -69,11 +69,17 @@ struct ForwardConfig {
     host_header: HeaderValue,
 }
 
+fn accepted_upstream(upstream_url: &str) -> Result<Url> {
+    codex_http_client::reject_forbidden_openai_request_url(upstream_url)
+        .map_err(|error| anyhow!(error))?;
+    Url::parse(upstream_url).context("parsing --upstream-url")
+}
+
 /// Entry point for the library main, for parity with other crates.
 pub fn run_main(args: Args) -> Result<()> {
     let auth_header = read_auth_header_from_stdin()?;
 
-    let upstream_url = Url::parse(&args.upstream_url).context("parsing --upstream-url")?;
+    let upstream_url = accepted_upstream(&args.upstream_url)?;
     let host = match (upstream_url.host_str(), upstream_url.port()) {
         (Some(host), Some(port)) => format!("{host}:{port}"),
         (Some(host), None) => host.to_string(),
@@ -294,5 +300,17 @@ mod tests {
         let args = Args::try_parse_from(["responses-api-proxy", "--upstream-url", url])
             .expect("explicit upstream");
         assert_eq!(args.upstream_url, url);
+    }
+
+    #[test]
+    fn openai_upstream_is_rejected_before_proxying() {
+        let error = super::accepted_upstream("https://api.openai.com/v1/responses")
+            .expect_err("forbidden upstream");
+        let message = error.to_string();
+        assert!(message.contains("api.openai.com"), "{message}");
+        assert!(!message.contains("/v1/responses"), "{message}");
+        let cambridge = super::accepted_upstream("https://llm.hpc.cam.ac.uk/v1/responses")
+            .expect("Cambridge upstream");
+        assert_eq!(cambridge.as_str(), "https://llm.hpc.cam.ac.uk/v1/responses");
     }
 }

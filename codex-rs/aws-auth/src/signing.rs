@@ -21,6 +21,7 @@ pub(crate) fn sign_request(
     request: AwsRequestToSign,
     time: SystemTime,
 ) -> Result<AwsSignedRequest, AwsAuthError> {
+    codex_http_client::reject_forbidden_openai_request_url(&request.url)?;
     let signable_headers = request
         .headers
         .iter()

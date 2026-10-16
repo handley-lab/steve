@@ -84,6 +84,8 @@ impl<'a> OAuthClient<'a> {
         parameters: &[(&str, &str)],
         secrets: &[&str],
     ) -> Result<T, OAuthError> {
+        codex_http_client::reject_forbidden_openai_request_url(self.endpoint.url)
+            .map_err(OAuthError::Forbidden)?;
         let body = {
             let mut form = url::form_urlencoded::Serializer::new(String::new());
             form.extend_pairs(parameters.iter().copied());

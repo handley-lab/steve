@@ -4346,6 +4346,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "codex-http-client",
  "codex-process-hardening",
  "ctor 0.6.3",
  "libc",

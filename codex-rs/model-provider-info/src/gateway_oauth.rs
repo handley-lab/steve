@@ -132,6 +132,7 @@ fn is_token(value: &str) -> bool {
 }
 
 fn validate_url(value: &str, field: &str) -> Result<(), String> {
+    codex_client::reject_forbidden_openai_request_url(value).map_err(|error| error.to_string())?;
     let url = Url::parse(value).map_err(|_| format!("invalid {field} URL"))?;
     let loopback = match url.host() {
         Some(Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),

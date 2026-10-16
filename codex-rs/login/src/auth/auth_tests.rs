@@ -192,7 +192,7 @@ async fn agent_identity_jwt_uses_explicit_staging_endpoint_overrides() -> anyhow
 
     let auth = CodexAuth::from_agent_identity_jwt(
         &jwt,
-        Some(ChatGptEnvironment::Staging.chatgpt_base_url()),
+        Some("https://chatgpt-staging.com/backend-api"),
         &crate::test_support::transport_default_auth_route_config(),
     )
     .await?;

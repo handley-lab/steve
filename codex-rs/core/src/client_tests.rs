@@ -193,7 +193,9 @@ async fn workspace_routed_http_rejects_redirects_without_a_routing_header() {
         manager.set_workspace_routing_resolver(Arc::downgrade(&resolver));
         let mut client = test_model_client(SessionSource::Exec);
         Arc::get_mut(&mut client.state).unwrap().provider = create_model_provider(
-            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+            ModelProviderInfo::create_openai_provider(Some(
+                "https://llm.hpc.cam.ac.uk/backend-api/codex".to_string(),
+            )),
             Some(manager),
         );
         let mut setup = client
@@ -214,6 +216,7 @@ async fn workspace_routed_http_rejects_redirects_without_a_routing_header() {
         let request = setup
             .api_provider
             .build_request(http::Method::POST, "/responses")
+            .expect("loopback provider URL should build")
             .with_json(&json!({"input": "workspace content"}));
         let result = transport.execute(request).await;
         if routing_override.is_some() {

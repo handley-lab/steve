@@ -374,3 +374,41 @@ async fn provider_errors_preserve_credential_policy_without_reflecting_credentia
         }
     }
 }
+
+#[tokio::test]
+async fn openai_idp_endpoint_is_rejected_before_exchange() -> Result<()> {
+    let allowed = validate_ema_oauth_endpoint("https://login.example.test/oauth/token", "IdP");
+    assert!(allowed.is_ok(), "{allowed:?}");
+    let rejected = validate_ema_oauth_endpoint("https://auth.openai.com/oauth/token", "IdP")
+        .expect_err("OpenAI token endpoint must be rejected");
+    let message = rejected.to_string();
+    assert!(message.contains("auth.openai.com"), "{message}");
+    assert!(!message.contains("/oauth/token"), "{message}");
+
+    let server = MockServer::start().await;
+    let error = exchange_id_jag(EmaIdJagExchangeRequest {
+        resource: "https://login.example.test/mcp",
+        scopes: &[],
+        mcp_client_id: "mcp-client",
+        authorization_server_issuer: "https://login.example.test",
+        authorization_server_token_endpoint: &format!("{}/token", server.uri()),
+        idp_token_endpoint: "https://auth.openai.com/oauth/token",
+        idp_issuer: "https://auth.openai.com",
+        idp_client_id: "idp-client",
+        refresh_token: "refresh-token".to_string(),
+        idp_http_client: http_client(),
+        resource_http_client: http_client(),
+    })
+    .await
+    .expect_err("forbidden issuer must not be exchanged");
+    let message = format!("{error:#}");
+    assert!(message.contains("auth.openai.com"), "{message}");
+    assert!(
+        server
+            .received_requests()
+            .await
+            .expect("mock server")
+            .is_empty()
+    );
+    Ok(())
+}

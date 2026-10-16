@@ -134,6 +134,7 @@ pub(super) fn endpoint_error(
             "provider OAuth token exchange failed for {endpoint}"
         )),
         OAuthError::InvalidResponse => io::Error::other("provider OAuth token response is invalid"),
+        OAuthError::Forbidden(error) => io::Error::other(error.to_string()),
     }
 }
 

@@ -225,6 +225,8 @@ impl OAuthHttpClientAdapter {
                 ));
             }
         };
+        codex_http_client::reject_forbidden_openai_request_url(&request.uri().to_string())
+            .map_err(oauth_http_client_error)?;
         let (parts, body) = request.into_parts();
         let mut request_url =
             Url::parse(&parts.uri.to_string()).map_err(oauth_http_client_error)?;

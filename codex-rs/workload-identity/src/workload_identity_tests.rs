@@ -311,6 +311,35 @@ async fn transient_proactive_refresh_failure_uses_still_valid_token() {
 }
 
 #[test]
+fn openai_token_url_is_rejected_before_exchange() {
+    let (_temp_dir, assertion_path) = assertion_file("assertion-one");
+    let config = WorkloadIdentityConfig::new(
+        "idpm_rule_one".to_string(),
+        assertion_path,
+        /*workload_identity_context*/ None,
+    )
+    .expect("valid config");
+    let forbidden = match WorkloadIdentityExchange::new(
+        config.clone(),
+        Url::parse("https://auth.openai.com/oauth/token").expect("parse URL"),
+        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+    ) {
+        Err(error) => error,
+        Ok(_) => panic!("forbidden token URL was accepted"),
+    };
+    let message = forbidden.to_string();
+    assert!(message.contains("auth.openai.com"), "{message}");
+    assert!(!message.contains("/oauth/token"), "{message}");
+    if let Err(error) = WorkloadIdentityExchange::new(
+        config,
+        Url::parse("https://llm.hpc.cam.ac.uk/oauth/token").expect("parse URL"),
+        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+    ) {
+        panic!("Cambridge token URL should be accepted: {error}");
+    }
+}
+
+#[test]
 fn configuration_requires_an_absolute_file_and_secure_token_url() {
     assert!(matches!(
         WorkloadIdentityConfig::new(

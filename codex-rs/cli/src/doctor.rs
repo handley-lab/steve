@@ -3640,7 +3640,8 @@ mod tests {
                 Some("https://example.openai.azure.com/openai/v1"),
                 /*provider_query_params*/ None,
                 /*is_amazon_bedrock*/ false,
-            ),
+            )
+            .expect("allowed provider URL"),
             ReachabilityPlan {
                 description: "provider auth".to_string(),
                 endpoints: vec![ReachabilityEndpoint {
@@ -3670,7 +3671,8 @@ mod tests {
                     Some("https://example.com/openai/v1/"),
                     Some(&query_params),
                     /*is_amazon_bedrock*/ false,
-                ),
+                )
+                .expect("allowed provider URL"),
                 ReachabilityPlan {
                     description: description.to_string(),
                     endpoints: vec![ReachabilityEndpoint {
@@ -3700,7 +3702,8 @@ mod tests {
             Some("https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1"),
             /*provider_query_params*/ None,
             /*is_amazon_bedrock*/ true,
-        );
+        )
+        .expect("allowed provider URL");
 
         assert_eq!(plan.endpoints[0].route_probe_url, None);
     }
@@ -3744,7 +3747,8 @@ mod tests {
             Some(&format!("http://{addr}/xxxx")),
             /*provider_query_params*/ None,
             /*is_amazon_bedrock*/ false,
-        );
+        )
+        .expect("loopback provider URL");
 
         let check = provider_reachability_check(plan).await;
         server.join().expect("probe server thread should finish");
@@ -3784,7 +3788,8 @@ mod tests {
             Some(&format!("http://{addr}/v1")),
             /*provider_query_params*/ None,
             /*is_amazon_bedrock*/ false,
-        );
+        )
+        .expect("loopback provider URL");
 
         let check = provider_reachability_check(plan).await;
         server.join().expect("probe server thread should finish");

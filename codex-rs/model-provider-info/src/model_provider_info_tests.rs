@@ -893,4 +893,55 @@ fn configured_provider_url_rejects_openai_host_and_targets_cambridge() {
         .build_request(http::Method::POST, "responses")
         .unwrap();
     assert_eq!(request.url, "https://llm.hpc.cam.ac.uk/v1/responses");
+
+    let forbidden_gateway = toml::from_str::<ModelProviderInfo>(
+        r#"
+base_url = "https://gateway.example.test/v1"
+[gateway_oauth]
+authorization_url = "https://login.example.test/authorize"
+token_url = "https://auth.openai.com/oauth/token"
+client_id = "codex"
+delivery = { kind = "header", name = "x-gateway-auth" }
+"#,
+    )
+    .unwrap();
+    let error = forbidden_gateway.validate().unwrap_err();
+    assert!(error.contains("auth.openai.com"), "{error}");
+    assert!(!error.contains("/oauth/token"), "{error}");
+
+    let forbidden_authorization = toml::from_str::<ModelProviderInfo>(
+        r#"
+base_url = "https://gateway.example.test/v1"
+[gateway_oauth]
+authorization_url = "https://api.openai.com/oauth/authorize"
+token_url = "https://login.example.test/token"
+client_id = "codex"
+delivery = { kind = "header", name = "x-gateway-auth" }
+"#,
+    )
+    .unwrap();
+    let error = forbidden_authorization.validate().unwrap_err();
+    assert!(error.contains("api.openai.com"), "{error}");
+    assert!(!error.contains("/oauth/authorize"), "{error}");
+
+    let cambridge_gateway = toml::from_str::<ModelProviderInfo>(
+        r#"
+base_url = "https://llm.hpc.cam.ac.uk/v1"
+[gateway_oauth]
+authorization_url = "https://llm.hpc.cam.ac.uk/oauth/authorize"
+token_url = "https://llm.hpc.cam.ac.uk/oauth/token"
+client_id = "codex"
+delivery = { kind = "header", name = "x-gateway-auth" }
+"#,
+    )
+    .unwrap();
+    assert_eq!(cambridge_gateway.validate(), Ok(()));
+    assert_eq!(
+        cambridge_gateway
+            .gateway_oauth
+            .as_ref()
+            .unwrap()
+            .token_url,
+        "https://llm.hpc.cam.ac.uk/oauth/token"
+    );
 }

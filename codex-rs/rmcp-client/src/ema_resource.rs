@@ -70,6 +70,7 @@ pub(super) struct EmaDiscoveryClient {
 
 impl EmaDiscoveryClient {
     pub(super) async fn get(&self, url: Url) -> Result<oauth2::HttpResponse> {
+        validate_ema_oauth_endpoint(url.as_str(), "enterprise metadata URL")?;
         self.execute(
             oauth2::http::Request::builder()
                 .uri(url.as_str())
@@ -84,6 +85,7 @@ impl EmaDiscoveryClient {
         request: &JsonRpcRequest<ClientRequest>,
         version: ProtocolVersion,
     ) -> Result<oauth2::HttpResponse> {
+        validate_ema_oauth_endpoint(url.as_str(), "enterprise metadata URL")?;
         self.execute(
             oauth2::http::Request::builder()
                 .method(Method::POST)
@@ -309,6 +311,7 @@ pub(super) async fn discover_ema_resource(request: EmaDiscoveryRequest<'_>) -> R
             if legacy {
                 // Preserve legacy custom metadata challenges without exchanging credentials
                 // or retrying application operations. All probes share the same deadline.
+                validate_ema_oauth_endpoint(server.as_str(), "enterprise metadata URL")?;
                 response = client
                     .execute(
                         oauth2::http::Request::builder()

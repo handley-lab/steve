@@ -54,6 +54,27 @@ async fn remote_board_preserves_the_host_contract() -> anyhow::Result<()> {
                 .is_err()
         );
     }
+    let forbidden = match RemoteAgentMessageBoard::new(
+        http.clone(),
+        "https://api.openai.com/v1/boards",
+        board,
+        admin_token.clone(),
+    ) {
+        Err(error) => error,
+        Ok(_) => panic!("forbidden message-board endpoint was accepted"),
+    };
+    let message = forbidden.to_string();
+    assert!(message.contains("api.openai.com"), "{message}");
+    assert!(!message.contains("/v1/boards"), "{message}");
+    assert!(
+        RemoteAgentMessageBoard::new(
+            http.clone(),
+            "https://llm.hpc.cam.ac.uk/boards",
+            board,
+            admin_token.clone(),
+        )
+        .is_ok()
+    );
     let admin =
         RemoteAgentMessageBoard::new(http.clone(), &format!("{endpoint}/"), board, admin_token)?;
     Mock::given(method("PUT"))

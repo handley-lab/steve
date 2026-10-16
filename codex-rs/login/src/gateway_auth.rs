@@ -566,6 +566,8 @@ fn validate_oauth_url(value: &str, description: &str) -> io::Result<Url> {
             "{description} must use HTTPS unless it is loopback"
         )));
     }
+    codex_http_client::reject_forbidden_openai_request_url(value)
+        .map_err(|error| io::Error::other(error.to_string()))?;
     Ok(url)
 }
 

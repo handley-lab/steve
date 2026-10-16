@@ -59,6 +59,8 @@ pub enum WorkloadIdentityError {
     HttpClientConfiguration,
     #[error("the workload identity token URL must use HTTPS or loopback HTTP")]
     InvalidTokenUrl,
+    #[error(transparent)]
+    ForbiddenHost(#[from] codex_http_client::ForbiddenOpenAiRequestHost),
     #[error("the workload identity token exchange is unavailable")]
     ExchangeUnavailable,
     #[error("the workload identity token exchange was rejected with HTTP {0}")]
@@ -86,6 +88,7 @@ impl WorkloadIdentityError {
             | Self::AssertionTooLarge
             | Self::HttpClientConfiguration
             | Self::InvalidTokenUrl
+            | Self::ForbiddenHost(_)
             | Self::ExchangeRejected(_)
             | Self::InvalidExchangeResponse => false,
         }

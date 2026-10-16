@@ -229,6 +229,7 @@ impl WorkloadIdentityExchange {
 }
 
 fn validate_token_url(url: &Url) -> Result<bool, WorkloadIdentityError> {
+    codex_http_client::reject_forbidden_openai_request_url(url.as_str())?;
     if !url.username().is_empty()
         || url.password().is_some()
         || url.query().is_some()

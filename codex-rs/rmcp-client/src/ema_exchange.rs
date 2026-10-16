@@ -61,6 +61,14 @@ pub(crate) struct EmaIdJagExchangeRequest<'a> {
 pub(crate) async fn exchange_id_jag(
     request: EmaIdJagExchangeRequest<'_>,
 ) -> Result<EmaAccessToken> {
+    for endpoint in [
+        request.idp_issuer,
+        request.idp_token_endpoint,
+        request.authorization_server_issuer,
+        request.authorization_server_token_endpoint,
+    ] {
+        codex_http_client::reject_forbidden_openai_request_url(endpoint)?;
+    }
     let idp_http = OAuthHttpClientAdapter::new_with_redirect_mode(
         request.idp_http_client,
         build_default_headers(/*http_headers*/ None, /*env_http_headers*/ None)?,

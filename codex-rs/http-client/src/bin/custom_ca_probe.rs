@@ -57,6 +57,7 @@ async fn run_probe() -> Result<(), String> {
 
     let client = build_probe_client(builder, proxy_url.as_deref())?;
     if let Some(url) = target_url {
+        accepted_probe_url(&url)?;
         post_probe_request(&client, &url).await?;
     }
     Ok(())
@@ -75,6 +76,10 @@ fn build_probe_client(
 
     codex_http_client::build_reqwest_client_for_subprocess_tests(builder)
         .map_err(|error| error.to_string())
+}
+
+fn accepted_probe_url(url: &str) -> Result<(), String> {
+    codex_http_client::reject_forbidden_openai_request_url(url).map_err(|error| error.to_string())
 }
 
 async fn post_probe_request(client: &reqwest::Client, url: &str) -> Result<(), String> {
@@ -97,4 +102,18 @@ async fn post_probe_request(client: &reqwest::Client, url: &str) -> Result<(), S
         return Err(format!("probe response body mismatch: {body}"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn openai_probe_url_is_rejected_before_the_request() {
+        let error = super::accepted_probe_url("https://auth.openai.com/oauth/token")
+            .expect_err("forbidden probe URL");
+        assert!(error.contains("auth.openai.com"), "{error}");
+        assert!(!error.contains("/oauth/token"), "{error}");
+        super::accepted_probe_url("https://llm.hpc.cam.ac.uk/oauth/token")
+            .expect("Cambridge probe URL");
+        super::accepted_probe_url("https://127.0.0.1/oauth/token").expect("loopback probe URL");
+    }
 }

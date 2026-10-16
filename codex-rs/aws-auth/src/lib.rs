@@ -123,6 +123,8 @@ pub struct AwsSignedRequest {
 pub enum AwsAuthError {
     #[error(transparent)]
     Policy(#[from] codex_http_client::NetworkPolicyDenied),
+    #[error(transparent)]
+    ForbiddenHost(#[from] codex_http_client::ForbiddenOpenAiRequestHost),
     #[error("AWS service name must not be empty")]
     EmptyService,
     #[error("AWS profile must be configured")]
@@ -298,6 +300,7 @@ impl AwsAuthError {
                     | aws_credential_types::provider::error::CredentialsError::ProviderError(_)
             ),
             AwsAuthError::Policy(_)
+            | AwsAuthError::ForbiddenHost(_)
             | AwsAuthError::EmptyService
             | AwsAuthError::MissingProfile
             | AwsAuthError::MissingCredentialsProvider
@@ -353,6 +356,32 @@ mod tests {
             headers,
             body: Bytes::from_static(br#"{"model":"openai.gpt-oss-120b-1:0"}"#),
         }
+    }
+
+    #[tokio::test]
+    async fn openai_request_url_is_rejected_before_signing() {
+        let mut request = test_request();
+        request.url = "https://api.openai.com/v1/responses".to_string();
+        let error = test_context(/*session_token*/ None)
+            .sign_at(
+                request,
+                UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+            )
+            .await
+            .expect_err("forbidden host");
+        let message = error.to_string();
+        assert!(message.contains("api.openai.com"), "{message}");
+        assert!(!message.contains("/v1/responses"), "{message}");
+
+        let mut cambridge = test_request();
+        cambridge.url = "https://llm.hpc.cam.ac.uk/v1/responses".to_string();
+        test_context(/*session_token*/ None)
+            .sign_at(
+                cambridge,
+                UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+            )
+            .await
+            .expect("Cambridge URL should still be signed");
     }
 
     #[tokio::test]

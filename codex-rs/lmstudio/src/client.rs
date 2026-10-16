@@ -48,8 +48,18 @@ impl LMStudioClient {
         Ok(client)
     }
 
+    fn request_url(&self, suffix: &str) -> io::Result<String> {
+        codex_http_client::reject_forbidden_openai_request_url(&self.base_url)
+            .map_err(io::Error::other)?;
+        Ok(format!(
+            "{}/{}",
+            self.base_url.trim_end_matches('/'),
+            suffix.trim_start_matches('/')
+        ))
+    }
+
     async fn check_server(&self) -> io::Result<()> {
-        let url = format!("{}/models", self.base_url.trim_end_matches('/'));
+        let url = self.request_url("models")?;
         let response = self.client.get(&url).send().await;
 
         if let Ok(resp) = response {
@@ -68,7 +78,7 @@ impl LMStudioClient {
 
     // Load a model by sending an empty request with max_tokens 1
     pub async fn load_model(&self, model: &str) -> io::Result<()> {
-        let url = format!("{}/responses", self.base_url.trim_end_matches('/'));
+        let url = self.request_url("responses")?;
 
         let request_body = serde_json::json!({
             "model": model,
@@ -98,7 +108,7 @@ impl LMStudioClient {
 
     // Return the list of models available on the LM Studio server.
     pub async fn fetch_models(&self) -> io::Result<Vec<String>> {
-        let url = format!("{}/models", self.base_url.trim_end_matches('/'));
+        let url = self.request_url("models")?;
         let response = self
             .client
             .get(&url)
@@ -215,6 +225,27 @@ mod tests {
             client,
             base_url: host_root.into(),
         }
+    }
+
+    #[tokio::test]
+    async fn openai_base_url_is_rejected_before_a_model_request() {
+        let client = client_from_host_root("https://api.openai.com/v1", Duration::from_secs(1));
+        let error = client
+            .load_model("example")
+            .await
+            .expect_err("forbidden host");
+        let message = error.to_string();
+        assert!(message.contains("api.openai.com"), "{message}");
+        assert!(!message.contains("/responses"), "{message}");
+    }
+
+    #[test]
+    fn cambridge_base_url_is_formatted_for_requests() {
+        let client = client_from_host_root("https://llm.hpc.cam.ac.uk/v1", Duration::from_secs(1));
+        assert_eq!(
+            client.request_url("responses").expect("Cambridge base URL"),
+            "https://llm.hpc.cam.ac.uk/v1/responses"
+        );
     }
 
     #[tokio::test]

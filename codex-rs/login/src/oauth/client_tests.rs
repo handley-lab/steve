@@ -283,3 +283,106 @@ async fn success_body_revocation_preserves_the_policy_error() {
         )))
     ));
 }
+
+#[tokio::test]
+async fn configured_gateway_token_url_rejects_openai_host_and_posts_cambridge() {
+    let http = HttpClientBuilder::new().build_direct().unwrap();
+    let pkce = generate_pkce();
+    let redirect_uri = "http://127.0.0.1:9/callback";
+    let forbidden = oauth(
+        &http,
+        "https://auth.openai.com/oauth/token",
+        ErrorBodyLimit::Bytes(1024),
+    );
+    let error = forbidden
+        .exchange_code::<Value>(AuthorizationCodeGrant {
+            code: "code",
+            redirect_uri,
+            pkce: &pkce,
+            resource: None,
+        })
+        .await
+        .expect_err("forbidden token URL must not be posted");
+    let message = error.to_string();
+    assert!(message.contains("auth.openai.com"), "{message}");
+    assert!(!message.contains("grant_type"), "{message}");
+
+    let authorization_error = build_authorization_url(AuthorizationRequest {
+        endpoint: "https://api.openai.com/oauth/authorize",
+        client_id: "client id",
+        redirect_uri,
+        scope: None,
+        resource: None,
+        pkce: &pkce,
+        state: "state",
+        extra_parameters: &[],
+    })
+    .expect_err("forbidden authorization URL must not be built");
+    let message = authorization_error.to_string();
+    assert!(message.contains("api.openai.com"), "{message}");
+    assert!(!message.contains("response_type"), "{message}");
+
+    let cambridge_authorization = build_authorization_url(AuthorizationRequest {
+        endpoint: "https://llm.hpc.cam.ac.uk/oauth/authorize",
+        client_id: "client id",
+        redirect_uri,
+        scope: None,
+        resource: None,
+        pkce: &pkce,
+        state: "state",
+        extra_parameters: &[],
+    })
+    .expect("Cambridge authorization URL should be built");
+    assert_eq!(
+        cambridge_authorization.host_str(),
+        Some("llm.hpc.cam.ac.uk")
+    );
+    assert!(
+        cambridge_authorization
+            .query()
+            .is_some_and(|query| query.contains("response_type=code"))
+    );
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token": "access"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let token_url = format!("{}/oauth/token", server.uri());
+    oauth(&http, &token_url, ErrorBodyLimit::Bytes(1024))
+        .exchange_code::<Value>(AuthorizationCodeGrant {
+            code: "code",
+            redirect_uri,
+            pkce: &pkce,
+            resource: None,
+        })
+        .await
+        .expect("allowed token URL should be posted");
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].method, wiremock::http::Method::POST);
+    assert_eq!(requests[0].url.path(), "/oauth/token");
+
+    let cambridge = "https://llm.hpc.cam.ac.uk/oauth/token";
+    let posted = OAuthClient::new(
+        &http,
+        TokenEndpoint {
+            url: cambridge,
+            client_id: "client id",
+            timeout: Some(std::time::Duration::from_secs(10)),
+            error_body_limit: ErrorBodyLimit::Bytes(1024),
+        },
+    )
+    .exchange_code::<Value>(AuthorizationCodeGrant {
+        code: "code",
+        redirect_uri,
+        pkce: &pkce,
+        resource: None,
+    })
+    .await;
+    assert!(
+        !matches!(posted, Err(OAuthError::Forbidden(_))),
+        "Cambridge token URL must be posted, got {posted:?}"
+    );
+}

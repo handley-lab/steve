@@ -1,5 +1,7 @@
 //! Builds authorization requests and validates callback state before consuming codes or errors.
 
+use std::fmt;
+
 use base64::Engine;
 use rand::RngCore;
 use url::Url;
@@ -18,10 +20,29 @@ pub(crate) struct AuthorizationRequest<'a> {
     pub extra_parameters: &'a [(&'a str, &'a str)],
 }
 
+#[derive(Debug)]
+pub(crate) enum AuthorizationUrlError {
+    Invalid(url::ParseError),
+    Forbidden(codex_http_client::ForbiddenOpenAiRequestHost),
+}
+
+impl fmt::Display for AuthorizationUrlError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Invalid(error) => write!(formatter, "{error}"),
+            Self::Forbidden(error) => write!(formatter, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for AuthorizationUrlError {}
+
 pub(crate) fn build_authorization_url(
     request: AuthorizationRequest<'_>,
-) -> Result<Url, url::ParseError> {
-    let mut url = Url::parse(request.endpoint)?;
+) -> Result<Url, AuthorizationUrlError> {
+    codex_http_client::reject_forbidden_openai_request_url(request.endpoint)
+        .map_err(AuthorizationUrlError::Forbidden)?;
+    let mut url = Url::parse(request.endpoint).map_err(AuthorizationUrlError::Invalid)?;
     {
         let mut query = url.query_pairs_mut();
         query.append_pair("response_type", "code");

@@ -48,6 +48,7 @@ pub(crate) fn validate_ema_public_client_auth(
 }
 
 pub(crate) fn validate_ema_oauth_endpoint(endpoint: &str, description: &str) -> Result<()> {
+    codex_http_client::reject_forbidden_openai_request_url(endpoint)?;
     let url = Url::parse(endpoint).with_context(|| format!("{description} is not a valid URL"))?;
     validate_credential_destination(&url, description)
 }

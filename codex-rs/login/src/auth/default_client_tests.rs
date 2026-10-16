@@ -260,7 +260,8 @@ async fn raw_auth_client_does_not_log_sensitive_request_or_response_data() {
         "http://auth-user:password-secret-value@{authority}/token?client_secret=query-secret-value"
     );
     let client = crate::test_support::transport_default_auth_route_config()
-        .authentication_factory(&endpoint)
+        .http_client_factory()
+        .clone()
         .build_client_without_request_logging(&endpoint, super::ClientRouteClass::Auth)
         .expect("raw auth client should build");
     let buffer = Arc::new(Mutex::new(Vec::new()));
@@ -292,7 +293,8 @@ async fn raw_auth_client_does_not_log_sensitive_request_or_response_data() {
         "http://auth-user:failure-password-secret-value@{unresponsive_addr}/token?client_secret=failure-query-secret-value"
     );
     let unresponsive_client = crate::test_support::transport_default_auth_route_config()
-        .authentication_factory(&unresponsive_endpoint)
+        .http_client_factory()
+        .clone()
         .build_client_without_request_logging(
             &unresponsive_endpoint,
             super::ClientRouteClass::Auth,
