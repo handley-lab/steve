@@ -617,6 +617,11 @@ fn build_otlp_metric_exporter(
             tls,
         } => {
             debug!("Using OTLP Grpc exporter for metrics: {endpoint}");
+            crate::otlp::reject_forbidden_export_endpoint(&endpoint).map_err(|err| {
+                MetricsError::InvalidConfig {
+                    message: err.to_string(),
+                }
+            })?;
 
             let header_map = crate::otlp::build_header_map(&headers);
 
@@ -648,6 +653,11 @@ fn build_otlp_metric_exporter(
             tls,
         } => {
             debug!("Using OTLP Http exporter for metrics: {endpoint}");
+            crate::otlp::reject_forbidden_export_endpoint(&endpoint).map_err(|err| {
+                MetricsError::InvalidConfig {
+                    message: err.to_string(),
+                }
+            })?;
 
             let protocol = match protocol {
                 OtelHttpProtocol::Binary => Protocol::HttpBinary,

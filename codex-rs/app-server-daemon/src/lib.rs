@@ -986,6 +986,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::Daemon;
+    use super::LifecycleStatus;
     use super::RestartDecision;
     use super::RestartMode;
     use super::restart_decision;

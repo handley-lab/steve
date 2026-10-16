@@ -867,3 +867,30 @@ model_catalog_url = "https://gateway.example/codex/catalog?token=catalog-secret"
         "https://gateway.example/v1"
     );
 }
+
+#[test]
+fn configured_provider_url_rejects_openai_host_and_targets_cambridge() {
+    let forbidden = ModelProviderInfo::create_openai_provider(Some(
+        "https://api.openai.com/v1".to_string(),
+    ))
+    .to_api_provider(None)
+    .unwrap();
+    match forbidden.build_request(http::Method::POST, "responses") {
+        Ok(request) => panic!("built a request {}", request.url),
+        Err(error) => {
+            let message = error.to_string();
+            assert!(message.contains("api.openai.com"), "{message}");
+            assert!(!message.contains("/responses"), "{message}");
+        }
+    }
+
+    let cambridge = ModelProviderInfo::create_openai_provider(Some(
+        "https://llm.hpc.cam.ac.uk/v1".to_string(),
+    ))
+    .to_api_provider(None)
+    .unwrap();
+    let request = cambridge
+        .build_request(http::Method::POST, "responses")
+        .unwrap();
+    assert_eq!(request.url, "https://llm.hpc.cam.ac.uk/v1/responses");
+}

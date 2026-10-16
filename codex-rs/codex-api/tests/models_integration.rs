@@ -77,7 +77,8 @@ async fn invalid_models_response_reports_bounded_decode_metadata() {
                 .expect("test HTTP client should build"),
         );
         let provider = provider(&server.uri());
-        let request_url = ModelsClient::<ReqwestTransport>::request_url(&provider, "0.1.0");
+        let request_url =
+            ModelsClient::<ReqwestTransport>::request_url(&provider, "0.1.0").unwrap();
         let client = ModelsClient::new(transport, provider, Arc::new(DummyAuth));
 
         let error = client
@@ -187,7 +188,8 @@ async fn models_client_hits_models_endpoint() {
             .expect("test HTTP client should build"),
     );
     let provider = provider(&base_url);
-    let request_url = ModelsClient::<ReqwestTransport>::request_url(&provider, "0.1.0");
+    let request_url =
+            ModelsClient::<ReqwestTransport>::request_url(&provider, "0.1.0").unwrap();
     let client = ModelsClient::new(transport, provider, Arc::new(DummyAuth));
 
     let (models, _) = client

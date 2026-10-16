@@ -39,10 +39,13 @@ impl<T: HttpTransport> ModelsClient<T> {
         req.url = format!("{}{}client_version={client_version}", req.url, separator);
     }
 
-    pub fn request_url(provider: &Provider, client_version: &str) -> String {
-        let mut request = provider.build_request(Method::GET, Self::path());
+    pub fn request_url(
+        provider: &Provider,
+        client_version: &str,
+    ) -> Result<String, crate::ForbiddenOpenAiRequestHost> {
+        let mut request = provider.build_request(Method::GET, Self::path())?;
         Self::append_client_version_query(&mut request, client_version);
-        request.url
+        Ok(request.url)
     }
 
     /// Builds a full catalog URL, preserving provider routing parameters and client version.
@@ -54,6 +57,8 @@ impl<T: HttpTransport> ModelsClient<T> {
         let invalid = |message: &str| ApiError::InvalidRequest {
             message: message.to_string(),
         };
+        crate::reject_forbidden_openai_request_url(catalog_url)
+            .map_err(|err| invalid(&err.to_string()))?;
         let mut url = Url::parse(catalog_url)
             .map_err(|_| invalid("model_catalog_url must be an absolute URL"))?;
         {
@@ -100,6 +105,11 @@ impl<T: HttpTransport> ModelsClient<T> {
         extra_headers: HeaderMap,
         response_body_limit_bytes: Option<usize>,
     ) -> Result<(Bytes, Option<String>), ApiError> {
+        crate::reject_forbidden_openai_request_url(&request_url).map_err(|err| {
+            ApiError::InvalidRequest {
+                message: err.to_string(),
+            }
+        })?;
         let resp = self
             .session
             .execute_with(
@@ -266,7 +276,8 @@ mod tests {
         let auth = Arc::new(RetryAuth::default());
         let mut provider = provider("https://example.com/api/codex");
         provider.retry.max_attempts = 2;
-        let request_url = ModelsClient::<CapturingTransport>::request_url(&provider, "0.99.0");
+        let request_url =
+            ModelsClient::<CapturingTransport>::request_url(&provider, "0.99.0").unwrap();
         let client = ModelsClient::new(transport.clone(), provider, auth.clone());
 
         client
@@ -321,7 +332,8 @@ mod tests {
         };
 
         let provider = provider("https://example.com/api/codex");
-        let request_url = ModelsClient::<CapturingTransport>::request_url(&provider, "0.99.0");
+        let request_url =
+            ModelsClient::<CapturingTransport>::request_url(&provider, "0.99.0").unwrap();
         let client = ModelsClient::new(transport.clone(), provider, Arc::new(DummyAuth));
 
         let (models, _) = client
@@ -384,7 +396,8 @@ mod tests {
         };
 
         let provider = provider("https://example.com/api/codex");
-        let request_url = ModelsClient::<CapturingTransport>::request_url(&provider, "0.99.0");
+        let request_url =
+            ModelsClient::<CapturingTransport>::request_url(&provider, "0.99.0").unwrap();
         let client = ModelsClient::new(transport, provider, Arc::new(DummyAuth));
 
         let (models, _) = client
@@ -413,7 +426,8 @@ mod tests {
         };
 
         let provider = provider("https://example.com/api/codex");
-        let request_url = ModelsClient::<CapturingTransport>::request_url(&provider, "0.1.0");
+        let request_url =
+            ModelsClient::<CapturingTransport>::request_url(&provider, "0.1.0").unwrap();
         let client = ModelsClient::new(transport, provider, Arc::new(DummyAuth));
 
         let (models, etag) = client

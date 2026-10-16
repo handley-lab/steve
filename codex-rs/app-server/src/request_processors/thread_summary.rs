@@ -3,6 +3,8 @@ use super::*;
 use chrono::DateTime;
 #[cfg(test)]
 use chrono::Utc;
+#[cfg(test)]
+use std::io::Error as IoError;
 use codex_protocol::config_types::MultiAgentMode;
 
 #[cfg(test)]

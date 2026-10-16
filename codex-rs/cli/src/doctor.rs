@@ -41,6 +41,8 @@ use codex_core::config::LoaderOverrides;
 use codex_core::config::find_codex_home;
 use codex_features::FEATURES;
 use codex_http_client::ClientRouteClass;
+use codex_http_client::ForbiddenOpenAiRequestHost;
+use codex_http_client::reject_forbidden_openai_request_url;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
 use codex_http_client::RouteAwareClientPool;
@@ -400,12 +402,13 @@ async fn build_report(
             let auth_manager_result =
                 AuthManager::shared_from_config(config, /*enable_codex_api_key_env*/ true).await;
             let auth_manager = auth_manager_result.as_ref().ok().cloned();
-            let reachability_plan = provider_reachability_plan(config);
+            let reachability_result = provider_reachability_plan(config);
             #[cfg(target_os = "macos")]
-            let reachability_url = reachability_plan
-                .endpoints
-                .first()
-                .map(|endpoint| endpoint.url.clone());
+            let reachability_url = reachability_result.as_ref().ok().and_then(|plan| {
+                plan.endpoints
+                    .first()
+                    .map(|endpoint| endpoint.url.clone())
+            });
             let (
                 config_check,
                 auth_check,
@@ -487,7 +490,18 @@ async fn build_report(
                 run_async_check(
                     "provider reachability",
                     progress.clone(),
-                    provider_reachability_check(reachability_plan),
+                    async move {
+                        match reachability_result {
+                            Ok(plan) => provider_reachability_check(plan).await,
+                            Err(error) => DoctorCheck::new(
+                                "network.provider_reachability",
+                                "reachability",
+                                CheckStatus::Fail,
+                                "configured provider host is not available",
+                            )
+                            .detail(error.to_string()),
+                        }
+                    },
                 ),
             );
             #[cfg(target_os = "macos")]
@@ -2550,7 +2564,9 @@ impl ProviderAuthReachabilityMode {
     }
 }
 
-fn provider_reachability_plan(config: &Config) -> ReachabilityPlan {
+fn provider_reachability_plan(
+    config: &Config,
+) -> Result<ReachabilityPlan, ForbiddenOpenAiRequestHost> {
     let query_params = config.model_provider.query_params.as_ref().map(|params| {
         params
             .iter()
@@ -2578,9 +2594,9 @@ fn provider_reachability_plan(config: &Config) -> ReachabilityPlan {
         config.model_provider.base_url.as_deref(),
         query_params.as_ref(),
         config.model_provider.is_amazon_bedrock(),
-    );
+    )?;
     plan.http_client_factory = config.http_client_factory();
-    plan
+    Ok(plan)
 }
 
 fn provider_auth_reachability_mode_from_auth(
@@ -2625,25 +2641,27 @@ fn provider_reachability_plan_from_parts(
     provider_base_url: Option<&str>,
     provider_query_params: Option<&HashMap<String, String>>,
     is_amazon_bedrock: bool,
-) -> ReachabilityPlan {
-    let provider_route_probe_url = provider_base_url.and_then(|url| {
-        should_probe_models_route(provider_name, url, is_amazon_bedrock)
-            .then(|| provider_url_for_path(url, "models", provider_query_params))
-    });
+) -> Result<ReachabilityPlan, ForbiddenOpenAiRequestHost> {
+    let provider_route_probe_url = match provider_base_url {
+        Some(url) if should_probe_models_route(provider_name, url, is_amazon_bedrock) => {
+            Some(provider_url_for_path(url, "models", provider_query_params)?)
+        }
+        _ => None,
+    };
     let endpoints = match provider_base_url {
         Some(url) => vec![ReachabilityEndpoint {
             label: format!("{provider_id} API"),
-            url: provider_url_for_path(url, "responses", provider_query_params),
+            url: provider_url_for_path(url, "responses", provider_query_params)?,
             required: true,
             route_probe_url: provider_route_probe_url,
         }],
         None => Vec::new(),
     };
-    ReachabilityPlan {
+    Ok(ReachabilityPlan {
         description: mode.description().to_string(),
         endpoints,
         http_client_factory: HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-    }
+    })
 }
 
 fn should_probe_models_route(provider_name: &str, base_url: &str, is_amazon_bedrock: bool) -> bool {
@@ -2654,7 +2672,8 @@ fn provider_url_for_path(
     base_url: &str,
     path: &str,
     query_params: Option<&HashMap<String, String>>,
-) -> String {
+) -> Result<String, ForbiddenOpenAiRequestHost> {
+    reject_forbidden_openai_request_url(base_url)?;
     let base = base_url.trim_end_matches('/');
     let path = path.trim_start_matches('/');
     let mut url = if path.is_empty() {
@@ -2677,7 +2696,7 @@ fn provider_url_for_path(
         );
     }
 
-    url
+    Ok(url)
 }
 
 async fn provider_reachability_check(plan: ReachabilityPlan) -> DoctorCheck {

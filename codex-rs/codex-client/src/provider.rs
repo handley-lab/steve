@@ -4,11 +4,44 @@ use crate::Request;
 use crate::RequestCompression;
 use crate::RetryOn;
 use crate::RetryPolicy;
+use codex_http_client::ForbiddenOpenAiRequestHost;
+use codex_http_client::reject_forbidden_openai_request_url;
 use http::Method;
 use http::header::HeaderMap;
 use std::collections::HashMap;
+use std::fmt;
 use std::time::Duration;
 use url::Url;
+
+/// Failure while turning a provider base URL into a request URL.
+#[derive(Debug)]
+pub enum ProviderUrlError {
+    Forbidden(ForbiddenOpenAiRequestHost),
+    Parse(url::ParseError),
+}
+
+impl fmt::Display for ProviderUrlError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Forbidden(error) => write!(f, "{error}"),
+            Self::Parse(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for ProviderUrlError {}
+
+impl From<ForbiddenOpenAiRequestHost> for ProviderUrlError {
+    fn from(error: ForbiddenOpenAiRequestHost) -> Self {
+        Self::Forbidden(error)
+    }
+}
+
+impl From<url::ParseError> for ProviderUrlError {
+    fn from(error: url::ParseError) -> Self {
+        Self::Parse(error)
+    }
+}
 
 /// High-level retry configuration for a provider.
 ///
@@ -52,7 +85,8 @@ pub struct Provider {
 }
 
 impl Provider {
-    pub fn url_for_path(&self, path: &str) -> String {
+    pub fn url_for_path(&self, path: &str) -> Result<String, ForbiddenOpenAiRequestHost> {
+        reject_forbidden_openai_request_url(&self.base_url)?;
         let base = self.base_url.trim_end_matches('/');
         let path = path.trim_start_matches('/');
         let mut url = if path.is_empty() {
@@ -73,23 +107,27 @@ impl Provider {
             url.push_str(&qs);
         }
 
-        url
+        Ok(url)
     }
 
-    pub fn build_request(&self, method: Method, path: &str) -> Request {
-        Request {
+    pub fn build_request(
+        &self,
+        method: Method,
+        path: &str,
+    ) -> Result<Request, ForbiddenOpenAiRequestHost> {
+        Ok(Request {
             method,
-            url: self.url_for_path(path),
+            url: self.url_for_path(path)?,
             headers: self.headers.clone(),
             body: None,
             compression: RequestCompression::None,
             timeout: None,
             response_body_limit_bytes: None,
-        }
+        })
     }
 
-    pub fn websocket_url_for_path(&self, path: &str) -> Result<Url, url::ParseError> {
-        let mut url = Url::parse(&self.url_for_path(path))?;
+    pub fn websocket_url_for_path(&self, path: &str) -> Result<Url, ProviderUrlError> {
+        let mut url = Url::parse(&self.url_for_path(path)?)?;
 
         let scheme = match url.scheme() {
             "http" => "ws",

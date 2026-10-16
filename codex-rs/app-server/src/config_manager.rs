@@ -509,11 +509,6 @@ impl ConfigManager {
                 config
                     .http_client_factory()
                     .with_network_policy(self.network_policy.policy()),
-            )
-            .with_local_bootstrap_factory(
-                config
-                    .http_client_factory()
-                    .with_network_policy(self.local_network_policy.policy()),
             ),
         );
     }

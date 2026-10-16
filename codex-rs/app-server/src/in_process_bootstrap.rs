@@ -78,10 +78,8 @@ impl EmbeddedNetworkPolicy {
             .http_client_factory()
             .clone()
             .with_network_policy(self.local.policy());
-        auth.auth_route_config =
-            codex_login::AuthRouteConfig::from_http_client_factory(factory.clone())
-                .with_local_bootstrap_factory(factory)
-                .with_application_network_policy(self.effective.policy());
+        auth.auth_route_config = codex_login::AuthRouteConfig::from_http_client_factory(factory)
+            .with_application_network_policy(self.effective.policy());
         auth
     }
 }

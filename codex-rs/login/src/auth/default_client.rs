@@ -21,8 +21,6 @@ use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::sync::RwLock;
 
-use crate::outbound_proxy::AuthRouteConfig;
-
 /// Set this to add a suffix to the User-Agent string.
 ///
 /// It is not ideal that we're using a global singleton for this.
@@ -428,19 +426,6 @@ fn build_default_client(builder: HttpClientBuilder) -> HttpClient {
     } else {
         builder.build_with_transport_default_proxy_and_custom_ca_fallback()
     }
-}
-
-/// Builds the default Codex HTTP client wrapper for an auth endpoint.
-pub(crate) fn create_default_auth_client(
-    endpoint: &str,
-    auth_route_config: &AuthRouteConfig,
-) -> Result<HttpClient, BuildRouteAwareHttpClientError> {
-    create_client_for_route(
-        &auth_route_config.authentication_factory(endpoint),
-        endpoint,
-        ClientRouteClass::Auth,
-        ClientRedirectPolicy::Default,
-    )
 }
 
 pub fn default_headers() -> HeaderMap {

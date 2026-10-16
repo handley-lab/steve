@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::error::Error as StdError;
 use std::fmt;
-use std::time::Duration;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -10,7 +9,6 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::SecondsFormat;
 use chrono::Utc;
-use codex_http_client::HttpClient;
 use codex_http_client::HttpError;
 use codex_protocol::auth::PlanType as AuthPlanType;
 use codex_protocol::protocol::SessionSource;
@@ -35,13 +33,8 @@ use serde::de::DeserializeOwned;
 use sha2::Digest as _;
 use sha2::Sha512;
 
-const AGENT_TASK_REGISTRATION_TIMEOUT: Duration = Duration::from_secs(30);
-const AGENT_IDENTITY_JWKS_TIMEOUT: Duration = Duration::from_secs(10);
 const AGENT_IDENTITY_JWT_AUDIENCE: &str = "codex-app-server";
 const AGENT_IDENTITY_JWT_ISSUER: &str = "https://chatgpt.com/codex-backend/agent-identity";
-const AGENT_REGISTRATION_TIMEOUT: Duration = Duration::from_secs(15);
-const PROD_AGENT_IDENTITY_AUTHAPI_BASE_URL: &str = "https://auth.openai.com/api/accounts";
-const STAGING_AGENT_IDENTITY_AUTHAPI_BASE_URL: &str = "https://auth.api.openai.org/api/accounts";
 const AGENT_IDENTITY_KEY_SEED_BYTES: usize = 64;
 const AGENT_IDENTITY_KEY_DERIVATION_CONTEXT: &[u8] = b"codex-agent-identity-ed25519-v1";
 
@@ -70,20 +63,6 @@ impl ChatGptEnvironment {
             _ => anyhow::bail!(
                 "Agent Identity only supports production and staging ChatGPT environments"
             ),
-        }
-    }
-
-    pub fn chatgpt_base_url(self) -> &'static str {
-        match self {
-            Self::Production => "https://chatgpt.com/backend-api",
-            Self::Staging => "https://chatgpt-staging.com/backend-api",
-        }
-    }
-
-    pub fn agent_identity_authapi_base_url(self) -> &'static str {
-        match self {
-            Self::Production => PROD_AGENT_IDENTITY_AUTHAPI_BASE_URL,
-            Self::Staging => STAGING_AGENT_IDENTITY_AUTHAPI_BASE_URL,
         }
     }
 }
@@ -135,35 +114,11 @@ struct AgentAssertionEnvelope {
     signature: String,
 }
 
+#[cfg(test)]
 #[derive(Serialize)]
 struct RegisterTaskRequest {
     timestamp: String,
     signature: String,
-}
-
-#[derive(Deserialize)]
-struct RegisterTaskResponse {
-    #[serde(default)]
-    task_id: Option<String>,
-    #[serde(default, rename = "taskId")]
-    task_id_camel: Option<String>,
-    #[serde(default)]
-    encrypted_task_id: Option<String>,
-    #[serde(default, rename = "encryptedTaskId")]
-    encrypted_task_id_camel: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct RegisterAgentRequest {
-    abom: AgentBillOfMaterials,
-    agent_public_key: String,
-    capabilities: Vec<String>,
-    ttl: Option<u64>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RegisterAgentResponse {
-    agent_runtime_id: String,
 }
 
 /// HTTP status failure returned by Agent Identity registration endpoints.
@@ -175,6 +130,7 @@ pub struct AgentIdentityRegistrationHttpError {
 }
 
 impl AgentIdentityRegistrationHttpError {
+    #[cfg(test)]
     fn new(operation: &'static str, status: StatusCode, body: String) -> Self {
         Self {
             operation,
@@ -244,25 +200,6 @@ pub fn authorization_header_for_agent_task(
     Ok(format!("AgentAssertion {serialized_assertion}"))
 }
 
-pub async fn fetch_agent_identity_jwks(
-    client: &HttpClient,
-    agent_identity_jwt_base_url: &str,
-) -> Result<JwkSet> {
-    let response = client
-        .get(agent_identity_jwks_url(agent_identity_jwt_base_url))
-        .timeout(AGENT_IDENTITY_JWKS_TIMEOUT)
-        .send()
-        .await
-        .context("failed to request agent identity JWKS")?
-        .error_for_status()
-        .context("agent identity JWKS endpoint returned an error")?;
-
-    response
-        .json()
-        .await
-        .context("failed to decode agent identity JWKS")
-}
-
 pub fn decode_agent_identity_jwt(
     jwt: &str,
     jwks: Option<&JwkSet>,
@@ -310,102 +247,6 @@ pub fn sign_task_registration_payload(
     let signing_key = signing_key_from_private_key_pkcs8_base64(key.private_key_pkcs8_base64)?;
     let payload = format!("{}:{timestamp}", key.agent_runtime_id);
     Ok(BASE64_STANDARD.encode(signing_key.sign(payload.as_bytes()).to_bytes()))
-}
-
-pub async fn register_agent_task(
-    client: &HttpClient,
-    agent_identity_authapi_base_url: &str,
-    key: AgentIdentityKey<'_>,
-) -> Result<String> {
-    let timestamp = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
-    let request = RegisterTaskRequest {
-        signature: sign_task_registration_payload(key, &timestamp)?,
-        timestamp,
-    };
-    let url = agent_task_registration_url(agent_identity_authapi_base_url, key.agent_runtime_id);
-
-    let response = client
-        .post(url)
-        .timeout(AGENT_TASK_REGISTRATION_TIMEOUT)
-        .json(&request)
-        .send()
-        .await
-        .context("failed to register agent task")?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        let body = if body.len() > 512 {
-            format!("{}...", body.chars().take(512).collect::<String>())
-        } else {
-            body
-        };
-        return Err(AgentIdentityRegistrationHttpError::new(
-            "agent task registration",
-            status,
-            body,
-        )
-        .into());
-    }
-
-    let response = response
-        .json()
-        .await
-        .context("failed to decode agent task registration response")?;
-
-    task_id_from_register_task_response(key, response)
-}
-
-pub async fn register_agent_identity(
-    client: &HttpClient,
-    agent_identity_authapi_base_url: &str,
-    access_token: &str,
-    is_fedramp_account: bool,
-    key_material: &GeneratedAgentKeyMaterial,
-    abom: AgentBillOfMaterials,
-    capabilities: Vec<String>,
-) -> Result<String> {
-    let url = agent_registration_url(agent_identity_authapi_base_url);
-    let request = RegisterAgentRequest {
-        abom,
-        agent_public_key: key_material.public_key_ssh.clone(),
-        capabilities,
-        ttl: None,
-    };
-
-    let mut request_builder = client
-        .post(&url)
-        .bearer_auth(access_token)
-        .json(&request)
-        .timeout(AGENT_REGISTRATION_TIMEOUT);
-    if is_fedramp_account {
-        request_builder = request_builder.header("X-OpenAI-Fedramp", "true");
-    }
-
-    let response = request_builder
-        .send()
-        .await
-        .with_context(|| format!("failed to send agent identity registration request to {url}"))?
-        .error_for_status()
-        .with_context(|| format!("agent identity registration failed for {url}"))?
-        .json::<RegisterAgentResponse>()
-        .await
-        .with_context(|| format!("failed to parse agent identity response from {url}"))?;
-
-    Ok(response.agent_runtime_id)
-}
-
-fn task_id_from_register_task_response(
-    key: AgentIdentityKey<'_>,
-    response: RegisterTaskResponse,
-) -> Result<String> {
-    if let Some(task_id) = response.task_id.or(response.task_id_camel) {
-        return Ok(task_id);
-    }
-    let encrypted_task_id = response
-        .encrypted_task_id
-        .or(response.encrypted_task_id_camel)
-        .context("agent task registration response omitted task id")?;
-    decrypt_task_id_response(key, &encrypted_task_id)
 }
 
 pub fn decrypt_task_id_response(
@@ -464,34 +305,6 @@ pub fn curve25519_secret_key_from_private_key_pkcs8_base64(
 ) -> Result<Curve25519SecretKey> {
     let signing_key = signing_key_from_private_key_pkcs8_base64(private_key_pkcs8_base64)?;
     Ok(curve25519_secret_key_from_signing_key(&signing_key))
-}
-
-pub fn agent_registration_url(agent_identity_authapi_base_url: &str) -> String {
-    agent_identity_authapi_url(agent_identity_authapi_base_url, "/v1/agent/register")
-}
-
-pub fn agent_task_registration_url(
-    agent_identity_authapi_base_url: &str,
-    agent_runtime_id: &str,
-) -> String {
-    agent_identity_authapi_url(
-        agent_identity_authapi_base_url,
-        &format!("/v1/agent/{agent_runtime_id}/task/register"),
-    )
-}
-
-pub fn agent_identity_jwks_url(agent_identity_jwt_base_url: &str) -> String {
-    let trimmed = agent_identity_jwt_base_url.trim_end_matches('/');
-    if trimmed.contains("/backend-api") {
-        format!("{trimmed}/wham/agent-identities/jwks")
-    } else {
-        format!("{trimmed}/agent-identities/jwks")
-    }
-}
-
-fn agent_identity_authapi_url(agent_identity_authapi_base_url: &str, api_path: &str) -> String {
-    let base_url = agent_identity_authapi_base_url.trim_end_matches('/');
-    format!("{base_url}{api_path}")
 }
 
 pub fn build_abom(session_source: SessionSource) -> AgentBillOfMaterials {
@@ -882,16 +695,8 @@ J1bwkqKZTB5dHolX9A58e/xXnfZ5P8f3Z83+Izap3FwqQulk7b1WO1MQcHuVg2NN
             ChatGptEnvironment::Production
         );
         assert_eq!(
-            ChatGptEnvironment::Production.agent_identity_authapi_base_url(),
-            "https://auth.openai.com/api/accounts"
-        );
-        assert_eq!(
             ChatGptEnvironment::from_chatgpt_base_url("https://chatgpt-staging.com/backend-api")?,
             ChatGptEnvironment::Staging
-        );
-        assert_eq!(
-            ChatGptEnvironment::Staging.agent_identity_authapi_base_url(),
-            "https://auth.api.openai.org/api/accounts"
         );
         Ok(())
     }
@@ -899,41 +704,6 @@ J1bwkqKZTB5dHolX9A58e/xXnfZ5P8f3Z83+Izap3FwqQulk7b1WO1MQcHuVg2NN
     #[test]
     fn chatgpt_environment_rejects_custom_urls() {
         assert!(ChatGptEnvironment::from_chatgpt_base_url("http://localhost:8080").is_err(),);
-    }
-
-    #[test]
-    fn agent_registration_url_appends_to_authapi_base_url() {
-        assert_eq!(
-            agent_registration_url("https://auth.openai.com/api/accounts"),
-            "https://auth.openai.com/api/accounts/v1/agent/register"
-        );
-        assert_eq!(
-            agent_registration_url("http://localhost:8080"),
-            "http://localhost:8080/v1/agent/register"
-        );
-        assert_eq!(
-            agent_registration_url("http://localhost:8080/backend-api"),
-            "http://localhost:8080/backend-api/v1/agent/register"
-        );
-    }
-
-    #[test]
-    fn agent_task_registration_url_appends_to_authapi_base_url() {
-        assert_eq!(
-            agent_task_registration_url("https://auth.openai.com/api/accounts", "agent-runtime-id"),
-            "https://auth.openai.com/api/accounts/v1/agent/agent-runtime-id/task/register"
-        );
-        assert_eq!(
-            agent_task_registration_url(
-                "https://auth.openai.com/api/accounts/",
-                "agent-runtime-id"
-            ),
-            "https://auth.openai.com/api/accounts/v1/agent/agent-runtime-id/task/register"
-        );
-        assert_eq!(
-            agent_task_registration_url("http://localhost:8080", "agent-runtime-id"),
-            "http://localhost:8080/v1/agent/agent-runtime-id/task/register"
-        );
     }
 
     #[test]
@@ -964,30 +734,6 @@ J1bwkqKZTB5dHolX9A58e/xXnfZ5P8f3Z83+Izap3FwqQulk7b1WO1MQcHuVg2NN
 
         assert!(!is_retryable_registration_error(&forbidden));
         assert!(!is_retryable_registration_error(&malformed));
-    }
-
-    #[test]
-    fn agent_identity_jwks_url_uses_agent_identity_jwt_route() {
-        assert_eq!(
-            agent_identity_jwks_url("https://chatgpt.com/backend-api"),
-            "https://chatgpt.com/backend-api/wham/agent-identities/jwks"
-        );
-        assert_eq!(
-            agent_identity_jwks_url("https://chatgpt.com/backend-api/"),
-            "https://chatgpt.com/backend-api/wham/agent-identities/jwks"
-        );
-    }
-
-    #[test]
-    fn agent_identity_jwks_url_uses_jwt_issuer_base_url() {
-        assert_eq!(
-            agent_identity_jwks_url("http://localhost:8080/api/codex"),
-            "http://localhost:8080/api/codex/agent-identities/jwks"
-        );
-        assert_eq!(
-            agent_identity_jwks_url("http://localhost:8080/api/codex/"),
-            "http://localhost:8080/api/codex/agent-identities/jwks"
-        );
     }
 
     fn jwt_with_payload(payload: serde_json::Value) -> String {

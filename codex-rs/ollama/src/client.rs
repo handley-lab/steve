@@ -77,6 +77,8 @@ impl OllamaClient {
             .base_url
             .as_ref()
             .expect("oss provider must have a base_url");
+        codex_http_client::reject_forbidden_openai_request_url(base_url)
+            .map_err(io::Error::other)?;
         let uses_openai_compat = is_openai_compatible_base_url(base_url);
         let host_root = base_url_to_host_root(base_url);
         let client = RouteAwareClientPool::with_connect_timeout(

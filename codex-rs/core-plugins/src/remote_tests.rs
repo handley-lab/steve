@@ -349,7 +349,6 @@ fn directory_plugin(id: &str, name: &str) -> RemotePluginDirectoryItem {
             version: None,
             display_name: name.to_string(),
             description: String::new(),
-            bundle_download_url: None,
             app_ids: Vec::new(),
             app_manifest: None,
             app_templates: Vec::new(),

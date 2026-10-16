@@ -25,12 +25,6 @@ pub fn append_error_log(message: impl AsRef<str>) {
     }
 }
 
-/// Normalize the configured base URL to a canonical form used by the backend client.
-/// - trims trailing '/'
-pub fn normalize_base_url(input: &str) -> String {
-    input.trim_end_matches('/').to_string()
-}
-
 /// Reads the configured cloud-tasks base URL.
 ///
 /// A missing value is an error. This does not substitute a ChatGPT host.
@@ -49,31 +43,19 @@ pub(crate) fn validate_chatgpt_base_url(input: &str) -> anyhow::Result<String> {
             "STEVE_CLOUD_TASKS_BASE_URL must use a trusted HTTPS origin on port 443, without user information, a query, or a fragment; custom backends cannot use saved ChatGPT credentials"
         )
     };
+    codex_http_client::reject_forbidden_openai_request_url(input)
+        .map_err(|error| anyhow::anyhow!(error))?;
     let uri = input.parse::<http::Uri>().map_err(|_| invalid_url())?;
-    let authority = uri
-        .authority()
-        .ok_or_else(invalid_url)?
-        .as_str()
-        .to_ascii_lowercase();
+    let authority = uri.authority().ok_or_else(invalid_url)?;
     if uri.scheme_str() != Some("https")
-        || !matches!(
-            authority.as_str(),
-            "chatgpt.com"
-                | "chatgpt.com:443"
-                | "chat.openai.com"
-                | "chat.openai.com:443"
-                | "chatgpt-staging.com"
-                | "chatgpt-staging.com:443"
-        )
+        || authority.as_str().contains('@')
         || uri.query().is_some()
         || input.contains('#')
     {
         return Err(invalid_url());
     }
-    Ok(normalize_base_url(&format!(
-        "https://{authority}{}",
-        uri.path()
-    )))
+    // Saved ChatGPT credentials are not attached to a cloud-tasks host.
+    Err(invalid_url())
 }
 
 pub async fn load_auth_manager(

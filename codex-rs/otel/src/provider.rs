@@ -451,6 +451,7 @@ fn build_logger(
             tls,
         } => {
             debug!("Using OTLP Grpc exporter: {endpoint}");
+            crate::otlp::reject_forbidden_export_endpoint(endpoint)?;
 
             let header_map = crate::otlp::build_header_map(&headers);
 
@@ -482,6 +483,7 @@ fn build_logger(
             tls,
         } => {
             debug!("Using OTLP Http exporter: {endpoint}");
+            crate::otlp::reject_forbidden_export_endpoint(endpoint)?;
 
             let protocol = match protocol {
                 OtelHttpProtocol::Binary => Protocol::HttpBinary,
@@ -532,6 +534,7 @@ fn build_tracer_provider(
             tls,
         } => {
             debug!("Using OTLP Grpc exporter for traces: {endpoint}");
+            crate::otlp::reject_forbidden_export_endpoint(endpoint)?;
 
             let header_map = crate::otlp::build_header_map(&headers);
 
@@ -558,6 +561,7 @@ fn build_tracer_provider(
             tls,
         } => {
             debug!("Using OTLP Http exporter for traces: {endpoint}");
+            crate::otlp::reject_forbidden_export_endpoint(endpoint)?;
 
             if crate::otlp::current_tokio_runtime_is_multi_thread() {
                 let protocol = match protocol {

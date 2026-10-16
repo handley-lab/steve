@@ -51,13 +51,13 @@ impl<T: HttpTransport> EndpointSession<T> {
         path: &str,
         extra_headers: &HeaderMap,
         body: Option<&RequestBody>,
-    ) -> Request {
-        let mut req = self.provider.build_request(method.clone(), path);
+    ) -> Result<Request, crate::ForbiddenOpenAiRequestHost> {
+        let mut req = self.provider.build_request(method.clone(), path)?;
         req.headers.extend(extra_headers.clone());
         if let Some(body) = body {
             req.body = Some(body.clone());
         }
-        req
+        Ok(req)
     }
 
     #[instrument(
@@ -78,11 +78,13 @@ impl<T: HttpTransport> EndpointSession<T> {
         C: Fn(&mut Request),
     {
         let body = body.map(RequestBody::Json);
-        let make_request = || {
-            let mut req = self.make_request(&method, path, &extra_headers, body.as_ref());
-            configure(&mut req);
-            req
-        };
+        let mut req = self
+            .make_request(&method, path, &extra_headers, body.as_ref())
+            .map_err(|err| ApiError::InvalidRequest {
+                message: err.to_string(),
+            })?;
+        configure(&mut req);
+        let make_request = move || req.clone();
 
         let response = run_with_request_telemetry(
             self.provider.retry.to_policy(),
@@ -120,7 +122,11 @@ impl<T: HttpTransport> EndpointSession<T> {
         C: Fn(&mut Request),
     {
         let body = body.map(RequestBody::EncodedJson);
-        let mut request = self.make_request(&method, path, &extra_headers, body.as_ref());
+        let mut request = self
+            .make_request(&method, path, &extra_headers, body.as_ref())
+            .map_err(|err| ApiError::InvalidRequest {
+                message: err.to_string(),
+            })?;
         configure(&mut request);
         let request = request.into_prepared().map_err(TransportError::Build)?;
         let make_request = || request.clone();

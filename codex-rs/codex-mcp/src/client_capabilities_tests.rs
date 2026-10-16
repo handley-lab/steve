@@ -69,7 +69,7 @@ fn user_verification_is_projected_only_to_the_host_owned_plugin_service() {
     use crate::mcp::CODEX_APPS_MCP_SERVER_NAME;
     use codex_rmcp_client::McpProtocolMode;
 
-    let config = serde_json::from_value(serde_json::json!({
+    let config: codex_config::McpServerConfig = serde_json::from_value(serde_json::json!({
         "url": "https://example.com",
     }))
     .expect("mcp server config");

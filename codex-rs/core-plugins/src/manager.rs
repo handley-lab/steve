@@ -1196,7 +1196,10 @@ impl PluginsManager {
     }
 
     #[cfg(test)]
-    fn write_remote_installed_plugins_cache(&self, plugins: Vec<RemoteInstalledPlugin>) -> bool {
+    pub(crate) fn write_remote_installed_plugins_cache(
+        &self,
+        plugins: Vec<RemoteInstalledPlugin>,
+    ) -> bool {
         let auth = self.auth_manager.auth_cached();
         let generation = self
             .prepare_remote_installed_plugins_cache_generation(auth.as_ref())

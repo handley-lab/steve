@@ -31,6 +31,11 @@ pub(crate) fn build_header_map(headers: &std::collections::HashMap<String, Strin
     header_map
 }
 
+pub(crate) fn reject_forbidden_export_endpoint(endpoint: &str) -> Result<(), Box<dyn Error>> {
+    codex_http_client::reject_forbidden_openai_request_url(endpoint)
+        .map_err(|error| config_error(error.to_string()))
+}
+
 pub(crate) fn build_grpc_tls_config(
     endpoint: &str,
     tls_config: ClientTlsConfig,

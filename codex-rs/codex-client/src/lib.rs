@@ -4,6 +4,7 @@ mod sse;
 mod telemetry;
 
 pub use crate::provider::Provider;
+pub use crate::provider::ProviderUrlError;
 pub use crate::provider::RetryConfig;
 pub use crate::retry::RetryOn;
 pub use crate::retry::RetryOperation;

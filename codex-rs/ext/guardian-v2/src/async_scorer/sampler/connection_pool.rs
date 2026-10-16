@@ -265,7 +265,11 @@ impl ConnectionPool {
                 // Sampling owns the retry budget across both transports.
                 provider.retry.max_attempts = 0;
                 let request_kind = self.responses_request_kind().await;
-                let url = provider.url_for_path("/responses");
+                let url = provider.url_for_path("/responses").map_err(|err| {
+                    LunaSamplerError::Api(ApiError::InvalidRequest {
+                        message: err.to_string(),
+                    })
+                })?;
                 let redirect_policy = if provider.headers.contains_key(ACCOUNT_ROUTING_HEADER) {
                     ClientRedirectPolicy::Reject
                 } else {

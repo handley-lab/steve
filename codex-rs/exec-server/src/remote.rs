@@ -879,6 +879,9 @@ struct RegistryError {
 }
 
 fn normalize_base_url(base_url: String) -> Result<String, ExecServerError> {
+    codex_http_client::reject_forbidden_openai_request_url(&base_url).map_err(|error| {
+        ExecServerError::EnvironmentRegistryConfig(error.to_string())
+    })?;
     let trimmed = base_url.trim().trim_end_matches('/').to_string();
     if trimmed.is_empty() {
         return Err(ExecServerError::EnvironmentRegistryConfig(

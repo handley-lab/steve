@@ -1,6 +1,7 @@
 mod chatgpt_cloudflare_cookies;
 mod chatgpt_hosts;
 mod client;
+mod forbidden_request_host;
 mod client_builder;
 mod client_tls;
 mod custom_ca;
@@ -19,6 +20,9 @@ mod transport;
 
 pub use crate::chatgpt_cloudflare_cookies::with_chatgpt_cloudflare_cookie_store;
 pub use crate::chatgpt_hosts::is_allowed_chatgpt_host;
+pub use crate::forbidden_request_host::ForbiddenOpenAiRequestHost;
+pub use crate::forbidden_request_host::is_forbidden_openai_request_host;
+pub use crate::forbidden_request_host::reject_forbidden_openai_request_url;
 pub use crate::client::HttpClient;
 pub use crate::client::HttpError;
 pub use crate::client_builder::HttpClientBuilder;

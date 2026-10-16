@@ -1,4 +1,5 @@
 pub use codex_client::Provider;
+pub use codex_client::ProviderUrlError;
 pub use codex_client::RetryConfig;
 
 pub fn is_azure_responses_provider(name: &str, base_url: Option<&str>) -> bool {

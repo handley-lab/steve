@@ -22,7 +22,6 @@ use tokio::sync::Semaphore;
 use tokio::sync::watch;
 use tracing::instrument;
 
-use codex_agent_identity::ChatGptEnvironment;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::config_types::ForcedLoginMethod;
 use codex_protocol::config_types::ModelProviderAuthInfo;
@@ -35,7 +34,6 @@ use super::agent_identity::classify_bootstrap_error;
 use super::agent_identity::record_matches_managed_chatgpt_binding;
 use super::agent_identity::record_needs_task_registration;
 use super::agent_identity::register_managed_chatgpt_agent_identity;
-use super::agent_identity::require_agent_identity_authapi_base_url;
 use super::agent_identity::verified_record_from_jwt;
 use super::change_state::AuthChangeState;
 use super::change_state::same_owner;
@@ -319,12 +317,8 @@ impl CodexAuth {
                     "agent identity auth is missing agent identity auth material.",
                 ));
             };
-            let base_url = chatgpt_base_url
-                .unwrap_or(ChatGptEnvironment::default().chatgpt_base_url())
-                .trim_end_matches('/')
-                .to_string();
-            let agent_identity_authapi_base_url =
-                require_agent_identity_authapi_base_url(agent_identity_authapi_base_url)?;
+            let base_url = chatgpt_base_url.unwrap_or("").trim_end_matches('/').to_string();
+            let agent_identity_authapi_base_url = agent_identity_authapi_base_url.unwrap_or("");
             match agent_identity {
                 AgentIdentityStorage::Jwt(jwt) => {
                     let auth = AgentIdentityAuth::from_jwt(
@@ -435,11 +429,10 @@ impl CodexAuth {
         chatgpt_base_url: Option<&str>,
         auth_route_config: &AuthRouteConfig,
     ) -> std::io::Result<Self> {
-        let agent_identity_authapi_base_url = agent_identity_authapi_base_url(chatgpt_base_url)?;
         Self::from_agent_identity_jwt_with_authapi_base_url(
             jwt,
             chatgpt_base_url,
-            &agent_identity_authapi_base_url,
+            "",
             auth_route_config,
         )
         .await
@@ -451,10 +444,7 @@ impl CodexAuth {
         agent_identity_authapi_base_url: &str,
         auth_route_config: &AuthRouteConfig,
     ) -> std::io::Result<Self> {
-        let base_url = chatgpt_base_url
-            .unwrap_or(ChatGptEnvironment::default().chatgpt_base_url())
-            .trim_end_matches('/')
-            .to_string();
+        let base_url = chatgpt_base_url.unwrap_or("").trim_end_matches('/').to_string();
         Ok(Self::AgentIdentity(
             AgentIdentityAuth::from_jwt(
                 jwt,
@@ -731,7 +721,7 @@ impl CodexAuth {
                     return Ok(None);
                 }
                 self.ensure_managed_chatgpt_agent_identity(
-                    require_agent_identity_authapi_base_url(agent_identity_authapi_base_url)?,
+                    agent_identity_authapi_base_url.unwrap_or(""),
                     forced_chatgpt_workspace_id,
                     auth_route_config,
                     session_source,
@@ -1017,10 +1007,7 @@ pub async fn login_with_access_token(
         CodexAccessToken::AgentIdentityJwt(jwt) => {
             let record = AgentIdentityAuthRecord::from_agent_identity_jwt(jwt)?;
             ensure_auth_workspace_allowed(forced_chatgpt_workspace_id, &record.account_id)?;
-            let base_url = chatgpt_base_url
-                .unwrap_or(ChatGptEnvironment::default().chatgpt_base_url())
-                .trim_end_matches('/')
-                .to_string();
+            let base_url = chatgpt_base_url.unwrap_or("").trim_end_matches('/').to_string();
             verified_record_from_jwt(jwt, &base_url, auth_route_config).await?;
             AuthDotJson {
                 auth_mode: Some(AuthMode::AgentIdentity),
@@ -1489,15 +1476,15 @@ async fn load_auth(
             CodexAccessToken::AgentIdentityJwt(jwt) => {
                 let record = AgentIdentityAuthRecord::from_agent_identity_jwt(jwt)?;
                 ensure_auth_workspace_allowed(forced_chatgpt_workspace_id, &record.account_id)?;
-                CodexAuth::from_agent_identity_jwt_with_authapi_base_url(
+                let auth = CodexAuth::from_agent_identity_jwt_with_authapi_base_url(
                     jwt,
                     chatgpt_base_url,
-                    require_agent_identity_authapi_base_url(agent_identity_authapi_base_url)?,
+                    "",
                     auth_route_config,
                 )
+                .await?;
+                Ok(Some(auth))
             }
-            .await
-            .map(Some),
         };
     }
 

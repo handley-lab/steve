@@ -1126,7 +1126,9 @@ impl ModelClient {
         };
         let client = create_client_for_route(
             &self.http_client_factory,
-            &api_provider.url_for_path(endpoint),
+            &api_provider
+                .url_for_path(endpoint)
+                .map_err(std::io::Error::other)?,
             ClientRouteClass::Api,
             redirect_policy,
         )

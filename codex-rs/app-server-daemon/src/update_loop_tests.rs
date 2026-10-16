@@ -447,7 +447,7 @@ fn manual_update_daemon(home: &TempDir) -> (Daemon, String) {
             update_pid_file: state.join("app-server-updater.pid"),
             operation_lock_file: state.join("daemon.lock"),
             settings_file: state.join("settings.json"),
-            managed_codex_bin: standalone.join("current/codex"),
+            managed_codex_bin: standalone.join("current/steve"),
         },
         release,
     )
@@ -790,7 +790,7 @@ async fn scheduled_resource_only_update_restarts_daemon() {
     let next_release = release.replacen("1.0.0", "1.0.1", 1);
     let installer = FakeInstallerHttp::new(InstallerResponse::Success(
         format!(
-            "#!/bin/sh\n# STEVE_INSTALL_IF_LATEST\nmkdir -p '{root}/releases/{next_release}'\ncp '{root}/releases/{release}/codex' '{root}/releases/{next_release}/codex'\nln -sfn 'releases/{next_release}' '{root}/current'\nprintf '{next_release}' > '{root}/auto-update-version'\n",
+            "#!/bin/sh\n# STEVE_INSTALL_IF_LATEST\nmkdir -p '{root}/releases/{next_release}'\ncp '{root}/releases/{release}/steve' '{root}/releases/{next_release}/steve'\nln -sfn 'releases/{next_release}' '{root}/current'\nprintf '{next_release}' > '{root}/auto-update-version'\n",
             root = root.display(),
         )
         .into_bytes(),
@@ -1000,7 +1000,7 @@ async fn check_manual_update_restart(package_directory: &str) {
         std::os::unix::fs::symlink(format!("releases/{local}"), standalone.join("current"))
             .unwrap();
         std::fs::remove_file(standalone.join("auto-update-version")).unwrap();
-        daemon.managed_codex_bin = standalone.join("current/codex");
+        daemon.managed_codex_bin = standalone.join("current/steve");
         release = local;
     }
     let daemon = std::sync::Arc::new(daemon);
@@ -1036,7 +1036,7 @@ async fn check_manual_update_restart(package_directory: &str) {
     let install_binary = if local_package {
         // Same binary and version, but a different package: it must still restart.
         format!(
-            "cp '{root}/releases/{release}/codex' '{root}/releases/{next}/bin/steve'",
+            "cp '{root}/releases/{release}/steve' '{root}/releases/{next}/bin/steve'",
             root = standalone.display()
         )
     } else {
@@ -1267,7 +1267,7 @@ async fn daemon_owned_updates_require_and_request_an_isolated_installer() {
     let (mut daemon, release) = manual_update_daemon(&home);
     let root = home.path().join("packages/app-server-daemon");
     std::fs::rename(home.path().join("packages/standalone"), &root).unwrap();
-    daemon.managed_codex_bin = root.join("current/codex");
+    daemon.managed_codex_bin = root.join("current/steve");
     let identity = executable_identity(&daemon.managed_codex_bin)
         .await
         .unwrap();

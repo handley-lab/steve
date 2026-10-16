@@ -600,6 +600,7 @@ impl RmcpClient {
         redirect_mode: StreamableHttpRedirectMode,
         oauth_refresh_mode: McpOAuthRefreshMode,
     ) -> Result<Self> {
+        codex_http_client::reject_forbidden_openai_request_url(url)?;
         let transport_recipe = TransportRecipe::StreamableHttp {
             server_name: server_name.to_string(),
             url: url.to_string(),
