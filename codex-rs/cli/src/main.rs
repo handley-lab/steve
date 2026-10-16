@@ -600,8 +600,6 @@ struct AppServerCommand {
     /// [analytics]
     /// enabled = false
     /// ```
-    ///
-    /// See https://developers.openai.com/codex/config-advanced/#metrics for more details.
     #[arg(long = "analytics-default-enabled")]
     analytics_default_enabled: bool,
 
