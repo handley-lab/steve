@@ -2110,7 +2110,6 @@ dependencies = [
  "codex-home",
  "codex-hooks",
  "codex-http-client",
- "codex-image-generation-extension",
  "codex-login",
  "codex-mcp",
  "codex-mcp-extension",
@@ -2967,7 +2966,6 @@ dependencies = [
  "codex-home",
  "codex-hooks",
  "codex-http-client",
- "codex-image-generation-extension",
  "codex-install-context",
  "codex-login",
  "codex-mcp",
@@ -3081,7 +3079,6 @@ dependencies = [
  "codex-features",
  "codex-history",
  "codex-home",
- "codex-image-generation-extension",
  "codex-login",
  "codex-model-provider-info",
  "codex-models-manager",
@@ -3715,34 +3712,6 @@ dependencies = [
  "tracing-subscriber",
  "windows-sys 0.61.2",
  "zstd",
-]
-
-[[package]]
-name = "codex-image-generation-extension"
-version = "0.0.0"
-dependencies = [
- "base64 0.22.1",
- "codex-api",
- "codex-core",
- "codex-exec-server",
- "codex-extension-api",
- "codex-extension-items",
- "codex-http-client",
- "codex-login",
- "codex-model-provider",
- "codex-model-provider-info",
- "codex-protocol",
- "codex-tools",
- "codex-utils-absolute-path",
- "codex-utils-image",
- "codex-utils-path-uri",
- "http 1.4.0",
- "pretty_assertions",
- "schemars 0.8.22",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
 ]
 
 [[package]]

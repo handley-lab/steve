@@ -1,12 +1,9 @@
-pub(crate) mod images;
 pub(crate) mod models;
 pub(crate) mod realtime_websocket;
 pub(crate) mod responses;
 pub(crate) mod responses_websocket;
 mod session;
 
-pub use images::ImageRequestError;
-pub use images::ImagesClient;
 pub use models::ModelsClient;
 pub use realtime_websocket::RealtimeContextAppendChannel;
 pub use realtime_websocket::RealtimeEventParser;

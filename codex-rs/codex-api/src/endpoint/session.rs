@@ -60,17 +60,6 @@ impl<T: HttpTransport> EndpointSession<T> {
         req
     }
 
-    pub(crate) async fn execute(
-        &self,
-        method: Method,
-        path: &str,
-        extra_headers: HeaderMap,
-        body: Option<Value>,
-    ) -> Result<Response, ApiError> {
-        self.execute_with(method, path, extra_headers, body, |_| {})
-            .await
-    }
-
     #[instrument(
         name = "endpoint_session.execute_with",
         level = "info",

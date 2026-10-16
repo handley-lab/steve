@@ -67,7 +67,6 @@ use codex_core_api::build_models_manager;
 use codex_core_api::built_in_model_providers;
 use codex_core_api::find_codex_home;
 use codex_core_api::init_state_db;
-use codex_core_api::install_image_generation_extension;
 use codex_core_api::item_event_to_server_notification;
 use codex_core_api::load_config_toml_with_layer_stack;
 use codex_core_api::local_agent_graph_store_from_state_db;
@@ -142,10 +141,7 @@ async fn run_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
     let user_instructions_provider = Arc::new(CodexHomeUserInstructionsProvider::new(
         config.codex_home.clone(),
     ));
-    let mut extensions = ExtensionRegistryBuilder::<Config>::new();
-    install_image_generation_extension(&mut extensions, auth_manager.clone(), |config: &Config| {
-        Some(config.codex_home.clone())
-    });
+    let extensions = ExtensionRegistryBuilder::<Config>::new();
     let thread_manager = ThreadManager::new(
         &config,
         Arc::clone(&auth_manager),

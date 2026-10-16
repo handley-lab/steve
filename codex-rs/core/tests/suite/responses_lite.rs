@@ -8,7 +8,6 @@ use codex_core::config::Config;
 use codex_extension_api::ExtensionRegistry;
 use codex_extension_api::ExtensionRegistryBuilder;
 use codex_features::Feature;
-use codex_image_generation_extension::install as install_image_generation_extension;
 use codex_login::CodexAuth;
 use codex_login::auth::BedrockApiKeyAuth;
 use codex_mcp::CODEX_APPS_MCP_SERVER_NAME;
@@ -36,12 +35,9 @@ use serde_json::Value;
 const RESPONSES_LITE_HEADER: &str = "x-openai-internal-codex-responses-lite";
 
 fn responses_extensions(auth: &CodexAuth) -> Arc<ExtensionRegistry<Config>> {
-    let auth_manager = codex_core::test_support::auth_manager_from_auth(auth.clone());
+    let _ = auth;
     let mut extension_builder = ExtensionRegistryBuilder::<Config>::new();
     install_web_search_extension(&mut extension_builder);
-    install_image_generation_extension(&mut extension_builder, auth_manager, |config| {
-        Some(config.codex_home.clone())
-    });
     Arc::new(extension_builder.build())
 }
 
@@ -386,7 +382,6 @@ async fn responses_lite_uses_standalone_web_search_and_image_generation() -> Res
     assert!(body.get("tools").is_none());
     let tools = additional_tools(&body)?;
     assert!(has_namespaced_tool(tools, "web", "run"));
-    assert!(has_namespaced_tool(tools, "image_gen", "imagegen"));
     assert!(!has_hosted_tool(tools, "web_search"));
     assert!(!has_hosted_tool(tools, "image_generation"));
 
@@ -432,7 +427,6 @@ async fn responses_lite_exposes_standalone_tools_for_actor_authorized_provider()
     let body = response_mock.single_request().body_json();
     let tools = additional_tools(&body)?;
     assert!(has_namespaced_tool(tools, "web", "run"));
-    assert!(has_namespaced_tool(tools, "image_gen", "imagegen"));
 
     Ok(())
 }
@@ -671,41 +665,4 @@ async fn responses_lite_omits_hosted_tools_without_standalone_extensions() -> Re
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn non_lite_uses_standalone_image_generation_by_default() -> Result<()> {
-    skip_if_no_network!(Ok(()));
 
-    let server = responses::start_mock_server().await;
-    let response_mock = responses::mount_sse_once(
-        &server,
-        responses::sse(vec![
-            responses::ev_response_created("resp-1"),
-            responses::ev_completed("resp-1"),
-        ]),
-    )
-    .await;
-
-    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
-    let extensions = responses_extensions(&auth);
-    let mut builder = test_codex()
-        .with_auth(auth)
-        .with_extensions(extensions)
-        .with_model_info_override("gpt-5.4", configure_image_capable_model)
-        .with_config(configure_responses_tools);
-    let test = builder.build(&server).await?;
-
-    test.submit_turn("Use image generation").await?;
-
-    let request = response_mock.single_request();
-    assert_eq!(request.header(RESPONSES_LITE_HEADER), None);
-    assert!(request.tool_by_name("web", "run").is_none());
-    assert!(request.tool_by_name("image_gen", "imagegen").is_some());
-    let body = request.body_json();
-    let tools = body["tools"]
-        .as_array()
-        .context("Responses request tools should be an array")?;
-    assert!(has_hosted_tool(tools, "web_search"));
-    assert!(!has_hosted_tool(tools, "image_generation"));
-
-    Ok(())
-}

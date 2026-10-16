@@ -144,7 +144,6 @@ openssl-sys = { workspace = true, features = ["vendored"] }
 assert_cmd = { workspace = true }
 assert_matches = { workspace = true }
 codex-exec-server-test-support = { workspace = true }
-codex-image-generation-extension = { workspace = true }
 codex-home = { workspace = true }
 codex-mcp-extension = { workspace = true }
 codex-otel = { workspace = true }
