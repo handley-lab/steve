@@ -37,22 +37,21 @@ pub(super) fn peak(
         .fold(/*init*/ 0.0, f64::max)
 }
 
+fn whole_units(unit: AccountAnalyticsUnit) -> bool {
+    match unit {
+        AccountAnalyticsUnit::Tokens => true,
+        #[cfg(test)]
+        AccountAnalyticsUnit::Count => true,
+        AccountAnalyticsUnit::RelativeUsage | AccountAnalyticsUnit::Credits => false,
+    }
+}
+
 /// Two readable intervals cover the range; counts never use fractional ticks.
 pub(super) fn axis_max(peak: f64, unit: AccountAnalyticsUnit) -> f64 {
     if peak == 0.0 {
-        return if matches!(
-            unit,
-            AccountAnalyticsUnit::Count | AccountAnalyticsUnit::Tokens
-        ) {
-            2.0
-        } else {
-            1.0
-        };
+        return if whole_units(unit) { 2.0 } else { 1.0 };
     }
-    let step = if matches!(
-        unit,
-        AccountAnalyticsUnit::Count | AccountAnalyticsUnit::Tokens
-    ) {
+    let step = if whole_units(unit) {
         (peak / 2.0).max(/*other*/ 1.0)
     } else {
         peak / 2.0
@@ -62,11 +61,7 @@ pub(super) fn axis_max(peak: f64, unit: AccountAnalyticsUnit) -> f64 {
     let multiple = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 7.5, 10.0]
         .into_iter()
         .find(|multiple| {
-            *multiple >= normalized
-                && (!matches!(
-                    unit,
-                    AccountAnalyticsUnit::Count | AccountAnalyticsUnit::Tokens
-                ) || (multiple * magnitude).fract() == 0.0)
+            *multiple >= normalized && (!whole_units(unit) || (multiple * magnitude).fract() == 0.0)
         })
         .unwrap_or(/*default*/ 10.0);
     let ceiling = multiple * magnitude * 2.0;
@@ -164,9 +159,9 @@ struct Renderer<'a> {
 fn amount(value: f64, unit: AccountAnalyticsUnit) -> String {
     match unit {
         AccountAnalyticsUnit::RelativeUsage => data::amount(value),
-        AccountAnalyticsUnit::Count | AccountAnalyticsUnit::Tokens => {
-            data::compact_amount(value.round())
-        }
+        AccountAnalyticsUnit::Tokens => data::compact_amount(value.round()),
+        #[cfg(test)]
+        AccountAnalyticsUnit::Count => data::compact_amount(value.round()),
         AccountAnalyticsUnit::Credits => data::credit_amount(value),
     }
 }

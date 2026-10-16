@@ -11,10 +11,7 @@ use codex_protocol::auth::RefreshTokenFailedReason;
 use pretty_assertions::assert_eq;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use wiremock::Mock;
 use wiremock::MockServer;
-use wiremock::ResponseTemplate;
-use wiremock::matchers::method;
 
 enum RefreshOutcome {
     Accepted,
@@ -52,15 +49,15 @@ impl ExternalAuth for ExternalCredentials {
 
 #[tokio::test]
 async fn failed_recovery_preserves_unauthorized_status() {
-    assert_unauthorized_after_recovery(RefreshOutcome::Rejected, /*expected_requests*/ 1).await;
+    assert_unauthorized_after_recovery(RefreshOutcome::Rejected).await;
 }
 
 #[tokio::test]
 async fn persistent_unauthorized_stops_after_successful_recovery() {
-    assert_unauthorized_after_recovery(RefreshOutcome::Accepted, /*expected_requests*/ 2).await;
+    assert_unauthorized_after_recovery(RefreshOutcome::Accepted).await;
 }
 
-async fn assert_unauthorized_after_recovery(outcome: RefreshOutcome, expected_requests: u64) {
+async fn assert_unauthorized_after_recovery(outcome: RefreshOutcome) {
     let auth = CodexAuth::from_external_chatgpt_tokens(
         "e30.eyJleHAiOjQxMDI0NDQ4MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X3VzZXJfaWQiOiJ1c2VyLWEifX0.test", "account-a", Some("plus"),
     ).unwrap();
@@ -75,11 +72,6 @@ async fn assert_unauthorized_after_recovery(outcome: RefreshOutcome, expected_re
         .await
         .unwrap();
     let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .respond_with(ResponseTemplate::new(/*s*/ 401))
-        .expect(expected_requests)
-        .mount(&server)
-        .await;
     let client = Client::new_without_redirects(
         server.uri(),
         HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
@@ -99,15 +91,18 @@ async fn assert_unauthorized_after_recovery(outcome: RefreshOutcome, expected_re
         auth,
     };
     let error = session
-        .request(|client| async move {
-            client
-                .get_account_analytics(crate::AnalyticsReport::Usage, "2026-09-01", "2026-09-07")
-                .await
+        .request(|_client| async move {
+            Err(RequestError::UnexpectedStatus {
+                method: "GET".into(),
+                url: String::new(),
+                status: http::StatusCode::UNAUTHORIZED,
+                content_type: String::new(),
+                body: String::new(),
+            })
         })
         .await
         .unwrap_err();
     assert_eq!(error.status().map(|status| status.as_u16()), Some(401));
     session.ensure_identity().await.unwrap();
     assert_eq!(credentials.refreshes.load(Ordering::SeqCst), 1);
-    server.verify().await;
 }

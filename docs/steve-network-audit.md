@@ -164,8 +164,15 @@ Steve does not POST `/wham/usage/thread_usage/query` or
 `/api/codex/usage/thread_usage/query`. Steve does not POST
 `/wham/usage/thread_usage/query_v2` or `/api/codex/usage/thread_usage/query_v2`.
 Steve does not GET `/wham/usage/plan_limit_history` or
-`/api/codex/usage/plan_limit_history`. The API-key turn-cost request is a
-separate request.
+`/api/codex/usage/plan_limit_history`. Steve does not GET the account
+analytics routes `usage/daily-token-usage-breakdown`,
+`usage/credit-usage-events`,
+`usage/daily-workspace-user-token-usage-breakdown`,
+`usage/daily-workspace-user-credit-usage`,
+`analytics/daily-workspace-usage-counts`,
+`analytics/daily-plugin-usage-metrics`, or
+`analytics/daily-skill-usage-metrics` under `/wham/` or `/api/codex/`.
+The API-key turn-cost request is a separate request.
 Steve does not GET `/wham/rate-limit-reset-credits` or
 `/api/codex/rate-limit-reset-credits`, and does not POST either path with
 `/consume`.

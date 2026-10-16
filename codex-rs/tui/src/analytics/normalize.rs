@@ -1,14 +1,22 @@
 //! Converts backend reports into display data while preserving missing values and full denominators.
 
+#[cfg(test)]
 use super::models::AccountAnalyticsGrouping as Grouping;
+#[cfg(test)]
 use super::models::AccountAnalyticsReport as Report;
+#[cfg(test)]
 use super::models::*;
+#[cfg(test)]
 use super::report_data::AnalyticsData;
+#[cfg(test)]
 use chrono::DateTime;
+#[cfg(test)]
 use chrono::NaiveDate;
+#[cfg(test)]
 use std::collections::BTreeMap;
 
 /// Out-of-range legacy rows do not change attribution semantics for the requested period.
+#[cfg(test)]
 pub(super) fn has_complete_attribution(
     response: &AnalyticsData,
     start: NaiveDate,
@@ -27,6 +35,7 @@ pub(super) fn has_complete_attribution(
         })
 }
 
+#[cfg(test)]
 pub(super) fn history(
     response: AnalyticsData,
     report: Report,

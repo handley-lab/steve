@@ -58,6 +58,7 @@ impl AccountAnalyticsGrouping {
 pub(crate) enum AccountAnalyticsUnit {
     RelativeUsage,
     Credits,
+    #[cfg(test)]
     Count,
     Tokens,
 }

@@ -25,6 +25,7 @@ mod plan;
 mod plan_panel;
 mod plot;
 mod render;
+#[cfg(test)]
 mod report_data;
 mod sections;
 mod styles;
@@ -33,6 +34,7 @@ mod tasks;
 #[cfg(test)]
 #[path = "analytics/test_support.rs"]
 mod test_support;
+#[cfg(test)]
 mod tokens;
 mod tool_panel;
 
@@ -164,10 +166,7 @@ impl AnalyticsView {
         self.invalidate_mouse_targets();
         self.end_date = chrono::Utc::now().date_naive();
         self.live = self.connection.as_ref().map(|(config, _, _)| {
-            std::sync::Arc::new(client::Live::new(
-                std::sync::Arc::clone(config),
-                self.end_date,
-            ))
+            std::sync::Arc::new(client::Live::new(std::sync::Arc::clone(config)))
         });
         for section in &mut self.sections.0 {
             section.history = Load::Unavailable;
@@ -217,33 +216,10 @@ impl AnalyticsView {
     }
 
     fn load_report(&mut self, section: Section) {
-        let Some(report) = section.report() else {
+        if section.report().is_none() {
             return;
-        };
-        let group = self.sections[section].group;
-        let range = self.ranges[self.range_group(section) as usize];
-        self.sections[section].history =
-            if let (Some((_, _, frame)), Some(live)) = (&self.connection, &self.live) {
-                let live = std::sync::Arc::clone(live);
-                let days = if range == 0 { 7 } else { 30 };
-                let model = self.token_model.clone();
-                Load::start(
-                    async move {
-                        if let Some(model) = model
-                            .as_deref()
-                            .filter(|_| report == models::AccountAnalyticsReport::Usage)
-                        {
-                            live.filtered_history(report, days, data::GROUPINGS[group], Some(model))
-                                .await
-                        } else {
-                            live.history(report, days, data::GROUPINGS[group]).await
-                        }
-                    },
-                    frame.clone(),
-                )
-            } else {
-                Load::Unavailable
-            };
+        }
+        self.sections[section].history = Load::Unavailable;
     }
 
     fn group_options(&self) -> &[usize] {
