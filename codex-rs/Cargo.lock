@@ -2107,7 +2107,6 @@ dependencies = [
  "codex-git-utils",
  "codex-goal-extension",
  "codex-guardian-v2",
- "codex-history-notes-extension",
  "codex-home",
  "codex-hooks",
  "codex-http-client",
@@ -3640,31 +3639,6 @@ dependencies = [
  "schemars 0.8.22",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "codex-history-notes-extension"
-version = "0.0.0"
-dependencies = [
- "codex-analytics",
- "codex-client",
- "codex-config",
- "codex-core",
- "codex-extension-api",
- "codex-http-client",
- "codex-login",
- "codex-model-provider",
- "codex-model-provider-info",
- "codex-protocol",
- "codex-tools",
- "codex-utils-output-truncation",
- "core_test_support",
- "http 1.4.0",
- "pretty_assertions",
- "serde_json",
- "tempfile",
- "tokio",
- "wiremock",
 ]
 
 [[package]]

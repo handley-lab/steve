@@ -17,7 +17,6 @@ use tokio::time::timeout;
 use wiremock::Mock;
 use wiremock::Request;
 use wiremock::ResponseTemplate;
-use wiremock::matchers::body_partial_json;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
@@ -25,21 +24,15 @@ use super::analytics::mount_analytics_capture;
 
 const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
-const THREAD_HINT: &str =
-    "Recent notes (up to 5, most-recent first):\n- /root/notes/latest.md (2 lines, 14 UTF-8 bytes)";
 const BRIDGE_HINT: &str = "unstructured notes/thread_hint fixture result";
 
-#[test_case(true, true, 200, THREAD_HINT; "native_hint")]
-#[test_case(true, false, 200, THREAD_HINT; "native_hint_without_experimental_capability")]
-#[test_case(true, true, 200, ""; "no_notes")]
-#[test_case(true, true, 503, THREAD_HINT; "native_failure_does_not_use_bridge")]
-#[test_case(false, true, 200, THREAD_HINT; "bridge_hint")]
+#[test_case(true, true; "native_hint")]
+#[test_case(true, false; "native_hint_without_experimental_capability")]
+#[test_case(false, true; "bridge_hint")]
 #[tokio::test]
 async fn app_server_uses_configured_notes_backend_for_context_window_hints(
     use_history_notes_extension: bool,
     supports_experimental_context: bool,
-    hint_status: u16,
-    hint_text: &str,
 ) -> Result<()> {
     let server = responses::start_mock_server().await;
     let backend = responses::start_mock_server().await;
@@ -103,16 +96,6 @@ async fn app_server_uses_configured_notes_backend_for_context_window_hints(
         .respond_with(ResponseTemplate::new(405))
         .mount(&server)
         .await;
-    Mock::given(method("POST"))
-        .and(path("/backend-api/codex/alpha/notes/v2/thread_hint"))
-        .respond_with(
-            ResponseTemplate::new(hint_status).set_body_json(serde_json::json!({
-                "text": hint_text
-            })),
-        )
-        .mount(&server)
-        .await;
-
     let codex_home = TempDir::new()?;
     let config = load_default_config_for_test(&codex_home).await;
     let mut model = codex_core::test_support::construct_model_info_offline("mock-model", &config);
@@ -162,24 +145,6 @@ async fn app_server_uses_configured_notes_backend_for_context_window_hints(
     .await??;
 
     let request = response_mock.single_request();
-    if use_history_notes_extension {
-        for (namespace, tool_name) in [
-            ("history", "list_windows"),
-            ("history", "list_items"),
-            ("history", "read_item"),
-            ("history", "search_contents"),
-            ("notes", "list_files_by_prefix"),
-            ("notes", "read_file"),
-            ("notes", "search_contents"),
-            ("notes", "append_to_file"),
-            ("notes", "write_file"),
-        ] {
-            assert!(
-                request.tool_by_name(namespace, tool_name).is_some(),
-                "app-server should expose {namespace}.{tool_name} to the model"
-            );
-        }
-    }
     assert!(request.tool_by_name("notes", "thread_hint").is_none());
 
     let input = request.input();
@@ -189,11 +154,6 @@ async fn app_server_uses_configured_notes_backend_for_context_window_hints(
         .any(|text| text.contains(BRIDGE_HINT));
     assert_eq!(bridge_hint_present, !use_history_notes_extension);
     let requests = server.received_requests().await.expect("recorded requests");
-    let native_requests = requests
-        .iter()
-        .filter(|request| request.url.path() == "/backend-api/codex/alpha/notes/v2/thread_hint")
-        .count();
-    assert_eq!(native_requests, usize::from(use_history_notes_extension));
     let bridge_calls = requests
         .iter()
         .filter(|request| request.url.path() == "/mcp")
@@ -204,26 +164,6 @@ async fn app_server_uses_configured_notes_backend_for_context_window_hints(
         })
         .count();
     assert_eq!(bridge_calls, usize::from(!use_history_notes_extension));
-    let developer_messages: Vec<_> = request
-        .message_input_text_groups("developer")
-        .into_iter()
-        .map(|parts| parts.concat())
-        .collect();
-    let context_window = developer_messages
-        .iter()
-        .find(|text| text.contains("<context_window>"))
-        .expect("context-window developer message");
-    let window_body = context_window
-        .split_once("<context_window>")
-        .expect("opening tag")
-        .1
-        .split_once("</context_window>")
-        .expect("closing tag")
-        .0;
-    assert_eq!(
-        window_body.contains(THREAD_HINT),
-        use_history_notes_extension && hint_status == 200 && !hint_text.is_empty(),
-    );
     assert!(!input.iter().any(|item| {
         item["type"] == "function_call"
             && item["namespace"] == "notes"
@@ -235,50 +175,11 @@ async fn app_server_uses_configured_notes_backend_for_context_window_hints(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn history_notes_and_async_message_emit_control_tool_analytics() -> Result<()> {
-    let encrypted_query = format!("enc_query_{}", "x".repeat(1_001));
     let calls = [
-        ("history", "list_windows", json!({})),
-        ("history", "list_items", json!({})),
-        (
-            "history",
-            "read_item",
-            json!({"window_id": "PRIVATE_WINDOW", "item_id": "PRIVATE_ITEM"}),
-        ),
-        (
-            "history",
-            "search_contents",
-            json!({"query": encrypted_query, "limit": 2, "recent_first": false}),
-        ),
-        (
-            "notes",
-            "list_files_by_prefix",
-            json!({"prefix": "PRIVATE_PATH"}),
-        ),
-        ("notes", "read_file", json!({"path": "PRIVATE_PATH"})),
-        (
-            "notes",
-            "search_contents",
-            json!({"query": encrypted_query, "max_files": 2}),
-        ),
-        (
-            "notes",
-            "append_to_file",
-            json!({"path": "PRIVATE_PATH", "text": "enc_append_text"}),
-        ),
-        (
-            "notes",
-            "write_file",
-            json!({"path": "PRIVATE_PATH", "text": "enc_write_text"}),
-        ),
         (
             "functions",
             "request_user_input_async",
             json!({"questions": [{"title": "PRIVATE_MESSAGE"}]}),
-        ),
-        (
-            "notes",
-            "list_files_by_prefix",
-            json!(["PRIVATE_INVALID_ARGUMENTS"]),
         ),
         (
             "functions",
@@ -288,19 +189,6 @@ async fn history_notes_and_async_message_emit_control_tool_analytics() -> Result
     ];
     let server = responses::start_mock_server().await;
     let backend = responses::start_mock_server().await;
-    for (namespace, tool, arguments) in &calls[..9] {
-        Mock::given(method("POST"))
-            .and(path(format!(
-                "/backend-api/codex/alpha/{namespace}/v2/{tool}"
-            )))
-            .and(body_partial_json(arguments.clone()))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(json!({"text": "PRIVATE_RESULT"})),
-            )
-            .expect(1)
-            .mount(&server)
-            .await;
-    }
     let mut sequence = calls
         .iter()
         .enumerate()
@@ -360,25 +248,9 @@ async fn history_notes_and_async_message_emit_control_tool_analytics() -> Result
         .await?
         .thread;
 
-    let request = &response_mock.requests()[0];
-    for (namespace, name, field) in [
-        ("history", "search_contents", "query"),
-        ("notes", "search_contents", "query"),
-        ("notes", "append_to_file", "text"),
-        ("notes", "write_file", "text"),
-    ] {
-        let tool = request
-            .tool_by_name(namespace, name)
-            .expect("declared history or notes tool");
-        assert_eq!(tool["parameters"]["properties"][field]["encrypted"], true);
-    }
     assert_eq!(
-        response_mock.requests()[10].function_call_output_text("call-9"),
+        response_mock.requests()[1].function_call_output_text("call-0"),
         Some(r#"{"accepted":true}"#.to_string())
-    );
-    assert_eq!(
-        response_mock.requests()[11].function_call_output_text("call-10"),
-        Some("History tool arguments must be a JSON object".to_string())
     );
 
     Ok(())
