@@ -621,10 +621,7 @@ impl AuthModeWidget {
     fn render_chatgpt_success_message(&self, area: Rect, buf: &mut Buffer) {
         let mut docs_line =
             HyperlinkLine::new(Line::from("  Learn about permissions and approvals in the ").dim());
-        docs_line.push_span(
-            "Steve docs".underlined(),
-            Some("https://developers.openai.com/codex/security"),
-        );
+        docs_line.push_span("Steve docs".dim(), /*destination*/ None);
         let mut preferences_line =
             HyperlinkLine::new(Line::from("  Your plan's rate limits and ").dim());
         preferences_line.push_span(
@@ -1514,18 +1511,6 @@ mod tests {
 
         widget.render_chatgpt_success_message(area, &mut buf);
 
-        assert_eq!(
-            collect_osc8_chars(&buf, area, "https://developers.openai.com/codex/security"),
-            "Steve docs"
-        );
-        assert_eq!(
-            (0..57).map(|x| buf[(x, 3)].modifier).collect::<Vec<_>>(),
-            [
-                vec![Modifier::DIM; 47],
-                vec![Modifier::DIM | Modifier::UNDERLINED; 10],
-            ]
-            .concat()
-        );
         assert_eq!(
             (0..61).map(|x| buf[(x, 9)].modifier).collect::<Vec<_>>(),
             vec![Modifier::DIM; 61]
