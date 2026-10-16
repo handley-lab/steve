@@ -1,8 +1,5 @@
 //! Local analytics authentication and account/user identity checks.
 
-use crate::Client;
-use crate::RequestError;
-use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
 use codex_login::AuthManagerConfig;
 use codex_login::CodexAuth;
@@ -17,20 +14,16 @@ pub struct AnalyticsAccount {
     pub plan_type: Option<PlanType>,
 }
 
-/// A backend client bound to its initial ChatGPT account and user.
+/// Local ChatGPT account identity captured for Analytics.
 pub struct AnalyticsSession {
-    client: Client,
     auth_manager: Arc<AuthManager>,
     auth: CodexAuth,
     account: AnalyticsAccount,
 }
 
 impl AnalyticsSession {
-    /// Load local ChatGPT credentials using the configured HTTP policy.
-    pub async fn from_config(
-        config: &impl AuthManagerConfig,
-        http_client_factory: HttpClientFactory,
-    ) -> Result<Self, String> {
+    /// Load local ChatGPT credentials.
+    pub async fn from_config(config: &impl AuthManagerConfig) -> Result<Self, String> {
         let auth_manager =
             AuthManager::shared_from_config(config, /*enable_codex_api_key_env*/ false)
                 .await
@@ -50,13 +43,7 @@ impl AnalyticsSession {
             email: auth.get_account_email(),
             plan_type: None,
         };
-        let client = Client::new_without_redirects(config.chatgpt_base_url(), http_client_factory)
-            .with_auth_provider(codex_model_provider::auth_provider_from_auth_manager(
-                Arc::clone(&auth_manager),
-                &auth,
-            ));
         let session = Self {
-            client,
             auth_manager,
             auth,
             account,
@@ -81,33 +68,4 @@ impl AnalyticsSession {
         }
         Ok(())
     }
-
-    /// Run an account-scoped request with bounded unauthorized recovery.
-    pub async fn request<T, F>(&self, request: impl Fn(Client) -> F) -> Result<T, RequestError>
-    where
-        F: std::future::Future<Output = Result<T, RequestError>>,
-    {
-        let mut recovery = self.auth_manager.unauthorized_recovery();
-        loop {
-            self.ensure_identity()
-                .await
-                .map_err(|error| RequestError::Other(anyhow::anyhow!(error)))?;
-            let result = request(self.client.clone()).await;
-            // Keep the original 401 when recovery fails so callers retain sign-in guidance.
-            if result.as_ref().is_err_and(RequestError::is_unauthorized)
-                && recovery.has_next()
-                && recovery.next().await.is_ok()
-            {
-                continue;
-            }
-            self.ensure_identity()
-                .await
-                .map_err(|error| RequestError::Other(anyhow::anyhow!(error)))?;
-            return result;
-        }
-    }
 }
-
-#[cfg(test)]
-#[path = "analytics_session_tests.rs"]
-mod tests;

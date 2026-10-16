@@ -7,12 +7,7 @@ use base64::Engine;
 use codex_config::LoaderOverrides;
 use pretty_assertions::assert_eq;
 use serde_json::json;
-use wiremock::Mock;
 use wiremock::MockServer;
-use wiremock::ResponseTemplate;
-use wiremock::matchers::header;
-use wiremock::matchers::method;
-use wiremock::matchers::path;
 
 pub(in crate::analytics) fn sign_in(home: &std::path::Path, account: &str, user: &str, plan: &str) {
     let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
@@ -60,52 +55,6 @@ pub(in crate::analytics) async fn live(
     )
 }
 
-async fn report_requests(server: &MockServer) -> Vec<wiremock::Request> {
-    server.received_requests().await.unwrap()
-}
-
-#[tokio::test]
-async fn analytics_rejects_identity_changes_during_requests() {
-    let server = MockServer::start().await;
-    let (home, live) = live(&server, "business").await;
-    let session = live.session().await.unwrap();
-    let authenticated = &session.backend;
-    let result = authenticated
-        .request(|_| async {
-            sign_in(home.path(), "account-b", "user-a", "business");
-            Ok(123)
-        })
-        .await;
-    assert_eq!(
-        result.unwrap_err().to_string(),
-        "Account changed. Press R to refresh Analytics."
-    );
-    assert!(report_requests(&server).await.is_empty());
-}
-
-#[tokio::test]
-async fn analytics_rejects_account_and_user_changes_before_requests() {
-    for (account, user) in [("account-b", "user-a"), ("account-a", "user-b")] {
-        let server = MockServer::start().await;
-        let (home, live) = live(&server, "plus").await;
-        let session = live.session().await.unwrap();
-        let authenticated = &session.backend;
-        sign_in(home.path(), account, user, "plus");
-        let requested = std::cell::Cell::new(/*value*/ false);
-        let result = authenticated
-            .request(|_| async {
-                requested.set(/*val*/ true);
-                Ok(())
-            })
-            .await;
-        assert!(!requested.get());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "Account changed. Press R to refresh Analytics."
-        );
-    }
-}
-
 #[tokio::test]
 async fn analytics_requires_local_chatgpt_authentication() {
     for auth in [None, Some(json!({"OPENAI_API_KEY": "sk-test-only"}))] {
@@ -120,7 +69,6 @@ async fn analytics_requires_local_chatgpt_authentication() {
             live.session().await.err(),
             Some("Sign in locally with ChatGPT to view Analytics.".to_string())
         );
-        assert!(report_requests(&server).await.is_empty());
     }
 }
 

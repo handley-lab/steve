@@ -56,11 +56,7 @@ impl Live {
     pub(super) async fn session(&self) -> Result<&Session, String> {
         self.session
             .get_or_try_init(|| async {
-                let session = AnalyticsSession::from_config(
-                    self.config.as_ref(),
-                    self.config.http_client_factory(),
-                )
-                .await?;
+                let session = AnalyticsSession::from_config(self.config.as_ref()).await?;
                 let credit_groups = Grouping::credit_groupings(session.account().plan_type)
                     .iter()
                     .filter_map(|group| {
