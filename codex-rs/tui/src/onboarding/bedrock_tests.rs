@@ -516,8 +516,6 @@ fn credential_entries_share_region_and_keep_aws_secrets_hidden() {
 
       Configure AWS credentials in your environment, then restart Steve.
 
-      Setup guide: https://learn.chatgpt.com/docs/amazon-bedrock
-
     > 1. Choose another sign-in method
 
 

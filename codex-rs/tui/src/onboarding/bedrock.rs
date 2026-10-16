@@ -35,9 +35,6 @@ use std::sync::PoisonError;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
-const GOV_CLOUD_GUIDANCE_URL: &str =
-    "https://learn.chatgpt.com/docs/enterprise/govcloud-configuration";
-
 #[derive(Clone)]
 pub(super) struct BedrockState {
     view: BedrockView,
@@ -382,9 +379,7 @@ impl BedrockState {
                 lines = vec!["Using Steve with AWS GovCloud".bold().into(), "".into()];
                 lines.push(Line::from(vec![
                     "You are using Steve with AWS GovCloud. Please ensure you or your administrator have read the ".into(),
-                    "application configuration and security guidance"
-                        .cyan()
-                        .underlined(),
+                    "application configuration and security guidance".cyan(),
                     " before proceeding.".into(),
                 ]));
                 footer.push("".into());
@@ -486,13 +481,6 @@ impl BedrockState {
                     "  Configure AWS credentials in your environment, then restart Steve.".into(),
                 );
                 lines.push("".into());
-                lines.push(Line::from(vec![
-                    "  Setup guide: ".into(),
-                    "https://learn.chatgpt.com/docs/amazon-bedrock"
-                        .cyan()
-                        .underlined(),
-                ]));
-                lines.push("".into());
                 self.render_methods(&mut lines);
             }
         }
@@ -539,11 +527,6 @@ impl BedrockState {
             Paragraph::new(lines).render(area, buf);
             if let BedrockView::GovCloudWarning(scroll) = &self.view {
                 scroll.store(0, Ordering::Relaxed);
-                crate::terminal_hyperlinks::mark_underlined_hyperlink(
-                    buf,
-                    area,
-                    GOV_CLOUD_GUIDANCE_URL,
-                );
             }
             return;
         }
@@ -586,13 +569,6 @@ impl BedrockState {
             .scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0))
             .render(content_area, buf);
         Paragraph::new(footer).render(footer_area, buf);
-        if matches!(self.view, BedrockView::GovCloudWarning(_)) {
-            crate::terminal_hyperlinks::mark_underlined_hyperlink(
-                buf,
-                content_area,
-                GOV_CLOUD_GUIDANCE_URL,
-            );
-        }
     }
 
     fn render_methods(&self, lines: &mut Vec<Line<'static>>) {
