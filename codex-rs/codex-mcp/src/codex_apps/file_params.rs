@@ -3,8 +3,6 @@
 //! For each declared file argument, this module derives the provided-file fields
 //! accepted by its input schema and records them on `ToolInfo`. It also presents
 //! file arguments to the model as local paths.
-//!
-//! See <https://developers.openai.com/apps-sdk/reference#tool-descriptor-parameters>.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
