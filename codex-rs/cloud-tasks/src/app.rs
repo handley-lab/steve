@@ -50,9 +50,7 @@ pub struct App {
     pub env_modal: Option<EnvModalState>,
     pub apply_modal: Option<ApplyModalState>,
     pub environments: Vec<EnvironmentRow>,
-    pub env_last_loaded: Option<std::time::Instant>,
     pub env_loading: bool,
-    pub env_error: Option<String>,
     // Apply preflight spinner state
     pub apply_preflight_inflight: bool,
     // Apply action spinner state
@@ -76,9 +74,7 @@ impl App {
             env_modal: None,
             apply_modal: None,
             environments: Vec::new(),
-            env_last_loaded: None,
             env_loading: false,
-            env_error: None,
             apply_preflight_inflight: false,
             apply_inflight: false,
             in_flight: std::collections::HashSet::new(),
@@ -236,10 +232,6 @@ pub enum DetailView {
 /// These let the UI event loop remain responsive and keep the spinner animating.
 #[derive(Debug)]
 pub enum AppEvent {
-    /// Autodetection of a likely environment id finished
-    EnvironmentAutodetected(anyhow::Result<crate::env_detect::AutodetectSelection>),
-    /// Background completion of environment list fetch
-    EnvironmentsLoaded(anyhow::Result<Vec<EnvironmentRow>>),
     /// Background completion of apply preflight when opening modal or on demand
     ApplyPreflightFinished {
         id: TaskId,

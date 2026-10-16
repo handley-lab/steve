@@ -1,15 +1,10 @@
 mod app;
 mod cli;
-pub(crate) mod env_detect;
 pub(crate) mod scrollable_diff;
 mod ui;
 pub(crate) mod util;
 pub use cli::Cli;
 
-use codex_http_client::ClientRouteClass;
-use codex_http_client::HttpClientFactory;
-use codex_http_client::OutboundProxyPolicy;
-use codex_http_client::RouteAwareClientPool;
 use codex_login::default_client::get_codex_user_agent;
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -29,8 +24,6 @@ struct ApplyJob {
 
 struct BackendContext {
     backend: Arc<dyn codex_cloud_tasks_client::CloudBackend>,
-    base_url: String,
-    environment_http: RouteAwareClientPool,
 }
 
 async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext> {
@@ -45,22 +38,13 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
 
     #[cfg(debug_assertions)]
     if use_mock {
-        let http_client_factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
         return Ok(BackendContext {
             backend: Arc::new(codex_cloud_tasks_mock_client::MockClient),
-            base_url,
-            environment_http: RouteAwareClientPool::new_without_redirects_or_request_logging(
-                http_client_factory,
-                ClientRouteClass::Api,
-            ),
         });
     }
 
-    let (auth_manager, http_client_factory) = util::load_auth_manager(Some(base_url.clone())).await;
-    let environment_http = RouteAwareClientPool::new_without_redirects_or_request_logging(
-        http_client_factory.clone(),
-        ClientRouteClass::Api,
-    );
+    let (auth_manager, _http_client_factory) =
+        util::load_auth_manager(Some(base_url.clone())).await;
     let http = codex_cloud_tasks_client::HttpClient::new(base_url.clone());
     let style = if base_url.contains("/backend-api") {
         "wham"
@@ -96,8 +80,6 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
 
     Ok(BackendContext {
         backend: Arc::new(http),
-        base_url,
-        environment_http,
     })
 }
 
@@ -240,11 +222,7 @@ pub async fn run_main(_cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> a
         .try_init();
 
     info!("Launching Cloud Tasks list UI");
-    let BackendContext {
-        backend,
-        base_url,
-        environment_http,
-    } = init_backend("codex_cloud_tasks_tui").await?;
+    let BackendContext { backend } = init_backend("codex_cloud_tasks_tui").await?;
 
     // Terminal setup
     use crossterm::ExecutableCommand;
@@ -305,31 +283,6 @@ pub async fn run_main(_cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> a
     // Channel for non-blocking background loads
     use tokio::sync::mpsc::unbounded_channel;
     let (tx, mut rx) = unbounded_channel::<app::AppEvent>();
-    // Fetch environment list in parallel so the header can show friendly names quickly.
-    spawn_environment_load(tx.clone(), base_url.clone(), environment_http.clone());
-
-    // Try to auto-detect a likely environment id on startup and refresh if found.
-    // Do this concurrently so the initial list shows quickly; on success we refetch with filter.
-    {
-        let tx = tx.clone();
-        let base_url = base_url.clone();
-        let environment_http = environment_http.clone();
-        tokio::spawn(async move {
-            let base_url = util::normalize_base_url(&base_url);
-            // Build headers: UA + ChatGPT auth if available
-            let headers = util::build_chatgpt_headers().await;
-
-            // Run autodetect. If it fails, we keep using "All".
-            let res = crate::env_detect::autodetect_environment_id(
-                &environment_http,
-                &base_url,
-                &headers,
-                /*desired_label*/ None,
-            )
-            .await;
-            let _ = tx.send(app::AppEvent::EnvironmentAutodetected(res));
-        });
-    }
 
     // Event-driven redraws with a tiny coalescing scheduler (snappy UI, no fixed 250ms tick).
     let mut needs_redraw = true;
@@ -421,51 +374,6 @@ pub async fn run_main(_cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> a
                                     needs_redraw = true;
                                     let _ = frame_tx.send(Instant::now());
                             }
-                        }
-                        app::AppEvent::EnvironmentsLoaded(result) => {
-                            app.env_loading = false;
-                            match result {
-                                Ok(list) => {
-                                    app.environments = list;
-                                    app.env_error = None;
-                                    app.env_last_loaded = Some(std::time::Instant::now());
-                                }
-                                Err(e) => {
-                                    app.env_error = Some(e.to_string());
-                                }
-                            }
-                            needs_redraw = true;
-                            let _ = frame_tx.send(Instant::now());
-                        }
-                        app::AppEvent::EnvironmentAutodetected(result) => {
-                            if let Ok(sel) = result {
-                                // Only apply if user hasn't set a filter yet or it's different.
-                                if app.env_filter.as_deref() != Some(sel.id.as_str()) {
-                                    append_error_log(format!(
-                                        "env.select: autodetected id={} label={}",
-                                        sel.id,
-                                        sel.label.clone().unwrap_or_else(|| "<none>".to_string())
-                                    ));
-                                    // Preseed environments with detected label so header can show it even before list arrives
-                                    if let Some(lbl) = sel.label.clone() {
-                                        let present = app.environments.iter().any(|r| r.id == sel.id);
-                                        if !present {
-                                            app.environments.push(app::EnvironmentRow { id: sel.id.clone(), label: Some(lbl), is_pinned: false, repo_hints: None });
-                                        }
-                                    }
-                                    app.env_filter = Some(sel.id);
-                                    needs_redraw = true;
-                                    // Proactively fetch environments to resolve a friendly name for the header.
-                                    app.env_loading = true;
-                                    spawn_environment_load(
-                                        tx.clone(),
-                                        base_url.clone(),
-                                        environment_http.clone(),
-                                    );
-                                    let _ = frame_tx.send(Instant::now());
-                                }
-                            }
-                            // on Err, silently continue with All
                         }
                         app::AppEvent::ApplyFinished { id, result } => {
                             // Only update if the modal still corresponds to this id.
@@ -643,16 +551,7 @@ pub async fn run_main(_cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> a
                                 KeyCode::Char('o') | KeyCode::Char('O') => {
                                     app.diff_overlay = None;
                                     app.env_modal = Some(app::EnvModalState { query: String::new(), selected: 0 });
-                                    // Use cached environments unless empty
-                                    if app.environments.is_empty() { app.env_loading = true; app.env_error = None; }
                                     needs_redraw = true;
-                                    if app.environments.is_empty() {
-                                        spawn_environment_load(
-                                            tx.clone(),
-                                            base_url.clone(),
-                                            environment_http.clone(),
-                                        );
-                                    }
                                 }
                                 KeyCode::Left => {
                                     if let Some(ov) = &mut app.diff_overlay {
@@ -770,17 +669,7 @@ pub async fn run_main(_cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> a
                                 KeyCode::Char('r') | KeyCode::Char('R') => {}
                                 KeyCode::Char('o') | KeyCode::Char('O') => {
                                     app.env_modal = Some(app::EnvModalState { query: String::new(), selected: 0 });
-                                    // Cache environments while the modal is open to avoid repeated fetches.
-                                    let should_fetch = app.environments.is_empty();
-                                    if should_fetch { app.env_loading = true; app.env_error = None; }
                                     needs_redraw = true;
-                                    if should_fetch {
-                                        spawn_environment_load(
-                                            tx.clone(),
-                                            base_url.clone(),
-                                            environment_http.clone(),
-                                        );
-                                    }
                                 }
                                 KeyCode::Enter => {}
                                 KeyCode::Char('a') => {
@@ -828,18 +717,3 @@ pub async fn run_main(_cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> a
     }
     Ok(())
 }
-
-fn spawn_environment_load(
-    tx: UnboundedSender<app::AppEvent>,
-    base_url: String,
-    http: RouteAwareClientPool,
-) {
-    tokio::spawn(async move {
-        let base_url = util::normalize_base_url(&base_url);
-        let headers = util::build_chatgpt_headers().await;
-        let result = crate::env_detect::list_environments(&http, &base_url, &headers).await;
-        let _ = tx.send(app::AppEvent::EnvironmentsLoaded(result));
-    });
-}
-
-// extract_chatgpt_account_id moved to util.rs
