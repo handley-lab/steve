@@ -73,7 +73,6 @@ use wiremock::matchers::path;
 
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 const LOGIN_ISSUER_ENV_VAR: &str = "STEVE_APP_SERVER_LOGIN_ISSUER";
-const LOGIN_OPEN_APP_URL_ENV_VAR: &str = "STEVE_APP_SERVER_DEV_OPEN_APP_URL";
 const WORKSPACE_ID_ALLOWED: &str = "123e4567-e89b-42d3-a456-426614174000";
 const WORKSPACE_ID_SECOND_ALLOWED: &str = "123e4567-e89b-42d3-a456-426614174001";
 const WORKSPACE_ID_DISALLOWED: &str = "123e4567-e89b-42d3-a456-426614174002";
@@ -2540,106 +2539,6 @@ async fn login_account_chatgpt_uses_oauth_overrides() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-// Serialize tests that launch the login server since it binds to a fixed port.
-#[serial(login_port)]
-async fn login_account_chatgpt_redirects_to_hosted_success_page() -> Result<()> {
-    let codex_home = TempDir::new()?;
-    create_config_toml(codex_home.path(), CreateConfigTomlParams::default())?;
-    let mock_server = MockServer::start().await;
-    let id_token = encode_id_token(
-        &ChatGptIdTokenClaims::new()
-            .email("hosted@example.com")
-            .plan_type("pro")
-            .chatgpt_account_id(WORKSPACE_ID_EMBEDDED),
-    )?;
-    mock_oauth_token(&mock_server, &id_token).await;
-    let issuer = mock_server.uri();
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .without_auto_env()
-        .with_env_overrides(&[
-            (LOGIN_ISSUER_ENV_VAR, Some(issuer.as_str())),
-            (
-                LOGIN_OPEN_APP_URL_ENV_VAR,
-                Some("http://localhost:3000/codex/open-app"),
-            ),
-        ])
-        .build_initialized_with_timeout(DEFAULT_READ_TIMEOUT)
-        .await?;
-
-    let request_id = mcp
-        .send_login_account_request(json!({
-            "type": "chatgpt",
-            "appBrand": "chatgpt",
-            "useHostedLoginSuccessPage": true,
-        }))
-        .await?;
-    let login: LoginAccountResponse =
-        timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(request_id)).await??;
-    let LoginAccountResponse::Chatgpt { login_id, auth_url } = login else {
-        bail!("unexpected login response: {login:?}");
-    };
-    let auth_url = Url::parse(&auth_url)?;
-    let callback_url = auth_url
-        .query_pairs()
-        .find_map(|(key, value)| (key == "redirect_uri").then(|| value.into_owned()))
-        .ok_or_else(|| anyhow::anyhow!("missing redirect_uri"))?;
-    let state = auth_url
-        .query_pairs()
-        .find_map(|(key, value)| (key == "state").then(|| value.into_owned()))
-        .ok_or_else(|| anyhow::anyhow!("missing state"))?;
-    let client = HttpClientBuilder::new()
-        .without_redirects()
-        .build_direct()?;
-
-    let token_redirect_uri = callback_url.clone();
-    let mut callback_url = Url::parse(&callback_url)?;
-    let callback_state = format!("{state}.onboarding_entrypoint=life_sciences");
-    callback_url
-        .query_pairs_mut()
-        .append_pair("code", "test-code")
-        .append_pair("state", &callback_state);
-    let response = client.get(callback_url).send().await?;
-
-    assert_eq!(response.status(), 302);
-    assert_eq!(
-        response.headers()["location"].to_str()?,
-        "http://localhost:3000/codex/open-app?source=login&app_brand=chatgpt"
-    );
-    let requests = mock_server
-        .received_requests()
-        .await
-        .ok_or_else(|| anyhow::anyhow!("failed to read OAuth requests"))?;
-    let token_request = requests
-        .iter()
-        .find(|request| request.url.path() == "/oauth/token")
-        .ok_or_else(|| anyhow::anyhow!("missing OAuth token request"))?;
-    let token_form: std::collections::HashMap<_, _> =
-        url::form_urlencoded::parse(&token_request.body)
-            .into_owned()
-            .collect();
-    assert_eq!(token_form.get("redirect_uri"), Some(&token_redirect_uri),);
-    let notification = timeout(
-        DEFAULT_READ_TIMEOUT,
-        mcp.read_stream_until_notification_message("account/login/completed"),
-    )
-    .await??;
-    let ServerNotification::AccountLoginCompleted(payload) = notification.try_into()? else {
-        bail!("unexpected notification")
-    };
-    assert_eq!(
-        payload,
-        AccountLoginCompletedNotification {
-            login_id: Some(login_id),
-            success: true,
-            error: None,
-            onboarding_entrypoint: Some(DesktopOnboardingEntrypoint::LifeSciences),
-        }
-    );
-    Ok(())
-}
 
 #[tokio::test]
 // Serialize tests that launch the login server since it binds to a fixed port.

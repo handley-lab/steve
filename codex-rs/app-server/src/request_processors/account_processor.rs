@@ -227,26 +227,16 @@ impl AccountRequestProcessor {
                     .await;
             }
             LoginAccountParams::Chatgpt {
-                app_brand,
+                app_brand: _,
                 codex_streamlined_login,
-                use_hosted_login_success_page,
+                use_hosted_login_success_page: _,
             } => {
-                let login_success_page = if use_hosted_login_success_page {
-                    let app_brand = match app_brand.unwrap_or_default() {
-                        LoginAppBrand::Codex => LoginSuccessPageBrand::Codex,
-                        LoginAppBrand::Chatgpt => LoginSuccessPageBrand::Chatgpt,
-                    };
-                    LoginSuccessPage::Hosted {
-                        url: CODEX_OPEN_APP_URL.parse().map_err(|err| {
-                            internal_error(format!("invalid Codex open app URL: {err}"))
-                        })?,
-                        app_brand,
-                    }
-                } else {
-                    LoginSuccessPage::default()
-                };
-                self.login_chatgpt_v2(request_id, codex_streamlined_login, login_success_page)
-                    .await;
+                self.login_chatgpt_v2(
+                    request_id,
+                    codex_streamlined_login,
+                    LoginSuccessPage::default(),
+                )
+                .await;
             }
             LoginAccountParams::ChatgptDeviceCode => {
                 self.login_chatgpt_device_code_v2(request_id).await;

@@ -18,7 +18,6 @@ pub use callback_params::LoginCallbackResult;
 pub use callback_params::LoginOnboardingEntrypoint;
 pub use codex_config::types::AuthCredentialsStoreMode;
 pub use codex_http_client::BuildCustomCaTransportError as BuildLoginHttpClientError;
-pub use success_page::CODEX_OPEN_APP_URL;
 pub use success_page::LoginSuccessPage;
 pub use success_page::LoginSuccessPageBrand;
 
