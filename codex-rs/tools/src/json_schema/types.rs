@@ -11,7 +11,6 @@ use std::collections::BTreeMap;
 /// string, number, boolean, integer, object, array, and null.
 /// Keywords such as `enum`, `const`, `anyOf`, `oneOf`, and `allOf` are modeled
 /// separately.
-/// See <https://developers.openai.com/api/docs/guides/structured-outputs#supported-schemas>.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum JsonSchemaPrimitiveType {
