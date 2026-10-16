@@ -1,19 +1,5 @@
-use anyhow::Result;
-use codex_api::SharedAuthProvider;
-use codex_http_client::ClientRouteClass;
-use codex_http_client::HttpClientFactory;
-use codex_http_client::RequestBuilder;
-use codex_http_client::RouteAwareClientPool;
-use codex_login::CodexAuth;
-use codex_login::default_client::get_codex_user_agent;
-use http::Method;
 use http::StatusCode;
-use http::header::CONTENT_TYPE;
-use http::header::HeaderMap;
-use http::header::HeaderName;
 use http::header::HeaderValue;
-use http::header::USER_AGENT;
-use serde::de::DeserializeOwned;
 use std::fmt;
 
 pub(crate) mod analytics;
@@ -122,8 +108,6 @@ impl PathStyle {
 #[derive(Clone)]
 pub struct Client {
     base_url: String,
-    http: RouteAwareClientPool,
-    auth_provider: SharedAuthProvider,
     user_agent: Option<HeaderValue>,
     chatgpt_account_id: Option<String>,
     chatgpt_account_is_fedramp: bool,
@@ -134,7 +118,6 @@ impl fmt::Debug for Client {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
             .field("base_url", &self.base_url)
-            .field("auth_provider", &"<provider>")
             .field("user_agent", &self.user_agent)
             .field("chatgpt_account_id", &self.chatgpt_account_id)
             .field(
@@ -147,30 +130,15 @@ impl fmt::Debug for Client {
 }
 
 impl Client {
-    pub fn new(base_url: impl Into<String>, http_client_factory: HttpClientFactory) -> Self {
-        let http = RouteAwareClientPool::with_chatgpt_cloudflare_cookies_without_request_logging(
-            http_client_factory,
-            ClientRouteClass::Api,
-        );
-        Self::with_http(base_url.into(), http)
+    pub fn new(base_url: impl Into<String>) -> Self {
+        Self::with_base_url(base_url.into())
     }
 
-    /// Creates a client that never forwards its credentials to a redirect destination.
-    pub fn new_without_redirects(
-        base_url: impl Into<String>,
-        http_client_factory: HttpClientFactory,
-    ) -> Self {
-        let http =
-            RouteAwareClientPool::with_chatgpt_cloudflare_cookies_without_redirects_or_request_logging(
-                http_client_factory,
-                ClientRouteClass::Api,
-            );
-        Self::with_http(base_url.into(), http)
+    pub fn new_without_redirects(base_url: impl Into<String>) -> Self {
+        Self::with_base_url(base_url.into())
     }
 
-    fn with_http(mut base_url: String, http: RouteAwareClientPool) -> Self {
-        // Normalize common ChatGPT hostnames to include /backend-api so we hit the WHAM paths.
-        // Also trim trailing slashes for consistent URL building.
+    fn with_base_url(mut base_url: String) -> Self {
         while base_url.ends_with('/') {
             base_url.pop();
         }
@@ -183,28 +151,11 @@ impl Client {
         let path_style = PathStyle::from_base_url(&base_url);
         Self {
             base_url,
-            http,
-            auth_provider: codex_model_provider::unauthenticated_auth_provider(),
             user_agent: None,
             chatgpt_account_id: None,
             chatgpt_account_is_fedramp: false,
             path_style,
         }
-    }
-
-    pub fn from_auth(
-        base_url: impl Into<String>,
-        auth: &CodexAuth,
-        http_client_factory: HttpClientFactory,
-    ) -> Self {
-        Self::new(base_url, http_client_factory)
-            .with_user_agent(get_codex_user_agent())
-            .with_auth_provider(codex_model_provider::auth_provider_from_auth(auth))
-    }
-
-    pub fn with_auth_provider(mut self, auth: SharedAuthProvider) -> Self {
-        self.auth_provider = auth;
-        self
     }
 
     pub fn with_user_agent(mut self, ua: impl Into<String>) -> Self {
@@ -227,108 +178,5 @@ impl Client {
     pub fn with_path_style(mut self, style: PathStyle) -> Self {
         self.path_style = style;
         self
-    }
-
-    fn headers(&self) -> HeaderMap {
-        let mut h = HeaderMap::new();
-        if let Some(ua) = &self.user_agent {
-            h.insert(USER_AGENT, ua.clone());
-        } else {
-            h.insert(USER_AGENT, HeaderValue::from_static("codex-cli"));
-        }
-        self.auth_provider.add_auth_headers(&mut h);
-        if let Some(acc) = &self.chatgpt_account_id
-            && let Ok(name) = HeaderName::from_bytes(b"ChatGPT-Account-Id")
-            && let Ok(hv) = HeaderValue::from_str(acc)
-        {
-            h.insert(name, hv);
-        }
-        if self.chatgpt_account_is_fedramp
-            && let Ok(name) = HeaderName::from_bytes(b"X-OpenAI-Fedramp")
-        {
-            h.insert(name, HeaderValue::from_static("true"));
-        }
-        h
-    }
-
-    fn request(&self, method: Method, url: &str) -> RequestBuilder {
-        self.http.request(method, url)
-    }
-
-    async fn exec_request_detailed(
-        &self,
-        req: RequestBuilder,
-        method: &str,
-        url: &str,
-    ) -> std::result::Result<(String, String), RequestError> {
-        let res = req.send().await?;
-        let status = res.status();
-        let content_type = res
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_string();
-        let body = res.text().await?;
-        if !status.is_success() {
-            return Err(RequestError::UnexpectedStatus {
-                method: method.to_string(),
-                url: url.to_string(),
-                status,
-                content_type,
-                body,
-            });
-        }
-        Ok((body, content_type))
-    }
-
-    fn decode_json<T: DeserializeOwned>(&self, url: &str, ct: &str, body: &str) -> Result<T> {
-        match serde_json::from_str::<T>(body) {
-            Ok(v) => Ok(v),
-            Err(e) => {
-                anyhow::bail!("Decode error for {url}: {e}; content-type={ct}; body={body}");
-            }
-        }
-    }
-
-
-
-}
-
-#[cfg(test)]
-#[path = "client_request_tests.rs"]
-mod request_tests;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use pretty_assertions::assert_eq;
-
-    #[test]
-    fn authenticated_user_settings_client_uses_active_workspace_headers() {
-        let auth = CodexAuth::from_external_chatgpt_tokens(
-            "e30.e30.c2ln",
-            "workspace-123",
-            Some("enterprise"),
-        )
-        .unwrap();
-        let client = Client::from_auth(
-            "https://chatgpt.com/backend-api",
-            &auth,
-            HttpClientFactory::new(codex_http_client::OutboundProxyPolicy::ReqwestDefault),
-        );
-        let headers = client.headers();
-
-        assert_eq!(
-            [
-                headers
-                    .get("authorization")
-                    .and_then(|value| value.to_str().ok()),
-                headers
-                    .get("chatgpt-account-id")
-                    .and_then(|value| value.to_str().ok()),
-            ],
-            [Some("Bearer e30.e30.c2ln"), Some("workspace-123")]
-        );
     }
 }

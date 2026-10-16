@@ -464,7 +464,6 @@ pub(crate) struct ThreadRequestProcessor {
     pub(super) log_db: Option<LogDbLayer>,
     pub(super) background_tasks: TaskTracker,
     pub(super) skills_watcher: Arc<SkillsWatcher>,
-    pub(super) turn_cost_worker: Option<crate::turn_cost_worker::TurnCostWorkerHandle>,
     pub(super) initial_config_warnings: Arc<Vec<ConfigWarningNotification>>,
 }
 
@@ -503,7 +502,6 @@ impl ThreadRequestProcessor {
         state_db: Option<StateDbHandle>,
         log_db: Option<LogDbLayer>,
         skills_watcher: Arc<SkillsWatcher>,
-        turn_cost_worker: Option<crate::turn_cost_worker::TurnCostWorkerHandle>,
         initial_config_warnings: Vec<ConfigWarningNotification>,
     ) -> Self {
         Self {
@@ -523,7 +521,6 @@ impl ThreadRequestProcessor {
             log_db,
             background_tasks: TaskTracker::new(),
             skills_watcher,
-            turn_cost_worker,
             initial_config_warnings: Arc::new(initial_config_warnings),
         }
     }
@@ -1104,7 +1101,6 @@ impl ThreadRequestProcessor {
             codex_home: self.config.codex_home.to_path_buf(),
             thread_unload_delay: self.config.thread_unload_delay,
             skills_watcher: Arc::clone(&self.skills_watcher),
-            turn_cost_worker: self.turn_cost_worker.clone(),
         }
     }
 
@@ -1235,7 +1231,6 @@ impl ThreadRequestProcessor {
             codex_home: self.config.codex_home.to_path_buf(),
             thread_unload_delay: self.config.thread_unload_delay,
             skills_watcher: Arc::clone(&self.skills_watcher),
-            turn_cost_worker: self.turn_cost_worker.clone(),
         };
         let request_trace = request_context.request_trace();
         let config_manager = self.config_manager.clone();
