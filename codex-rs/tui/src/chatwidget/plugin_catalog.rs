@@ -24,7 +24,6 @@ use crate::key_hint;
 use crate::legacy_core::config::Config;
 use crate::motion::MotionMode;
 use crate::motion::shimmer_text;
-use crate::onboarding::mark_url_hyperlink;
 use crate::render::renderable::ColumnRenderable;
 use crate::render::renderable::Renderable;
 use crate::tui::FrameRequester;
@@ -64,7 +63,6 @@ const OPENAI_CURATED_TAB_ID: &str = "marketplace:openai-curated";
 const PLUGIN_ROW_PREFIX_WIDTH: usize = 6;
 const LOADING_ANIMATION_DELAY: Duration = Duration::from_secs(1);
 const LOADING_ANIMATION_INTERVAL: Duration = Duration::from_millis(100);
-const APPS_HELP_ARTICLE_URL: &str = "https://help.openai.com/en/articles/11487775-apps-in-chatgpt";
 const PERSONAL_MARKETPLACE_RELATIVE_PATH: &str = ".agents/plugins/marketplace.json";
 const REMOTE_LOADING_TAB_ID_PREFIX: &str = "remote-loading:";
 const REMOTE_EMPTY_TAB_ID_PREFIX: &str = "remote-empty:";
@@ -314,27 +312,6 @@ impl Renderable for DelayedLoadingHeader {
 
     fn desired_height(&self, _width: u16) -> u16 {
         2 + u16::from(self.note.is_some())
-    }
-}
-
-struct PluginDisclosureLine {
-    line: Line<'static>,
-}
-
-impl Renderable for PluginDisclosureLine {
-    fn render(&self, area: Rect, buf: &mut Buffer) {
-        Paragraph::new(self.line.clone())
-            .wrap(Wrap { trim: false })
-            .render(area, buf);
-        mark_url_hyperlink(buf, area, APPS_HELP_ARTICLE_URL);
-    }
-
-    fn desired_height(&self, width: u16) -> u16 {
-        Paragraph::new(self.line.clone())
-            .wrap(Wrap { trim: false })
-            .line_count(width)
-            .try_into()
-            .unwrap_or(u16::MAX)
     }
 }
 
@@ -989,17 +966,16 @@ impl ChatWidget {
             .wrap(ratatui::widgets::Wrap { trim: false }),
         );
         if !plugin.summary.installed {
-            header.push(PluginDisclosureLine {
-                line: Line::from(vec![
+            header.push(
+                ratatui::widgets::Paragraph::new(Line::from(vec![
                     "Data shared with this app is subject to the app's ".into(),
                     "terms of service".bold(),
                     " and ".into(),
                     "privacy policy".bold(),
-                    ". ".into(),
-                    "Learn more".cyan().underlined(),
-                    ".".into(),
-                ]),
-            });
+                    ". Learn more.".into(),
+                ]))
+                .wrap(ratatui::widgets::Wrap { trim: false }),
+            );
         }
         if let Some(description) = plugin_detail_description(plugin) {
             header.push(
