@@ -628,8 +628,8 @@ impl AuthModeWidget {
         let mut preferences_line =
             HyperlinkLine::new(Line::from("  Your plan's rate limits and ").dim());
         preferences_line.push_span(
-            "training data preferences".underlined(),
-            Some("https://chatgpt.com/#settings"),
+            "training data preferences".dim(),
+            /*destination*/ None,
         );
         preferences_line.push_span(" apply".into(), /*destination*/ None);
 
@@ -1519,10 +1519,6 @@ mod tests {
             "Steve docs"
         );
         assert_eq!(
-            collect_osc8_chars(&buf, area, "https://chatgpt.com/#settings"),
-            "training data preferences"
-        );
-        assert_eq!(
             (0..57).map(|x| buf[(x, 3)].modifier).collect::<Vec<_>>(),
             [
                 vec![Modifier::DIM; 47],
@@ -1532,12 +1528,7 @@ mod tests {
         );
         assert_eq!(
             (0..61).map(|x| buf[(x, 9)].modifier).collect::<Vec<_>>(),
-            [
-                vec![Modifier::DIM; 30],
-                vec![Modifier::DIM | Modifier::UNDERLINED; 25],
-                vec![Modifier::DIM; 6],
-            ]
-            .concat()
+            vec![Modifier::DIM; 61]
         );
 
         let visible = (area.top()..area.bottom())
