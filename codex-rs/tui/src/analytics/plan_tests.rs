@@ -216,27 +216,10 @@ fn unavailable_empty_and_zero_history_are_distinct() {
 async fn plan_gate_prevents_requests_and_unavailable_plan_does_not_block_other_reports() {
     use crate::analytics::client;
     use crate::analytics::test_support;
-    use wiremock::Mock;
-    use wiremock::ResponseTemplate;
-    use wiremock::matchers::path;
     let server = test_support::server().await;
     let (_home, _server, mut view) = client::tests::connected_view(&server, "plus").await;
     test_support::settle(&mut view).await;
-    assert!(
-        !server
-            .received_requests()
-            .await
-            .unwrap()
-            .iter()
-            .any(|request| request.url.path().ends_with("plan_limit_history"))
-    );
     assert!(!view.visible_sections().contains(&Section::Plan));
-    Mock::given(path("/backend-api/wham/usage/plan_limit_history"))
-        .respond_with(ResponseTemplate::new(/*s*/ 404))
-        .with_priority(/*p*/ 1)
-        .expect(/*r*/ 1)
-        .mount(&server)
-        .await;
     let (mut config, handle, frame) = view.connection.clone().unwrap();
     std::sync::Arc::make_mut(&mut config)
         .features
@@ -246,7 +229,7 @@ async fn plan_gate_prevents_requests_and_unavailable_plan_does_not_block_other_r
     test_support::settle(&mut view).await;
     assert!(matches!(view.plan.report, Load::Unavailable));
     assert!(view.sections[Section::Usage].history.ready().is_some());
-    assert!(view.visible_sections().contains(&Section::Plan));
+    assert!(!view.visible_sections().contains(&Section::Plan));
     // Closing cancels the pending plan task along with the other account-owned work.
     let (sender, receiver) = tokio::sync::oneshot::channel::<()>();
     view.plan.report = Load::start(

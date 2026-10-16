@@ -161,7 +161,6 @@ impl AnalyticsView {
             Some(AccountKind::Consumer) if self.plan.enabled => &[
                 Section::Summary,
                 Section::Usage,
-                Section::Plan,
                 Section::Activity,
                 Section::Plugins,
                 Section::Skills,
@@ -222,12 +221,6 @@ impl AnalyticsView {
             if section.report().is_some() {
                 self.load_report(*section);
             }
-        }
-        if visible.contains(&Section::Plan)
-            && let (Some((_, _, frame)), Some(live)) = (&self.connection, &self.live)
-        {
-            let live = std::sync::Arc::clone(live);
-            self.plan.report = Load::start(async move { live.plan_history().await }, frame.clone());
         }
     }
 

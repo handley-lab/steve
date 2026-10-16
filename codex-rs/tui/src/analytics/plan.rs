@@ -4,6 +4,7 @@ use super::data::Load;
 use chrono::DateTime;
 use chrono::Utc;
 use codex_backend_client::PlanLimitBreakdown;
+#[cfg(test)]
 use codex_backend_client::PlanLimitHistory;
 
 pub(super) struct Period {
@@ -23,6 +24,7 @@ pub(super) struct Report {
     pub periods: [Vec<Period>; 2],
 }
 
+#[cfg(test)]
 impl Report {
     pub(super) fn parse(history: PlanLimitHistory) -> Result<Option<Self>, String> {
         let parse = |value: &str| {
