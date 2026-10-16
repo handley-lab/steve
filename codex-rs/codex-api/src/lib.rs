@@ -52,7 +52,6 @@ pub use crate::common::create_text_param_for_request;
 pub use crate::common::response_create_client_metadata;
 pub use crate::endpoint::ImageRequestError;
 pub use crate::endpoint::ImagesClient;
-pub use crate::endpoint::MemoriesClient;
 pub use crate::endpoint::ModelsClient;
 pub use crate::endpoint::RealtimeContextAppendChannel;
 pub use crate::endpoint::RealtimeEventParser;
