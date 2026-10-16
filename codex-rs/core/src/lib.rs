@@ -111,7 +111,6 @@ pub use mcp::McpManager;
 mod original_image_detail;
 pub use codex_mcp::CodexAppsToolsCache;
 pub use codex_mcp::SandboxState;
-mod mcp_openai_file;
 mod mcp_tool_call;
 pub(crate) mod mention_syntax;
 pub(crate) mod utils;
