@@ -439,20 +439,13 @@ pub(crate) fn new_active_mcp_tool_call(
 }
 /// Render a summary of configured MCP servers from the current `Config`.
 pub(crate) fn empty_mcp_output() -> WebHyperlinkHistoryCell {
-    let mut docs_line = HyperlinkLine::new(Line::from("    See the "));
-    docs_line.push_span(
-        "MCP docs".underlined(),
-        Some("https://developers.openai.com/codex/mcp"),
-    );
-    docs_line.push_span(" to configure them.".into(), /*destination*/ None);
-
     let lines = vec![
         HyperlinkLine::new("/mcp".magenta().into()),
         HyperlinkLine::from(""),
         HyperlinkLine::new(vec!["🔌  ".into(), "MCP Tools".bold()].into()),
         HyperlinkLine::from(""),
         HyperlinkLine::new("  • No MCP servers configured.".italic().into()),
-        docs_line.style(Style::default().add_modifier(Modifier::DIM)),
+        HyperlinkLine::new("    See the MCP docs to configure them.".dim().into()),
     ];
 
     WebHyperlinkHistoryCell::new_hyperlink_lines(lines)
