@@ -20,6 +20,35 @@ use crate::create_model_provider;
 
 struct Routing(WorkspaceRouting);
 
+#[test]
+fn discovered_backend_cannot_replace_configured_provider_origin() {
+    for backend in [
+        "https://other.example",
+        "https://configured.example:8443",
+        "https://api.openai.com",
+    ] {
+        let mut provider = ModelProviderInfo::create_openai_provider(Some(
+            "https://configured.example/backend-api/codex".into(),
+        ))
+        .to_api_provider(None)
+        .unwrap();
+        let result = crate::workspace_routing::apply_workspace_routing(
+            &mut provider,
+            WorkspaceRouting {
+                chatgpt_account_id: "account_id".into(),
+                backend_origin: backend.into(),
+                account_routing_override: "us_cr".into(),
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            provider.base_url,
+            "https://configured.example/backend-api/codex"
+        );
+        assert!(!provider.headers.contains_key(ACCOUNT_ROUTING_HEADER));
+    }
+}
+
 struct ChangedBootstrap {
     first_lookup: std::sync::atomic::AtomicBool,
     release_first: tokio::sync::Notify,
@@ -64,7 +93,7 @@ async fn concurrent_discovery_cannot_forget_established_routing() {
     ));
     let provider = create_model_provider(
         ModelProviderInfo::create_openai_provider(Some(
-            "https://chatgpt.com/backend-api/codex".into(),
+            "https://gov.chatgpt.com/backend-api/codex".into(),
         )),
         Some(auth),
     );
@@ -108,7 +137,8 @@ impl WorkspaceRoutingResolver for Routing {
 
 #[tokio::test]
 async fn workspace_routing_preserves_paths_and_excludes_other_providers() {
-    let routing_context = WorkspaceRoutingContext::new("https://chatgpt.com/backend-api".into());
+    let routing_context =
+        WorkspaceRoutingContext::new("https://gov.chatgpt.com:8443/backend-api".into());
     let auth =
         AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
     let resolver: Arc<dyn WorkspaceRoutingResolver> = Arc::new(Routing(WorkspaceRouting {
@@ -118,7 +148,7 @@ async fn workspace_routing_preserves_paths_and_excludes_other_providers() {
     }));
     auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
     let info = ModelProviderInfo::create_openai_provider(Some(
-        "https://chatgpt.com/backend-api/codex".into(),
+        "https://gov.chatgpt.com:8443/backend-api/codex".into(),
     ));
     let provider = create_model_provider(info.clone(), Some(auth.clone()));
     let routed = provider
