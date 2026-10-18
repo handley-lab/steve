@@ -115,7 +115,6 @@ members = [
     "windows-sandbox-rs/tests/support",
     "windows-sandbox-service",
     "worktree",
-    "workload-identity",
     "utils/absolute-path",
     "utils/audio",
     "utils/path-uri",
@@ -314,7 +313,6 @@ codex-utils-string = { path = "utils/string" }
 codex-utils-template = { path = "utils/template" }
 codex-user-verification = { path = "user-verification" }
 codex-v8-poc = { path = "v8-poc" }
-codex-workload-identity = { path = "workload-identity" }
 codex-windows-sandbox = { path = "windows-sandbox-rs" }
 codex-windows-sandbox-test-support = { path = "windows-sandbox-rs/tests/support" }
 core_test_support = { path = "core/tests/common" }

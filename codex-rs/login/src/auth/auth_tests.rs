@@ -10,8 +10,6 @@ use codex_protocol::auth::PlanType as InternalPlanType;
 use base64::Engine;
 use codex_protocol::config_types::ForcedLoginMethod;
 use codex_protocol::config_types::ModelProviderAuthInfo;
-use codex_protocol::shell_environment::OPENAI_FEDERATION_RULE_ID_ENV_VAR;
-use codex_protocol::shell_environment::OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR;
 use pretty_assertions::assert_eq;
 use serde::Serialize;
 use serde_json::json;
@@ -1220,63 +1218,6 @@ async fn external_header_auth_rejects_a_disallowed_workspace_on_refresh() {
     assert_eq!(manager.auth_cached(), Some(allowed_auth));
 }
 
-#[tokio::test]
-async fn workload_identity_auth_is_immutable_and_process_local() {
-    let codex_home = tempdir().expect("tempdir");
-    let mut manager = AuthManager::from_auth_for_testing_with_home(
-        CodexAuth::from_api_key("seed"),
-        codex_home.path().to_path_buf(),
-    );
-    Arc::get_mut(&mut manager)
-        .expect("test manager should not be shared yet")
-        .workload_identity_selected = true;
-    let access_token = fake_jwt_for_auth_file_params(&AuthFileParams {
-        openai_api_key: None,
-        chatgpt_plan_type: Some("enterprise".to_string()),
-        chatgpt_account_id: Some("workspace-one".to_string()),
-    })
-    .expect("fake access token");
-    let auth =
-        CodexAuth::from_external_chatgpt_tokens(&access_token, "workspace-one", Some("enterprise"))
-            .expect("external ChatGPT auth");
-
-    manager
-        .install_external_auth(Arc::new(StaticExternalAuth(auth.clone())))
-        .await
-        .expect("workload identity auth should install");
-    manager.clear_external_auth();
-
-    assert!(manager.has_external_auth());
-    assert_eq!(manager.auth().await, Some(auth.clone()));
-    assert!(matches!(
-        manager
-            .set_external_auth(Arc::new(StaticExternalAuth(auth.clone())))
-            .await,
-        Err(RefreshTokenError::Permanent(_))
-    ));
-
-    let logout_error = manager
-        .logout()
-        .await
-        .expect_err("workload identity auth must not be logged out");
-    assert_eq!(logout_error.kind(), std::io::ErrorKind::PermissionDenied);
-    assert!(manager.has_external_auth());
-    assert_eq!(manager.auth_cached(), Some(auth));
-
-    assert!(!get_auth_file(codex_home.path()).exists());
-    let ephemeral_storage = create_auth_storage(
-        codex_home.path().to_path_buf(),
-        AuthCredentialsStoreMode::Ephemeral,
-        AuthKeyringBackendKind::default(),
-    );
-    assert!(
-        ephemeral_storage
-            .load()
-            .expect("load ephemeral auth")
-            .is_some()
-    );
-}
-
 struct ProviderAuthScript {
     tempdir: TempDir,
     command: String,
@@ -1586,26 +1527,6 @@ fn auth_config_from_preserves_all_fields() {
     let config = test_auth_manager_config(codex_home.path());
 
     assert_eq!(auth_config_from(&config), config.0);
-}
-
-#[tokio::test]
-#[serial(codex_auth_env)]
-async fn shared_from_config_prefers_workload_identity_to_explicit_access_token() {
-    let codex_home = tempdir().expect("tempdir");
-    let config = test_auth_manager_config(codex_home.path());
-    let _access_token_guard = EnvVarGuard::set(CODEX_ACCESS_TOKEN_ENV_VAR, "at-explicit");
-    let _rule_guard = EnvVarGuard::set(OPENAI_FEDERATION_RULE_ID_ENV_VAR, "rule-one");
-    let _assertion_file_guard = EnvVarGuard::remove(OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR);
-
-    let error = AuthManager::shared_from_config(&config, /*enable_codex_api_key_env*/ false)
-        .await
-        .expect_err("partial workload identity config should fail closed");
-
-    assert!(
-        error
-            .to_string()
-            .contains(OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR)
-    );
 }
 
 #[tokio::test]

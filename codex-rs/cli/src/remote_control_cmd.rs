@@ -147,7 +147,6 @@ pub(crate) async fn run(
 
 async fn daemon_eligible(root_config_overrides: &CliConfigOverrides) -> anyhow::Result<bool> {
     if !root_config_overrides.raw_overrides.is_empty()
-        || codex_login::is_workload_identity_selected()
         || std::env::var_os(codex_exec_server::CODEX_EXEC_SERVER_URL_ENV_VAR).is_some()
     {
         return Ok(false);

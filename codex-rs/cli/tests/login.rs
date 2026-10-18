@@ -84,25 +84,32 @@ fn login_status_reports_auth_storage_errors() -> Result<()> {
 }
 
 #[test]
-fn login_status_validates_configured_workload_identity() -> Result<()> {
+fn supplied_api_key_does_not_activate_account_exchange() -> Result<()> {
     let codex_home = TempDir::new()?;
     write_file_auth_config(codex_home.path())?;
-    let missing_assertion = codex_home.path().join("missing-identity-token");
+    codex_command(codex_home.path())?
+        .args(["login", "--with-api-key"])
+        .write_stdin("supplied-key\n")
+        .assert()
+        .success();
+    let stored_auth = std::fs::read(codex_home.path().join("auth.json"))?;
 
     codex_command(codex_home.path())?
         .env_remove(CODEX_ACCESS_TOKEN_ENV_VAR)
         .env(OPENAI_FEDERATION_RULE_ID_ENV_VAR, "rule-test")
-        .env(OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR, &missing_assertion)
-        .args([
-            "-c",
-            "chatgpt_base_url=\"https://chatgpt.com/backend-api\"",
-            "login",
-            "status",
-        ])
+        .env(
+            OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR,
+            codex_home.path().join("missing-identity-token"),
+        )
+        .args(["login", "status"])
         .assert()
-        .failure()
-        .stderr(contains("could not read workload identity assertion file"));
+        .success()
+        .stderr(contains("Logged in using an API key"));
 
+    assert_eq!(
+        std::fs::read(codex_home.path().join("auth.json"))?,
+        stored_auth
+    );
     Ok(())
 }
 

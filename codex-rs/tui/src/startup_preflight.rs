@@ -6,8 +6,6 @@ use std::ffi::OsString;
 use std::io;
 use std::path::Path;
 
-use codex_protocol::shell_environment::OPENAI_FEDERATION_RULE_ID_ENV_VAR;
-use codex_protocol::shell_environment::OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR;
 use codex_utils_absolute_path::AbsolutePathBuf;
 
 /// Recognize the single configuration override synthesized by the legacy `--search` flag.
@@ -29,9 +27,7 @@ pub(super) fn should_delay_startup_composer_for_first_login(
         credential
             .to_str()
             .is_some_and(|value| !value.trim().is_empty())
-    }) || environment_variable(OPENAI_FEDERATION_RULE_ID_ENV_VAR).is_some()
-        || environment_variable(OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR).is_some()
-    {
+    }) {
         return false;
     }
 

@@ -29,8 +29,6 @@ use super::agent_identity::verified_record_from_jwt;
 use super::change_state::AuthChangeState;
 use super::change_state::same_owner;
 use super::external_bearer::BearerTokenRefresher;
-use super::workload_identity::WorkloadIdentityExternalAuth;
-use super::workload_identity::WorkloadIdentitySessionError;
 use crate::auth::AuthHeaders;
 pub use crate::auth::agent_identity::AgentIdentityAuth;
 pub use crate::auth::bedrock_access_keys::BedrockAccessKeysAuth;
@@ -129,15 +127,7 @@ pub struct AuthManagerInitializationError(AuthManagerInitializationErrorSource);
 #[derive(Debug, Error)]
 enum AuthManagerInitializationErrorSource {
     #[error(transparent)]
-    WorkloadIdentityConfiguration(WorkloadIdentitySessionError),
-    #[error(transparent)]
     InitialAuth(RefreshTokenError),
-}
-
-impl From<WorkloadIdentitySessionError> for AuthManagerInitializationError {
-    fn from(error: WorkloadIdentitySessionError) -> Self {
-        Self(AuthManagerInitializationErrorSource::WorkloadIdentityConfiguration(error))
-    }
 }
 
 impl From<RefreshTokenError> for AuthManagerInitializationError {
@@ -180,13 +170,6 @@ pub trait ExternalAuth: Send + Sync {
 }
 
 pub type ExternalAuthFuture<'a, T> = Pin<Box<dyn Future<Output = std::io::Result<T>> + Send + 'a>>;
-
-fn permanent_external_auth_error(message: impl Into<String>) -> RefreshTokenError {
-    RefreshTokenError::Permanent(RefreshTokenFailedError::new(
-        RefreshTokenFailedReason::Other,
-        message,
-    ))
-}
 
 impl RefreshTokenError {
     pub fn failed_reason(&self) -> Option<RefreshTokenFailedReason> {
@@ -1569,7 +1552,6 @@ pub struct AuthManager {
     agent_identity_authapi_base_url: Option<String>,
     refresh_lock: Semaphore,
     external_auth: RwLock<Option<Arc<dyn ExternalAuth>>>,
-    workload_identity_selected: bool,
     auth_route_config: AuthRouteConfig,
 }
 
@@ -1632,10 +1614,6 @@ impl Debug for AuthManager {
             .field("chatgpt_base_url", &self.chatgpt_base_url)
             .field("auth_route_config", &self.auth_route_config)
             .field("has_external_auth", &self.has_external_auth())
-            .field(
-                "workload_identity_selected",
-                &self.workload_identity_selected,
-            )
             .finish_non_exhaustive()
     }
 }
@@ -1719,7 +1697,6 @@ impl AuthManager {
             agent_identity_authapi_base_url,
             refresh_lock: Semaphore::new(/*permits*/ 1),
             external_auth: RwLock::new(None),
-            workload_identity_selected: false,
             auth_route_config,
         }
     }
@@ -1753,7 +1730,6 @@ impl AuthManager {
             agent_identity_authapi_base_url: agent_identity_authapi_base_url(),
             refresh_lock: Semaphore::new(/*permits*/ 1),
             external_auth: RwLock::new(None),
-            workload_identity_selected: false,
             auth_route_config: crate::test_support::transport_default_auth_route_config(),
         })
     }
@@ -1781,7 +1757,6 @@ impl AuthManager {
             agent_identity_authapi_base_url: agent_identity_authapi_base_url(),
             refresh_lock: Semaphore::new(/*permits*/ 1),
             external_auth: RwLock::new(None),
-            workload_identity_selected: false,
             auth_route_config: crate::test_support::transport_default_auth_route_config(),
         })
     }
@@ -1817,7 +1792,6 @@ impl AuthManager {
             ),
             refresh_lock: Semaphore::new(/*permits*/ 1),
             external_auth: RwLock::new(None),
-            workload_identity_selected: false,
             auth_route_config: crate::test_support::transport_default_auth_route_config(),
         })
     }
@@ -1843,7 +1817,6 @@ impl AuthManager {
             agent_identity_authapi_base_url: agent_identity_authapi_base_url(),
             refresh_lock: Semaphore::new(/*permits*/ 1),
             external_auth: RwLock::new(Some(Arc::new(BearerTokenRefresher::new(config)))),
-            workload_identity_selected: false,
             // External bearer auth refreshes by running the provider's command and never makes
             // auth-owned HTTP requests, so this route is intentionally inert.
             auth_route_config: AuthRouteConfig::from_http_client_factory(HttpClientFactory::new(
@@ -2086,18 +2059,6 @@ impl AuthManager {
         &self,
         external_auth: Arc<dyn ExternalAuth>,
     ) -> Result<(), RefreshTokenError> {
-        if self.workload_identity_selected {
-            return Err(permanent_external_auth_error(
-                "workload identity auth cannot be replaced at runtime",
-            ));
-        }
-        self.install_external_auth(external_auth).await
-    }
-
-    async fn install_external_auth(
-        &self,
-        external_auth: Arc<dyn ExternalAuth>,
-    ) -> Result<(), RefreshTokenError> {
         let auth = self.resolve_external_auth(external_auth.as_ref()).await?;
         let mut external_auth_slot = self.external_auth.write().map_err(|_| {
             RefreshTokenError::Transient(std::io::Error::other("external auth lock is poisoned"))
@@ -2111,9 +2072,6 @@ impl AuthManager {
     }
 
     pub fn clear_external_auth(&self) {
-        if self.workload_identity_selected {
-            return;
-        }
         if let Ok(mut external_auth) = self.external_auth.write()
             && external_auth.take().is_some()
         {
@@ -2161,10 +2119,6 @@ impl AuthManager {
         self.external_auth_provider().is_some()
     }
 
-    pub fn is_workload_identity_selected(&self) -> bool {
-        self.workload_identity_selected
-    }
-
     pub fn is_external_chatgpt_auth_active(&self) -> bool {
         self.auth_cached()
             .as_ref()
@@ -2207,7 +2161,7 @@ impl AuthManager {
         )
     }
 
-    /// Builds a shared manager and activates process-configured workload identity when selected.
+    /// Builds a shared manager from resolved configuration.
     pub async fn shared_from_config(
         config: &impl AuthManagerConfig,
         enable_codex_api_key_env: bool,
@@ -2215,21 +2169,14 @@ impl AuthManager {
         Self::shared_from_auth_config(auth_config_from(config), enable_codex_api_key_env).await
     }
 
-    /// Activates workload identity against an auth config resolved before full runtime config.
+    /// Builds a shared manager from the authentication configuration.
     pub async fn shared_from_auth_config(
         auth_config: AuthConfig,
         enable_codex_api_key_env: bool,
     ) -> Result<Arc<Self>, AuthManagerInitializationError> {
-        let external_auth = WorkloadIdentityExternalAuth::from_process_config(&auth_config)?;
-        let mut manager = Self::new_from_auth_config(auth_config, enable_codex_api_key_env).await;
-        manager.workload_identity_selected = external_auth.is_some();
-        let manager = Arc::new(manager);
-        if let Some(external_auth) = external_auth {
-            manager
-                .install_external_auth(Arc::new(external_auth))
-                .await?;
-        }
-        Ok(manager)
+        Ok(Arc::new(
+            Self::new_from_auth_config(auth_config, enable_codex_api_key_env).await,
+        ))
     }
 
     pub fn unauthorized_recovery(self: &Arc<Self>) -> UnauthorizedRecovery {
@@ -2358,7 +2305,6 @@ impl AuthManager {
     /// if none were present. On success, reloads the in-memory auth cache so
     /// callers immediately observe the unauthenticated state.
     pub async fn logout(&self) -> std::io::Result<bool> {
-        self.ensure_logout_allowed()?;
         let removed = logout_all_stores(
             &self.codex_home,
             self.auth_credentials_store_mode,
@@ -2368,16 +2314,6 @@ impl AuthManager {
         self.clear_external_auth();
         self.reload().await;
         Ok(removed)
-    }
-
-    fn ensure_logout_allowed(&self) -> std::io::Result<()> {
-        if self.workload_identity_selected {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "workload identity auth is managed by the host and cannot be logged out",
-            ));
-        }
-        Ok(())
     }
 
     /// Returns the precise kind of credentials backing the current authentication.

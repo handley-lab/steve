@@ -3865,7 +3865,6 @@ dependencies = [
  "codex-utils-cargo-bin",
  "codex-utils-process",
  "codex-utils-template",
- "codex-workload-identity",
  "core_test_support",
  "http 1.4.0",
  "jsonwebtoken",
@@ -5371,21 +5370,6 @@ name = "codex-windows-sandbox-test-support"
 version = "0.0.0"
 dependencies = [
  "dirs",
-]
-
-[[package]]
-name = "codex-workload-identity"
-version = "0.0.0"
-dependencies = [
- "codex-http-client",
- "pretty_assertions",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "url",
- "wiremock",
 ]
 
 [[package]]

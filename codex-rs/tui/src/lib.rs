@@ -61,7 +61,6 @@ use codex_login::AuthConfig;
 use codex_login::default_client::originator;
 use codex_login::default_client::set_default_client_residency_requirement;
 use codex_login::enforce_login_restrictions;
-use codex_login::is_workload_identity_selected;
 use codex_protocol::ThreadId;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::config_types::AltScreenMode;
@@ -1030,18 +1029,8 @@ fn app_server_target_for_launch(
     explicit_remote_endpoint: Option<RemoteAppServerEndpoint>,
     default_daemon_socket: Option<AbsolutePathBuf>,
     can_reuse_implicit_local_daemon: bool,
-    workload_identity_selected: bool,
     exec_server_url: Option<&std::ffi::OsStr>,
 ) -> std::io::Result<AppServerTarget> {
-    if workload_identity_selected {
-        if explicit_remote_endpoint.is_some() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "workload identity must be configured on the remote app-server host",
-            ));
-        }
-        return Ok(AppServerTarget::Embedded);
-    }
     Ok(match explicit_remote_endpoint {
         Some(endpoint) => AppServerTarget::Remote { endpoint },
         // A shared daemon cannot adopt this invocation's executor selection.
@@ -1166,7 +1155,6 @@ async fn run_ratatui_app(
     startup_draft: startup_draft::StartupDraft,
 ) -> color_eyre::Result<AppExitInfo> {
     let uses_remote_workspace = app_server_target.uses_remote_workspace();
-    let workload_identity_selected = is_workload_identity_selected();
     color_eyre::install()?;
 
     tooltips::announcement::prewarm(initial_config.http_client_factory());
@@ -1281,9 +1269,7 @@ async fn run_ratatui_app(
     #[cfg(target_os = "windows")]
     let mut trust_decision_was_made = false;
     let startup_model_provider = initial_config.model_provider_id.clone();
-    let (login_status, mut startup_account) = if workload_identity_selected {
-        (LoginStatus::AuthMode(AuthMode::Chatgpt), None)
-    } else {
+    let (login_status, mut startup_account) = {
         let Some(active_app_server) = app_server.as_mut() else {
             unreachable!("app server should exist when auth is required");
         };
@@ -1302,7 +1288,6 @@ async fn run_ratatui_app(
             }
         }
     };
-    // Workload identity bypasses interactive login; every other provider uses account/read.
     let requires_openai_auth = startup_account
         .as_ref()
         .is_some_and(|account| account.requires_openai_auth);
@@ -1375,7 +1360,7 @@ async fn run_ratatui_app(
                 // If this onboarding run included the login step, always refresh the cloud config
                 // bundle and rebuild config. This avoids missing newly available cloud-managed
                 // policy due to login status detection edge cases.
-                if show_login_screen && !uses_remote_workspace && !workload_identity_selected {
+                if show_login_screen && !uses_remote_workspace {
                     cloud_config_bundle = cloud_config_bundle_loader_for_storage(
                         embedded_network_policy.bind_bootstrap_auth(initial_config.auth_config()),
                         /*enable_codex_api_key_env*/ false,
@@ -3198,7 +3183,6 @@ requires_openai_auth = {requires_openai_auth}
             /*explicit_remote_endpoint*/ None,
             Some(socket_path.clone()),
             /*can_reuse_implicit_local_daemon*/ true,
-            /*workload_identity_selected*/ false,
             /*exec_server_url*/ None,
         )?;
 
@@ -3223,7 +3207,6 @@ requires_openai_auth = {requires_openai_auth}
                     /*explicit_remote_endpoint*/ None,
                     Some(socket_path.clone()),
                     /*can_reuse_implicit_local_daemon*/ true,
-                    /*workload_identity_selected*/ false,
                     Some(std::ffi::OsStr::new(executor)),
                 )?,
                 AppServerTarget::Embedded,
@@ -3241,7 +3224,6 @@ requires_openai_auth = {requires_openai_auth}
             Some(explicit_endpoint.clone()),
             Some(AbsolutePathBuf::relative_to_current_dir("default.sock")?),
             /*can_reuse_implicit_local_daemon*/ false,
-            /*workload_identity_selected*/ false,
             Some(std::ffi::OsStr::new("none")),
         )?;
 
@@ -3264,43 +3246,10 @@ requires_openai_auth = {requires_openai_auth}
             /*explicit_remote_endpoint*/ None,
             Some(socket_path),
             /*can_reuse_implicit_local_daemon*/ false,
-            /*workload_identity_selected*/ false,
             /*exec_server_url*/ None,
         )?;
 
         assert_eq!(target, AppServerTarget::Embedded);
-        Ok(())
-    }
-
-    #[test]
-    fn workload_identity_requires_an_embedded_app_server() -> color_eyre::Result<()> {
-        let default_socket = AbsolutePathBuf::relative_to_current_dir("default.sock")?;
-        assert_eq!(
-            app_server_target_for_launch(
-                /*explicit_remote_endpoint*/ None,
-                Some(default_socket),
-                /*can_reuse_implicit_local_daemon*/ true,
-                /*workload_identity_selected*/ true,
-                /*exec_server_url*/ None,
-            )?,
-            AppServerTarget::Embedded
-        );
-
-        let explicit_endpoint = RemoteAppServerEndpoint::UnixSocket {
-            socket_path: AbsolutePathBuf::relative_to_current_dir("explicit.sock")?,
-        };
-        let error = app_server_target_for_launch(
-            Some(explicit_endpoint),
-            /*default_daemon_socket*/ None,
-            /*can_reuse_implicit_local_daemon*/ false,
-            /*workload_identity_selected*/ true,
-            /*exec_server_url*/ None,
-        )
-        .expect_err("remote hosts must own workload identity");
-        assert_eq!(
-            error.to_string(),
-            "workload identity must be configured on the remote app-server host"
-        );
         Ok(())
     }
 

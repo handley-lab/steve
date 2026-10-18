@@ -1,7 +1,9 @@
 # Steve network paths
 
-This is a partial static audit of Steve's network paths. It describes
-source-level destinations and controls, not a verified network allowlist.
+This is a partial static audit of Steve main at
+`e0a560921ad74749b9f9d8bd7ab2cbf9d75fd3ec`. It records source-level
+destinations and controls at that pin, not the current branch or a verified
+network allowlist.
 The sections below include inference, model discovery, telemetry, feedback,
 MCP, selected authentication flows, cloud-task submission, installers and assets.
 Plugin runtime coverage and other cloud-task operations still need coverage.

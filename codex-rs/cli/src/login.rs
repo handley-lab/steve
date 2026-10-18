@@ -10,8 +10,6 @@
 use codex_core::config::Config;
 use codex_core::config::edit::ConfigEdit;
 use codex_core::config::edit::ConfigEditsBuilder;
-use codex_login::AuthManager;
-use codex_login::is_workload_identity_selected;
 use codex_login::login_with_access_token;
 use codex_login::login_with_api_key;
 use codex_login::logout_all_stores;
@@ -30,8 +28,7 @@ use tracing_subscriber::Layer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-const API_KEY_LOGIN_DISABLED_MESSAGE: &str =
-    "API key login is disabled by configuration.";
+const API_KEY_LOGIN_DISABLED_MESSAGE: &str = "API key login is disabled by configuration.";
 const ACCESS_TOKEN_LOGIN_DISABLED_MESSAGE: &str =
     "Access token login is disabled. Use API key login instead.";
 const LOGIN_SUCCESS_MESSAGE: &str = "Successfully logged in";
@@ -222,19 +219,6 @@ fn read_stdin_secret(terminal_message: &str, reading_message: &str, empty_messag
 
 pub async fn run_login_status(cli_config_overrides: CliConfigOverrides) -> ! {
     let config = load_config_or_exit(cli_config_overrides).await;
-
-    if is_workload_identity_selected() {
-        match AuthManager::shared_from_config(&config, /*enable_codex_api_key_env*/ false).await {
-            Ok(_) => {
-                eprintln!("Logged in using workload identity");
-                std::process::exit(0);
-            }
-            Err(err) => {
-                eprintln!("Error checking login status: {err}");
-                std::process::exit(1);
-            }
-        }
-    }
 
     let auth_config = config.auth_config();
     match auth_config

@@ -87,7 +87,6 @@ use codex_history::RolloutLine;
 use codex_login::default_client::set_default_client_residency_requirement;
 use codex_login::default_client::set_default_originator;
 use codex_login::enforce_login_restrictions;
-use codex_login::is_workload_identity_selected;
 use codex_model_provider_info::LMSTUDIO_OSS_PROVIDER_ID;
 use codex_model_provider_info::OLLAMA_OSS_PROVIDER_ID;
 use codex_otel::set_parent_from_context;
@@ -653,9 +652,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
 
     set_default_client_residency_requirement(config.enforce_residency.value());
 
-    if !is_workload_identity_selected()
-        && let Err(err) = enforce_login_restrictions(&config.auth_config()).await
-    {
+    if let Err(err) = enforce_login_restrictions(&config.auth_config()).await {
         eprintln!("{err}");
         std::process::exit(1);
     }

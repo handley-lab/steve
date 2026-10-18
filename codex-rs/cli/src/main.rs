@@ -101,7 +101,6 @@ use codex_features::Stage;
 use codex_features::is_known_feature_key;
 use codex_home::CodexHomeUserInstructionsProvider;
 use codex_login::AuthManager;
-use codex_login::is_workload_identity_selected;
 use codex_memories_write::clear_memory_roots_contents;
 use codex_models_manager::bundled_models_response;
 use codex_models_manager::manager::RefreshStrategy;
@@ -1107,11 +1106,6 @@ async fn cli_main(
                 {
                     anyhow::bail!(
                         "`steve agents` cannot apply local provider or additional-directory overrides to a remote server"
-                    );
-                }
-                if is_workload_identity_selected() {
-                    anyhow::bail!(
-                        "`steve agents` is unavailable while workload identity is active"
                     );
                 }
                 if root_remote.is_none() {
