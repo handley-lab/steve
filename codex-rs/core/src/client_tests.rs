@@ -2118,7 +2118,10 @@ async fn existing_call_sideband_headers_include_attestation() {
         model_client_with_counting_attestation(/*include_attestation*/ true);
 
     let headers = model_client
-        .realtime_sideband_headers(http::HeaderMap::new())
+        .realtime_sideband_headers(
+            http::HeaderMap::new(),
+            model_client.state.provider.api_provider().await.unwrap(),
+        )
         .await
         .expect("existing call sideband headers should build");
 

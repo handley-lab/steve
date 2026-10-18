@@ -23,7 +23,6 @@ use codex_login::GatewayAuthManager;
 use codex_login::collect_auth_env_telemetry;
 use codex_login::default_client::ClientRedirectPolicy;
 use codex_login::default_client::create_client_for_route_async;
-use codex_model_provider_info::CHATGPT_CODEX_BASE_URL;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_models_manager::manager::ModelsEndpointClient;
 use codex_models_manager::manager::ModelsEndpointFuture;
@@ -109,15 +108,11 @@ impl OpenAiModelsEndpoint {
         );
         let identity = crate::models_identity::identity(&self.provider_info, auth.as_ref())?;
         let auth_mode = auth.as_ref().map(CodexAuth::auth_mode);
-        let mut api_provider = self.provider_info.to_api_provider(auth_mode)?;
-        if (auth.as_ref().is_some_and(CodexAuth::is_api_key_auth) || self.has_provider_api_key())
-            && self.supports_api_key_models()
-            && self.provider_info.base_url.is_none()
-            && self.provider_info.model_catalog_url.is_none()
-        {
-            // Codex metadata is served by the Codex backend, not the public /v1/models API.
-            api_provider.base_url = CHATGPT_CODEX_BASE_URL.to_string();
+        let mut catalog_provider = self.provider_info.clone();
+        if let Some(catalog_url) = &self.provider_info.model_catalog_url {
+            catalog_provider.base_url = Some(catalog_url.to_string());
         }
+        let api_provider = catalog_provider.to_api_provider(auth_mode)?;
         let resolved = compose_auth(
             &self.provider_info,
             self.gateway_auth_manager.as_ref(),
@@ -212,7 +207,6 @@ impl OpenAiModelsEndpoint {
 impl ModelsEndpointClient for OpenAiModelsEndpoint {
     fn supports_api_key_models(&self) -> bool {
         self.provider_info.model_catalog_url.is_some()
-            || (self.provider_info.is_openai() && self.provider_info.base_url.is_none())
     }
 
     fn has_provider_api_key(&self) -> bool {
@@ -461,26 +455,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn api_key_discovery_respects_provider_routing() {
+    async fn api_key_discovery_requires_an_explicit_catalog() {
         let client_version = codex_models_manager::client_version_to_whole();
         for (name, base_url, models_url, inference_url) in [
-            (
-                "OpenAI",
-                None,
-                Some("https://chatgpt.com/backend-api/codex/models"),
-                "https://api.openai.com/v1",
-            ),
+            ("OpenAI", None, None::<&str>, None),
             (
                 "OpenAI",
                 Some("https://example.com/codex"),
                 None,
-                "https://example.com/codex",
+                Some("https://example.com/codex"),
             ),
             (
                 "Azure",
                 Some("https://example.openai.azure.com/openai/v1"),
                 None,
-                "https://example.openai.azure.com/openai/v1",
+                Some("https://example.openai.azure.com/openai/v1"),
             ),
         ] {
             let capture = Arc::new(CaptureModelsUrl(Mutex::new(/*t*/ None)));
@@ -510,15 +499,15 @@ mod tests {
                 endpoint
                     .provider_info
                     .to_api_provider(Some(AuthMode::ApiKey))
-                    .unwrap()
-                    .base_url,
-                inference_url
+                    .map(|provider| provider.base_url)
+                    .ok(),
+                inference_url.map(str::to_string)
             );
         }
     }
 
     #[tokio::test]
-    async fn provider_api_key_without_endpoint_overrides_uses_codex_backend() {
+    async fn provider_api_key_without_endpoint_overrides_does_not_dispatch() {
         for auth in [
             None,
             Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
@@ -542,13 +531,7 @@ mod tests {
                     HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
                 )
                 .await;
-            assert_eq!(
-                *capture.0.lock().unwrap(),
-                Some(format!(
-                    "{CHATGPT_CODEX_BASE_URL}/models?client_version={}",
-                    codex_models_manager::client_version_to_whole(),
-                ))
-            );
+            assert_eq!(*capture.0.lock().unwrap(), None);
         }
     }
 
@@ -792,10 +775,16 @@ mod tests {
 
     #[tokio::test]
     async fn explicit_catalog_reuses_auth_headers_and_query_parameters() {
-        for auth in [
-            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
-            CodexAuth::from_api_key("test-key"),
-        ] {
+        for (base_url, auth) in [None, Some(""), Some("http://unused.example/v1")]
+            .into_iter()
+            .flat_map(|base_url| {
+                [
+                    CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+                    CodexAuth::from_api_key("test-key"),
+                ]
+                .map(|auth| (base_url, auth))
+            })
+        {
             let server = MockServer::start().await;
             let mut model = model_info_from_slug("provider-model");
             model.visibility = ModelVisibility::List;
@@ -834,7 +823,7 @@ mod tests {
                         "us".into(),
                     ),
                 ])),
-                ..ModelProviderInfo::create_openai_provider(Some(format!("{}/v1", server.uri())))
+                ..ModelProviderInfo::create_openai_provider(base_url.map(str::to_string))
             };
             let home = tempfile::tempdir().unwrap();
             let endpoint = Arc::new(OpenAiModelsEndpoint::new(

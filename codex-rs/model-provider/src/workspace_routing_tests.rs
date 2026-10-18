@@ -63,7 +63,9 @@ async fn concurrent_discovery_cannot_forget_established_routing() {
         &(resolver.clone() as Arc<dyn WorkspaceRoutingResolver>),
     ));
     let provider = create_model_provider(
-        ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+        ModelProviderInfo::create_openai_provider(Some(
+            "https://chatgpt.com/backend-api/codex".into(),
+        )),
         Some(auth),
     );
     let mut first = provider.responses_api_provider(&context);
@@ -115,7 +117,9 @@ async fn workspace_routing_preserves_paths_and_excludes_other_providers() {
         account_routing_override: "us_cr".into(),
     }));
     auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
-    let info = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+    let info = ModelProviderInfo::create_openai_provider(Some(
+        "https://chatgpt.com/backend-api/codex".into(),
+    ));
     let provider = create_model_provider(info.clone(), Some(auth.clone()));
     let routed = provider
         .responses_api_provider(&routing_context)
@@ -161,7 +165,9 @@ async fn workspace_routing_preserves_paths_and_excludes_other_providers() {
     }
     let api_auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("api-key"));
     api_auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
-    let api = create_model_provider(info, Some(api_auth))
+    let mut api_info = info;
+    api_info.base_url = Some("https://api.openai.com/v1".into());
+    let api = create_model_provider(api_info, Some(api_auth))
         .responses_api_provider(&routing_context)
         .await
         .unwrap();
@@ -181,7 +187,9 @@ async fn missing_routing_owner_and_wrong_workspace_fail_closed() {
     }));
     auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
     let provider = create_model_provider(
-        ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+        ModelProviderInfo::create_openai_provider(Some(
+            "https://chatgpt.com/backend-api/codex".into(),
+        )),
         Some(auth),
     );
     assert!(

@@ -226,6 +226,7 @@ struct ModelClientState {
 enum ClientRouting {
     Workspace,
     ConfiguredProvider,
+    ExplicitProvider(ApiProvider),
 }
 
 /// Resolved API client setup for a single request attempt.
@@ -746,9 +747,11 @@ impl ModelClient {
     ) -> Result<RealtimeWebrtcCallStart> {
         // Create the media call over HTTP first, then retain matching auth so realtime can attach
         // the server-side control WebSocket to the call id from that HTTP response.
-        let client_setup = self
-            .current_client_setup(ClientRouting::ConfiguredProvider)
-            .await?;
+        let routing = match api_provider_override {
+            Some(provider) => ClientRouting::ExplicitProvider(provider),
+            None => ClientRouting::ConfiguredProvider,
+        };
+        let client_setup = self.current_client_setup(routing).await?;
         if let Some(header_value) = self.generate_attestation_header_for().await {
             extra_headers.insert(X_OAI_ATTESTATION_HEADER, header_value);
         }
@@ -756,7 +759,7 @@ impl ModelClient {
         sideband_headers.extend(sideband_websocket_auth_headers(
             client_setup.api_auth.as_ref(),
         ));
-        let api_provider = api_provider_override.unwrap_or(client_setup.api_provider);
+        let api_provider = client_setup.api_provider;
         let transport = self.build_api_transport(
             &api_provider,
             REALTIME_CALLS_ENDPOINT,
@@ -776,9 +779,10 @@ impl ModelClient {
     pub(crate) async fn realtime_sideband_headers(
         &self,
         mut extra_headers: ApiHeaderMap,
+        api_provider: ApiProvider,
     ) -> Result<ApiHeaderMap> {
         let client_setup = self
-            .current_client_setup(ClientRouting::ConfiguredProvider)
+            .current_client_setup(ClientRouting::ExplicitProvider(api_provider))
             .await?;
         if let Some(header_value) = self.generate_attestation_header_for().await {
             extra_headers.insert(X_OAI_ATTESTATION_HEADER, header_value);
@@ -1135,7 +1139,7 @@ impl ModelClient {
         loop {
             let revision = auth_changes.as_ref().map(|changes| *changes.borrow());
             let auth = self.state.provider.auth().await;
-            let (api_provider, redirect_policy) = match routing {
+            let (api_provider, redirect_policy) = match &routing {
                 ClientRouting::Workspace => {
                     let resolved = self
                         .state
@@ -1148,6 +1152,9 @@ impl ModelClient {
                     self.state.provider.api_provider().await?,
                     ClientRedirectPolicy::Default,
                 ),
+                ClientRouting::ExplicitProvider(provider) => {
+                    (provider.clone(), ClientRedirectPolicy::Default)
+                }
             };
             let resolved_auth = self
                 .state

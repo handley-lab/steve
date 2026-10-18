@@ -21,7 +21,8 @@ fn chatgpt_auth(email: &str, user: &str, account: &str, plan: &str, signature: &
 
 #[test]
 fn cache_identity_tracks_account_email_user_plan_and_auth_mode_but_not_token_refresh() {
-    let mut provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+    let mut provider =
+        ModelProviderInfo::create_openai_provider(Some("https://example.com/v1".into()));
     // The endpoint residency test temporarily sets the process default to US.
     provider.http_headers = Some(std::collections::HashMap::from([(
         codex_login::default_client::RESIDENCY_HEADER_NAME.to_string(),
@@ -100,4 +101,9 @@ fn cache_identity_tracks_catalog_url() {
     let second = identity(&provider, Some(&auth)).unwrap();
     assert_ne!(bundled, first);
     assert_ne!(first, second);
+    provider.base_url = None;
+    let catalog_only = identity(&provider, Some(&auth)).unwrap();
+    assert_ne!(second, catalog_only);
+    provider.base_url = Some("https://other.example/v1".into());
+    assert_ne!(catalog_only, identity(&provider, Some(&auth)).unwrap());
 }

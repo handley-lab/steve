@@ -14,7 +14,11 @@ pub(crate) fn identity(
     provider_info: &ModelProviderInfo,
     auth: Option<&CodexAuth>,
 ) -> CoreResult<String> {
-    let mut api_provider = provider_info.to_api_provider(auth.map(CodexAuth::auth_mode))?;
+    let mut catalog_provider = provider_info.clone();
+    if let Some(catalog_url) = &provider_info.model_catalog_url {
+        catalog_provider.base_url = Some(catalog_url.to_string());
+    }
+    let mut api_provider = catalog_provider.to_api_provider(auth.map(CodexAuth::auth_mode))?;
     let mut digest = Sha256::new();
     // Length-prefix every field to avoid ambiguity between adjacent values.
     let mut field = |value: &[u8]| {
@@ -25,10 +29,11 @@ pub(crate) fn identity(
     field(api_provider.name.as_bytes());
     field(api_provider.base_url.as_bytes());
     // Preserve existing cache identities when no explicit catalog is configured.
-    // The API provider resolves base_url defaults; model_catalog_url stays on ModelProviderInfo.
     if let Some(catalog_url) = &provider_info.model_catalog_url {
         field(b"model_catalog_url");
         field(catalog_url.as_bytes());
+        field(b"inference_base_url");
+        field(format!("{:?}", provider_info.base_url).as_bytes());
     }
     let mut query: Vec<_> = api_provider.query_params.iter().flatten().collect();
     query.sort();

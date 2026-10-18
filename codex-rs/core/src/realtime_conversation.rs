@@ -702,7 +702,7 @@ impl RealtimeConversationManager {
             audio_rx,
         };
 
-        let client = RealtimeWebsocketClient::new(api_provider, http_client_factory);
+        let client = RealtimeWebsocketClient::new(api_provider.clone(), http_client_factory);
         let client = match realtime_sideband_base_url {
             Some(base_url) => client.with_webrtc_sideband_base_url(base_url),
             None => client,
@@ -739,6 +739,7 @@ impl RealtimeConversationManager {
         } else if let Some(call_id) = existing_call_id {
             let task = existing_call::attach(existing_call::ExistingCallAttachment {
                 client,
+                api_provider,
                 model_client,
                 session_config,
                 call_id,
@@ -1372,7 +1373,6 @@ async fn prepare_realtime_start(
         .transport
         .clone()
         .unwrap_or(ConversationStartTransport::Websocket);
-    let mut api_provider = provider.to_api_provider(Some(AuthMode::ApiKey))?;
     let realtime_sideband_base_url = match &transport {
         ConversationStartTransport::ExistingCall {
             sideband_base_url, ..
@@ -1383,14 +1383,16 @@ async fn prepare_realtime_start(
             config.experimental_realtime_ws_base_url.clone()
         }
     };
+    let mut realtime_provider = provider.clone();
     if let Some(realtime_ws_base_url) = &realtime_sideband_base_url {
-        api_provider.base_url = realtime_ws_base_url.clone();
+        realtime_provider.base_url = Some(realtime_ws_base_url.clone());
     }
+    let api_provider = realtime_provider.to_api_provider(Some(AuthMode::ApiKey))?;
     let realtime_call_api_provider =
         if let Some(realtime_call_base_url) = &config.experimental_realtime_webrtc_call_base_url {
-            let mut api_provider = provider.to_api_provider(Some(AuthMode::ApiKey))?;
-            api_provider.base_url = realtime_call_base_url.clone();
-            Some(api_provider)
+            let mut call_provider = provider.clone();
+            call_provider.base_url = Some(realtime_call_base_url.clone());
+            Some(call_provider.to_api_provider(Some(AuthMode::ApiKey))?)
         } else {
             None
         };

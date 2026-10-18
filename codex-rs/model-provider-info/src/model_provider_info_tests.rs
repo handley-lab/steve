@@ -28,7 +28,7 @@ fn test_api_provider_applies_current_managed_residency() {
             "X-OpenAI-Internal-Codex-Residency".to_string() => "eu".into(),
             "x-provider-header".to_string() => "preserved".into(),
         }),
-        ..ModelProviderInfo::create_openai_provider(/*base_url*/ None)
+        ..ModelProviderInfo::create_openai_provider(Some("http://localhost:30000/v1".into()))
     };
     let original_info = info.clone();
     let previous_requirement = read_managed_residency_requirement();
@@ -213,21 +213,42 @@ supports_websockets = true
 }
 
 #[test]
-fn test_personal_access_token_uses_chatgpt_codex_base_url() {
-    let api_provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None)
-        .to_api_provider(Some(AuthMode::PersonalAccessToken))
-        .expect("OpenAI provider should build API provider");
-
-    assert_eq!(api_provider.base_url, CHATGPT_CODEX_BASE_URL);
+fn api_provider_requires_an_explicit_base_url() {
+    for base_url in [None, Some(""), Some(" \t")] {
+        for auth_mode in [
+            None,
+            Some(AuthMode::ApiKey),
+            Some(AuthMode::Chatgpt),
+            Some(AuthMode::ChatgptAuthTokens),
+            Some(AuthMode::AgentIdentity),
+            Some(AuthMode::Headers),
+            Some(AuthMode::PersonalAccessToken),
+        ] {
+            let provider = ModelProviderInfo::create_openai_provider(base_url.map(str::to_owned));
+            assert!(provider.to_api_provider(auth_mode).is_err());
+        }
+    }
 }
 
 #[test]
-fn test_header_auth_uses_chatgpt_codex_base_url() {
-    let api_provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None)
-        .to_api_provider(Some(AuthMode::Headers))
-        .expect("OpenAI provider should build API provider");
-
-    assert_eq!(api_provider.base_url, CHATGPT_CODEX_BASE_URL);
+fn api_provider_preserves_explicit_endpoints_for_every_auth_mode() {
+    for base_url in ["http://localhost:30000/v1", "https://api.openai.com/v1"] {
+        for auth_mode in [
+            None,
+            Some(AuthMode::ApiKey),
+            Some(AuthMode::Chatgpt),
+            Some(AuthMode::ChatgptAuthTokens),
+            Some(AuthMode::Headers),
+            Some(AuthMode::AgentIdentity),
+            Some(AuthMode::PersonalAccessToken),
+        ] {
+            let provider = ModelProviderInfo::create_openai_provider(Some(base_url.to_string()));
+            assert_eq!(
+                provider.to_api_provider(auth_mode).unwrap().base_url,
+                base_url
+            );
+        }
+    }
 }
 
 #[test]
@@ -434,10 +455,11 @@ fn provider_auth_for_test() -> ModelProviderAuthInfo {
 
 #[test]
 fn test_amazon_bedrock_providers_add_mantle_client_agent_header() {
-    for provider in [
+    for mut provider in [
         ModelProviderInfo::create_amazon_bedrock_provider(/*aws*/ None),
         ModelProviderInfo::create_amazon_bedrock_runtime_provider(/*aws*/ None),
     ] {
+        provider.base_url = Some("http://localhost:30000/v1".into());
         let api_provider = provider
             .to_api_provider(/*auth_mode*/ None)
             .expect("Amazon Bedrock provider should build API provider");
