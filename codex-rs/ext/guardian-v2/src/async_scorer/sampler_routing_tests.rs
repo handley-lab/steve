@@ -171,7 +171,7 @@ impl WorkspaceRoutingResolver for ChangedBootstrap {
             } else if self.0.swap(/*val*/ false, Ordering::SeqCst) {
                 Ok(Some(WorkspaceRouting {
                     chatgpt_account_id: "account_id".into(),
-                    backend_origin: "https://gov.chatgpt.com".into(),
+                    backend_origin: "https://provider.invalid".into(),
                     account_routing_override: "us_cr".into(),
                 }))
             } else {
@@ -194,10 +194,9 @@ async fn idle_classifier_retains_the_owning_threads_workspace_binding() -> Resul
         Arc::new(ChangedBootstrap(AtomicBool::new(/*v*/ true)));
     auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
     let mut config = test.config.clone();
-    config.model_provider = ModelProviderInfo::create_openai_provider(Some(format!(
-        "{}/backend-api/codex",
-        server.uri()
-    )));
+    config.model_provider = ModelProviderInfo::create_openai_provider(Some(
+        "https://provider.invalid/backend-api/codex".into(),
+    ));
     let session_store = codex_extension_api::ExtensionData::new("session-1");
     let input = codex_extension_api::ThreadStartInput {
         config: &config,
