@@ -14,7 +14,7 @@ use codex_login::AuthManager;
 use codex_login::is_workload_identity_selected;
 use codex_login::login_with_access_token;
 use codex_login::login_with_api_key;
-use codex_login::logout_with_revoke;
+use codex_login::logout_all_stores;
 use codex_mcp::ema_auth_scope;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::config_types::ForcedLoginMethod;
@@ -289,7 +289,6 @@ pub async fn run_login_status(cli_config_overrides: CliConfigOverrides) -> ! {
 
 pub async fn run_logout(cli_config_overrides: CliConfigOverrides) -> ! {
     let config = load_config_or_exit(cli_config_overrides).await;
-    let auth_route_config = config.auth_route_config();
 
     // Cleanup is independent of the current feature gate. Retain the grant lock
     // through account removal so another process cannot commit a late login.
@@ -322,14 +321,11 @@ pub async fn run_logout(cli_config_overrides: CliConfigOverrides) -> ! {
         eprintln!("Warning: failed to remove enterprise authorization; continuing account logout");
     }
 
-    let logged_out = match logout_with_revoke(
+    let logged_out = match logout_all_stores(
         &config.codex_home,
         config.cli_auth_credentials_store_mode,
         config.auth_keyring_backend_kind(),
-        &auth_route_config,
-    )
-    .await
-    {
+    ) {
         Ok(logged_out) => logged_out,
         Err(err) => {
             eprintln!("Error logging out: {err}");

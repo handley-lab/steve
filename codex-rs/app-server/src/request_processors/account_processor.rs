@@ -684,7 +684,7 @@ impl AccountRequestProcessor {
             tracing::warn!("Failed to remove enterprise authorization; continuing account logout");
         }
 
-        match self.auth_manager.logout_with_revoke().await {
+        match self.auth_manager.logout().await {
             Ok(_) => {}
             Err(err) => {
                 return Err(internal_error(format!("logout failed: {err}")));

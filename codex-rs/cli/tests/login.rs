@@ -9,7 +9,6 @@ use app_test_support::write_chatgpt_auth;
 use codex_config::types::AuthCredentialsStoreMode;
 use codex_login::AuthKeyringBackendKind;
 use codex_login::CODEX_ACCESS_TOKEN_ENV_VAR;
-use codex_login::REVOKE_TOKEN_URL_OVERRIDE_ENV_VAR;
 use codex_login::login_with_bedrock_access_keys;
 use codex_protocol::shell_environment::OPENAI_FEDERATION_RULE_ID_ENV_VAR;
 use codex_protocol::shell_environment::OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR;
@@ -199,7 +198,7 @@ async fn logout_survives_enterprise_cleanup_failure_with_xaa_disabled() -> Resul
     Mock::given(method("POST"))
         .and(path("/oauth/revoke"))
         .respond_with(ResponseTemplate::new(200))
-        .expect(1)
+        .expect(0)
         .mount(&server)
         .await;
     let home = TempDir::new()?;
@@ -244,7 +243,7 @@ async fn logout_survives_enterprise_cleanup_failure_with_xaa_disabled() -> Resul
         .env("NO_PROXY", "127.0.0.1,localhost")
         .env("no_proxy", "127.0.0.1,localhost")
         .env(
-            REVOKE_TOKEN_URL_OVERRIDE_ENV_VAR,
+            "STEVE_REVOKE_TOKEN_URL_OVERRIDE",
             format!("{}/oauth/revoke", server.uri()),
         )
         .env_remove("STEVE_API_KEY")

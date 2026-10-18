@@ -393,7 +393,7 @@ async fn logout_login_enable_recovers_first_unauthorized_enrollment() -> Result<
     let oauth = wiremock::MockServer::start().await;
     wiremock::Mock::given(wiremock::matchers::path("/oauth/revoke"))
         .respond_with(wiremock::ResponseTemplate::new(/*s*/ 200))
-        .expect(1)
+        .expect(0)
         .mount(&oauth)
         .await;
     let revoke_url = format!("{}/oauth/revoke", oauth.uri());

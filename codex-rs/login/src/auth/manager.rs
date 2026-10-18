@@ -42,7 +42,6 @@ use super::agent_identity::verified_record_from_jwt;
 use super::change_state::AuthChangeState;
 use super::change_state::same_owner;
 use super::external_bearer::BearerTokenRefresher;
-use super::revoke::revoke_auth_tokens;
 use super::workload_identity::WorkloadIdentityExternalAuth;
 use super::workload_identity::WorkloadIdentitySessionError;
 use crate::auth::AuthHeaders;
@@ -210,9 +209,7 @@ const REFRESH_TOKEN_UNKNOWN_MESSAGE: &str =
     "Your access token could not be refreshed. Please log out and sign in again.";
 const REFRESH_TOKEN_ACCOUNT_MISMATCH_MESSAGE: &str = "Your access token could not be refreshed because you have since logged out or signed in to another account. Please sign in again.";
 const REFRESH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
-pub(super) const REVOKE_TOKEN_URL: &str = "https://auth.openai.com/oauth/revoke";
 pub const REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR: &str = "STEVE_REFRESH_TOKEN_URL_OVERRIDE";
-pub const REVOKE_TOKEN_URL_OVERRIDE_ENV_VAR: &str = "STEVE_REVOKE_TOKEN_URL_OVERRIDE";
 pub const CLIENT_ID_OVERRIDE_ENV_VAR: &str = "STEVE_APP_SERVER_LOGIN_CLIENT_ID";
 static NEXT_DUMMY_AUTH_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -991,33 +988,6 @@ pub fn logout(
     storage.delete()
 }
 
-pub async fn logout_with_revoke(
-    codex_home: &Path,
-    auth_credentials_store_mode: AuthCredentialsStoreMode,
-    keyring_backend_kind: AuthKeyringBackendKind,
-    auth_route_config: &AuthRouteConfig,
-) -> std::io::Result<bool> {
-    let auth_dot_json = match load_auth_dot_json(
-        codex_home,
-        auth_credentials_store_mode,
-        keyring_backend_kind,
-    ) {
-        Ok(auth_dot_json) => auth_dot_json,
-        Err(err) => {
-            tracing::warn!("failed to load stored auth during logout: {err}");
-            None
-        }
-    };
-    if let Err(err) = revoke_auth_tokens(auth_dot_json.as_ref(), auth_route_config).await {
-        tracing::warn!("failed to revoke auth tokens during logout: {err}");
-    }
-    logout_all_stores(
-        codex_home,
-        auth_credentials_store_mode,
-        keyring_backend_kind,
-    )
-}
-
 /// Store API-key credentials through the selected storage backend.
 pub fn login_with_api_key(
     codex_home: &Path,
@@ -1472,7 +1442,8 @@ fn logout_with_message(
     Err(std::io::Error::other(error_message))
 }
 
-fn logout_all_stores(
+/// Delete credentials from the selected store and the process-local ephemeral store.
+pub fn logout_all_stores(
     codex_home: &Path,
     auth_credentials_store_mode: AuthCredentialsStoreMode,
     keyring_backend_kind: AuthKeyringBackendKind,
@@ -2963,26 +2934,6 @@ impl AuthManager {
         self.clear_external_auth();
         self.reload().await;
         Ok(removed)
-    }
-
-    pub async fn logout_with_revoke(&self) -> std::io::Result<bool> {
-        self.ensure_logout_allowed()?;
-        let auth_dot_json = self
-            .auth_cached()
-            .and_then(|auth| auth.get_current_auth_json());
-        if let Err(err) = revoke_auth_tokens(auth_dot_json.as_ref(), &self.auth_route_config).await
-        {
-            tracing::warn!("failed to revoke auth tokens during logout: {err}");
-        }
-        let result = logout_all_stores(
-            &self.codex_home,
-            self.auth_credentials_store_mode,
-            self.keyring_backend_kind,
-        )?;
-        // Always reload to clear cached auth, even if no stored credentials were present.
-        self.clear_external_auth();
-        self.reload().await;
-        Ok(result)
     }
 
     fn ensure_logout_allowed(&self) -> std::io::Result<()> {

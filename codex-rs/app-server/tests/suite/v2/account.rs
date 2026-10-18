@@ -228,7 +228,7 @@ async fn logout_account_removes_auth_and_notifies(enterprise_cleanup_failure: bo
     Mock::given(method("POST"))
         .and(path("/oauth/revoke"))
         .respond_with(ResponseTemplate::new(200))
-        .expect(u64::from(enterprise_cleanup_failure))
+        .expect(0)
         .mount(&oauth_server)
         .await;
     let codex_home = TempDir::new()?;
