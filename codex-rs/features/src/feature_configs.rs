@@ -149,6 +149,12 @@ pub struct GuardianV2ReviewScopeConfigToml {
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GuardianV2ConfigToml {
+    /// Named provider for asynchronous classification. Omission uses the action's provider.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_provider: Option<String>,
+    /// Classifier model override. Omission retains the built-in classifier model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     /// Transcript encoding for synchronous Guardian review and asynchronous scoring. Defaults to line.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transcript_mode: Option<codex_protocol::TranscriptFormat>,

@@ -212,8 +212,14 @@ async fn idle_classifier_retains_the_owning_threads_workspace_binding() -> Resul
         .thread_store
         .get::<codex_model_provider::WorkspaceRoutingContext>()
         .expect("Core seeds the owning thread's routing context before extensions start");
-    let classifier =
-        crate::async_scorer::startup::sampler_config(&input, auth.clone(), /*manager*/ None).await;
+    let guardian_config = crate::async_scorer::config::GuardianV2Config::resolve(&config).unwrap();
+    let classifier = crate::async_scorer::startup::sampler_config(
+        &input,
+        &guardian_config,
+        auth.clone(),
+        /*manager*/ None,
+    )
+    .await;
     classifier
         .provider
         .responses_api_provider(&owning_context)

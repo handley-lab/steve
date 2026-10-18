@@ -1999,6 +1999,14 @@
           "minimum": 0.0,
           "type": "integer"
         },
+        "model": {
+          "description": "Classifier model override. Omission retains the built-in classifier model.",
+          "type": "string"
+        },
+        "model_provider": {
+          "description": "Named provider for asynchronous classification. Omission uses the action's provider.",
+          "type": "string"
+        },
         "persist_scores": {
           "description": "Persist reviewed actions and risk scores to rollout files for debugging.",
           "type": "boolean"

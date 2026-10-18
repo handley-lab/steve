@@ -266,9 +266,13 @@ impl SamplingExecution {
                 }
             };
             // Omitted programs need no auth lookup, which can refresh credentials.
-            self.request.access_programs = match self.cyber_access_program {
-                None => None,
-                Some(program) => {
+            self.request.access_programs = match (
+                self.cyber_access_program,
+                self.config.api_key_cyber_access_programs,
+            ) {
+                (None, _)
+                | (_, cyber_access_program::ApiKeyCyberAccessPrograms::UnsupportedProvider) => None,
+                (Some(program), _) => {
                     let auth = tokio::select! {
                         biased;
                         _ = &mut owner_changed => return Err(account_changed_error()),

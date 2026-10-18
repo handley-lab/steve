@@ -12,6 +12,7 @@ use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_model_provider::create_model_provider;
 
+use super::config::GuardianV2Config;
 use super::decisions::DecisionsError;
 use super::decisions::DecisionsSampler;
 use super::decisions::URL;
@@ -76,18 +77,43 @@ pub(super) fn decisions_api_key(
 
 pub(super) async fn sampler_config(
     input: &ThreadStartInput<'_, Config>,
+    guardian_config: &GuardianV2Config,
     auth_manager: Arc<AuthManager>,
     manager: Option<Arc<ThreadManager>>,
 ) -> LunaSamplerConfig {
-    let luna_model = if let Some(thread_manager) = manager {
-        let mut model_config = input.config.to_models_manager_config();
+    let mut config = input.config.clone();
+    let independent_provider =
+        if let Some(provider_id) = &guardian_config.local_overrides.model_provider {
+            let provider = &config.model_providers[provider_id];
+            let changed =
+                provider_id != &config.model_provider_id || provider != &config.model_provider;
+            config.model_provider_id = provider_id.clone();
+            config.model_provider = provider.clone();
+            changed
+        } else {
+            false
+        };
+    let model = guardian_config
+        .local_overrides
+        .model
+        .as_deref()
+        .unwrap_or(MODEL);
+    let models_manager = if independent_provider {
+        let models_manager = codex_core::build_models_manager(&config, Arc::clone(&auth_manager));
+        models_manager
+            .list_models(
+                codex_models_manager::manager::RefreshStrategy::OnlineIfUncached,
+                config.http_client_factory(),
+            )
+            .await;
+        Some(models_manager)
+    } else {
+        manager.map(|manager| manager.get_models_manager())
+    };
+    let luna_model = if let Some(models_manager) = models_manager {
+        let mut model_config = config.to_models_manager_config();
         model_config.model_context_window = None;
-        Some(
-            thread_manager
-                .get_models_manager()
-                .get_model_info(MODEL, &model_config)
-                .await,
-        )
+        Some(models_manager.get_model_info(model, &model_config).await)
     } else {
         None
     };
@@ -101,13 +127,14 @@ pub(super) async fn sampler_config(
             });
     let luna_compaction_hash = luna_model.and_then(|model| model.comp_hash);
     LunaSamplerConfig {
-        api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::from_config(input.config),
+        model: model.to_owned(),
+        api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::from_config(&config),
         workspace_routing: input
             .thread_store
             .get_or_init(|| input.config.workspace_routing_context())
             .as_ref()
             .clone(),
-        provider: create_model_provider(input.config.model_provider.clone(), Some(auth_manager)),
+        provider: create_model_provider(config.model_provider, Some(auth_manager)),
         http_client_factory: input.config.http_client_factory(),
         session_id: input.session_store.level_id().to_string(),
         thread_id: input.thread_store.level_id().to_string(),

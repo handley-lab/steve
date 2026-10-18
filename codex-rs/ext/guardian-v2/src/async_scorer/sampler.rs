@@ -44,6 +44,8 @@ const MAX_CONCURRENT_REQUESTS: usize = 16;
 
 /// Host-owned provider, authentication, and attribution for one Luna connection.
 pub struct LunaSamplerConfig {
+    /// Classifier model selected with this provider's metadata and budget.
+    pub model: String,
     /// Provider and credentials selected for the owning thread.
     pub provider: SharedModelProvider,
     /// Provider and feature policy shared with ordinary model requests.
@@ -228,7 +230,7 @@ impl LunaSampler {
         auth_owner_generation: Option<u64>,
     ) -> execution::SamplingExecution {
         let api_request = ResponsesApiRequest {
-            model: MODEL.to_owned(),
+            model: self.config.model.clone(),
             input,
             tools: None,
             tool_choice: "none".to_owned(),

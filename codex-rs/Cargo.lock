@@ -3619,6 +3619,7 @@ dependencies = [
  "codex-login",
  "codex-model-provider",
  "codex-model-provider-info",
+ "codex-models-manager",
  "codex-prompts",
  "codex-protocol",
  "codex-utils-cargo-bin",

@@ -33,7 +33,7 @@ pub(crate) const CLASSIFICATION_OUTPUT_INSTRUCTIONS: &str = "Your first output t
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GuardianV2Config {
-    local_overrides: GuardianV2ConfigToml,
+    pub(super) local_overrides: GuardianV2ConfigToml,
     pub(crate) persist_scores: bool,
     pub(crate) classifier_instructions: String,
     pub(crate) review_threshold: f64,
@@ -81,6 +81,20 @@ impl GuardianV2Config {
         };
 
         configured.transcript_mode = Some(config.guardian_transcript_mode);
+        if let Some(provider_id) = &configured.model_provider {
+            if let Some(required) = config.config_layer_stack.required_model_provider()
+                && provider_id != required
+            {
+                return Err(format!(
+                    "features.guardianv2.model_provider conflicts with required model_provider `{required}`"
+                ));
+            }
+            if !config.model_providers.contains_key(provider_id) {
+                return Err(format!(
+                    "Guardian classifier model provider `{provider_id}` not found"
+                ));
+            }
+        }
         let mut resolved = Self::from_overrides(configured.clone())?;
         // Config.features can be changed after loading, including for reviewer threads.
         let legacy = FeatureToml::Config(GuardianV2ConfigToml {

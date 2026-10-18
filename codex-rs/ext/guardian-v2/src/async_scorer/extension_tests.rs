@@ -3806,3 +3806,187 @@ async fn cached_score_publication_rejects_delayed_results_without_changing_cover
 
 #[path = "decisions_lifecycle_tests.rs"]
 mod decisions_lifecycle_tests;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn classifier_uses_configured_provider_model_and_catalog() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+    for case in ["success", "off", "unknown_provider", "provider_failure"] {
+        let parent_server = responses::start_mock_server().await;
+        let classifier_server = wiremock::MockServer::builder().start().await;
+        let mut provider = ModelProviderInfo::create_openai_provider(Some(format!(
+            "{}/v1",
+            classifier_server.uri()
+        )));
+        provider.name = "local-risk-provider".to_owned();
+        provider.model_catalog_url = Some(format!("{}/models", classifier_server.uri()).into());
+        provider.env_key = None;
+        provider.experimental_bearer_token = Some("risk-key".into());
+        provider.requires_openai_auth = false;
+        provider.supports_websockets = false;
+        let provider_id = if case == "unknown_provider" {
+            "missing"
+        } else {
+            "classifier"
+        };
+        let test = test_codex()
+            .with_pre_build_hook(move |home| {
+                std::fs::write(home.join("config.toml"), format!(
+                    "[features.guardianv2]\nenabled = true\nmodel_provider = '{provider_id}'\nmodel = 'local-risk'\n"
+                )).unwrap();
+            })
+            .with_config(move |config| {
+                config.model_providers.insert("classifier".to_owned(), provider);
+                config.model_context_window = Some(1_000_000);
+                config.approvals_reviewer = ApprovalsReviewer::User;
+                // Install only the explicit lifecycle below, not the builder's automatic Guardian.
+                config.features.disable(Feature::GuardianApproval).unwrap();
+            })
+            .build_with_auto_env(&parent_server).await?;
+        let mut model = test
+            .thread_manager
+            .get_models_manager()
+            .get_model_info(MODEL, &test.config.to_models_manager_config())
+            .await;
+        model.slug = "local-risk".to_owned();
+        model.context_window = Some(4_096);
+        model.effective_context_window_percent = 50;
+        model.comp_hash = Some("local-risk-checkpoint".to_owned());
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/models"))
+            .and(wiremock::matchers::header(
+                "authorization",
+                "Bearer risk-key",
+            ))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+                codex_protocol::openai_models::ModelsResponse {
+                    models: vec![model],
+                },
+            ))
+            .expect(u64::from(case != "off" && case != "unknown_provider"))
+            .mount(&classifier_server)
+            .await;
+        eprintln!(
+            "classifier {case} before manual lifecycle: {:#?}",
+            classifier_server.received_requests().await.unwrap()
+        );
+        let mut config = test.config.clone();
+        // The test harness's local catalog belongs to A; this case exercises B's remote catalog.
+        config.model_catalog = None;
+        config.features.enable(Feature::ApiKeyModelDiscovery)?;
+        config
+            .features
+            .set_enabled(Feature::GuardianApproval, case != "off")?;
+        if case == "unknown_provider" {
+            assert!(
+                GuardianV2Config::resolve(&config)
+                    .unwrap_err()
+                    .contains("missing")
+            );
+        }
+        let parent_request_count = parent_server.received_requests().await.unwrap().len();
+        let response = if case == "provider_failure" {
+            wiremock::ResponseTemplate::new(401).set_body_json(json!({
+                "error": {"message": "classifier authentication rejected", "type": "authentication_error"}
+            }))
+        } else {
+            wiremock::ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(responses::sse(vec![
+                    ev_assistant_message("local-score", "low"),
+                    ev_completed("local-score"),
+                ]))
+        };
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/v1/responses"))
+            .respond_with(response)
+            .mount(&classifier_server)
+            .await;
+        let mut builder = ExtensionRegistryBuilder::new();
+        super::install(
+            &mut builder,
+            test.thread_manager.auth_manager(),
+            Arc::downgrade(&test.thread_manager),
+        );
+        let registry = builder.build();
+        let session_store = ExtensionData::new("configured-classifier-session");
+        let thread_store = test.codex.thread_extension_data();
+        registry.thread_lifecycle_contributors()[0]
+            .on_thread_start(ThreadStartInput {
+                config: &config,
+                session_source: &SessionSource::Exec,
+                persistent_thread_state_available: false,
+                environments: &[],
+                mcp_resource_client: None,
+                extension_metrics: None,
+                session_store: &session_store,
+                thread_store,
+            })
+            .await;
+        if case == "off" || case == "unknown_provider" {
+            assert!(thread_store.get::<LunaSampler>().is_none());
+            let unexpected = classifier_server.received_requests().await.unwrap();
+            assert!(unexpected.is_empty(), "{case}: {unexpected:#?}");
+        } else {
+            let sampler = thread_store
+                .get::<LunaSampler>()
+                .expect("asynchronous classifier remains available");
+            assert!(sampler.supports_parent_compaction(Some("local-risk-checkpoint")));
+            assert!(!sampler.supports_parent_compaction(Some("parent-checkpoint")));
+            let mut oversized =
+                crate::async_scorer::sampler::tests::sample_request("large-classification");
+            oversized.input = vec![responses::user_message_item(&"evidence ".repeat(8_000))];
+            assert!(matches!(
+                sampler.sample(oversized).await,
+                Err(crate::async_scorer::sampler::LunaSamplerError::InputTooLarge)
+            ));
+            assert!(
+                !classifier_server
+                    .received_requests()
+                    .await
+                    .unwrap()
+                    .iter()
+                    .any(|request| request.method == "POST")
+            );
+            let mut request =
+                crate::async_scorer::sampler::tests::sample_request("local-classification");
+            request.cyber_access_program =
+                Some(codex_protocol::turn_input::CyberAccessProgram::DaybreakRed);
+            let result = sampler.sample(request).await;
+            if case == "provider_failure" {
+                let error = result.unwrap_err().to_string();
+                assert!(error.contains("401"), "{error}");
+            } else {
+                assert_eq!(result?, "low");
+            }
+            let requests = classifier_server.received_requests().await.unwrap();
+            let posts = requests
+                .iter()
+                .filter(|request| request.method == "POST")
+                .collect::<Vec<_>>();
+            assert!(!posts.is_empty());
+            for request in posts {
+                eprintln!(
+                    "classifier {case} {} {:?} {}",
+                    request.url,
+                    request.headers,
+                    String::from_utf8_lossy(&request.body)
+                );
+                let body: serde_json::Value = serde_json::from_slice(&request.body)?;
+                assert_eq!(body["model"], "local-risk");
+                assert!(body["access_programs"].is_null());
+                assert_eq!(
+                    request.headers.get("authorization").unwrap().to_str()?,
+                    "Bearer risk-key"
+                );
+            }
+        }
+        classifier_server.verify().await;
+        let parent_requests = parent_server.received_requests().await.unwrap();
+        assert_eq!(
+            parent_requests.len(),
+            parent_request_count,
+            "classifier must not fall back to A: {parent_requests:#?}"
+        );
+    }
+    Ok(())
+}

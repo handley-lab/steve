@@ -75,6 +75,7 @@ impl ThreadLifecycleContributor<Config> for GuardianV2Extension {
             let scoring_enabled = policy.scoring_enabled();
             let sampler_config = super::startup::sampler_config(
                 &input,
+                &guardian_config,
                 Arc::clone(&self.auth_manager),
                 self.thread_manager.upgrade(),
             )
