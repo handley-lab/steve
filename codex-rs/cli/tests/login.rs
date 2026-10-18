@@ -312,7 +312,7 @@ async fn debug_prompt_input_follows_authenticated_attribution_setting() -> Resul
         assert!(output.status.success());
         let prompt = String::from_utf8(output.stdout)?;
         assert_eq!(
-            prompt.contains("Co-authored-by: Steve <noreply@openai.com>"),
+            prompt.contains("Co-authored-by: Codex <noreply@openai.com>"),
             enabled
         );
         assert!(!prompt.contains("attribution is disabled for the current workspace"));
