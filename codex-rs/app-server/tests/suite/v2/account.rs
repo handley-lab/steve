@@ -430,8 +430,10 @@ async fn startup_enforces_requirements_at_the_correct_load_stage(
     Ok(())
 }
 
+#[test_case(false; "without_backend")]
+#[test_case(true; "configured_backend")]
 #[tokio::test]
-async fn set_auth_token_updates_account_and_notifies() -> Result<()> {
+async fn set_auth_token_updates_account_and_notifies(with_backend: bool) -> Result<()> {
     let codex_home = TempDir::new()?;
     let mock_server = MockServer::start().await;
     create_config_toml(
@@ -451,11 +453,14 @@ async fn set_auth_token_updates_account_and_notifies() -> Result<()> {
             .chatgpt_account_id(WORKSPACE_ID_EMBEDDED),
     )?;
 
-    let mut mcp = TestAppServer::builder()
-        .with_mock_chatgpt_backend()
+    let mut builder = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .without_auto_env()
-        .with_env_overrides(&[("OPENAI_API_KEY", None)])
+        .with_env_overrides(&[("OPENAI_API_KEY", None)]);
+    if with_backend {
+        builder = builder.with_mock_chatgpt_backend();
+    }
+    let mut mcp = builder
         .build_initialized_with_timeout(DEFAULT_READ_TIMEOUT)
         .await?;
 
@@ -492,7 +497,11 @@ async fn set_auth_token_updates_account_and_notifies() -> Result<()> {
     assert_eq!(
         account,
         GetAccountResponse {
-            workspace_routing: expected_workspace_routing(WORKSPACE_ID_EMBEDDED),
+            workspace_routing: if with_backend {
+                expected_workspace_routing(WORKSPACE_ID_EMBEDDED)
+            } else {
+                None
+            },
             account: Some(Account::Chatgpt {
                 email: Some("embedded@example.com".to_string()),
                 plan_type: AccountPlanType::Pro,

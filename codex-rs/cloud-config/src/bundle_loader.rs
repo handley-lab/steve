@@ -108,9 +108,7 @@ async fn cloud_config_bundle_service_for_storage(
     Ok(CloudConfigBundleService::new(
         auth_manager,
         Arc::new(BackendBundleClient::new(
-            auth_config
-                .chatgpt_base_url
-                .unwrap_or_else(|| "https://chatgpt.com/backend-api/".to_string()),
+            auth_config.chatgpt_base_url.unwrap_or_default(),
             auth_config.auth_route_config.http_client_factory().clone(),
         )),
         auth_config.codex_home,

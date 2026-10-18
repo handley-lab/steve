@@ -329,7 +329,8 @@ impl AccountRequestProcessor {
             let mut workspace_routing = if let Some((auth, account_id)) = auth
                 .as_ref()
                 .filter(|auth| {
-                    auth.is_chatgpt_auth()
+                    !config.chatgpt_base_url.trim().is_empty()
+                        && auth.is_chatgpt_auth()
                         && (request.is_some()
                             || matches!(
                                 account_state.account,
@@ -475,7 +476,9 @@ impl AccountRequestProcessor {
                 *self.workspace_routing.lock().await = None;
                 None
             };
-            if let Some(request) = request.filter(|_| workspace_routing.is_some()) {
+            if let Some(request) =
+                request.filter(|request| workspace_routing.is_some() || request.previously_routed)
+            {
                 let origin = Url::parse(&request.provider_base_url)
                     .map_err(|_| WorkspaceRoutingError::InvalidProviderUrl)?
                     .origin();

@@ -11,7 +11,6 @@ project_doc_fallback_filenames = []
 background_terminal_max_timeout = 300000
 file_opener = "vscode"
 hide_agent_reasoning = false
-chatgpt_base_url = "https://chatgpt.com/backend-api/"
 project_root_markers = [".git"]
 
 [history]
