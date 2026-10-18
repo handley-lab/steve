@@ -87,6 +87,93 @@ where
     }
 }
 
+#[tokio::test]
+async fn rollout_reconstruction_skips_guardian_metadata_when_disabled() {
+    use codex_models_manager::manager::ModelsManager;
+    use codex_models_manager::manager::ModelsManagerFuture;
+    use codex_models_manager::manager::RefreshStrategy;
+    use codex_protocol::openai_models::ModelInfo;
+    use codex_protocol::openai_models::ModelsResponse;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    #[derive(Debug)]
+    struct CatalogReads(Arc<AtomicUsize>);
+
+    impl ModelsManager for CatalogReads {
+        fn raw_model_catalog(
+            &self,
+            _strategy: RefreshStrategy,
+            _http_client_factory: codex_http_client::HttpClientFactory,
+        ) -> ModelsManagerFuture<'_, ModelsResponse> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Box::pin(std::future::ready(ModelsResponse::default()))
+        }
+
+        fn get_remote_models(&self) -> ModelsManagerFuture<'_, Vec<ModelInfo>> {
+            Box::pin(std::future::ready(Vec::new()))
+        }
+
+        fn try_get_remote_models(&self) -> Result<Vec<ModelInfo>, tokio::sync::TryLockError> {
+            Ok(Vec::new())
+        }
+
+        fn auth_manager(&self) -> Option<&codex_login::AuthManager> {
+            None
+        }
+
+        fn list_collaboration_modes(
+            &self,
+        ) -> Vec<codex_protocol::config_types::CollaborationModeMask> {
+            Vec::new()
+        }
+
+        fn refresh_if_new_etag(
+            &self,
+            _etag: String,
+            _http_client_factory: codex_http_client::HttpClientFactory,
+        ) -> ModelsManagerFuture<'_, ()> {
+            Box::pin(std::future::ready(()))
+        }
+    }
+
+    for enabled in [true, false] {
+        let (mut session, turn, _) = make_session_and_context_with_auth_and_config_and_rx(
+            codex_login::CodexAuth::from_api_key("synthetic-key"),
+            Vec::new(),
+            |config| {
+                if enabled {
+                    config.features.enable(Feature::GuardianApproval).unwrap();
+                } else {
+                    config.features.disable(Feature::GuardianApproval).unwrap();
+                }
+            },
+        )
+        .await;
+        let reads = Arc::new(AtomicUsize::new(0));
+        Arc::get_mut(&mut session).unwrap().services.models_manager =
+            Arc::new(CatalogReads(Arc::clone(&reads)));
+        let message = user_message("retained on resume with Guardian off");
+        session
+            .apply_rollout_reconstruction(
+                &turn,
+                &[RolloutItem::ResponseItem(message.clone().into())],
+            )
+            .await;
+
+        assert_eq!(reads.load(Ordering::SeqCst), usize::from(enabled));
+        assert_eq!(
+            session
+                .clone_history()
+                .await
+                .raw_items()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![message]
+        );
+    }
+}
+
 async fn activate_turn_with_new_review_authority(session: &Arc<Session>) -> Arc<TurnContext> {
     let (current_turn, _) = session
         .new_turn_with_sub_id(
