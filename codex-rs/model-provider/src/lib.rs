@@ -17,8 +17,6 @@ pub use workspace_routing::WorkspaceRoutingContext;
 pub use amazon_bedrock::is_amazon_bedrock_gov_cloud_region;
 pub use amazon_bedrock::is_supported_amazon_bedrock_region;
 pub use amazon_bedrock::resolve_amazon_bedrock_region;
-pub use auth::AgentIdentitySessionFallback;
-pub use auth::ProviderAuthScope;
 pub use auth::ResolvedProviderAuth;
 pub use auth::auth_provider_from_auth;
 pub use auth::auth_provider_from_auth_manager;

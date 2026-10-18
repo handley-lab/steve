@@ -89,13 +89,6 @@ impl AgentIdentityStorage {
             }
         }
     }
-
-    pub(crate) fn as_record(&self) -> Option<&AgentIdentityAuthRecord> {
-        match self {
-            Self::Jwt(_) => None,
-            Self::Record(record) => Some(record),
-        }
-    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]

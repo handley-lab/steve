@@ -6,7 +6,6 @@ use codex_protocol::account::PlanType as AccountPlanType;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::auth::KnownPlan as InternalKnownPlan;
 use codex_protocol::auth::PlanType as InternalPlanType;
-use codex_protocol::protocol::SessionSource;
 
 use base64::Engine;
 use codex_protocol::config_types::ForcedLoginMethod;
@@ -24,7 +23,6 @@ use tempfile::tempdir;
 use wiremock::Mock;
 use wiremock::MockServer;
 use wiremock::ResponseTemplate;
-use wiremock::matchers::body_partial_json;
 use wiremock::matchers::header;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
@@ -192,7 +190,7 @@ async fn agent_identity_jwt_uses_explicit_staging_endpoint_overrides() -> anyhow
 
     let auth = CodexAuth::from_agent_identity_jwt(
         &jwt,
-        Some(ChatGptEnvironment::Staging.chatgpt_base_url()),
+        Some("https://chatgpt-staging.com/backend-api"),
         &crate::test_support::transport_default_auth_route_config(),
     )
     .await?;
@@ -234,7 +232,7 @@ async fn agent_identity_jwt_supports_existing_staging_launcher() -> anyhow::Resu
 
     let auth = CodexAuth::from_agent_identity_jwt(
         &jwt,
-        Some(&jwks_base_url),
+        /*chatgpt_base_url*/ None,
         &crate::test_support::transport_default_auth_route_config(),
     )
     .await?;
@@ -248,66 +246,86 @@ async fn agent_identity_jwt_supports_existing_staging_launcher() -> anyhow::Resu
     Ok(())
 }
 
-#[test]
+#[tokio::test]
 #[serial(codex_auth_env)]
-fn agent_identity_authapi_override_preserves_chatgpt_environment_validation() {
-    let _authapi_guard = EnvVarGuard::set(
-        "STEVE_AGENT_IDENTITY_AUTHAPI_BASE_URL",
-        "https://authapi.example/api/accounts",
-    );
-    let _jwks_guard = EnvVarGuard::set(
-        "STEVE_AGENT_IDENTITY_JWKS_BASE_URL",
-        "https://jwks.example/api/codex",
-    );
-
-    let error = agent_identity_authapi_base_url(Some("https://attacker.example/backend-api"))
-        .expect_err("AuthAPI overrides must not bypass ChatGPT environment validation");
-
-    assert_eq!(
-        error.to_string(),
-        "Agent Identity only supports production and staging ChatGPT environments"
-    );
+async fn agent_identity_jwt_requires_configured_verification_service() -> anyhow::Result<()> {
+    let _authapi_guard = EnvVarGuard::remove("STEVE_AGENT_IDENTITY_AUTHAPI_BASE_URL");
+    let _jwks_guard = EnvVarGuard::remove("STEVE_AGENT_IDENTITY_JWKS_BASE_URL");
+    let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
+    let jwt = signed_agent_identity_jwt(&record, json!(record.plan_type))?;
+    for backend in [None, Some(""), Some("   ")] {
+        let error = CodexAuth::from_agent_identity_jwt(
+            &jwt,
+            backend,
+            &crate::test_support::transport_default_auth_route_config(),
+        )
+        .await
+        .expect_err("verification requires explicit authority");
+        assert!(error.to_string().contains("verification requires"));
+    }
+    Ok(())
 }
 
 #[test]
 #[serial(codex_auth_env)]
-fn agent_identity_custom_jwks_base_requires_explicit_authapi_override() {
+fn agent_identity_authapi_uses_only_explicit_service_configuration() {
     let _authapi_guard = EnvVarGuard::remove("STEVE_AGENT_IDENTITY_AUTHAPI_BASE_URL");
-    let jwks_base_url = "https://jwks.example/api/codex";
-    let _jwks_guard = EnvVarGuard::set("STEVE_AGENT_IDENTITY_JWKS_BASE_URL", jwks_base_url);
+    assert_eq!(agent_identity_authapi_base_url(), None);
+    for base_url in ["", "   "] {
+        let _guard = EnvVarGuard::set("STEVE_AGENT_IDENTITY_AUTHAPI_BASE_URL", base_url);
+        assert_eq!(agent_identity_authapi_base_url(), None);
+    }
+    for base_url in [
+        "https://authapi.example/api/accounts",
+        "https://auth.openai.com/api/accounts",
+    ] {
+        let _guard = EnvVarGuard::set("STEVE_AGENT_IDENTITY_AUTHAPI_BASE_URL", base_url);
+        assert_eq!(agent_identity_authapi_base_url().as_deref(), Some(base_url));
+    }
+}
 
-    let error = agent_identity_authapi_base_url(Some(jwks_base_url))
-        .expect_err("custom JWKS bases must also explicitly configure AuthAPI");
-
-    assert_eq!(
-        error.to_string(),
-        "Agent Identity only supports production and staging ChatGPT environments"
+#[test]
+#[serial(codex_auth_env)]
+fn agent_identity_jwks_override_does_not_authorize_authapi() {
+    let _authapi_guard = EnvVarGuard::remove("STEVE_AGENT_IDENTITY_AUTHAPI_BASE_URL");
+    let _jwks_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWKS_BASE_URL",
+        "https://jwks.example/api/codex",
     );
+    assert_eq!(agent_identity_authapi_base_url(), None);
 }
 
 #[tokio::test]
 #[serial(codex_auth_env)]
-async fn agent_identity_jwks_override_preserves_chatgpt_environment_validation() {
+async fn agent_identity_jwks_override_selects_the_explicit_service() -> anyhow::Result<()> {
     let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
-    let jwt =
-        signed_agent_identity_jwt(&record, json!(record.plan_type)).expect("signed agent identity");
-    let _jwks_guard = EnvVarGuard::set(
-        "STEVE_AGENT_IDENTITY_JWKS_BASE_URL",
-        "https://jwks.example/api/codex",
-    );
-
-    let error = verified_record_from_jwt(
+    let jwt = signed_agent_identity_jwt(&record, json!(record.plan_type))?;
+    let jwks_server = MockServer::start().await;
+    let backend_server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/codex/agent-identities/jwks"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
+        .expect(1)
+        .mount(&jwks_server)
+        .await;
+    let jwks_base_url = format!("{}/api/codex", jwks_server.uri());
+    let _jwks_guard = EnvVarGuard::set("STEVE_AGENT_IDENTITY_JWKS_BASE_URL", &jwks_base_url);
+    let verified = verified_record_from_jwt(
         &jwt,
-        "https://attacker.example/backend-api",
+        Some(&backend_server.uri()),
         &crate::test_support::transport_default_auth_route_config(),
     )
-    .await
-    .expect_err("JWKS overrides must not bypass ChatGPT environment validation");
-
-    assert_eq!(
-        error.to_string(),
-        "Agent Identity only supports production and staging ChatGPT environments"
+    .await?;
+    assert_eq!(verified.account_id, record.account_id);
+    assert!(
+        backend_server
+            .received_requests()
+            .await
+            .expect("captured requests")
+            .is_empty()
     );
+    jwks_server.verify().await;
+    Ok(())
 }
 
 #[tokio::test]
@@ -551,371 +569,6 @@ async fn login_with_access_token_rejects_invalid_jwt() {
 
 #[tokio::test]
 #[serial(codex_auth_env)]
-async fn chatgpt_auth_registers_agent_identity_when_enabled() -> anyhow::Result<()> {
-    let codex_home = tempdir()?;
-    write_auth_file(
-        AuthFileParams {
-            openai_api_key: None,
-            chatgpt_plan_type: Some("pro".to_string()),
-            chatgpt_account_id: Some("account-123".to_string()),
-        },
-        codex_home.path(),
-    )?;
-    let auth = super::load_auth(
-        codex_home.path(),
-        /*enable_codex_api_key_env*/ false,
-        AuthCredentialsStoreMode::File,
-        /*allowed_login_methods*/ None,
-        /*forced_chatgpt_workspace_id*/ None,
-        /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::Direct,
-        /*agent_identity_authapi_base_url*/ None,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .await?
-    .expect("auth should load");
-
-    assert!(
-        auth.agent_identity_auth(
-            AgentIdentityAuthPolicy::JwtOnly,
-            /*agent_identity_authapi_base_url*/ None,
-            /*forced_chatgpt_workspace_id*/ None,
-            &crate::test_support::transport_default_auth_route_config(),
-            SessionSource::Cli,
-        )
-        .await?
-        .is_none()
-    );
-
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/v1/agent/register"))
-        .and(header("authorization", "Bearer test-access-token"))
-        .and(body_partial_json(json!({
-            "abom": {
-                "agent_harness_id": "codex-cli",
-            },
-            "capabilities": ["responsesapi"],
-            "ttl": null,
-        })))
-        .respond_with(ResponseTemplate::new(/*s*/ 200).set_body_json(json!({
-            "agent_runtime_id": "agent-runtime-123",
-        })))
-        .expect(/*r*/ 1)
-        .mount(&server)
-        .await;
-    mock_agent_task_registration(&server, "", "agent-runtime-123", "task-123").await;
-
-    let agent_auth = auth
-        .agent_identity_auth(
-            AgentIdentityAuthPolicy::ChatGptAuth,
-            Some(&server.uri()),
-            /*forced_chatgpt_workspace_id*/ None,
-            &crate::test_support::transport_default_auth_route_config(),
-            SessionSource::Cli,
-        )
-        .await?
-        .expect("agent identity should register");
-    let reused = auth
-        .agent_identity_auth(
-            AgentIdentityAuthPolicy::ChatGptAuth,
-            Some(&server.uri()),
-            /*forced_chatgpt_workspace_id*/ None,
-            &crate::test_support::transport_default_auth_route_config(),
-            SessionSource::Cli,
-        )
-        .await?
-        .expect("agent identity should be reused");
-
-    assert_eq!(
-        agent_auth.record().agent_runtime_id,
-        reused.record().agent_runtime_id
-    );
-    assert_eq!(agent_auth.run_task_id(), "task-123");
-    assert_eq!(reused.run_task_id(), "task-123");
-    assert_eq!(agent_auth.record().agent_runtime_id, "agent-runtime-123");
-    assert_eq!(agent_auth.record().account_id, "account-123");
-    assert_eq!(agent_auth.record().chatgpt_user_id, "user-12345");
-    assert_eq!(agent_auth.record().task_id.as_deref(), Some("task-123"));
-    assert_eq!(reused.record().task_id.as_deref(), Some("task-123"));
-    let persisted = auth
-        .stored_managed_chatgpt_agent_identity_record("account-123")
-        .expect("identity should persist");
-    assert_eq!(persisted.agent_runtime_id, "agent-runtime-123");
-    assert_eq!(persisted.task_id.as_deref(), Some("task-123"));
-
-    let reloaded = super::load_auth(
-        codex_home.path(),
-        /*enable_codex_api_key_env*/ false,
-        AuthCredentialsStoreMode::File,
-        /*allowed_login_methods*/ None,
-        /*forced_chatgpt_workspace_id*/ None,
-        /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::Direct,
-        /*agent_identity_authapi_base_url*/ None,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .await?
-    .expect("auth should reload");
-    let reloaded_agent_auth = reloaded
-        .agent_identity_auth(
-            AgentIdentityAuthPolicy::ChatGptAuth,
-            Some(&server.uri()),
-            /*forced_chatgpt_workspace_id*/ None,
-            &crate::test_support::transport_default_auth_route_config(),
-            SessionSource::Cli,
-        )
-        .await?
-        .expect("agent identity should reload from storage");
-    assert_eq!(
-        reloaded_agent_auth.record().agent_runtime_id,
-        "agent-runtime-123"
-    );
-    assert_eq!(reloaded_agent_auth.run_task_id(), "task-123");
-    Ok(())
-}
-
-#[tokio::test]
-#[serial(codex_auth_env)]
-async fn chatgpt_auth_retries_transient_agent_identity_registration() -> anyhow::Result<()> {
-    let codex_home = tempdir()?;
-    write_auth_file(
-        AuthFileParams {
-            openai_api_key: None,
-            chatgpt_plan_type: Some("pro".to_string()),
-            chatgpt_account_id: Some("account-123".to_string()),
-        },
-        codex_home.path(),
-    )?;
-    let auth = super::load_auth(
-        codex_home.path(),
-        /*enable_codex_api_key_env*/ false,
-        AuthCredentialsStoreMode::File,
-        /*allowed_login_methods*/ None,
-        /*forced_chatgpt_workspace_id*/ None,
-        /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::Direct,
-        /*agent_identity_authapi_base_url*/ None,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .await?
-    .expect("auth should load");
-
-    let server = MockServer::start().await;
-    let registration_count = Arc::new(AtomicUsize::new(0));
-    let response_count = Arc::clone(&registration_count);
-    Mock::given(method("POST"))
-        .and(path("/v1/agent/register"))
-        .respond_with(move |_request: &wiremock::Request| {
-            if response_count.fetch_add(1, Ordering::SeqCst) < 2 {
-                ResponseTemplate::new(/*status*/ 503)
-            } else {
-                ResponseTemplate::new(/*status*/ 200).set_body_json(json!({
-                    "agent_runtime_id": "agent-runtime-123",
-                }))
-            }
-        })
-        .expect(/*requests*/ 3)
-        .mount(&server)
-        .await;
-    mock_agent_task_registration(&server, "", "agent-runtime-123", "task-123").await;
-
-    let agent_auth = auth
-        .agent_identity_auth(
-            AgentIdentityAuthPolicy::ChatGptAuth,
-            Some(&server.uri()),
-            /*forced_chatgpt_workspace_id*/ None,
-            &crate::test_support::transport_default_auth_route_config(),
-            SessionSource::Cli,
-        )
-        .await?
-        .expect("agent identity should register after retries");
-
-    assert_eq!(registration_count.load(Ordering::SeqCst), 3);
-    assert_eq!(agent_auth.record().agent_runtime_id, "agent-runtime-123");
-    assert_eq!(agent_auth.record().task_id.as_deref(), Some("task-123"));
-    assert_eq!(
-        auth.stored_managed_chatgpt_agent_identity_record("account-123")
-            .and_then(|record| record.task_id),
-        Some("task-123".to_string())
-    );
-    Ok(())
-}
-
-#[tokio::test]
-#[serial(codex_auth_env)]
-async fn chatgpt_auth_registration_retry_exhaustion_is_fallback_eligible() -> anyhow::Result<()> {
-    let codex_home = tempdir()?;
-    write_auth_file(
-        AuthFileParams {
-            openai_api_key: None,
-            chatgpt_plan_type: Some("pro".to_string()),
-            chatgpt_account_id: Some("account-123".to_string()),
-        },
-        codex_home.path(),
-    )?;
-    let auth = super::load_auth(
-        codex_home.path(),
-        /*enable_codex_api_key_env*/ false,
-        AuthCredentialsStoreMode::File,
-        /*allowed_login_methods*/ None,
-        /*forced_chatgpt_workspace_id*/ None,
-        /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::Direct,
-        /*agent_identity_authapi_base_url*/ None,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .await?
-    .expect("auth should load");
-
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/v1/agent/register"))
-        .respond_with(ResponseTemplate::new(/*status*/ 503))
-        .expect(/*requests*/ 3)
-        .mount(&server)
-        .await;
-
-    let err = auth
-        .agent_identity_auth(
-            AgentIdentityAuthPolicy::ChatGptAuth,
-            Some(&server.uri()),
-            /*forced_chatgpt_workspace_id*/ None,
-            &crate::test_support::transport_default_auth_route_config(),
-            SessionSource::Cli,
-        )
-        .await
-        .expect_err("retry exhaustion should return an error");
-
-    assert!(AgentIdentityAuthError::bootstrap_unavailable(&err).is_some());
-    assert!(
-        auth.stored_managed_chatgpt_agent_identity_record("account-123")
-            .is_none()
-    );
-    Ok(())
-}
-
-#[tokio::test]
-#[serial(codex_auth_env)]
-async fn chatgpt_auth_task_registration_retry_exhaustion_is_fallback_eligible() -> anyhow::Result<()>
-{
-    let codex_home = tempdir()?;
-    write_auth_file(
-        AuthFileParams {
-            openai_api_key: None,
-            chatgpt_plan_type: Some("pro".to_string()),
-            chatgpt_account_id: Some("account-123".to_string()),
-        },
-        codex_home.path(),
-    )?;
-    let mut record = agent_identity_record("account-123");
-    record.chatgpt_user_id = "user-12345".to_string();
-    record.email = Some("user@example.com".to_string());
-    let storage = FileAuthStorage::new(codex_home.path().to_path_buf());
-    let auth_path = get_auth_file(codex_home.path());
-    let mut auth_json = storage.try_read_auth_json(&auth_path)?;
-    auth_json.agent_identity = Some(AgentIdentityStorage::Record(record.clone()));
-    storage.save(&auth_json)?;
-    let auth = super::load_auth(
-        codex_home.path(),
-        /*enable_codex_api_key_env*/ false,
-        AuthCredentialsStoreMode::File,
-        /*allowed_login_methods*/ None,
-        /*forced_chatgpt_workspace_id*/ None,
-        /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::Direct,
-        /*agent_identity_authapi_base_url*/ None,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .await?
-    .expect("auth should load");
-
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path(format!(
-            "/v1/agent/{}/task/register",
-            record.agent_runtime_id
-        )))
-        .respond_with(ResponseTemplate::new(/*status*/ 503))
-        .expect(/*requests*/ 3)
-        .mount(&server)
-        .await;
-
-    let err = auth
-        .agent_identity_auth(
-            AgentIdentityAuthPolicy::ChatGptAuth,
-            Some(&server.uri()),
-            /*forced_chatgpt_workspace_id*/ None,
-            &crate::test_support::transport_default_auth_route_config(),
-            SessionSource::Cli,
-        )
-        .await
-        .expect_err("task retry exhaustion should return an error");
-
-    assert!(AgentIdentityAuthError::bootstrap_unavailable(&err).is_some());
-    record.task_id = None;
-    assert_eq!(
-        auth.stored_managed_chatgpt_agent_identity_record("account-123"),
-        Some(record)
-    );
-    Ok(())
-}
-
-#[tokio::test]
-#[serial(codex_auth_env)]
-async fn chatgpt_auth_non_retryable_registration_error_is_hard_failure() -> anyhow::Result<()> {
-    let codex_home = tempdir()?;
-    write_auth_file(
-        AuthFileParams {
-            openai_api_key: None,
-            chatgpt_plan_type: Some("pro".to_string()),
-            chatgpt_account_id: Some("account-123".to_string()),
-        },
-        codex_home.path(),
-    )?;
-    let auth = super::load_auth(
-        codex_home.path(),
-        /*enable_codex_api_key_env*/ false,
-        AuthCredentialsStoreMode::File,
-        /*allowed_login_methods*/ None,
-        /*forced_chatgpt_workspace_id*/ None,
-        /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::Direct,
-        /*agent_identity_authapi_base_url*/ None,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .await?
-    .expect("auth should load");
-
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/v1/agent/register"))
-        .respond_with(ResponseTemplate::new(/*status*/ 403))
-        .expect(/*requests*/ 1)
-        .mount(&server)
-        .await;
-
-    let err = auth
-        .agent_identity_auth(
-            AgentIdentityAuthPolicy::ChatGptAuth,
-            Some(&server.uri()),
-            /*forced_chatgpt_workspace_id*/ None,
-            &crate::test_support::transport_default_auth_route_config(),
-            SessionSource::Cli,
-        )
-        .await
-        .expect_err("hard registration failure should return an error");
-
-    assert!(AgentIdentityAuthError::bootstrap_unavailable(&err).is_none());
-    assert!(
-        auth.stored_managed_chatgpt_agent_identity_record("account-123")
-            .is_none()
-    );
-    Ok(())
-}
-
-#[tokio::test]
-#[serial(codex_auth_env)]
 async fn agent_identity_jwt_task_registration_retry_exhaustion_is_strict() -> anyhow::Result<()> {
     let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
     let agent_identity =
@@ -942,13 +595,13 @@ async fn agent_identity_jwt_task_registration_retry_exhaustion_is_strict() -> an
     let err = CodexAuth::from_agent_identity_jwt_with_authapi_base_url(
         &agent_identity,
         Some(&chatgpt_base_url),
-        &authapi_base_url,
+        Some(&authapi_base_url),
         &crate::test_support::transport_default_auth_route_config(),
     )
     .await
     .expect_err("agent identity jwt task retry exhaustion should fail");
 
-    assert!(AgentIdentityAuthError::bootstrap_unavailable(&err).is_none());
+    assert!(crate::auth::agent_identity::is_retryable_io_registration_error(&err));
     Ok(())
 }
 
@@ -1205,11 +858,8 @@ async fn refresh_failure_is_scoped_to_the_matching_auth_snapshot() {
     updated_tokens.access_token = "new-access-token".to_string();
     updated_tokens.refresh_token = "new-refresh-token".to_string();
     let updated_auth = CodexAuth::from_auth_dot_json(
-        codex_home.path(),
         updated_auth_dot_json,
-        AuthCredentialsStoreMode::File,
         /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::Direct,
         /*agent_identity_authapi_base_url*/ None,
         &crate::test_support::transport_default_auth_route_config(),
     )
@@ -2873,7 +2523,7 @@ async fn assert_agent_identity_plan_alias(
     let auth = CodexAuth::from_agent_identity_jwt_with_authapi_base_url(
         &jwt,
         Some(&chatgpt_base_url),
-        &authapi_base_url,
+        Some(&authapi_base_url),
         &crate::test_support::transport_default_auth_route_config(),
     )
     .await

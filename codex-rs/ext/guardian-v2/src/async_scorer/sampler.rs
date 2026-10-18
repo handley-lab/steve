@@ -23,7 +23,6 @@ use codex_core::cyber_access_program::ApiKeyCyberAccessPrograms;
 use codex_extension_api::ExtensionMetrics;
 use codex_history::ResponseItemEnvelope;
 use codex_http_client::HttpClientFactory;
-use codex_login::AgentIdentityAuthPolicy;
 use codex_model_provider::SharedModelProvider;
 use codex_model_provider::WorkspaceRoutingContext;
 use codex_protocol::ResponseItemId;
@@ -31,7 +30,6 @@ use codex_protocol::error::CodexErr;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ReasoningEffort;
-use codex_protocol::protocol::SessionSource;
 use codex_protocol::turn_input::CyberAccessProgram;
 use thiserror::Error;
 use tokio::sync::oneshot;
@@ -54,10 +52,6 @@ pub struct LunaSamplerConfig {
     pub workspace_routing: WorkspaceRoutingContext,
     /// Effective proxy, custom-CA, and cookie configuration.
     pub http_client_factory: HttpClientFactory,
-    /// Agent-identity policy selected for the owning thread.
-    pub agent_identity_policy: AgentIdentityAuthPolicy,
-    /// Host-resolved source used to scope agent-identity authentication.
-    pub session_source: SessionSource,
     /// Owning runtime session identifier.
     pub session_id: String,
     /// Owning thread identifier.

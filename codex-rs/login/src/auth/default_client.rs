@@ -439,7 +439,7 @@ pub(crate) fn create_default_auth_client(
         &auth_route_config.authentication_factory(endpoint),
         endpoint,
         ClientRouteClass::Auth,
-        ClientRedirectPolicy::Default,
+        ClientRedirectPolicy::Reject,
     )
 }
 

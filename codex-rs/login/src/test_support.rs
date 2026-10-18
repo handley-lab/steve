@@ -33,7 +33,7 @@ pub async fn auth_manager_with_agent_identity() -> std::io::Result<Arc<AuthManag
             chatgpt_account_is_fedramp: false,
             task_id: Some("test-task-id".to_string()),
         },
-        "https://unused.invalid",
+        None,
         &transport_default_auth_route_config(),
     )
     .await?;

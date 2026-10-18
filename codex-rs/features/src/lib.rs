@@ -430,8 +430,6 @@ pub enum Feature {
     RetainClientDeveloperMessages,
     /// Honor client-requested tool-output retention across context windows.
     RetainClientToolOutputs,
-    /// Use Agent Identity for ChatGPT-authenticated sessions.
-    UseAgentIdentity,
     /// Enable workspace dependency support.
     WorkspaceDependencies,
 
@@ -2083,12 +2081,6 @@ pub const FEATURES: &[FeatureSpec] = &[
     FeatureSpec {
         id: Feature::RetainClientToolOutputs,
         key: "retain_client_tool_outputs",
-        stage: Stage::UnderDevelopment,
-        default_enabled: false,
-    },
-    FeatureSpec {
-        id: Feature::UseAgentIdentity,
-        key: "use_agent_identity",
         stage: Stage::UnderDevelopment,
         default_enabled: false,
     },

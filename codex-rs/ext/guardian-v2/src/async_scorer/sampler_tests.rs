@@ -7,7 +7,6 @@ use codex_extension_api::ExtensionMetrics;
 use codex_guardian_context::PreviousReviews;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
-use codex_login::AgentIdentityAuthPolicy;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_login::ExternalAuth;
@@ -22,7 +21,6 @@ use codex_protocol::TranscriptFormat;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ReasoningEffort;
-use codex_protocol::protocol::SessionSource;
 use codex_protocol::turn_input::CyberAccessProgram;
 use core_test_support::responses;
 use core_test_support::responses::WebSocketConnectionConfig;
@@ -219,8 +217,6 @@ pub(in crate::async_scorer) fn sampler_config(base_url: String) -> LunaSamplerCo
             ))),
         ),
         http_client_factory: HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-        agent_identity_policy: AgentIdentityAuthPolicy::JwtOnly,
-        session_source: SessionSource::Exec,
         session_id: "session-1".to_owned(),
         thread_id: "thread-1".to_owned(),
         originator: Some("guardian-v2-test".to_owned()),
@@ -588,8 +584,6 @@ async fn preconnected_sampler_reuses_authenticated_websocket_for_classifications
         ),
         provider,
         http_client_factory: HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-        agent_identity_policy: AgentIdentityAuthPolicy::JwtOnly,
-        session_source: SessionSource::Exec,
         session_id: "session-1".to_owned(),
         thread_id: "thread-1".to_owned(),
         originator: Some("guardian-v2-test".to_owned()),
@@ -856,8 +850,6 @@ async fn sampler_returns_classification_token_before_terminal_response_events() 
         ),
         provider,
         http_client_factory: HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-        agent_identity_policy: AgentIdentityAuthPolicy::JwtOnly,
-        session_source: SessionSource::Exec,
         session_id: "session-1".to_owned(),
         thread_id: "thread-1".to_owned(),
         originator: None,

@@ -16,7 +16,6 @@ use codex_features::Feature;
 use codex_http_client::OutboundProxyPolicy;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
-use codex_login::auth::AgentIdentityAuthPolicy;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::WireApi;
 use codex_otel::MetricsClient;
@@ -2863,7 +2862,6 @@ async fn websocket_harness_with_provider_options_and_auth(
     let summary = ReasoningSummary::Auto;
     let client = ModelClient::new(
         client_auth_manager,
-        AgentIdentityAuthPolicy::JwtOnly,
         thread_id,
         provider.clone(),
         SessionSource::Exec,

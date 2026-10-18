@@ -353,3 +353,44 @@ fn test_macos() {
     .unwrap();
     assert!(re.is_match(&user_agent));
 }
+
+#[tokio::test]
+async fn auth_endpoint_client_does_not_follow_redirects() -> anyhow::Result<()> {
+    use wiremock::Mock;
+    use wiremock::MockServer;
+    use wiremock::ResponseTemplate;
+    use wiremock::matchers::method;
+    use wiremock::matchers::path;
+
+    let origin = MockServer::start().await;
+    let target = MockServer::start().await;
+    let endpoint = format!("{}/metadata", origin.uri());
+    Mock::given(method("GET"))
+        .and(path("/metadata"))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("location", format!("{}/metadata", target.uri())),
+        )
+        .expect(1)
+        .mount(&origin)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/metadata"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&target)
+        .await;
+    let client = create_default_auth_client(
+        &endpoint,
+        &crate::test_support::transport_default_auth_route_config(),
+    )?;
+    let response = client
+        .get(&endpoint)
+        .bearer_auth("synthetic-token")
+        .send()
+        .await?;
+    assert_eq!(response.status(), http::StatusCode::FOUND);
+    origin.verify().await;
+    target.verify().await;
+    Ok(())
+}
