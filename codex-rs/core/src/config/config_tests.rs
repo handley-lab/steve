@@ -6281,6 +6281,29 @@ async fn config_resolves_explicit_keyring_auth_store_mode() -> std::io::Result<(
 }
 
 #[tokio::test]
+async fn config_requires_explicit_chatgpt_backend_destination() -> std::io::Result<()> {
+    for backend in [
+        None,
+        Some("https://local.example/backend-api/"),
+        Some("https://chatgpt.com/backend-api/"),
+    ] {
+        let codex_home = TempDir::new()?;
+        let config = Config::load_from_base_config_with_overrides(
+            ConfigToml {
+                chatgpt_base_url: backend.map(str::to_owned),
+                ..Default::default()
+            },
+            ConfigOverrides::default(),
+            codex_home.abs(),
+        )
+        .await?;
+
+        assert_eq!(config.chatgpt_base_url, backend.unwrap_or_default());
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn config_applies_managed_auth_store_and_chatgpt_base_url() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     let managed_store = AuthCredentialsStoreMode::Keyring;
