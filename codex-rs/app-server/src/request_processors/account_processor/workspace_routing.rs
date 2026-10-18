@@ -249,7 +249,8 @@ impl AccountRequestProcessor {
         &self,
         params: GetAccountParams,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        self.refresh_token_if_requested(params.refresh_token).await;
+        self.refresh_token_if_requested(params.refresh_token)
+            .await?;
         let read = self
             .read_account(/*request*/ None)
             .await

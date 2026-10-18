@@ -27,12 +27,6 @@ const ACCOUNT_TOKEN_USAGE_FETCH_TIMEOUT: Duration = Duration::from_secs(/*secs*/
 const THREAD_USAGE_FETCH_TIMEOUT: Duration = Duration::from_secs(/*secs*/ 60);
 const ACCOUNT_WORKSPACE_MESSAGES_FETCH_TIMEOUT: Duration =
     Duration::from_millis(/*millis*/ 1000);
-enum RefreshTokenRequestOutcome {
-    NotAttemptedOrSucceeded,
-    FailedTransiently,
-    FailedPermanently,
-}
-
 enum BedrockLoginCredentials {
     ApiKey(String),
     AccessKeys {
@@ -740,19 +734,22 @@ impl AccountRequestProcessor {
         Ok(())
     }
 
-    async fn refresh_token_if_requested(&self, do_refresh: bool) -> RefreshTokenRequestOutcome {
+    async fn refresh_token_if_requested(&self, do_refresh: bool) -> Result<(), JSONRPCErrorError> {
         if self.auth_manager.is_external_chatgpt_auth_active() {
-            return RefreshTokenRequestOutcome::NotAttemptedOrSucceeded;
+            return Ok(());
         }
         if do_refresh && let Err(err) = self.auth_manager.refresh_token().await {
-            let failed_reason = err.failed_reason();
-            if failed_reason.is_none() {
-                tracing::warn!("failed to refresh token while getting account: {err}");
-                return RefreshTokenRequestOutcome::FailedTransiently;
+            if matches!(
+                &err,
+                codex_login::RefreshTokenError::AccountRenewalUnavailable
+            ) {
+                return Err(internal_error(err.to_string()));
             }
-            return RefreshTokenRequestOutcome::FailedPermanently;
+            if err.failed_reason().is_none() {
+                tracing::warn!("failed to refresh token while getting account: {err}");
+            }
         }
-        RefreshTokenRequestOutcome::NotAttemptedOrSucceeded
+        Ok(())
     }
 
     async fn get_auth_status_response(
@@ -762,7 +759,7 @@ impl AccountRequestProcessor {
         let include_token = params.include_token.unwrap_or(false);
         let do_refresh = params.refresh_token.unwrap_or(false);
 
-        self.refresh_token_if_requested(do_refresh).await;
+        self.refresh_token_if_requested(do_refresh).await?;
 
         // Determine whether auth is required based on the active model provider.
         // If a custom provider is configured with `requires_openai_auth == false`,

@@ -179,7 +179,7 @@ async fn exec_bootstrap_rejects_redirected_oauth_and_cloud_policy() -> anyhow::R
         let output = test
             .cmd_with_server(&inference)
             .env(
-                codex_login::REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR,
+                "STEVE_REFRESH_TOKEN_URL_OVERRIDE",
                 format!("{}/oauth/token", origin.uri()),
             )
             .arg("--skip-git-repo-check")

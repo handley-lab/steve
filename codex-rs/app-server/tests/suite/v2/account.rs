@@ -39,7 +39,6 @@ use codex_config::types::AuthCredentialsStoreMode;
 use codex_http_client::HttpClientBuilder;
 use codex_login::AuthDotJson;
 use codex_login::AuthKeyringBackendKind;
-use codex_login::REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR;
 use codex_login::auth::BedrockAccessKeysAuth;
 use codex_login::auth::BedrockApiKeyAuth;
 use codex_login::load_auth_dot_json;
@@ -274,7 +273,7 @@ async fn logout_account_removes_auth_and_notifies(enterprise_cleanup_failure: bo
         .without_auto_env()
         .with_env_overrides(&[
             ("OPENAI_API_KEY", None),
-            (REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR, Some(&refresh_url)),
+            ("STEVE_REFRESH_TOKEN_URL_OVERRIDE", Some(&refresh_url)),
         ])
         .build_initialized_with_timeout(DEFAULT_READ_TIMEOUT)
         .await?;
@@ -2528,7 +2527,7 @@ async fn get_account_with_chatgpt_without_email() -> Result<()> {
 }
 
 #[tokio::test]
-async fn get_account_omits_chatgpt_after_permanent_refresh_failure() -> Result<()> {
+async fn get_account_preserves_supplied_tokens_after_unsupported_renewal() -> Result<()> {
     let codex_home = TempDir::new()?;
     create_config_toml(
         codex_home.path(),
@@ -2556,7 +2555,7 @@ async fn get_account_omits_chatgpt_after_permanent_refresh_failure() -> Result<(
                 "code": "refresh_token_reused"
             }
         })))
-        .expect(1..=2)
+        .expect(0)
         .mount(&server)
         .await;
 
@@ -2567,7 +2566,7 @@ async fn get_account_omits_chatgpt_after_permanent_refresh_failure() -> Result<(
         .with_env_overrides(&[
             ("OPENAI_API_KEY", None),
             (
-                REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR,
+                "STEVE_REFRESH_TOKEN_URL_OVERRIDE",
                 Some(refresh_url.as_str()),
             ),
         ])
@@ -2580,11 +2579,12 @@ async fn get_account_omits_chatgpt_after_permanent_refresh_failure() -> Result<(
             refresh_token: Some(true),
         })
         .await?;
-    let _: GetAuthStatusResponse = timeout(
+    let error: JSONRPCError = timeout(
         DEFAULT_READ_TIMEOUT,
-        mcp.read_response(auth_status_request_id),
+        mcp.read_stream_until_error_message(RequestId::Integer(auth_status_request_id)),
     )
     .await??;
+    assert!(error.error.message.contains("renewal is unavailable"));
 
     let request_id = mcp
         .send_get_account_request(GetAccountParams {
@@ -2598,8 +2598,11 @@ async fn get_account_omits_chatgpt_after_permanent_refresh_failure() -> Result<(
     assert_eq!(
         received,
         GetAccountResponse {
-            workspace_routing: None,
-            account: None,
+            workspace_routing: expected_workspace_routing(WORKSPACE_ID_STALE),
+            account: Some(Account::Chatgpt {
+                email: Some("user@example.com".to_string()),
+                plan_type: AccountPlanType::Pro,
+            }),
             requires_openai_auth: true,
         }
     );

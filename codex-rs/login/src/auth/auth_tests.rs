@@ -58,38 +58,6 @@ fn header_auth_exposes_a_valid_chatgpt_account_id() {
     }
 }
 
-#[tokio::test]
-async fn refresh_without_id_token() {
-    let codex_home = tempdir().unwrap();
-    let fake_jwt = write_auth_file(
-        AuthFileParams {
-            openai_api_key: None,
-            chatgpt_plan_type: Some("pro".to_string()),
-            chatgpt_account_id: None,
-        },
-        codex_home.path(),
-    )
-    .expect("failed to write auth file");
-
-    let storage = create_auth_storage(
-        codex_home.path().to_path_buf(),
-        AuthCredentialsStoreMode::File,
-        AuthKeyringBackendKind::default(),
-    );
-    let updated = super::persist_tokens(
-        &storage,
-        /*id_token*/ None,
-        Some("new-access-token".to_string()),
-        Some("new-refresh-token".to_string()),
-    )
-    .expect("update_tokens should succeed");
-
-    let tokens = updated.tokens.expect("tokens should exist");
-    assert_eq!(tokens.id_token.raw_jwt, fake_jwt);
-    assert_eq!(tokens.access_token, "new-access-token");
-    assert_eq!(tokens.refresh_token, "new-refresh-token");
-}
-
 #[test]
 fn login_with_api_key_overwrites_existing_auth_json() {
     let dir = tempdir().unwrap();

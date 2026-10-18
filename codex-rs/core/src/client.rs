@@ -2858,7 +2858,10 @@ async fn handle_unauthorized(
                 );
                 Ok(UnauthorizedRecoveryExecution { mode, phase })
             }
-            Err(RefreshTokenError::Policy(error)) => Err(CodexErr::Fatal(error.to_string())),
+            Err(
+                error @ (RefreshTokenError::Policy(_)
+                | RefreshTokenError::AccountRenewalUnavailable),
+            ) => Err(CodexErr::Fatal(error.to_string())),
             Err(RefreshTokenError::Permanent(failed)) => {
                 session_telemetry.record_auth_recovery(
                     mode,

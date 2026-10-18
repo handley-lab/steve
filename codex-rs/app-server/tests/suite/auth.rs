@@ -18,7 +18,6 @@ use codex_app_server_protocol::LoginAccountResponse;
 use codex_app_server_protocol::RequestId;
 use codex_config::types::AuthCredentialsStoreMode;
 use codex_features::Feature;
-use codex_login::REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR;
 use codex_protocol::account::PlanType as AccountPlanType;
 use pretty_assertions::assert_eq;
 use std::path::Path;
@@ -88,8 +87,10 @@ async fn login_with_api_key_via_request(mcp: &mut TestAppServer, api_key: &str) 
     Ok(())
 }
 
+#[test_case::test_case(false; "without_refresh")]
+#[test_case::test_case(true; "refresh_requested")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_auth_status_no_auth() -> Result<()> {
+async fn get_auth_status_no_auth(refresh_token: bool) -> Result<()> {
     let codex_home = TempDir::new()?;
     create_config_toml(codex_home.path())?;
 
@@ -103,7 +104,7 @@ async fn get_auth_status_no_auth() -> Result<()> {
     let request_id = mcp
         .send_get_auth_status_request(GetAuthStatusParams {
             include_token: Some(true),
-            refresh_token: Some(false),
+            refresh_token: Some(refresh_token),
         })
         .await?;
 
@@ -331,7 +332,8 @@ async fn get_auth_status_with_api_key_refresh_requested() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_auth_status_omits_token_after_permanent_refresh_failure() -> Result<()> {
+async fn get_auth_status_rejects_account_renewal_without_discarding_supplied_tokens() -> Result<()>
+{
     let codex_home = TempDir::new()?;
     create_config_toml(codex_home.path())?;
     write_chatgpt_auth(
@@ -352,7 +354,7 @@ async fn get_auth_status_omits_token_after_permanent_refresh_failure() -> Result
                 "code": "refresh_token_reused"
             }
         })))
-        .expect(1)
+        .expect(0)
         .mount(&server)
         .await;
 
@@ -363,7 +365,7 @@ async fn get_auth_status_omits_token_after_permanent_refresh_failure() -> Result
         .with_env_overrides(&[
             ("OPENAI_API_KEY", None),
             (
-                REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR,
+                "STEVE_REFRESH_TOKEN_URL_OVERRIDE",
                 Some(refresh_url.as_str()),
             ),
         ])
@@ -377,34 +379,37 @@ async fn get_auth_status_omits_token_after_permanent_refresh_failure() -> Result
         })
         .await?;
 
-    let status: GetAuthStatusResponse =
-        timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(request_id)).await??;
-    assert_eq!(
-        status,
-        GetAuthStatusResponse {
-            auth_method: Some(AuthMode::Chatgpt),
-            auth_token: None,
-            requires_openai_auth: Some(true),
-        }
-    );
+    let error: JSONRPCError = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_error_message(RequestId::Integer(request_id)),
+    )
+    .await??;
+    assert!(error.error.message.contains("renewal is unavailable"));
 
     let second_request_id = mcp
         .send_get_auth_status_request(GetAuthStatusParams {
             include_token: Some(true),
-            refresh_token: Some(true),
+            refresh_token: Some(false),
         })
         .await?;
 
     let second_status: GetAuthStatusResponse =
         timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(second_request_id)).await??;
-    assert_eq!(second_status, status);
+    assert_eq!(
+        second_status,
+        GetAuthStatusResponse {
+            auth_method: Some(AuthMode::Chatgpt),
+            auth_token: Some("stale-access-token".to_string()),
+            requires_openai_auth: Some(true),
+        }
+    );
 
     server.verify().await;
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_auth_status_omits_token_after_proactive_refresh_failure() -> Result<()> {
+async fn get_auth_status_reads_supplied_tokens_without_account_renewal() -> Result<()> {
     let codex_home = TempDir::new()?;
     create_config_toml(codex_home.path())?;
     write_chatgpt_auth(
@@ -426,7 +431,7 @@ async fn get_auth_status_omits_token_after_proactive_refresh_failure() -> Result
                 "code": "refresh_token_reused"
             }
         })))
-        .expect(2)
+        .expect(0)
         .mount(&server)
         .await;
 
@@ -437,7 +442,7 @@ async fn get_auth_status_omits_token_after_proactive_refresh_failure() -> Result
         .with_env_overrides(&[
             ("OPENAI_API_KEY", None),
             (
-                REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR,
+                "STEVE_REFRESH_TOKEN_URL_OVERRIDE",
                 Some(refresh_url.as_str()),
             ),
         ])
@@ -457,7 +462,7 @@ async fn get_auth_status_omits_token_after_proactive_refresh_failure() -> Result
         status,
         GetAuthStatusResponse {
             auth_method: Some(AuthMode::Chatgpt),
-            auth_token: None,
+            auth_token: Some("stale-access-token".to_string()),
             requires_openai_auth: Some(true),
         }
     );
@@ -467,7 +472,7 @@ async fn get_auth_status_omits_token_after_proactive_refresh_failure() -> Result
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_auth_status_returns_token_after_proactive_refresh_recovery() -> Result<()> {
+async fn get_auth_status_reloads_credentials_replaced_by_the_user() -> Result<()> {
     let codex_home = TempDir::new()?;
     create_config_toml(codex_home.path())?;
     write_chatgpt_auth(
@@ -489,7 +494,7 @@ async fn get_auth_status_returns_token_after_proactive_refresh_recovery() -> Res
                 "code": "refresh_token_reused"
             }
         })))
-        .expect(2)
+        .expect(0)
         .mount(&server)
         .await;
 
@@ -500,7 +505,7 @@ async fn get_auth_status_returns_token_after_proactive_refresh_recovery() -> Res
         .with_env_overrides(&[
             ("OPENAI_API_KEY", None),
             (
-                REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR,
+                "STEVE_REFRESH_TOKEN_URL_OVERRIDE",
                 Some(refresh_url.as_str()),
             ),
         ])
@@ -514,16 +519,12 @@ async fn get_auth_status_returns_token_after_proactive_refresh_recovery() -> Res
         })
         .await?;
 
-    let failed_status: GetAuthStatusResponse =
-        timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(failed_request_id)).await??;
-    assert_eq!(
-        failed_status,
-        GetAuthStatusResponse {
-            auth_method: Some(AuthMode::Chatgpt),
-            auth_token: None,
-            requires_openai_auth: Some(true),
-        }
-    );
+    let error: JSONRPCError = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_error_message(RequestId::Integer(failed_request_id)),
+    )
+    .await??;
+    assert!(error.error.message.contains("renewal is unavailable"));
 
     write_chatgpt_auth(
         codex_home.path(),
@@ -539,7 +540,7 @@ async fn get_auth_status_returns_token_after_proactive_refresh_recovery() -> Res
     let recovered_request_id = mcp
         .send_get_auth_status_request(GetAuthStatusParams {
             include_token: Some(true),
-            refresh_token: Some(false),
+            refresh_token: Some(true),
         })
         .await?;
 
@@ -584,7 +585,7 @@ async fn login_api_key_rejected_when_forced_chatgpt() -> Result<()> {
 
     assert_eq!(
         err.error.message,
-        "API key login is disabled. Use ChatGPT login instead."
+        "API key login is disabled by configuration."
     );
     Ok(())
 }

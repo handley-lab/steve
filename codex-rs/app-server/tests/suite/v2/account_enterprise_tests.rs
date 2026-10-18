@@ -112,7 +112,7 @@ client_id = "enterprise-client""#
         .without_auto_env()
         .with_env_overrides(&[
             ("OPENAI_API_KEY", None),
-            (REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR, Some(&refresh_url)),
+            ("STEVE_REFRESH_TOKEN_URL_OVERRIDE", Some(&refresh_url)),
         ])
         .build_initialized_with_timeout(DEFAULT_READ_TIMEOUT)
         .await?;
@@ -180,7 +180,7 @@ async fn enterprise_login_attempt_lifecycle() -> Result<()> {
             .env(CHILD, "1")
             .env("STEVE_HOME", home.path())
             .env(
-                REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR,
+                "STEVE_REFRESH_TOKEN_URL_OVERRIDE",
                 format!("{}/oauth/token", oauth_server.uri()),
             )
             .env_remove("OPENAI_API_KEY")
@@ -619,7 +619,7 @@ async fn enterprise_login_setup_is_cancelled_by_account_changes() -> Result<()> 
             .env(CHILD, "1")
             .env("STEVE_HOME", home.path())
             .env(
-                REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR,
+                "STEVE_REFRESH_TOKEN_URL_OVERRIDE",
                 format!("{}/oauth/token", oauth_server.uri()),
             )
             .env_remove("OPENAI_API_KEY")
