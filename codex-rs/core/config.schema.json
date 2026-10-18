@@ -1969,6 +1969,14 @@
         "classifier_instructions": {
           "type": "string"
         },
+        "comparison_model": {
+          "description": "Decisions comparison model override. Omission retains its built-in model name.",
+          "type": "string"
+        },
+        "comparison_model_provider": {
+          "description": "Named provider for the optional Decisions comparison. No provider is selected by default.",
+          "type": "string"
+        },
         "enabled": {
           "type": "boolean"
         },

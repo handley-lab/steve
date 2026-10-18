@@ -1,7 +1,6 @@
 //! Decisions outcomes cannot affect the real baseline score/publication path.
 use super::*;
 use crate::async_scorer::decisions::DecisionsSampler;
-use codex_http_client::HttpClientBuilder;
 use pretty_assertions::assert_eq;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -76,11 +75,10 @@ async fn decisions_disagreement_failures_and_disabled_flag_preserve_baseline() -
         if case == "not_initialized" {
             store.remove::<DecisionsSampler>();
         } else if enabled {
-            store.insert(DecisionsSampler::new(
-                HttpClientBuilder::new().build_direct()?,
-                "synthetic-key".into(),
-                decisions_server.uri(),
-            )?);
+            store.insert(
+                crate::async_scorer::decisions::tests::sampler_for_test(decisions_server.uri())
+                    .await?,
+            );
         } else {
             assert!(store.get::<DecisionsSampler>().is_none());
         }
@@ -210,11 +208,7 @@ async fn guardian_budget_rejects_both_backends_before_sending() -> Result<()> {
     let mut sampler_config = crate::async_scorer::sampler::tests::sampler_config(server.uri());
     sampler_config.max_input_tokens = 256;
     store.insert(LunaSampler::new(sampler_config));
-    store.insert(DecisionsSampler::new(
-        HttpClientBuilder::new().build_direct()?,
-        "synthetic-key".into(),
-        server.uri(),
-    )?);
+    store.insert(crate::async_scorer::decisions::tests::sampler_for_test(server.uri()).await?);
     metrics.0.lock().unwrap().clear();
     fixture.score_tool(ToolName::plain("read_file")).await;
     fixture.assert_fails_closed("elevated_risk").await?;

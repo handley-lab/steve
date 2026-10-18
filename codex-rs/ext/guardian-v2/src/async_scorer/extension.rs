@@ -110,10 +110,23 @@ impl ThreadLifecycleContributor<Config> for GuardianV2Extension {
                 .config
                 .features
                 .enabled(Feature::GuardianV2DecisionsComparison)
-                && let Some(decisions_sampler) =
-                    super::startup::decisions_sampler(&input, &self.auth_manager)
             {
-                input.thread_store.insert(decisions_sampler);
+                match super::startup::decisions_sampler(
+                    &input,
+                    &guardian_config,
+                    Arc::clone(&self.auth_manager),
+                )
+                .await
+                {
+                    Ok(decisions_sampler) => {
+                        input.thread_store.insert(decisions_sampler);
+                    }
+                    Err(error) => self.event_sink.emit_warning(ExtensionWarning {
+                        thread_id,
+                        turn_id: None,
+                        message: format!("Guardian Decisions comparison is unavailable: {error}"),
+                    }),
+                }
             }
             input.thread_store.insert(guardian_config);
             input.thread_store.insert(GuardianV2ScoreProgress::new(
