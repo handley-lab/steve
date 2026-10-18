@@ -430,10 +430,16 @@ async fn startup_enforces_requirements_at_the_correct_load_stage(
     Ok(())
 }
 
-#[test_case(false; "without_backend")]
-#[test_case(true; "configured_backend")]
+#[test_case(false, "pro", AccountPlanType::Pro; "without_backend")]
+#[test_case(true, "pro", AccountPlanType::Pro; "configured_backend")]
+#[test_case(false, "enterprise", AccountPlanType::Enterprise; "enterprise_without_backend")]
+#[test_case(true, "enterprise", AccountPlanType::Enterprise; "enterprise_configured_backend")]
 #[tokio::test]
-async fn set_auth_token_updates_account_and_notifies(with_backend: bool) -> Result<()> {
+async fn set_auth_token_updates_account_and_notifies(
+    with_backend: bool,
+    raw_plan_type: &str,
+    plan_type: AccountPlanType,
+) -> Result<()> {
     let codex_home = TempDir::new()?;
     let mock_server = MockServer::start().await;
     create_config_toml(
@@ -449,7 +455,7 @@ async fn set_auth_token_updates_account_and_notifies(with_backend: bool) -> Resu
     let access_token = encode_id_token(
         &ChatGptIdTokenClaims::new()
             .email("embedded@example.com")
-            .plan_type("pro")
+            .plan_type(raw_plan_type)
             .chatgpt_account_id(WORKSPACE_ID_EMBEDDED),
     )?;
 
@@ -468,12 +474,19 @@ async fn set_auth_token_updates_account_and_notifies(with_backend: bool) -> Resu
         .send_chatgpt_auth_tokens_login_request(
             access_token,
             WORKSPACE_ID_EMBEDDED.to_string(),
-            Some("pro".to_string()),
+            Some(raw_plan_type.to_string()),
         )
         .await?;
     let response: LoginAccountResponse =
         timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(set_id)).await??;
     assert_eq!(response, LoginAccountResponse::ChatgptAuthTokens {});
+
+    let completed: AccountLoginCompletedNotification = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_notification("account/login/completed"),
+    )
+    .await??;
+    assert!(completed.success, "{:?}", completed.error);
 
     let note = timeout(
         DEFAULT_READ_TIMEOUT,
@@ -485,7 +498,7 @@ async fn set_auth_token_updates_account_and_notifies(with_backend: bool) -> Resu
         bail!("unexpected notification: {parsed:?}");
     };
     assert_eq!(payload.auth_mode, Some(AuthMode::ChatgptAuthTokens));
-    assert_eq!(payload.plan_type, Some(AccountPlanType::Pro));
+    assert_eq!(payload.plan_type, Some(plan_type.clone()));
 
     let get_id = mcp
         .send_get_account_request(GetAccountParams {
@@ -504,7 +517,7 @@ async fn set_auth_token_updates_account_and_notifies(with_backend: bool) -> Resu
             },
             account: Some(Account::Chatgpt {
                 email: Some("embedded@example.com".to_string()),
-                plan_type: AccountPlanType::Pro,
+                plan_type,
             }),
             requires_openai_auth: true,
         }
