@@ -65,6 +65,71 @@ fn list_tasks_url_omits_empty_query_and_encodes_all_parameters() {
 }
 
 #[tokio::test]
+async fn configured_backend_does_not_follow_redirects() {
+    let configured = MockServer::start().await;
+    let destination = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+        .mount(&destination)
+        .await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "task": {"id": "configured-task"}
+        })))
+        .mount(&destination)
+        .await;
+    let direct = Client::from_auth(
+        destination.uri(),
+        &CodexAuth::from_api_key("synthetic-key"),
+        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+    );
+    direct
+        .get_accounts_check()
+        .await
+        .expect("configured account service");
+    direct
+        .get_config_bundle()
+        .await
+        .expect("configured config service");
+    direct
+        .create_task(serde_json::json!({"prompt": "synthetic task"}))
+        .await
+        .expect("configured task service");
+    assert_eq!(destination.received_requests().await.unwrap().len(), 3);
+
+    for (verb, status) in [("GET", 302), ("POST", 307)] {
+        Mock::given(method(verb))
+            .respond_with(ResponseTemplate::new(status).insert_header(
+                "Location",
+                format!("{}/redirect-destination", destination.uri()),
+            ))
+            .mount(&configured)
+            .await;
+    }
+    let client = Client::from_auth(
+        configured.uri(),
+        &CodexAuth::from_api_key("synthetic-key"),
+        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+    );
+    let accounts = client.get_accounts_check().await;
+    let bundle = client.get_config_bundle().await;
+    let task = client
+        .create_task(serde_json::json!({"prompt": "synthetic task"}))
+        .await;
+    let destination_requests = destination.received_requests().await.unwrap();
+    eprintln!("destination requests: {destination_requests:#?}");
+    assert_eq!(configured.received_requests().await.unwrap().len(), 3);
+    assert_eq!(
+        destination_requests.len(),
+        3,
+        "redirects must not create requests"
+    );
+    assert!(accounts.is_err());
+    assert!(bundle.is_err());
+    assert!(task.is_err());
+}
+
+#[tokio::test]
 async fn migrated_requests_preserve_query_auth_and_json_body() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("HTTP listener should bind");
     let address = listener

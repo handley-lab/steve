@@ -184,12 +184,9 @@ impl fmt::Debug for Client {
 }
 
 impl Client {
+    /// Uses the configured backend without following redirects.
     pub fn new(base_url: impl Into<String>, http_client_factory: HttpClientFactory) -> Self {
-        let http = RouteAwareClientPool::with_chatgpt_cloudflare_cookies_without_request_logging(
-            http_client_factory,
-            ClientRouteClass::Api,
-        );
-        Self::with_http(base_url.into(), http)
+        Self::new_without_redirects(base_url, http_client_factory)
     }
 
     /// Creates a client that never forwards its credentials to a redirect destination.
