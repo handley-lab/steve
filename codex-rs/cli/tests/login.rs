@@ -94,7 +94,12 @@ fn login_status_validates_configured_workload_identity() -> Result<()> {
         .env_remove(CODEX_ACCESS_TOKEN_ENV_VAR)
         .env(OPENAI_FEDERATION_RULE_ID_ENV_VAR, "rule-test")
         .env(OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR, &missing_assertion)
-        .args(["login", "status"])
+        .args([
+            "-c",
+            "chatgpt_base_url=\"https://chatgpt.com/backend-api\"",
+            "login",
+            "status",
+        ])
         .assert()
         .failure()
         .stderr(contains("could not read workload identity assertion file"));
