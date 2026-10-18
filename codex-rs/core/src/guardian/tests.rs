@@ -1707,6 +1707,81 @@ enum ApprovalCancellation {
     BeforeCachedResult,
 }
 
+#[tokio::test]
+async fn guardian_off_does_not_dispatch_automatic_approval() {
+    struct AllowReview(Arc<std::sync::atomic::AtomicBool>);
+    impl codex_extension_api::ApprovalReviewContributor for AllowReview {
+        fn decide<'a>(
+            &'a self,
+            _input: &'a codex_extension_api::ApprovalDecisionInput<'_>,
+        ) -> codex_extension_api::ExtensionFuture<'a, Option<codex_extension_api::ApprovalDecision>>
+        {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async {
+                Some(codex_extension_api::ApprovalDecision::Reviewed(
+                    ReviewDecision::Approved,
+                ))
+            })
+        }
+    }
+
+    for (enabled, require_guardian) in [(true, false), (false, false), (false, true)] {
+        let (mut session, turn, _) =
+            crate::session::tests::make_session_and_context_with_auth_and_config_and_rx(
+                codex_login::CodexAuth::from_api_key("synthetic-key"),
+                Vec::new(),
+                |config| {
+                    if enabled {
+                        config.features.enable(Feature::GuardianApproval).unwrap();
+                    } else {
+                        config.features.disable(Feature::GuardianApproval).unwrap();
+                    }
+                    config.approvals_reviewer =
+                        codex_protocol::config_types::ApprovalsReviewer::AutoReview;
+                    config.permissions.approval_policy =
+                        Constrained::allow_only(AskForApproval::OnRequest);
+                    config
+                        .permissions
+                        .set_permission_profile(PermissionProfile::default())
+                        .unwrap();
+                },
+            )
+            .await;
+        let called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut extensions = codex_extension_api::ExtensionRegistryBuilder::<Config>::new();
+        extensions.approval_review_contributor(Arc::new(AllowReview(Arc::clone(&called))));
+        Arc::get_mut(&mut session).unwrap().services.extensions = Arc::new(extensions.build());
+
+        let decision = super::decide_approval(
+            session,
+            &turn,
+            "guardian-off-dispatch".to_owned(),
+            guardian_exec_command_request("guardian-off-command"),
+            ApprovalRequestReasons {
+                approval: None,
+                retry: None,
+            },
+            GuardianReviewOptions {
+                require_guardian,
+                plugin_attribution_override: None,
+                approval_request_source: GuardianApprovalRequestSource::MainTurn,
+                external_cancel: None,
+                require_synchronous_review: false,
+            },
+        )
+        .await;
+
+        assert_eq!(called.load(std::sync::atomic::Ordering::SeqCst), enabled);
+        if enabled {
+            assert_eq!(decision, Some(ReviewDecision::Approved));
+        } else if require_guardian {
+            assert!(matches!(decision, Some(ReviewDecision::Denied { .. })));
+        } else {
+            assert_eq!(decision, None);
+        }
+    }
+}
+
 #[test_case::test_case(ApprovalCancellation::BeforeRouting; "before_routing")]
 #[test_case::test_case(ApprovalCancellation::BeforeCachedResult; "before_cached_result")]
 #[tokio::test]
