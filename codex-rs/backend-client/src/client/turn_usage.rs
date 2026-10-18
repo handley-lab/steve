@@ -50,15 +50,6 @@ impl Client {
     ) -> Result<Vec<ApiKeyTurnCost>, RequestError> {
         let mut url =
             url::Url::parse(&self.base_url).map_err(|error| RequestError::Other(error.into()))?;
-        let analytics_host = match url.host_str() {
-            Some("chatgpt.com" | "chat.openai.com") => Some("api.chatgpt.com"),
-            Some("chatgpt-staging.com") => Some("api.chatgpt-staging.com"),
-            _ => None,
-        };
-        if let Some(host) = analytics_host {
-            url.set_host(Some(host))
-                .map_err(|error| RequestError::Other(error.into()))?;
-        }
         url.set_path("/v1/analytics/codex/turn-costs");
         url.set_query(None);
         url.set_fragment(None);
@@ -106,6 +97,7 @@ mod tests {
     use super::Client;
     use codex_http_client::HttpClientFactory;
     use codex_http_client::OutboundProxyPolicy;
+    use codex_http_client::cache_system_proxy_route_for_test;
     use codex_login::CodexAuth;
     use http::HeaderMap;
     use http::HeaderValue;
@@ -117,6 +109,51 @@ mod tests {
     use wiremock::matchers::header;
     use wiremock::matchers::method;
     use wiremock::matchers::path;
+
+    #[tokio::test]
+    async fn api_key_turn_cost_queries_keep_configured_origin() {
+        for host in [
+            "chatgpt.com",
+            "chat.openai.com",
+            "chatgpt-staging.com",
+            "api.openai.com",
+        ] {
+            let proxy = MockServer::start().await;
+            for routed_host in [host, "api.chatgpt.com", "api.chatgpt-staging.com"] {
+                cache_system_proxy_route_for_test(
+                    &format!("http://{routed_host}/v1/analytics/codex/turn-costs"),
+                    proxy.uri(),
+                );
+            }
+            Mock::given(method("POST"))
+                .and(path("/v1/analytics/codex/turn-costs"))
+                .and(header("authorization", "Bearer synthetic-key"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "turns": []
+                })))
+                .expect(1)
+                .mount(&proxy)
+                .await;
+            let client = Client::from_auth(
+                format!("http://{host}/backend-api"),
+                &CodexAuth::from_api_key("synthetic-key"),
+                HttpClientFactory::new(OutboundProxyPolicy::RespectSystemProxy),
+            );
+            let costs = client
+                .query_api_key_turn_costs(&["synthetic-turn".to_owned()], &HeaderMap::new())
+                .await
+                .expect("configured turn-cost service through local test proxy");
+            assert!(costs.is_empty());
+            let requests = proxy.received_requests().await.unwrap();
+            eprintln!("configured host {host}: {requests:#?}");
+            assert_eq!(requests.len(), 1);
+            assert_eq!(
+                requests[0].headers.get("host").unwrap().to_str().unwrap(),
+                host
+            );
+            proxy.verify().await;
+        }
+    }
 
     #[tokio::test]
     async fn api_key_turn_cost_queries_use_api_key_auth_and_provider_scope() {
