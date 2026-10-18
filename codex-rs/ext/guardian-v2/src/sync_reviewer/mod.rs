@@ -47,7 +47,12 @@ impl ThreadLifecycleContributor<Config> for GuardianExtension {
         input: ThreadStartInput<'a, Config>,
     ) -> ExtensionFuture<'a, ()> {
         Box::pin(async move {
-            if input.session_source.is_internal() {
+            if input.session_source.is_internal()
+                || !input
+                    .config
+                    .features
+                    .enabled(codex_features::Feature::GuardianApproval)
+            {
                 return;
             }
             input
