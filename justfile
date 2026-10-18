@@ -171,7 +171,7 @@ build-for-release:
 
 # Regenerate the json schema for config.toml from the current config types.
 write-config-schema:
-    cargo run -p codex-config-schema --bin codex-write-config-schema
+    cargo run -p codex-config-schema --bin steve-write-config-schema
 
 # Regenerate app-server protocol schemas and the Python SDK derived from them.
 write-app-server-schema *args:
