@@ -23,6 +23,7 @@ pub struct PreparedGuardianContext {
     parent: Arc<Session>,
     context: GuardianReviewContext,
     config: Config,
+    models_manager: Option<codex_models_manager::manager::SharedModelsManager>,
     context_policy: ReviewContextPolicy,
     key: GuardianReviewSessionReuseKey,
     parent_compaction: Option<ResponseItem>,
@@ -37,6 +38,7 @@ impl PreparedGuardianContext {
         config: Config,
         history: &ContextManager,
         node_repl_policy: &GuardianNodeReplPolicy,
+        models_manager: Option<codex_models_manager::manager::SharedModelsManager>,
     ) -> anyhow::Result<Self> {
         let (reset_version, history_reset) = parent.history_reset().await;
         // Preparation may have raced with a history reset before capturing the reviewer context.
@@ -66,6 +68,7 @@ impl PreparedGuardianContext {
             parent,
             context,
             config,
+            models_manager,
             context_policy,
             key,
             parent_compaction,
@@ -141,7 +144,7 @@ impl PreparedGuardianContext {
             .services
             .model_client
             .responses_websocket_enabled();
-        let options = crate::StartThreadOptions {
+        let mut options = crate::StartThreadOptions {
             history_mode: Some(codex_protocol::protocol::ThreadHistoryMode::Paginated),
             internal_parent: Some(crate::thread_manager::InternalSessionParent {
                 thread_id: self.parent.thread_id(),
@@ -173,6 +176,11 @@ impl PreparedGuardianContext {
             client_mcp_extensions: self.parent.services.client_mcp_extensions.clone(),
             ..crate::StartThreadOptions::new(config)
         };
+        if let Some(models_manager) = &self.models_manager {
+            options
+                .thread_extension_init
+                .insert(Arc::clone(models_manager));
+        }
         (options, state)
     }
 
@@ -402,6 +410,7 @@ pub(super) async fn prepare_review(
         params.spawn_config.clone(),
         &params.parent_history,
         &params.node_repl_policy,
+        params.models_manager.clone(),
     )
     .await?;
     Ok(PreparedReview {
@@ -437,6 +446,7 @@ pub(super) fn prepare_prewarm(
             config.spawn_config,
             &history,
             &config.node_repl_policy,
+            config.models_manager,
         )
         .await
     })

@@ -295,7 +295,7 @@ async fn reviewer_compaction_hash(sess: &Session, turn_context: &TurnContext) ->
         // reviewer, including model changes accepted while compaction was running.
         let mut review_context = crate::guardian::GuardianReviewContext::from(&review_turn);
         review_context.model_info = review_turn.capture_current_model_info();
-        let (_, reviewer) = crate::guardian::resolve_review_model(sess, &review_context).await;
+        let (_, reviewer, _) = crate::guardian::resolve_review_model(sess, &review_context).await;
         reviewer.comp_hash.clone()
     } else {
         None

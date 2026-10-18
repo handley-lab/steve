@@ -642,6 +642,11 @@ impl Session {
             git_enrichment_policy,
             windows_sandbox_proxy_settings_mode,
         } = args;
+        // A host-selected provider can carry its existing catalog manager into this thread.
+        let models_manager = thread_extension_init
+            .get::<SharedModelsManager>()
+            .map(|manager| Arc::clone(manager.as_ref()))
+            .unwrap_or(models_manager);
         let (tx_sub, rx_sub) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
         let (tx_event, rx_event) = async_channel::unbounded();
 
@@ -1868,7 +1873,7 @@ impl Session {
             .enabled(Feature::GuardianApproval)
         {
             let context = crate::guardian::GuardianReviewContext::from(turn_context);
-            let (_, reviewer) = crate::guardian::resolve_review_model(self, &context).await;
+            let (_, reviewer, _) = crate::guardian::resolve_review_model(self, &context).await;
             reviewer.comp_hash.clone()
         } else {
             None

@@ -711,6 +711,9 @@ pub struct Config {
     /// Developer instructions override injected as a separate message.
     pub developer_instructions: Option<String>,
 
+    /// Resolved named provider for synchronous Guardian review, when independently selected.
+    pub guardian_model_provider: Option<(String, ModelProviderInfo)>,
+
     /// Guardian-specific policy config override from requirements.toml or config.toml.
     /// This is inserted into the fixed guardian prompt template under the
     /// `# Policy Configuration` section rather than replacing the whole
@@ -3949,6 +3952,30 @@ impl Config {
             })?
             .clone();
 
+        let guardian_model_provider = cfg
+            .auto_review
+            .as_ref()
+            .and_then(|auto_review| auto_review.model_provider.as_ref())
+            .map(|provider_id| {
+                if let Some(required) = config_layer_stack.required_model_provider()
+                    && provider_id != required
+                {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        format!("auto_review.model_provider conflicts with required model_provider `{required}`"),
+                    ));
+                }
+                model_providers
+                    .get(provider_id)
+                    .cloned()
+                    .map(|provider| (provider_id.clone(), provider))
+                    .ok_or_else(|| std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("Guardian model provider `{provider_id}` not found"),
+                    ))
+            })
+            .transpose()?;
+
         let shell_environment_policy = ShellEnvironmentPolicy::from(cfg.shell_environment_policy);
         let allow_login_shell = cfg.allow_login_shell.unwrap_or(true);
 
@@ -4537,6 +4564,7 @@ impl Config {
                 .show_raw_agent_reasoning
                 .or(show_raw_agent_reasoning)
                 .unwrap_or(false),
+            guardian_model_provider,
             guardian_policy_config,
             guardian_extra_policy,
             guardian_policy_template,

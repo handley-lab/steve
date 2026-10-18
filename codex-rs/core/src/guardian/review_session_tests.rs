@@ -210,6 +210,7 @@ fn turn_aborted_event(turn_id: &str) -> Event {
 
 async fn test_review_params() -> GuardianReviewSessionParams {
     let (session, turn) = crate::session::tests::make_session_and_context().await;
+    let model_info = Arc::clone(turn.model_info());
     let model = turn.model_info().slug.clone();
     let reasoning_effort = turn.reasoning_effort().cloned();
     let reasoning_summary = turn.reasoning_summary();
@@ -235,6 +236,8 @@ async fn test_review_params() -> GuardianReviewSessionParams {
         parent_context: GuardianReviewContext::from(Arc::new(turn)),
         spawn_config,
         node_repl_policy: GuardianNodeReplPolicy::from_messages(ResolvedModelMessages::bundled()),
+        model_info,
+        models_manager: None,
         category: GuardianScope::Shell,
         request: GuardianApprovalRequest::ExecCommand {
             id: "shell-1".to_string(),

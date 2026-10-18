@@ -108,6 +108,8 @@ pub(crate) struct GuardianReviewOptions {
 pub(super) struct GuardianReviewSessionConfig {
     pub(super) spawn_config: crate::config::Config,
     pub(super) node_repl_policy: GuardianNodeReplPolicy,
+    pub(super) model_info: Arc<codex_protocol::openai_models::ModelInfo>,
+    pub(super) models_manager: Option<codex_models_manager::manager::SharedModelsManager>,
     review_model: ReviewModel,
 }
 
@@ -121,7 +123,7 @@ pub(super) async fn guardian_review_session_config(
         Some(network_proxy) => Some(network_proxy.proxy().current_cfg().await?),
         None => None,
     };
-    let (review_model, guardian_model_info) =
+    let (review_model, guardian_model_info, models_manager) =
         super::reviewer_config::resolve_review_model(session, context).await;
     let reviewer_config = session
         .services
@@ -148,13 +150,15 @@ pub(super) async fn guardian_review_session_config(
                 )
             })?;
     }
-    if review_model.model != context.model_info.slug {
+    if review_model.model != context.model_info.slug || models_manager.is_some() {
         spawn_config.model_context_window = None;
         spawn_config.model_auto_compact_token_limit = None;
     }
     Ok(GuardianReviewSessionConfig {
         spawn_config,
         node_repl_policy: GuardianNodeReplPolicy::from_messages(model_messages),
+        model_info: guardian_model_info,
+        models_manager,
         review_model,
     })
 }
@@ -213,6 +217,8 @@ async fn run_guardian_review_session_before_deadline(
                 parent_history: session.clone_history().await,
                 spawn_config: session_config.spawn_config,
                 node_repl_policy: session_config.node_repl_policy,
+                model_info: session_config.model_info,
+                models_manager: session_config.models_manager,
                 request,
                 category,
                 reasons,

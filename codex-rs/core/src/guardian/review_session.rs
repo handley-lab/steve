@@ -109,6 +109,8 @@ pub(crate) struct GuardianReviewSessionParams {
     pub(crate) parent_history: ContextManager,
     pub(crate) spawn_config: Config,
     pub(crate) node_repl_policy: GuardianNodeReplPolicy,
+    pub(crate) model_info: Arc<codex_protocol::openai_models::ModelInfo>,
+    pub(crate) models_manager: Option<codex_models_manager::manager::SharedModelsManager>,
     pub(crate) request: GuardianApprovalRequest,
     pub(crate) category: GuardianScope,
     pub(crate) reasons: ApprovalRequestReasons,
@@ -335,15 +337,7 @@ async fn run_review_on_session(
     deadline: tokio::time::Instant,
 ) -> ReviewSessionResult {
     let review_model = &params.review_model;
-    let model_info = params
-        .parent_session
-        .services
-        .models_manager
-        .get_model_info(
-            review_model.model.as_str(),
-            &params.spawn_config.to_models_manager_config(),
-        )
-        .await;
+    let model_info = Arc::clone(&params.model_info);
     let guardian_reasoning_effort = review_model
         .reasoning_effort
         .clone()
