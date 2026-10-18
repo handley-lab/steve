@@ -13,7 +13,6 @@ from ._goal import _GoalOperationState
 from ._message_router import _TurnSubscription
 from .client import CodexClient, SteveConfig
 from .generated.v2_all import (
-    AccountLoginCompletedNotification,
     AgentMessageDeltaNotification,
     CancelLoginAccountResponse,
     GetAccountParams as V2GetAccountParams,
@@ -108,14 +107,6 @@ class AsyncCodexClient:
     def register_turn_notifications(self, turn_id: str) -> None:
         """Register a turn notification queue on the wrapped sync client."""
         self._sync.register_turn_notifications(turn_id)
-
-    def register_login_notifications(self, login_id: str) -> None:
-        """Register a login notification queue on the wrapped sync client."""
-        self._sync.register_login_notifications(login_id)
-
-    def unregister_login_notifications(self, login_id: str) -> None:
-        """Unregister a login notification queue on the wrapped sync client."""
-        self._sync.unregister_login_notifications(login_id)
 
     def unregister_turn_notifications(self, turn_id: str) -> None:
         """Unregister a turn notification queue on the wrapped sync client."""
@@ -372,10 +363,6 @@ class AsyncCodexClient:
         """Wait for the next global notification without blocking the event loop."""
         return await self._call_sync(self._sync.next_notification)
 
-    async def next_login_notification(self, login_id: str) -> Notification:
-        """Wait for the next notification routed to one login attempt."""
-        return await self._call_sync(self._sync.next_login_notification, login_id)
-
     async def next_turn_notification(self, turn_id: str) -> Notification:
         """Wait for the next notification routed to one turn."""
         return await self._call_sync(self._sync.next_turn_notification, turn_id)
@@ -383,13 +370,6 @@ class AsyncCodexClient:
     async def next_goal_notification(self, state: _GoalOperationState) -> Notification:
         """Wait for the next notification in a logical goal turn."""
         return await self._call_sync(self._sync.next_goal_notification, state)
-
-    async def wait_for_login_completed(
-        self,
-        login_id: str,
-    ) -> AccountLoginCompletedNotification:
-        """Wait for the completion notification routed to one login attempt."""
-        return await self._call_sync(self._sync.wait_for_login_completed, login_id)
 
     async def wait_for_turn_completed(self, turn_id: str) -> TurnCompletedNotification:
         """Wait for the completion notification routed to one turn."""

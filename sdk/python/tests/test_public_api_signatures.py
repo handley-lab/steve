@@ -35,10 +35,6 @@ EXPECTED_ROOT_EXPORTS = [
     "AsyncSteve",
     "ApprovalMode",
     "Sandbox",
-    "ChatgptLoginHandle",
-    "DeviceCodeLoginHandle",
-    "AsyncChatgptLoginHandle",
-    "AsyncDeviceCodeLoginHandle",
     "Thread",
     "AsyncThread",
     "TurnHandle",
@@ -67,6 +63,12 @@ EXPECTED_ROOT_EXPORTS = [
     "RetryLimitExceededError",
     "is_retryable_error",
 ]
+
+
+def test_account_acquisition_is_absent_from_public_clients() -> None:
+    for client in (Steve, AsyncSteve):
+        assert not hasattr(client, "login_chatgpt")
+        assert not hasattr(client, "login_chatgpt_device_code")
 
 EXPECTED_TYPES_EXPORTS = [
     "Account",

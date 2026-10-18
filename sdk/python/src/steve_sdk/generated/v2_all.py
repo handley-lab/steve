@@ -2243,15 +2243,6 @@ class ApiKeyLoginAccountParams(BaseModel):
     type: Annotated[Literal["apiKey"], Field(title="ApiKeyv2::LoginAccountParamsType")]
 
 
-class ChatgptDeviceCodeLoginAccountParams(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    type: Annotated[
-        Literal["chatgptDeviceCode"], Field(title="ChatgptDeviceCodev2::LoginAccountParamsType")
-    ]
-
-
 class ChatgptAuthTokensLoginAccountParams(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -2307,47 +2298,31 @@ class AmazonBedrockAccessKeysLoginAccountParams(BaseModel):
     ]
 
 
+class LoginAccountParams(
+    RootModel[
+        ApiKeyLoginAccountParams
+        | ChatgptAuthTokensLoginAccountParams
+        | AmazonBedrockLoginAccountParams
+        | AmazonBedrockAccessKeysLoginAccountParams
+    ]
+):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    root: Annotated[
+        ApiKeyLoginAccountParams
+        | ChatgptAuthTokensLoginAccountParams
+        | AmazonBedrockLoginAccountParams
+        | AmazonBedrockAccessKeysLoginAccountParams,
+        Field(title="LoginAccountParams"),
+    ]
+
+
 class ApiKeyLoginAccountResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
     type: Annotated[Literal["apiKey"], Field(title="ApiKeyv2::LoginAccountResponseType")]
-
-
-class ChatgptLoginAccountResponse(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    auth_url: Annotated[
-        str,
-        Field(
-            alias="authUrl",
-            description="URL the client should open in a browser to initiate the OAuth flow.",
-        ),
-    ]
-    login_id: Annotated[str, Field(alias="loginId")]
-    type: Annotated[Literal["chatgpt"], Field(title="Chatgptv2::LoginAccountResponseType")]
-
-
-class ChatgptDeviceCodeLoginAccountResponse(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    login_id: Annotated[str, Field(alias="loginId")]
-    type: Annotated[
-        Literal["chatgptDeviceCode"], Field(title="ChatgptDeviceCodev2::LoginAccountResponseType")
-    ]
-    user_code: Annotated[
-        str,
-        Field(alias="userCode", description="One-time code the user must enter after signing in."),
-    ]
-    verification_url: Annotated[
-        str,
-        Field(
-            alias="verificationUrl",
-            description="URL the client should open in a browser to complete device code authorization.",
-        ),
-    ]
 
 
 class ChatgptAuthTokensLoginAccountResponse(BaseModel):
@@ -2371,8 +2346,6 @@ class AmazonBedrockLoginAccountResponse(BaseModel):
 class LoginAccountResponse(
     RootModel[
         ApiKeyLoginAccountResponse
-        | ChatgptLoginAccountResponse
-        | ChatgptDeviceCodeLoginAccountResponse
         | ChatgptAuthTokensLoginAccountResponse
         | AmazonBedrockLoginAccountResponse
     ]
@@ -2382,17 +2355,10 @@ class LoginAccountResponse(
     )
     root: Annotated[
         ApiKeyLoginAccountResponse
-        | ChatgptLoginAccountResponse
-        | ChatgptDeviceCodeLoginAccountResponse
         | ChatgptAuthTokensLoginAccountResponse
         | AmazonBedrockLoginAccountResponse,
         Field(title="LoginAccountResponse"),
     ]
-
-
-class LoginAppBrand(Enum):
-    codex = "codex"
-    chatgpt = "chatgpt"
 
 
 class LogoutAccountResponse(BaseModel):
@@ -7654,6 +7620,17 @@ class WindowsSandboxReadinessRequest(BaseModel):
     params: None = None
 
 
+class AccountLoginStartRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    id: RequestId
+    method: Annotated[
+        Literal["account/login/start"], Field(title="Account/login/startRequestMethod")
+    ]
+    params: LoginAccountParams
+
+
 class AccountLoginCancelRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -8693,42 +8670,6 @@ class ListMcpServerStatusParams(BaseModel):
         ),
     ] = None
     thread_id: Annotated[str | None, Field(alias="threadId")] = None
-
-
-class ChatgptLoginAccountParams(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    app_brand: Annotated[LoginAppBrand | None, Field(alias="appBrand")] = None
-    codex_streamlined_login: Annotated[bool | None, Field(alias="codexStreamlinedLogin")] = None
-    type: Annotated[Literal["chatgpt"], Field(title="Chatgptv2::LoginAccountParamsType")]
-    use_hosted_login_success_page: Annotated[
-        bool | None, Field(alias="useHostedLoginSuccessPage")
-    ] = None
-
-
-class LoginAccountParams(
-    RootModel[
-        ApiKeyLoginAccountParams
-        | ChatgptLoginAccountParams
-        | ChatgptDeviceCodeLoginAccountParams
-        | ChatgptAuthTokensLoginAccountParams
-        | AmazonBedrockLoginAccountParams
-        | AmazonBedrockAccessKeysLoginAccountParams
-    ]
-):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    root: Annotated[
-        ApiKeyLoginAccountParams
-        | ChatgptLoginAccountParams
-        | ChatgptDeviceCodeLoginAccountParams
-        | ChatgptAuthTokensLoginAccountParams
-        | AmazonBedrockLoginAccountParams
-        | AmazonBedrockAccessKeysLoginAccountParams,
-        Field(title="LoginAccountParams"),
-    ]
 
 
 class McpResourceReadParams(BaseModel):
@@ -10817,17 +10758,6 @@ class McpServerResourceReadRequest(BaseModel):
         Literal["mcpServer/resource/read"], Field(title="McpServer/resource/readRequestMethod")
     ]
     params: McpResourceReadParams
-
-
-class AccountLoginStartRequest(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    id: RequestId
-    method: Annotated[
-        Literal["account/login/start"], Field(title="Account/login/startRequestMethod")
-    ]
-    params: LoginAccountParams
 
 
 class CommandExecRequest(BaseModel):

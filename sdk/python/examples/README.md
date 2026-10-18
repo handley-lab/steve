@@ -88,6 +88,6 @@ python examples/01_quickstart_constructor/async.py
 - `14_turn_controls/`
   - separate `steer()` and `interrupt()` demos with concise summaries
 - `15_login_and_account/`
-  - browser-login handle lifecycle, cancellation, and account inspection
+  - supplied API-key authentication and account inspection
 - `16_external_message/`
   - process an untrusted external notification within a user-authorized task

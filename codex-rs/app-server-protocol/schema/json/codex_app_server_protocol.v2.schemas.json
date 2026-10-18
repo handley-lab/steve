@@ -5650,7 +5650,7 @@
           "type": "object"
         },
         {
-          "description": "User config layer from $CODEX_HOME/config.toml. This layer is special in that it is expected to be: - writable by the user - generally outside the workspace directory",
+          "description": "User config layer from $STEVE_HOME/config.toml. This layer is special in that it is expected to be: - writable by the user - generally outside the workspace directory",
           "properties": {
             "file": {
               "allOf": [
@@ -5683,7 +5683,7 @@
           "type": "object"
         },
         {
-          "description": "Path to a .codex/ folder within a project. There could be multiple of these between `cwd` and the project/repo root.",
+          "description": "Path to a .steve/ folder within a project. There could be multiple of these between `cwd` and the project/repo root.",
           "properties": {
             "dotCodexFolder": {
               "$ref": "#/definitions/AbsolutePathBuf"
@@ -10190,55 +10190,6 @@
           "type": "object"
         },
         {
-          "properties": {
-            "appBrand": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/LoginAppBrand"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null
-            },
-            "codexStreamlinedLogin": {
-              "type": "boolean"
-            },
-            "type": {
-              "enum": [
-                "chatgpt"
-              ],
-              "title": "Chatgptv2::LoginAccountParamsType",
-              "type": "string"
-            },
-            "useHostedLoginSuccessPage": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "title": "Chatgptv2::LoginAccountParams",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "type": {
-              "enum": [
-                "chatgptDeviceCode"
-              ],
-              "title": "ChatgptDeviceCodev2::LoginAccountParamsType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "title": "ChatgptDeviceCodev2::LoginAccountParams",
-          "type": "object"
-        },
-        {
           "description": "[UNSTABLE] FOR OPENAI INTERNAL USE ONLY - DO NOT USE. The access token must contain the same scopes that Codex-managed ChatGPT auth tokens have.",
           "properties": {
             "accessToken": {
@@ -10356,61 +10307,6 @@
         },
         {
           "properties": {
-            "authUrl": {
-              "description": "URL the client should open in a browser to initiate the OAuth flow.",
-              "type": "string"
-            },
-            "loginId": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "chatgpt"
-              ],
-              "title": "Chatgptv2::LoginAccountResponseType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "authUrl",
-            "loginId",
-            "type"
-          ],
-          "title": "Chatgptv2::LoginAccountResponse",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "loginId": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "chatgptDeviceCode"
-              ],
-              "title": "ChatgptDeviceCodev2::LoginAccountResponseType",
-              "type": "string"
-            },
-            "userCode": {
-              "description": "One-time code the user must enter after signing in.",
-              "type": "string"
-            },
-            "verificationUrl": {
-              "description": "URL the client should open in a browser to complete device code authorization.",
-              "type": "string"
-            }
-          },
-          "required": [
-            "loginId",
-            "type",
-            "userCode",
-            "verificationUrl"
-          ],
-          "title": "ChatgptDeviceCodev2::LoginAccountResponse",
-          "type": "object"
-        },
-        {
-          "properties": {
             "type": {
               "enum": [
                 "chatgptAuthTokens"
@@ -10443,13 +10339,6 @@
         }
       ],
       "title": "LoginAccountResponse"
-    },
-    "LoginAppBrand": {
-      "enum": [
-        "codex",
-        "chatgpt"
-      ],
-      "type": "string"
     },
     "LogoutAccountResponse": {
       "$schema": "http://json-schema.org/draft-07/schema#",

@@ -14,7 +14,7 @@ uv sync --group dev
 Requirements:
 
 - Python `>=3.10`
-- An existing Steve account session, or one of the login flows below
+- A configured provider endpoint and supplied credentials
 
 The local runtime checkout contains no native payload. Build the CLI as described
 in the [repository README](../../../README.md), then pass its absolute path in
@@ -31,28 +31,8 @@ The remaining examples assume the same local CLI configuration.
 
 ## 2. Authenticate When Needed
 
-Existing Steve authentication is reused automatically. For ChatGPT browser
-login:
-
-```python
-from steve_sdk import Steve
-
-with Steve() as codex:
-    login = codex.login_chatgpt()
-    print(login.auth_url)
-    print(login.wait().success)
-```
-
-For device-code login:
-
-```python
-with Steve() as codex:
-    login = codex.login_chatgpt_device_code()
-    print(login.verification_url, login.user_code)
-    print(login.wait().success)
-```
-
-For API-key login:
+Configure the provider endpoint and supply credentials. Existing supplied
+credentials are reused automatically. To store an API key:
 
 ```python
 with Steve() as codex:

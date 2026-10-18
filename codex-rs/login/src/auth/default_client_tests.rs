@@ -259,11 +259,10 @@ async fn raw_auth_client_does_not_log_sensitive_request_or_response_data() {
     let endpoint = format!(
         "http://auth-user:password-secret-value@{authority}/token?client_secret=query-secret-value"
     );
-    let client = create_raw_auth_client(
-        &endpoint,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .expect("raw auth client should build");
+    let client = crate::test_support::transport_default_auth_route_config()
+        .authentication_factory(&endpoint)
+        .build_client_without_request_logging(&endpoint, ClientRouteClass::Auth)
+        .expect("auth client should build");
     let buffer = Arc::new(Mutex::new(Vec::new()));
     let subscriber = tracing_subscriber::registry().with(
         tracing_subscriber::fmt::layer()
@@ -292,11 +291,10 @@ async fn raw_auth_client_does_not_log_sensitive_request_or_response_data() {
     let unresponsive_endpoint = format!(
         "http://auth-user:failure-password-secret-value@{unresponsive_addr}/token?client_secret=failure-query-secret-value"
     );
-    let unresponsive_client = create_raw_auth_client(
-        &unresponsive_endpoint,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .expect("raw auth client should build");
+    let unresponsive_client = crate::test_support::transport_default_auth_route_config()
+        .authentication_factory(&unresponsive_endpoint)
+        .build_client_without_request_logging(&unresponsive_endpoint, ClientRouteClass::Auth)
+        .expect("auth client should build");
     let error = unresponsive_client
         .post(&unresponsive_endpoint)
         .header("x-sensitive-request", "failure-request-header-secret-value")

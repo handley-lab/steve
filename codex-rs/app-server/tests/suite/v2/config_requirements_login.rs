@@ -73,7 +73,13 @@ async fn config_requirements_read_exposes_effective_login_methods(
     let wire = read_requirements(&mut server).await?;
     assert_eq!(wire["requirements"]["allowedLoginMethods"], json!(expected));
     if !expected.contains(&ForcedLoginMethod::Chatgpt) {
-        let id = server.send_login_account_chatgpt_request().await?;
+        let id = server
+            .send_login_account_request(json!({
+                "type": "chatgptAuthTokens",
+                "accessToken": "provided-token-not-used",
+                "chatgptAccountId": "managed"
+            }))
+            .await?;
         let error = timeout(
             READ_TIMEOUT,
             server.read_stream_until_error_message(RequestId::Integer(id)),
@@ -103,7 +109,13 @@ async fn config_requirements_read_uses_running_auth_policy(refreshed: &str) -> R
         read_requirements(&mut server).await?["requirements"]["allowedLoginMethods"],
         json!(["api"])
     );
-    let id = server.send_login_account_chatgpt_request().await?;
+    let id = server
+        .send_login_account_request(json!({
+            "type": "chatgptAuthTokens",
+            "accessToken": "provided-token-not-used",
+            "chatgptAccountId": "managed"
+        }))
+        .await?;
     let error = timeout(
         READ_TIMEOUT,
         server.read_stream_until_error_message(RequestId::Integer(id)),

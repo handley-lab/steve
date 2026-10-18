@@ -21,11 +21,8 @@ from ._version import __version__ as SDK_VERSION
 from .errors import InvalidRequestError, SteveError, TransportClosedError
 from .generated.notification_registry import NOTIFICATION_MODELS
 from .generated.v2_all import (
-    AccountLoginCompletedNotification,
     AgentMessageDeltaNotification,
     CancelLoginAccountResponse,
-    ChatgptDeviceCodeLoginAccountResponse,
-    ChatgptLoginAccountResponse,
     GetAccountParams as V2GetAccountParams,
     GetAccountResponse,
     IdleThreadStatus,
@@ -395,18 +392,6 @@ class CodexClient:
         """Return the next notification that is not scoped to an active turn."""
         return self._router.next_global_notification()
 
-    def register_login_notifications(self, login_id: str) -> None:
-        """Start routing notifications for one interactive login attempt."""
-        self._router.register_login(login_id)
-
-    def unregister_login_notifications(self, login_id: str) -> None:
-        """Stop routing notifications for one interactive login attempt."""
-        self._router.unregister_login(login_id)
-
-    def next_login_notification(self, login_id: str) -> Notification:
-        """Return the next routed notification for the requested login id."""
-        return self._router.next_login_notification(login_id)
-
     def _subscribe_turn_notifications(self, turn_id: str) -> _TurnSubscription:
         return self._router.subscribe_turn(turn_id)
 
@@ -442,18 +427,11 @@ class CodexClient:
         self,
         params: V2LoginAccountParams | JsonObject,
     ) -> LoginAccountResponse:
-        response = self.request(
+        return self.request(
             "account/login/start",
             _params_dict(params),
             response_model=LoginAccountResponse,
         )
-        response_root = response.root
-        if isinstance(
-            response_root,
-            ChatgptLoginAccountResponse | ChatgptDeviceCodeLoginAccountResponse,
-        ):
-            self.register_login_notifications(response_root.login_id)
-        return response
 
     def account_login_cancel(self, login_id: str) -> CancelLoginAccountResponse:
         return self.request(
@@ -759,24 +737,6 @@ class CodexClient:
                     return notification.payload
         finally:
             self.unregister_turn_notifications(turn_id)
-
-    def wait_for_login_completed(
-        self,
-        login_id: str,
-    ) -> AccountLoginCompletedNotification:
-        """Block until the matching interactive login attempt completes."""
-        self.register_login_notifications(login_id)
-        try:
-            while True:
-                notification = self.next_login_notification(login_id)
-                if (
-                    notification.method == "account/login/completed"
-                    and isinstance(notification.payload, AccountLoginCompletedNotification)
-                    and notification.payload.login_id == login_id
-                ):
-                    return notification.payload
-        finally:
-            self.unregister_login_notifications(login_id)
 
     def stream_text(
         self,
