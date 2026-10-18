@@ -408,6 +408,33 @@ async fn stored_agent_identity_jwt_keeps_auth_json_unchanged() -> anyhow::Result
 
 #[tokio::test]
 #[serial(codex_auth_env)]
+async fn login_with_access_token_requires_personal_access_token_metadata_endpoint() {
+    let dir = tempdir().unwrap();
+    for endpoint in [None, Some(""), Some("   ")] {
+        let _authapi_guard = match endpoint {
+            Some(endpoint) => EnvVarGuard::set("STEVE_AUTHAPI_BASE_URL", endpoint),
+            None => EnvVarGuard::remove("STEVE_AUTHAPI_BASE_URL"),
+        };
+        let err = super::login_with_access_token(
+            dir.path(),
+            "at-unconfigured-service",
+            AuthCredentialsStoreMode::File,
+            /*forced_chatgpt_workspace_id*/ None,
+            /*chatgpt_base_url*/ None,
+            AuthKeyringBackendKind::default(),
+            &crate::test_support::transport_default_auth_route_config(),
+        )
+        .await
+        .expect_err("metadata service must be configured before using it");
+
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(err.to_string().contains("STEVE_AUTHAPI_BASE_URL"));
+        assert!(!get_auth_file(dir.path()).exists());
+    }
+}
+
+#[tokio::test]
+#[serial(codex_auth_env)]
 async fn login_with_access_token_writes_only_personal_access_token() {
     let dir = tempdir().unwrap();
     let auth_path = dir.path().join("auth.json");
