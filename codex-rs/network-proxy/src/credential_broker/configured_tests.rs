@@ -1297,7 +1297,7 @@ fn credential_rotation_preserves_alias_destination_ownership() {
             "OPENAI_API_KEY",
             "OPENAI_BASE_URL",
             "sk-proj-",
-            Some("api.openai.com"),
+            None,
         ),
     ] {
         for (environment, real_aliases, discover_parent) in [
@@ -2748,7 +2748,7 @@ fn explicit_invalid_destinations_clear_previous_dynamic_bindings() {
             "OPENAI_API_KEY",
             "OPENAI_BASE_URL",
             "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789",
-            Some("api.openai.com"),
+            None,
         ),
         (
             "PROVIDER_TOKEN",

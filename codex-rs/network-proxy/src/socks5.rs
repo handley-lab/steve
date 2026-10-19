@@ -1039,6 +1039,7 @@ mod tests {
             ..NetworkProxyConfig::default()
         };
         settings.set_allowed_domains(vec!["api.openai.com".to_string()]);
+        settings.set_credential_broker_openai_base_url(Some("https://api.openai.com/v1"));
         let state = state_for_settings(settings);
         let mut env = HashMap::from([("OPENAI_API_KEY".to_string(), "sk-real".to_string())]);
         state.virtualize_child_credentials(&mut env);

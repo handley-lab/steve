@@ -13,7 +13,6 @@ const OPENAI_API_KEY_ENV_VARS: &[&str] = &["OPENAI_API_KEY"];
 const OPENAI_API_KEY_PREFIXES: &[&str] = &["sk-proj-", "sk-svcacct-", "sk-admin-", "sk-"];
 const OPENAI_BASE_URL_ENV_VAR: &str = "OPENAI_BASE_URL";
 const OPENAI_API_KEY_MIN_LEN: usize = 51;
-const OPENAI_API_HOST: &str = "api.openai.com";
 
 pub(super) static PROVIDER: CredentialProvider = CredentialProvider {
     context_env_vars: &[OPENAI_BASE_URL_ENV_VAR],
@@ -69,7 +68,7 @@ fn host_binding(
     env: &HashMap<String, String>,
     configured_host: Option<&str>,
 ) -> Option<CredentialHostBinding> {
-    let mut hosts = vec![OPENAI_API_HOST.to_string()];
+    let mut hosts = Vec::new();
     for host in configured_host
         .map(str::to_string)
         .into_iter()

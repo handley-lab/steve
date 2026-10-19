@@ -47,6 +47,55 @@ fn assert_credential_shape(real_value: &str, dummy_value: &str, prefix: &str) {
 }
 
 #[test]
+fn openai_credentials_without_a_destination_remain_protected_without_injection() {
+    let real = "sk-proj-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    for base_url in [None, Some(""), Some("not a URL")] {
+        let broker = CredentialBroker::new(/*enabled*/ true);
+        let mut env = env_map([("OPENAI_API_KEY", real)]);
+        if let Some(base_url) = base_url {
+            env.insert("OPENAI_BASE_URL".to_string(), base_url.to_string());
+        }
+        broker.virtualize_child_env(&mut env);
+        let dummy = &env["OPENAI_API_KEY"];
+        assert_credential_shape(real, dummy, "sk-proj-");
+        for host in ["api.openai.com", "other.example"] {
+            let mut headers = headers_with_bearer(dummy);
+            broker.inject_request_headers(host, &mut headers);
+            assert_eq!(headers, headers_with_bearer(dummy), "{base_url:?}: {host}");
+        }
+    }
+}
+
+#[test]
+fn explicitly_selected_openai_destination_receives_brokered_credentials() {
+    let real = "sk-proj-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    for through_config in [false, true] {
+        let broker = CredentialBroker::new(/*enabled*/ true);
+        let mut env = env_map([("OPENAI_API_KEY", real)]);
+        if through_config {
+            let mut config = NetworkProxyConfig::default();
+            config.set_credential_broker_enabled(/*enabled*/ true);
+            config.set_credential_broker_openai_base_url(Some("https://api.openai.com/v1"));
+            broker.configure(&config);
+        } else {
+            env.insert(
+                "OPENAI_BASE_URL".to_string(),
+                "https://api.openai.com/v1".to_string(),
+            );
+        }
+        broker.virtualize_child_env(&mut env);
+        let dummy = &env["OPENAI_API_KEY"];
+        assert_credential_shape(real, dummy, "sk-proj-");
+        let mut headers = headers_with_bearer(dummy);
+        broker.inject_request_headers("api.openai.com", &mut headers);
+        assert_eq!(headers, headers_with_bearer(real));
+        let mut other_headers = headers_with_bearer(dummy);
+        broker.inject_request_headers("other.example", &mut other_headers);
+        assert_eq!(other_headers, headers_with_bearer(dummy));
+    }
+}
+
+#[test]
 fn virtualize_child_env_replaces_supported_credentials() {
     let broker = CredentialBroker::new(/*enabled*/ true);
     let github_token = "github_pat_11AA0bbCC_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH";
@@ -587,6 +636,10 @@ fn virtualize_child_env_replaces_aliases_of_filtered_parent_credentials() {
 #[test]
 fn virtualize_child_env_preserves_paths_unless_the_credential_is_known() {
     let broker = CredentialBroker::new(/*enabled*/ true);
+    let mut config = NetworkProxyConfig::default();
+    config.set_credential_broker_enabled(/*enabled*/ true);
+    config.set_credential_broker_openai_base_url(Some("https://api.openai.com/v1"));
+    broker.configure(&config);
     let real = format!("sk-proj-{}", "a".repeat(64));
     let path = format!("/workspace/my_ta{real}/bin");
     let mut env = env_map([("VIRTUAL_ENV", &path)]);
@@ -633,6 +686,10 @@ fn virtualize_child_env_discovers_credentials_without_canonical_variables() {
         ),
     ] {
         let broker = CredentialBroker::new(/*enabled*/ true);
+        let mut config = NetworkProxyConfig::default();
+        config.set_credential_broker_enabled(/*enabled*/ true);
+        config.set_credential_broker_openai_base_url(Some("https://api.openai.com/v1"));
+        broker.configure(&config);
         let authorization_header = format!("Bearer {token}");
         let mut env = env_map([("AUTH_HEADER", authorization_header.as_str())]);
 
@@ -650,6 +707,10 @@ fn virtualize_child_env_discovers_credentials_without_canonical_variables() {
         assert_eq!(snapshot, format!("export AUTH_HEADER='{dummy_header}'"));
 
         let broker = CredentialBroker::new(/*enabled*/ true);
+        let mut config = NetworkProxyConfig::default();
+        config.set_credential_broker_enabled(/*enabled*/ true);
+        config.set_credential_broker_openai_base_url(Some("https://api.openai.com/v1"));
+        broker.configure(&config);
         let mut env = env_map([
             (canonical_key, "another-canonical-credential"),
             ("AUTH_HEADER", authorization_header.as_str()),
@@ -688,6 +749,10 @@ fn virtualize_child_env_preserves_operational_paths_during_credential_discovery(
 #[test]
 fn virtualize_child_env_keeps_adjacent_provider_credentials_separate() {
     let broker = CredentialBroker::new(/*enabled*/ true);
+    let mut config = NetworkProxyConfig::default();
+    config.set_credential_broker_enabled(/*enabled*/ true);
+    config.set_credential_broker_openai_base_url(Some("https://api.openai.com/v1"));
+    broker.configure(&config);
     let github_token = "ghp_abcdefghijklmnopqrstuvwxyz1234567890ABCD";
     let openai_token = "sk-proj-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let real_bundle = format!("{github_token}_{openai_token}");
@@ -1008,6 +1073,10 @@ fn request_translation_preserves_provider_scheme_and_host_binding() {
 #[test]
 fn inject_request_headers_requires_dummy_and_preserves_explicit_authorization() {
     let broker = CredentialBroker::new(/*enabled*/ true);
+    let mut config = NetworkProxyConfig::default();
+    config.set_credential_broker_enabled(/*enabled*/ true);
+    config.set_credential_broker_openai_base_url(Some("https://api.openai.com/v1"));
+    broker.configure(&config);
     let mut env = env_map([("OPENAI_API_KEY", "sk-real")]);
     broker.virtualize_child_env(&mut env);
     let openai_api_key = env.get("OPENAI_API_KEY").expect("dummy OpenAI API key");
@@ -1409,7 +1478,7 @@ fn private_destination_updates_reconcile_registered_fallbacks() {
 }
 
 #[test]
-fn openai_credentials_bind_only_to_default_and_configured_trusted_hosts() {
+fn openai_credentials_bind_only_to_configured_trusted_hosts() {
     let broker = CredentialBroker::new(/*enabled*/ true);
     let mut config = NetworkProxyConfig::default();
     config.set_credential_broker_enabled(/*enabled*/ true);
@@ -1429,7 +1498,7 @@ fn openai_credentials_bind_only_to_default_and_configured_trusted_hosts() {
     let dummy = &env["OPENAI_API_KEY"];
 
     for (host, expected_credential) in [
-        ("api.openai.com", "sk-real"),
+        ("api.openai.com", dummy.as_str()),
         ("gateway.example.com", "sk-real"),
         ("sdk.example.com", "sk-real"),
         ("attacker.example", dummy.as_str()),
@@ -1439,10 +1508,10 @@ fn openai_credentials_bind_only_to_default_and_configured_trusted_hosts() {
             broker.request_matches_hooked_host_alias(
                 host,
                 &headers,
-                &["api.openai.com".to_string()],
+                &["gateway.example.com".to_string()],
                 /*environment_id*/ None,
             ),
-            host != "api.openai.com" && expected_credential == "sk-real",
+            host == "sdk.example.com",
         );
         broker.inject_request_headers(host, &mut headers);
         let expected = format!("Bearer {expected_credential}");
@@ -1469,6 +1538,10 @@ fn openai_credentials_bind_only_to_default_and_configured_trusted_hosts() {
 #[test]
 fn selected_openai_credential_matches_ipv6_alias_with_plaintext_fallback() {
     let broker = CredentialBroker::new(/*enabled*/ true);
+    let mut config = NetworkProxyConfig::default();
+    config.set_credential_broker_enabled(/*enabled*/ true);
+    config.set_credential_broker_openai_base_url(Some("https://api.openai.com/v1"));
+    broker.configure(&config);
     let mut env = env_map([
         ("OPENAI_API_KEY", "sk-real"),
         ("OPENAI_BASE_URL", "https://[fd00::1]/v1"),
