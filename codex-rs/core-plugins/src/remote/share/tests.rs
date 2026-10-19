@@ -169,6 +169,93 @@ fn expected_plugin_interface() -> PluginInterface {
 }
 
 #[tokio::test]
+async fn plugin_share_rejects_unconfigured_upload_recipient() {
+    assert_plugin_share_upload_recipient(false).await;
+}
+
+#[tokio::test]
+async fn plugin_share_accepts_configured_upload_recipient() {
+    assert_plugin_share_upload_recipient(true).await;
+}
+
+async fn assert_plugin_share_upload_recipient(configure_upload: bool) {
+    let backend = MockServer::start().await;
+    let storage = MockServer::start().await;
+    let home = TempDir::new().unwrap();
+    let source = TempDir::new().unwrap();
+    let plugin =
+        AbsolutePathBuf::try_from(write_test_plugin(source.path(), "private-plugin")).unwrap();
+    let upload_url = format!("{}/upload?sig=synthetic-secret", storage.uri());
+    let setting = if configure_upload {
+        "file_upload_origins"
+    } else {
+        "[plugins]\narchive_origins"
+    };
+    fs::write(
+        home.path().join("config.toml"),
+        format!("{setting} = [{:?}]\n", storage.uri()),
+    )
+    .unwrap();
+    let mut input = crate::test_support::load_plugins_config(home.path(), home.path()).await;
+    input.chatgpt_base_url = format!("{}/backend-api", backend.uri());
+    let config = input.remote_plugin_service_config();
+    Mock::given(method("PUT"))
+        .respond_with(ResponseTemplate::new(201))
+        .mount(&storage)
+        .await;
+    let direct = test_config(&storage);
+    put_workspace_plugin_upload(&direct, &upload_url, b"instrument-control".to_vec())
+        .await
+        .unwrap();
+    Mock::given(method("POST"))
+        .and(path("/backend-api/public/plugins/workspace/upload-url"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "file_id": "file-private", "upload_url": upload_url, "etag": "etag"
+        })))
+        .mount(&backend)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/backend-api/public/plugins/workspace"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "plugin_id": "plugins_private"
+        })))
+        .expect(if configure_upload { 1 } else { 0 })
+        .mount(&backend)
+        .await;
+    let result = save_remote_plugin_share(
+        &config,
+        Some(&test_auth()),
+        home.path(),
+        &plugin,
+        None,
+        RemotePluginShareAccessPolicy::default(),
+    )
+    .await;
+    let requests = storage.received_requests().await.unwrap();
+    for request in requests.iter().skip(1) {
+        eprintln!(
+            "archive contents: {:?}",
+            archive_file_entries(&request.body)
+        );
+        assert!(!request.headers.contains_key("authorization"));
+        assert!(!request.headers.contains_key("chatgpt-account-id"));
+    }
+    eprintln!(
+        "storage requests={}, share result={result:?}",
+        requests.len()
+    );
+    assert_eq!(requests.len(), if configure_upload { 2 } else { 1 });
+    if configure_upload {
+        assert_eq!(result.unwrap().remote_plugin_id, "plugins_private");
+        assert!(archive_file_entries(&requests[1].body).contains_key("skills/example/SKILL.md"));
+    } else {
+        let error = result.expect_err("download permission must not grant upload permission");
+        assert!(!error.to_string().contains("synthetic-secret"));
+    }
+    backend.verify().await;
+}
+
+#[tokio::test]
 async fn save_remote_plugin_share_creates_workspace_plugin() {
     let codex_home = TempDir::new().unwrap();
     let temp_dir = TempDir::new().unwrap();

@@ -841,10 +841,11 @@ async fn fetch_curated_repo_backup_archive_zip(
         ));
     }
 
-    let download_url = crate::remote_bundle::validate_archive_download_url(
+    let download_url = crate::remote_bundle::validate_plugin_transfer_url(
         backup_archive_api_url,
         &export_response.download_url,
         archive_origins,
+        "plugins.archive_origins",
     )?;
     fetch_public_bytes(
         http_clients,

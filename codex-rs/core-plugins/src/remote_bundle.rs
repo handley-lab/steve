@@ -300,20 +300,21 @@ pub(crate) async fn download_remote_plugin_bundle(
     .await
 }
 
-pub(crate) fn validate_archive_download_url(
+pub(crate) fn validate_plugin_transfer_url(
     backend_url: &str,
     download_url: &str,
-    archive_origins: &[String],
+    transfer_origins: &[String],
+    setting: &str,
 ) -> Result<Url, String> {
     let url = Url::parse(download_url)
-        .map_err(|error| format!("invalid plugin archive download URL: {error}"))?;
+        .map_err(|error| format!("invalid plugin archive transfer URL: {error}"))?;
     if !matches!(url.scheme(), "http" | "https") {
-        return Err("plugin archive download URL must use HTTP or HTTPS".into());
+        return Err("plugin archive transfer URL must use HTTP or HTTPS".into());
     }
     let mut origins = Vec::new();
-    for configured in archive_origins {
+    for configured in transfer_origins {
         let configured = Url::parse(configured.trim())
-            .map_err(|error| format!("invalid plugins.archive_origins entry: {error}"))?;
+            .map_err(|error| format!("invalid {setting} entry: {error}"))?;
         if !matches!(configured.scheme(), "http" | "https")
             || !configured.username().is_empty()
             || configured.password().is_some()
@@ -321,7 +322,9 @@ pub(crate) fn validate_archive_download_url(
             || configured.query().is_some()
             || configured.fragment().is_some()
         {
-            return Err("plugins.archive_origins must contain HTTP(S) origins without credentials, paths, queries or fragments".into());
+            return Err(format!(
+                "{setting} must contain HTTP(S) origins without credentials, paths, queries or fragments"
+            ));
         }
         origins.push(configured.origin());
     }
@@ -336,7 +339,7 @@ pub(crate) fn validate_archive_download_url(
         }
     }
     Err(format!(
-        "plugin archive origin {} is not configured; add it to plugins.archive_origins",
+        "plugin archive origin {} is not configured; add it to {setting}",
         url.origin().ascii_serialization()
     ))
 }
@@ -346,10 +349,11 @@ async fn download_remote_plugin_bundle_with_limit(
     bundle_download_url: &str,
     max_bytes: u64,
 ) -> Result<Vec<u8>, RemotePluginBundleInstallError> {
-    let bundle_download_url = validate_archive_download_url(
+    let bundle_download_url = validate_plugin_transfer_url(
         &config.chatgpt_base_url,
         bundle_download_url,
         &config.archive_origins,
+        "plugins.archive_origins",
     )
     .map_err(RemotePluginBundleInstallError::InvalidBundle)?;
     let response = config

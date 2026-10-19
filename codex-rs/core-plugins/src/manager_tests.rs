@@ -131,6 +131,7 @@ fn plugins_config_input_with_requirements(
         String::new(),
         test_http_client_factory(),
         /*product_sku*/ None,
+        /*file_upload_origins*/ Vec::new(),
     )
 }
 
@@ -183,6 +184,7 @@ fn remote_catalog_requires_a_configured_backend() {
             base_url.to_string(),
             test_http_client_factory(),
             /*product_sku*/ None,
+            /*file_upload_origins*/ Vec::new(),
         );
         assert_eq!(manager.remote_global_catalog_active(&config), active);
     }
@@ -201,6 +203,7 @@ fn curated_repo_sync_stays_deferred_for_remote_chatgpt_catalog() {
         "https://chatgpt.com".to_string(),
         test_http_client_factory(),
         /*product_sku*/ None,
+        /*file_upload_origins*/ Vec::new(),
     );
     let manager = Arc::new(test_plugins_manager_with_options(
         tmp.path().to_path_buf(),
@@ -3030,6 +3033,7 @@ async fn plugin_cache_reuses_effective_configurations() {
             "https://chatgpt.com".to_string(),
             test_http_client_factory(),
             /*product_sku*/ None,
+            /*file_upload_origins*/ Vec::new(),
         )
     };
     let manager = test_plugins_manager(codex_home.path().to_path_buf());
@@ -3405,6 +3409,7 @@ async fn plugins_for_config_discards_in_flight_load_after_account_change() {
         String::new(),
         test_http_client_factory(),
         /*product_sku*/ None,
+        /*file_upload_origins*/ Vec::new(),
     );
     let auth_manager = test_auth_manager(Some(AuthMode::ChatgptAuthTokens));
     let manager = Arc::new(test_plugins_manager_with_auth_manager(

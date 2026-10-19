@@ -1787,6 +1787,7 @@ impl Config {
             self.chatgpt_base_url.clone(),
             self.http_client_factory(),
             self.apps_mcp_product_sku.clone(),
+            self.file_upload_origins.clone(),
         )
     }
 

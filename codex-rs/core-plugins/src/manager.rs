@@ -163,6 +163,7 @@ pub struct PluginsConfigInput {
     pub plugins_enabled: bool,
     pub remote_plugin_enabled: bool,
     pub chatgpt_base_url: String,
+    pub file_upload_origins: Vec<String>,
     pub product_sku: Option<String>,
     http_client_factory: HttpClientFactory,
     remote_http_clients: Arc<OnceLock<Arc<dyn HttpClientSelector>>>,
@@ -180,6 +181,7 @@ impl PluginsConfigInput {
         chatgpt_base_url: String,
         http_client_factory: HttpClientFactory,
         product_sku: Option<String>,
+        file_upload_origins: Vec<String>,
     ) -> Self {
         Self {
             config_layer_stack,
@@ -188,6 +190,7 @@ impl PluginsConfigInput {
             plugins_enabled,
             remote_plugin_enabled,
             chatgpt_base_url,
+            file_upload_origins,
             http_client_factory,
             product_sku,
             remote_http_clients: Arc::new(OnceLock::new()),
@@ -208,6 +211,7 @@ impl PluginsConfigInput {
         RemotePluginServiceConfig {
             chatgpt_base_url: self.chatgpt_base_url.clone(),
             archive_origins: self.plugins.archive_origins.clone(),
+            file_upload_origins: self.file_upload_origins.clone(),
             product_sku: self
                 .product_sku
                 .clone()
