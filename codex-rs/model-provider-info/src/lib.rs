@@ -142,8 +142,7 @@ pub struct ModelProviderInfo {
     pub name: String,
     /// Base URL for the provider's OpenAI-compatible API.
     pub base_url: Option<String>,
-    /// Optional full URL for a Codex-native model catalog. When unset, OpenAI discovery
-    /// uses the Codex backend unless `base_url` overrides the inference endpoint.
+    /// Optional full URL for a Codex-native model catalog.
     pub model_catalog_url: Option<RedactedString>,
     /// Environment variable that stores the user's API key for this provider.
     pub env_key: Option<String>,
@@ -187,7 +186,7 @@ pub struct ModelProviderInfo {
     /// Maximum time (in milliseconds) to wait for a websocket connection attempt before treating
     /// it as failed.
     pub websocket_connect_timeout_ms: Option<u64>,
-    /// Does this provider require an OpenAI API key or ChatGPT login token? If true,
+    /// Does this provider require a stored API key or supplied account token? If true,
     /// the user is presented with a login screen on first run, and credentials are
     /// stored using the backend selected by `cli_auth_credentials_store`.
     /// If false (the default), the login screen is skipped, and the API key

@@ -2898,7 +2898,7 @@
           "type": "object"
         },
         "model_catalog_url": {
-          "description": "Optional full URL for a Codex-native model catalog. When unset, OpenAI discovery uses the Codex backend unless `base_url` overrides the inference endpoint.",
+          "description": "Optional full URL for a Codex-native model catalog.",
           "type": "string"
         },
         "name": {
@@ -2921,7 +2921,7 @@
         },
         "requires_openai_auth": {
           "default": false,
-          "description": "Does this provider require an OpenAI API key or ChatGPT login token? If true, the user is presented with a login screen on first run, and credentials are stored using the backend selected by `cli_auth_credentials_store`. If false (the default), the login screen is skipped, and the API key (if needed) comes from the environment variable specified by `env_key`.",
+          "description": "Does this provider require a stored API key or supplied account token? If true, the user is presented with a login screen on first run, and credentials are stored using the backend selected by `cli_auth_credentials_store`. If false (the default), the login screen is skipped, and the API key (if needed) comes from the environment variable specified by `env_key`.",
           "type": "boolean"
         },
         "stream_idle_timeout_ms": {
