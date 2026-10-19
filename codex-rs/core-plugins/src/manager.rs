@@ -199,7 +199,7 @@ impl PluginsConfigInput {
     pub fn remote_plugin_service_config(&self) -> RemotePluginServiceConfig {
         let http_clients = self.remote_http_clients.get_or_init(|| {
             Arc::new(
-                RouteAwareClientPool::with_chatgpt_cloudflare_cookies_without_request_logging(
+                RouteAwareClientPool::with_chatgpt_cloudflare_cookies_without_redirects_or_request_logging(
                     self.http_client_factory.clone(),
                     ClientRouteClass::Api,
                 ),
