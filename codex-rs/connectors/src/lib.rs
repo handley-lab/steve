@@ -212,12 +212,16 @@ where
         .collect::<Vec<_>>();
     for connector in &mut connectors {
         let install_url = match connector.install_url.take() {
-            Some(install_url) => install_url,
-            None => connector_install_url(&connector.name, &connector.id),
+            Some(install_url) => Some(install_url),
+            None => connector_install_url(
+                &cache_context.cache_key.chatgpt_base_url,
+                &connector.name,
+                &connector.id,
+            ),
         };
         connector.name = normalize_connector_name(&connector.name, &connector.id);
         connector.description = normalize_connector_value(connector.description.as_deref());
-        connector.install_url = Some(install_url);
+        connector.install_url = install_url;
         connector.is_accessible = false;
     }
     connectors.sort_by(|left, right| {
@@ -479,14 +483,15 @@ fn directory_app_to_app_info(app: DirectoryApp) -> AppInfo {
     }
 }
 
-fn connector_install_url(name: &str, connector_id: &str) -> String {
-    let chatgpt_base_url = std::env::var("STEVE_APP_SERVER_CHATGPT_BASE_URL")
-        .unwrap_or_else(|_| "https://chatgpt.com".to_string());
+fn connector_install_url(chatgpt_base_url: &str, name: &str, connector_id: &str) -> Option<String> {
+    if chatgpt_base_url.trim().is_empty() {
+        return None;
+    }
     let chatgpt_origin = chatgpt_base_url
         .trim_end_matches('/')
         .trim_end_matches("/backend-api");
     let slug = connector_name_slug(name);
-    format!("{chatgpt_origin}/apps/{slug}/{connector_id}")
+    Some(format!("{chatgpt_origin}/apps/{slug}/{connector_id}"))
 }
 
 fn connector_name_slug(name: &str) -> String {
@@ -576,15 +581,107 @@ mod tests {
 
     #[test]
     fn connector_install_url_uses_configured_origin() {
-        let chatgpt_base_url = std::env::var("STEVE_APP_SERVER_CHATGPT_BASE_URL")
-            .unwrap_or_else(|_| "https://chatgpt.com".to_string());
-        let chatgpt_origin = chatgpt_base_url
-            .trim_end_matches('/')
-            .trim_end_matches("/backend-api");
         assert_eq!(
-            connector_install_url("Google Calendar", "calendar"),
-            format!("{chatgpt_origin}/apps/google-calendar/calendar"),
+            connector_install_url(
+                "https://chatgpt.example/backend-api",
+                "Google Calendar",
+                "calendar"
+            ),
+            Some("https://chatgpt.example/apps/google-calendar/calendar".to_string()),
         );
+    }
+
+    #[test]
+    fn accessible_and_plugin_links_use_the_configured_backend() {
+        for (backend, origin) in [
+            (
+                "http://127.0.0.1:43210/backend-api",
+                Some("http://127.0.0.1:43210"),
+            ),
+            (
+                "https://chatgpt.com/backend-api",
+                Some("https://chatgpt.com"),
+            ),
+            ("", None),
+        ] {
+            let accessible = accessible::collect_accessible_connectors(
+                backend,
+                [accessible::AccessibleConnectorTool {
+                    connector_id: "calendar".to_string(),
+                    connector_name: Some("Google Calendar".to_string()),
+                    connector_description: None,
+                    plugin_display_names: Vec::new(),
+                }],
+            );
+            let merged = merge::merge_connectors(backend, Vec::new(), accessible);
+            assert_eq!(
+                merged[0].install_url,
+                origin.map(|origin| format!("{origin}/apps/google-calendar/calendar")),
+            );
+            let plugins =
+                merge::merge_plugin_connectors(backend, Vec::new(), ["calendar".to_string()]);
+            assert_eq!(
+                plugins[0].install_url,
+                origin.map(|origin| format!("{origin}/apps/calendar/calendar")),
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[expect(
+        clippy::await_holding_invalid_type,
+        reason = "test serializes access to the shared connector cache for its full duration"
+    )]
+    async fn directory_install_links_use_the_configured_backend() -> anyhow::Result<()> {
+        let _cache_guard = CONNECTOR_DIRECTORY_CACHE_TEST_LOCK.lock().await;
+        let mut observations = Vec::new();
+        for (backend, expected) in [
+            (
+                "http://127.0.0.1:43210/backend-api",
+                Some("http://127.0.0.1:43210/apps/google-calendar/calendar"),
+            ),
+            (
+                "https://chatgpt.com/backend-api",
+                Some("https://chatgpt.com/apps/google-calendar/calendar"),
+            ),
+            ("", None),
+        ] {
+            let home = TempDir::new()?;
+            let context = ConnectorDirectoryCacheContext::new(
+                home.path().to_path_buf(),
+                ConnectorDirectoryCacheKey::new(
+                    backend.to_string(),
+                    None,
+                    None,
+                    /*is_workspace_account*/ false,
+                ),
+            );
+            let connectors = list_all_connectors_with_options(
+                context,
+                /*is_workspace_account*/ false,
+                /*force_refetch*/ true,
+                |_| async {
+                    Ok(DirectoryListResponse {
+                        apps: vec![app("calendar", "Google Calendar")],
+                        next_token: None,
+                    })
+                },
+            )
+            .await?;
+            observations.push((
+                backend,
+                connectors[0].install_url.clone(),
+                expected.map(str::to_owned),
+            ));
+        }
+        eprintln!("directory install-link observations: {observations:?}");
+        assert!(
+            observations
+                .iter()
+                .all(|(_, actual, expected)| actual == expected),
+            "backend, actual install URL, expected URL: {observations:?}"
+        );
+        Ok(())
     }
 
     #[test]
@@ -746,7 +843,7 @@ mod tests {
         );
         assert_eq!(
             connectors[0].install_url.as_deref(),
-            Some("https://chatgpt.com/apps/alpha/alpha")
+            Some("https://chatgpt.example/apps/alpha/alpha")
         );
         assert_eq!(
             connectors[0]
@@ -886,10 +983,11 @@ mod tests {
 
         clear_directory_memory_cache();
         let mut cached_expected = directory_app_to_app_info(app("alpha", "Alpha"));
-        cached_expected.install_url = Some(connector_install_url(
+        cached_expected.install_url = connector_install_url(
+            "https://chatgpt.example",
             &cached_expected.name,
             &cached_expected.id,
-        ));
+        );
         assert_eq!(
             cached_directory_connectors(&cache_context),
             Some(vec![cached_expected])
@@ -914,7 +1012,8 @@ mod tests {
         .await?;
 
         let mut expected = directory_app_to_app_info(app("beta", "Beta"));
-        expected.install_url = Some(connector_install_url(&expected.name, &expected.id));
+        expected.install_url =
+            connector_install_url("https://chatgpt.example", &expected.name, &expected.id);
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         assert_eq!(refreshed, vec![expected]);
         Ok(())
@@ -932,7 +1031,7 @@ mod tests {
         std::fs::write(
             &cache_path,
             serde_json::to_vec_pretty(&serde_json::json!({
-                "schema_version": 0,
+                "schema_version": 1,
                 "connectors": [],
             }))?,
         )?;

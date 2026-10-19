@@ -1052,7 +1052,12 @@ async fn required_mcp_servers_for_input(
                 .mcp_runtime
                 .current_binding()
                 .await
-                .map(|binding| connectors::accessible_connectors_from_mcp_tools(binding.tools()))
+                .map(|binding| {
+                    connectors::accessible_connectors_from_mcp_tools(
+                        &turn_context.config.chatgpt_base_url,
+                        binding.tools(),
+                    )
+                })
                 .unwrap_or_default(),
         };
         let connector_ids = current_config
@@ -1061,6 +1066,7 @@ async fn required_mcp_servers_for_input(
             .map(|connector_id| connector_id.0.clone());
         build_connector_slug_counts(
             &codex_connectors::merge::merge_plugin_connectors_with_accessible(
+                &turn_context.config.chatgpt_base_url,
                 connector_ids,
                 accessible_connectors,
             ),
@@ -1128,11 +1134,15 @@ async fn build_skills_and_plugins(
     };
     let available_connectors = if turn_context.apps_enabled() {
         let connectors = codex_connectors::merge::merge_plugin_connectors_with_accessible(
+            &turn_context.config.chatgpt_base_url,
             connector_snapshot
                 .connector_ids()
                 .iter()
                 .map(|connector_id| connector_id.0.clone()),
-            connectors::accessible_connectors_from_mcp_tools(mcp_tools),
+            connectors::accessible_connectors_from_mcp_tools(
+                &turn_context.config.chatgpt_base_url,
+                mcp_tools,
+            ),
         );
         AppToolPolicyEvaluator::new(&turn_context.config.config_layer_stack)
             .apply_app_enabled_state(connectors)
@@ -1902,8 +1912,12 @@ pub(crate) async fn built_tools(
     let connector_snapshot = mcp.config().connector_snapshot.clone();
 
     let apps_enabled = turn_context.apps_enabled();
-    let accessible_connectors =
-        apps_enabled.then(|| connectors::accessible_connectors_from_mcp_tools(all_mcp_tools));
+    let accessible_connectors = apps_enabled.then(|| {
+        connectors::accessible_connectors_from_mcp_tools(
+            &turn_context.config.chatgpt_base_url,
+            all_mcp_tools,
+        )
+    });
     let tool_suggest_is_enabled = tool_suggest_enabled(turn_context);
     let PreparedToolRecommendations {
         auth,

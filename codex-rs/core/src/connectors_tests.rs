@@ -99,7 +99,7 @@ fn accessible_connectors_from_mcp_tools_carries_plugin_display_names() {
         },
     ];
 
-    let connectors = accessible_connectors_from_mcp_tools(&tools);
+    let connectors = accessible_connectors_from_mcp_tools("https://chatgpt.example", &tools);
 
     assert_eq!(
         connectors,
@@ -112,7 +112,11 @@ fn accessible_connectors_from_mcp_tools_carries_plugin_display_names() {
             icon_assets: None,
             icon_dark_assets: None,
             distribution_channel: None,
-            install_url: Some(connector_install_url("Google Calendar", "calendar")),
+            install_url: connector_install_url(
+                "https://chatgpt.example",
+                "Google Calendar",
+                "calendar"
+            ),
             branding: None,
             app_metadata: None,
             labels: None,
@@ -153,7 +157,7 @@ fn synthetic_links_are_exposed_to_the_agent_but_not_accessible_in_app_list() {
         icon_assets: None,
         icon_dark_assets: None,
         distribution_channel: None,
-        install_url: Some(connector_install_url("Calendar", "calendar")),
+        install_url: connector_install_url("https://chatgpt.example", "Calendar", "calendar"),
         branding: None,
         app_metadata: None,
         labels: None,
@@ -162,11 +166,11 @@ fn synthetic_links_are_exposed_to_the_agent_but_not_accessible_in_app_list() {
         plugin_display_names: Vec::new(),
     };
     assert_eq!(
-        accessible_connectors_for_app_list_from_mcp_tools(&tools),
+        accessible_connectors_for_app_list_from_mcp_tools("https://chatgpt.example", &tools),
         vec![calendar.clone()]
     );
     assert_eq!(
-        accessible_connectors_from_mcp_tools(&tools),
+        accessible_connectors_from_mcp_tools("https://chatgpt.example", &tools),
         vec![
             calendar,
             AppInfo {
@@ -178,7 +182,7 @@ fn synthetic_links_are_exposed_to_the_agent_but_not_accessible_in_app_list() {
                 icon_assets: None,
                 icon_dark_assets: None,
                 distribution_channel: None,
-                install_url: Some(connector_install_url("Gmail", "gmail")),
+                install_url: connector_install_url("https://chatgpt.example", "Gmail", "gmail"),
                 branding: None,
                 app_metadata: None,
                 labels: None,
@@ -198,6 +202,7 @@ async fn refresh_accessible_connectors_cache_from_mcp_tools_writes_latest_instal
         .build()
         .await
         .expect("config should load");
+    config.chatgpt_base_url = "https://chatgpt.example".to_string();
     let _ = config.features.set_enabled(Feature::Apps, /*enabled*/ true);
     let cache_key = accessible_connectors_cache_key(&config, /*auth*/ None);
     let tools = vec![
@@ -232,7 +237,11 @@ async fn refresh_accessible_connectors_cache_from_mcp_tools_writes_latest_instal
                 icon_assets: None,
                 icon_dark_assets: None,
                 distribution_channel: None,
-                install_url: Some(connector_install_url("Google Calendar", "calendar")),
+                install_url: connector_install_url(
+                    "https://chatgpt.example",
+                    "Google Calendar",
+                    "calendar"
+                ),
                 branding: None,
                 app_metadata: None,
                 labels: None,
@@ -249,7 +258,11 @@ async fn refresh_accessible_connectors_cache_from_mcp_tools_writes_latest_instal
                 icon_assets: None,
                 icon_dark_assets: None,
                 distribution_channel: None,
-                install_url: Some(connector_install_url("Hidden", "connector_openai_hidden")),
+                install_url: connector_install_url(
+                    "https://chatgpt.example",
+                    "Hidden",
+                    "connector_openai_hidden"
+                ),
                 branding: None,
                 app_metadata: None,
                 labels: None,
@@ -282,7 +295,7 @@ fn accessible_connectors_from_mcp_tools_preserves_description() {
     }];
 
     assert_eq!(
-        accessible_connectors_from_mcp_tools(&mcp_tools),
+        accessible_connectors_from_mcp_tools("https://chatgpt.example", &mcp_tools),
         vec![AppInfo {
             id: "calendar".to_string(),
             name: "Calendar".to_string(),
@@ -295,7 +308,7 @@ fn accessible_connectors_from_mcp_tools_preserves_description() {
             branding: None,
             app_metadata: None,
             labels: None,
-            install_url: Some(connector_install_url("Calendar", "calendar")),
+            install_url: connector_install_url("https://chatgpt.example", "Calendar", "calendar"),
             is_accessible: true,
             is_enabled: true,
             plugin_display_names: Vec::new(),
@@ -601,6 +614,7 @@ discoverables = [
     assert_eq!(
         discoverable_tools,
         vec![DiscoverableTool::from(plugin_connector_to_app_info(
+            &config.chatgpt_base_url,
             "connector_gmail".to_string(),
         ))]
     );
@@ -640,6 +654,7 @@ apps = true
     assert_eq!(
         discoverable_tools,
         vec![DiscoverableTool::from(plugin_connector_to_app_info(
+            &config.chatgpt_base_url,
             "asdk_app_databricks_workspace".to_string(),
         ))]
     );

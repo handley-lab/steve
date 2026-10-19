@@ -240,6 +240,7 @@ impl AppsRequestProcessor {
 
         if accessible_connectors.is_some() || all_connectors.is_some() {
             let merged = app_policy.apply_app_enabled_state(merge_loaded_apps(
+                &config.chatgpt_base_url,
                 all_connectors.as_deref(),
                 accessible_connectors.as_deref(),
             ));
@@ -302,6 +303,7 @@ impl AppsRequestProcessor {
                     accessible_connectors.as_deref()
                 };
             let merged = app_policy.apply_app_enabled_state(merge_loaded_apps(
+                &config.chatgpt_base_url,
                 all_connectors_for_update,
                 accessible_connectors_for_update,
             ));
@@ -391,13 +393,19 @@ enum AppListLoadResult {
 }
 
 fn merge_loaded_apps(
+    chatgpt_base_url: &str,
     all_connectors: Option<&[AppInfo]>,
     accessible_connectors: Option<&[AppInfo]>,
 ) -> Vec<AppInfo> {
     let all_connectors_loaded = all_connectors.is_some();
     let all = all_connectors.map_or_else(Vec::new, <[AppInfo]>::to_vec);
     let accessible = accessible_connectors.map_or_else(Vec::new, <[AppInfo]>::to_vec);
-    connectors::merge_connectors_with_accessible(all, accessible, all_connectors_loaded)
+    connectors::merge_connectors_with_accessible(
+        chatgpt_base_url,
+        all,
+        accessible,
+        all_connectors_loaded,
+    )
 }
 
 fn should_send_app_list_updated_notification(

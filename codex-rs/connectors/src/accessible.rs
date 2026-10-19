@@ -12,7 +12,7 @@ pub struct AccessibleConnectorTool {
     pub plugin_display_names: Vec<String>,
 }
 
-pub fn collect_accessible_connectors<I>(tools: I) -> Vec<AppInfo>
+pub fn collect_accessible_connectors<I>(chatgpt_base_url: &str, tools: I) -> Vec<AppInfo>
 where
     I: IntoIterator<Item = AccessibleConnectorTool>,
 {
@@ -63,7 +63,8 @@ where
         .into_values()
         .map(|(mut connector, plugin_display_names)| {
             connector.plugin_display_names = plugin_display_names.into_iter().collect();
-            connector.install_url = Some(connector_install_url(&connector.name, &connector.id));
+            connector.install_url =
+                connector_install_url(chatgpt_base_url, &connector.name, &connector.id);
             connector
         })
         .collect();

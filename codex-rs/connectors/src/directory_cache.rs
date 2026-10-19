@@ -9,7 +9,7 @@ use tracing::warn;
 use crate::AppInfo;
 use crate::ConnectorDirectoryCacheKey;
 
-pub(crate) const CONNECTOR_DIRECTORY_DISK_CACHE_SCHEMA_VERSION: u8 = 1;
+pub(crate) const CONNECTOR_DIRECTORY_DISK_CACHE_SCHEMA_VERSION: u8 = 2;
 const CONNECTOR_DIRECTORY_DISK_CACHE_DIR: &str = "cache/codex_app_directory";
 
 #[derive(Clone)]

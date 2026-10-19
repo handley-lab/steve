@@ -56,7 +56,7 @@ mod tests {
         AppInfo {
             id: id.to_string(),
             name: name.to_string(),
-            install_url: Some(connector_install_url(name, id)),
+            install_url: connector_install_url("https://chatgpt.example", name, id),
             ..app(id)
         }
     }

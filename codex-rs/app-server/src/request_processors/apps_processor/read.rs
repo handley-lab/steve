@@ -67,7 +67,7 @@ impl AppsRequestProcessor {
         let apps = apps
             .into_iter()
             .map(|metadata| {
-                let mut app = connector_metadata_to_api(metadata);
+                let mut app = connector_metadata_to_api(&config.chatgpt_base_url, metadata);
                 app.plugin_display_names = connector_snapshot
                     .plugin_display_names_for_connector_id(app.id.as_str())
                     .to_vec();

@@ -311,6 +311,7 @@ impl Session {
             if turn_context.config.include_apps_instructions && turn_context.apps_enabled() {
                 AppToolPolicyEvaluator::new(&turn_context.config.config_layer_stack)
                     .apply_app_enabled_state(connectors::accessible_connectors_from_mcp_tools(
+                        &turn_context.config.chatgpt_base_url,
                         step_context.mcp.tools(),
                     ))
                     .into_iter()
