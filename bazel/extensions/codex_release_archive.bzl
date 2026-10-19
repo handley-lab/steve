@@ -24,7 +24,6 @@ def _codex_release_repository_impl(repository_ctx):
     version = repository_ctx.attr.version
     repository_ctx.download_and_extract(
         url = [
-            "https://releases.openai.com/codex/releases/{}/{}".format(version, asset),
             "https://github.com/openai/codex/releases/download/rust-v{}/{}".format(version, asset),
         ],
         sha256 = repository_ctx.attr.sha256,
