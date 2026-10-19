@@ -9,8 +9,8 @@ names remain upstream-compatible.
 
 Steve installers, npm packages and Python packages are not yet published.
 Build from this checkout for local testing; do not use upstream Codex installers
-to install Steve. Native Windows/macOS packaging and the complete OpenAI network
-audit remain unfinished.
+to install Steve. Native Windows/macOS packaging remains unverified. The linked
+network inventory describes the original pinned baseline, not this branch.
 
 From `codex-rs`, build the CLI and local code-mode host:
 
@@ -61,7 +61,7 @@ protocol needs a compatible gateway; changing its URL or token alone does not
 translate Anthropic Messages or Chat Completions requests.
 
 Selecting Cambridge and disabling analytics/feedback does not prove that every
-optional integration avoids OpenAI. See the [partial network audit](docs/steve-network-audit.md)
+optional integration avoids OpenAI. See the [baseline network inventory](docs/steve-network-audit.md)
 for destinations, outgoing data, controls and remaining verification.
 
 ## Guardian configuration
