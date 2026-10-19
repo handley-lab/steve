@@ -162,7 +162,7 @@ impl RemotePluginServiceConfig {
         product_sku: Option<String>,
     ) -> Self {
         let http_clients =
-            RouteAwareClientPool::with_chatgpt_cloudflare_cookies_without_request_logging(
+            RouteAwareClientPool::with_chatgpt_cloudflare_cookies_without_redirects_or_request_logging(
                 http_client_factory,
                 ClientRouteClass::Api,
             );
