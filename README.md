@@ -55,6 +55,7 @@ Supply `CAMBRIDGE_LLM_API_KEY` in the process environment. Keep credentials out
 of this repository. OpenAI account login and managed account-token renewal are
 removed; supplied API keys and configured authentication commands remain available.
 Every inference provider needs an explicit `base_url`, including OpenAI providers.
+Set `model_provider` and `model` explicitly; catalogue defaults do not select them.
 
 The native provider transport uses the Responses API. A provider exposing another
 protocol needs a compatible gateway; changing its URL or token alone does not
@@ -74,6 +75,7 @@ approvals_reviewer = "auto_review"
 
 [auto_review]
 model_provider = "local_reviewer"
+model = "your-reviewer-model"
 
 [model_providers.local_reviewer]
 name = "Local reviewer"
@@ -81,12 +83,10 @@ base_url = "http://localhost:8000/v1"
 wire_api = "responses"
 ```
 
-The reviewer uses that provider's model catalogue and the existing review-model
-selection rules. An action model's `auto_review_model_override` in model metadata
-selects an exact reviewer model when supplied. Otherwise normal catalogue
-preferences and fallback selection apply. Configure metadata appropriate to the
-models your endpoint serves; choosing a provider does not establish model or tool
-compatibility.
+Set the reviewer model explicitly. A user-supplied local model catalogue may also
+provide an `auto_review_model_override`; bundled or downloaded model metadata does
+not choose a reviewer. The selected provider supplies model capabilities and prompt
+metadata. Choosing a provider does not establish model or tool compatibility.
 
 The asynchronous classifier has independent provider and model settings:
 
@@ -98,7 +98,7 @@ model = "your-classifier-model"
 ```
 
 Its model must satisfy the classifier's output contract. The optional Decisions
-comparison also requires an explicitly selected `comparison_model_provider`; its
+comparison requires both `comparison_model_provider` and `comparison_model`; its
 service uses the Decisions protocol rather than ordinary chat inference.
 
 To disable Guardian completely, including reviewer/classifier prewarming, use:

@@ -35,7 +35,6 @@ use thiserror::Error;
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
-pub(crate) const MODEL: &str = "gpt-5.6-luna";
 pub(crate) const CLASSIFICATION_TOKEN_USAGE_METRIC: &str =
     "codex.guardian_v2.classification.token_usage";
 const MAX_OUTPUT_BYTES: usize = 8 * 1024;

@@ -96,7 +96,7 @@ fn uses_reserved_image_gen_namespace() {
 async fn omitted_references_generate_with_fixed_defaults() {
     assert_eq!(
         request_for_call_args(
-            super::IMAGE_MODEL,
+            "gpt-image-2",
             &ImagegenArgs {
                 prompt: "paint a moonlit lake".to_string(),
                 transparent_background: false,
@@ -193,7 +193,7 @@ async fn recent_image_fallback_selects_newest_images_in_chronological_order() {
 
     assert_eq!(
         request_for_call_args(
-            super::IMAGE_MODEL,
+            "gpt-image-2",
             &ImagegenArgs {
                 prompt: "change the lighting".to_string(),
                 transparent_background: false,
@@ -215,7 +215,7 @@ async fn recent_image_fallback_selects_newest_images_in_chronological_order() {
 #[tokio::test]
 async fn recent_image_fallback_passes_file_backed_image_to_edit_request() {
     let request = request_for_call_args(
-        super::IMAGE_MODEL,
+        "gpt-image-2",
         &ImagegenArgs {
             prompt: "change the lighting".to_string(),
             transparent_background: false,
@@ -264,7 +264,7 @@ async fn recent_image_fallback_passes_file_backed_image_to_edit_request() {
 #[tokio::test]
 async fn recent_image_fallback_passes_file_backed_tool_output_to_edit_request() {
     let request = request_for_call_args(
-        super::IMAGE_MODEL,
+        "gpt-image-2",
         &ImagegenArgs {
             prompt: "change the lighting".to_string(),
             transparent_background: false,
@@ -319,7 +319,7 @@ async fn recent_image_fallback_passes_file_backed_tool_output_to_edit_request() 
 #[tokio::test]
 async fn conflicting_image_selectors_return_tool_error() {
     let error = request_for_call_args(
-        super::IMAGE_MODEL,
+        "gpt-image-2",
         &ImagegenArgs {
             prompt: "change the lighting".to_string(),
             transparent_background: false,
@@ -345,7 +345,7 @@ async fn conflicting_image_selectors_return_tool_error() {
 #[tokio::test]
 async fn too_many_referenced_image_paths_return_tool_error() {
     let error = request_for_call_args(
-        super::IMAGE_MODEL,
+        "gpt-image-2",
         &ImagegenArgs {
             prompt: "change the lighting".to_string(),
             transparent_background: false,
@@ -375,7 +375,7 @@ async fn too_many_referenced_image_paths_return_tool_error() {
 #[tokio::test]
 async fn recent_image_fallback_requires_requested_count() {
     let error = request_for_call_args(
-        super::IMAGE_MODEL,
+        "gpt-image-2",
         &ImagegenArgs {
             prompt: "change the lighting".to_string(),
             transparent_background: false,

@@ -36,7 +36,6 @@ use tokio::task::AbortHandle;
 use tokio::task::JoinHandle;
 
 const MAX_CONCURRENT_REQUESTS: usize = 16;
-pub(super) const MODEL: &str = "gpt-6-luna";
 // Provisional local rollout budgets, not Decisions API limits or model context limits.
 // Guardian owns the text/context budget; bound HTTP lifetime, image bytes and response buffering here.
 // Oversized images skip the complete request; transport failures never affect approvals.
@@ -46,7 +45,7 @@ const MAX_RESPONSE_BYTES: usize = 16 * 1024;
 
 #[derive(Clone, Copy, Debug, Error, PartialEq)]
 pub(super) enum DecisionsError {
-    #[error("Decisions comparison requires a configured model provider")]
+    #[error("Decisions comparison requires comparison_model_provider and comparison_model")]
     Configuration,
     #[error("Decisions provider authentication could not be resolved")]
     Credentials,

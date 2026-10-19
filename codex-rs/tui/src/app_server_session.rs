@@ -747,13 +747,6 @@ impl AppServerSession {
         let default_model = config
             .model
             .clone()
-            .or_else(|| {
-                available_models
-                    .iter()
-                    .find(|model| model.is_default)
-                    .map(|model| model.model.clone())
-            })
-            .or_else(|| available_models.first().map(|model| model.model.clone()))
             .or_else(|| match fallback {
                 EmptyCatalogFallback::Error => None,
                 EmptyCatalogFallback::ManagedNewThread => self
@@ -761,7 +754,7 @@ impl AppServerSession {
                     .as_ref()
                     .and_then(|defaults| defaults.model.clone()),
             })
-            .wrap_err("No models are available. Set `model` explicitly or check your model catalog configuration.")?;
+            .wrap_err("Set `model` explicitly before starting a session.")?;
         self.default_model = Some(default_model.clone());
         self.available_models = available_models.clone();
 

@@ -122,6 +122,7 @@ impl ChatWidget {
         {
             self.clear_reserve_return();
         }
+        let configured_fallback = self.config.fallback_model.as_deref()?;
         let models = self.model_catalog.try_list_models().ok()?;
         if self.current_model() == LUNA_RESERVE_MODEL
             && self.backend_banner_state.ordinary_usage_recovered
@@ -145,7 +146,7 @@ impl ChatWidget {
         // is available. Reserve is deliberately hidden from manual model selection.
         let model = if banner.banner_type == LUNA_RESERVE_BANNER {
             models.into_iter().find(|model| {
-                model.model == LUNA_RESERVE_MODEL
+                model.model == configured_fallback
                     && model.model != self.current_model()
                     && banner
                         .blocked_model_slug
@@ -161,6 +162,7 @@ impl ChatWidget {
                     .iter()
                     .find(|model| {
                         model.show_in_picker
+                            && model.model == configured_fallback
                             && model.model == *candidate
                             && model.model != self.current_model()
                     })

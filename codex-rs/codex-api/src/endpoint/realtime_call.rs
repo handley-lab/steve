@@ -387,6 +387,7 @@ mod tests {
 
     fn realtime_session_config(session_id: &str) -> RealtimeSessionConfig {
         RealtimeSessionConfig {
+            transcription_model: Some("fixture-transcription".into()),
             instructions: "hi".to_string(),
             initial_items: Vec::new(),
             delegation_ack_filler: None,
@@ -401,6 +402,7 @@ mod tests {
 
     fn realtime_v2_session_config(session_id: &str) -> RealtimeSessionConfig {
         RealtimeSessionConfig {
+            transcription_model: Some("fixture-transcription".into()),
             event_parser: RealtimeEventParser::RealtimeV2,
             voice: RealtimeVoice::Marin,
             ..realtime_session_config(session_id)
@@ -409,6 +411,7 @@ mod tests {
 
     fn frameless_bidi_session_config(session_id: &str) -> RealtimeSessionConfig {
         RealtimeSessionConfig {
+            transcription_model: Some("fixture-transcription".into()),
             event_parser: RealtimeEventParser::FramelessBidi,
             ..realtime_session_config(session_id)
         }

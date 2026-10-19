@@ -13,13 +13,6 @@ use uuid::Uuid;
 
 impl AppServerSession {
     pub(crate) fn set_available_models(&mut self, models: Vec<ModelPreset>) {
-        if let Some(default) = models
-            .iter()
-            .find(|model| model.is_default)
-            .or(models.first())
-        {
-            self.default_model = Some(default.model.clone());
-        }
         self.available_models = models;
     }
 

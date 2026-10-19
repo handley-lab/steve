@@ -23,6 +23,7 @@ fn frameless_session_update_encodes_explicit_delegation_ack_filler() {
             RealtimeOutputModality::Audio,
             RealtimeVoice::Marin,
             Some(delegation_ack_filler),
+            None,
         );
 
         assert_eq!(

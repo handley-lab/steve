@@ -55,7 +55,6 @@ use crate::artifact::image_generation_artifact_path;
 use crate::artifact::image_generation_output_hint;
 use crate::backend::CodexImagesBackend;
 
-const IMAGE_MODEL: &str = "gpt-image-2";
 const MAX_EDIT_IMAGES: usize = 5;
 const MAX_EXECUTOR_GENERATED_IMAGE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_EXECUTOR_GENERATED_IMAGE_BASE64_BYTES: usize =
@@ -151,7 +150,14 @@ impl ImageGenerationTool {
     ) -> Result<Box<dyn ToolOutput>, FunctionCallError> {
         let args = parse_args(&call)?;
         let request = request_for_call_args(
-            self.model.as_deref().unwrap_or(IMAGE_MODEL),
+            self.model
+                .as_deref()
+                .filter(|model| !model.trim().is_empty())
+                .ok_or_else(|| {
+                    FunctionCallError::RespondToModel(
+                        "Set image_generation_model before generating images".into(),
+                    )
+                })?,
             &args,
             call.conversation_history.items(),
             &call.environments,

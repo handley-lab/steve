@@ -109,8 +109,6 @@ const HANDOFF_STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(200);
 const HANDOFF_STREAM_TRUNCATION_MARKER: &str = "\n…output truncated…\n";
 const AGENT_FINAL_MESSAGE_PREFIX: &str = "\"Agent Final Message\":\n\n";
 const STANDALONE_HANDOFF_ID: &str = "codex";
-const DEFAULT_REALTIME_MODEL: &str = "gpt-realtime-1.5";
-const DEFAULT_FRAMELESS_REALTIME_MODEL: &str = "gpt-live-1-codex";
 pub(crate) const REALTIME_USER_TEXT_PREFIX: &str = "[USER] ";
 pub(crate) const REALTIME_BACKEND_TEXT_PREFIX: &str = "[BACKEND] ";
 const REALTIME_V2_HANDOFF_COMPLETE_ACKNOWLEDGEMENT: &str =
@@ -1593,10 +1591,12 @@ pub(crate) async fn build_realtime_session_config(
             .model
             .clone()
             .or_else(|| config.experimental_realtime_ws_model.clone())
-            .unwrap_or_else(|| match version {
-                RealtimeWsVersion::V1 | RealtimeWsVersion::V2 => DEFAULT_REALTIME_MODEL.to_string(),
-                RealtimeWsVersion::V3 => DEFAULT_FRAMELESS_REALTIME_MODEL.to_string(),
-            }),
+            .filter(|model| !model.trim().is_empty())
+            .ok_or_else(|| {
+                CodexErr::InvalidRequest(
+                    "Set experimental_realtime_ws_model or supply a realtime model".into(),
+                )
+            })?,
     );
     let event_parser = match version {
         RealtimeWsVersion::V1 => RealtimeEventParser::V1,
@@ -1614,6 +1614,16 @@ pub(crate) async fn build_realtime_session_config(
         RealtimeWsMode::Conversational => RealtimeSessionMode::Conversational,
         RealtimeWsMode::Transcription => RealtimeSessionMode::Transcription,
     };
+    let transcription_model = config.experimental_realtime_transcription_model.clone();
+    if session_mode == RealtimeSessionMode::Transcription
+        && transcription_model
+            .as_ref()
+            .is_none_or(|model| model.trim().is_empty())
+    {
+        return Err(CodexErr::InvalidRequest(
+            "Set experimental_realtime_transcription_model before starting transcription".into(),
+        ));
+    }
     let config_voice = match configured_voice {
         ConfiguredRealtimeVoice::Use => config.realtime.voice,
         ConfiguredRealtimeVoice::Ignore => None,
@@ -1628,6 +1638,7 @@ pub(crate) async fn build_realtime_session_config(
         initial_items: params.initial_items.clone(),
         delegation_ack_filler: params.delegation_ack_filler,
         model,
+        transcription_model,
         session_id: Some(
             params
                 .realtime_session_id

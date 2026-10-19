@@ -12,19 +12,22 @@ pub use pull::PullProgressReporter;
 pub use pull::TuiProgressReporter;
 use semver::Version;
 
-/// Default OSS model to use when `--oss` is passed without an explicit `-m`.
-pub const DEFAULT_OSS_MODEL: &str = "gpt-oss:20b";
 
 /// Prepare the local OSS environment when `--oss` is selected.
 ///
 /// - Ensures a local Ollama server is reachable.
 /// - Checks if the model exists locally and pulls it if missing.
 pub async fn ensure_oss_ready(config: &Config, client: &OllamaClient) -> std::io::Result<()> {
-    // Only download when the requested model is the default OSS model (or when -m is not provided).
-    let model = match config.model.as_ref() {
-        Some(model) => model,
-        None => DEFAULT_OSS_MODEL,
-    };
+    let model = config
+        .model
+        .as_deref()
+        .filter(|model| !model.trim().is_empty())
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Set model explicitly before preparing a local provider",
+            )
+        })?;
 
     // If the model is not present locally, pull it.
     match client.fetch_models().await {

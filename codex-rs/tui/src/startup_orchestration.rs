@@ -372,24 +372,27 @@ pub(super) async fn run_main_inner(
         if let Some(provider) = resolved {
             Some(provider)
         } else {
-            let selection = match startup_draft
-                .run_until(oss_selection::detect_oss_provider())
-                .await?
-            {
-                oss_selection::OssProviderDetection::AutoSelected(selection) => selection,
-                oss_selection::OssProviderDetection::NeedsSelection {
-                    lmstudio_status,
-                    ollama_status,
-                } => {
-                    startup_draft.flush_pending_events().await?;
-                    startup_draft
-                        .tui_mut()
-                        .with_restored(crate::tui::TerminalHandoff::Restore, || {
-                            oss_selection::select_oss_provider(lmstudio_status, ollama_status)
-                        })
-                        .await?
-                }
+            let explicit_base = std::env::var("STEVE_OSS_BASE_URL").ok();
+            let configured_base = |provider: &str| {
+                config_toml_for_oss
+                    .model_providers
+                    .get(provider)
+                    .and_then(|info| info.base_url.as_deref())
+                    .or(explicit_base.as_deref())
             };
+            let (lmstudio_status, ollama_status) = startup_draft
+                .run_until(oss_selection::detect_oss_provider(
+                    configured_base(codex_model_provider_info::LMSTUDIO_OSS_PROVIDER_ID),
+                    configured_base(codex_model_provider_info::OLLAMA_OSS_PROVIDER_ID),
+                ))
+                .await?;
+            startup_draft.flush_pending_events().await?;
+            let selection = startup_draft
+                .tui_mut()
+                .with_restored(crate::tui::TerminalHandoff::Restore, || {
+                    oss_selection::select_oss_provider(lmstudio_status, ollama_status)
+                })
+                .await?;
             let provider = selection.provider;
             if provider == "__CANCELLED__" {
                 return Err(std::io::Error::other(
@@ -405,18 +408,7 @@ pub(super) async fn run_main_inner(
         None
     };
 
-    // When using `--oss`, let the bootstrapper pick the model based on selected provider
-    let model = if let Some(model) = &cli.model {
-        Some(model.clone())
-    } else if cli.oss {
-        // Use the provider from model_provider_override
-        model_provider_override
-            .as_ref()
-            .and_then(|provider_id| get_default_model_for_oss_provider(provider_id))
-            .map(std::borrow::ToOwned::to_owned)
-    } else {
-        None // No model specified, will use the default.
-    };
+    let model = cli.model.clone();
 
     let additional_dirs = cli.add_dir.clone();
 

@@ -175,6 +175,8 @@ pub struct ConfigToml {
 
     /// Provider to use from the model_providers map.
     pub model_provider: Option<String>,
+    /// Model selected for automatic usage-limit recovery. Omission disables automatic switching.
+    pub fallback_model: Option<String>,
 
     /// Size of the context window for the model, in tokens.
     pub model_context_window: Option<i64>,
@@ -452,6 +454,8 @@ pub struct ConfigToml {
     /// Experimental / do not use. Selects the realtime websocket model/snapshot
     /// used for the `Op::RealtimeConversation` connection.
     pub experimental_realtime_ws_model: Option<String>,
+    /// Explicit model for realtime input transcription; omission disables transcription.
+    pub experimental_realtime_transcription_model: Option<String>,
     /// Experimental / do not use. Realtime websocket session selection.
     /// `version` controls v1/v2 and `type` controls conversational/transcription.
     #[serde(default)]
@@ -589,6 +593,8 @@ pub enum ThreadStoreToml {
 pub struct AutoReviewToml {
     /// Named provider for synchronous automatic review. Omission uses the action's provider.
     pub model_provider: Option<String>,
+    /// Explicit model for synchronous automatic review.
+    pub model: Option<String>,
     /// Controls whether circuit-breaker interruptions include a structured error.
     /// Strict mode writes structured errors that older clients may not
     /// recognize when reading shared history. Defaults to `default`.

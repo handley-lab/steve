@@ -85,20 +85,6 @@ impl std::error::Error for ProviderAccountError {}
 
 pub type ProviderAccountResult = std::result::Result<ProviderAccountState, ProviderAccountError>;
 
-/// Default model used for automatic approval review when a provider does not
-/// require a backend-specific model ID.
-pub const DEFAULT_APPROVAL_REVIEW_PREFERRED_MODEL: &str = "codex-auto-review";
-
-const API_KEY_APPROVAL_REVIEW_PREFERRED_MODEL: &str = "gpt-5.6-luna";
-
-/// Default model used for memory extraction when a provider does not require a
-/// backend-specific model ID.
-pub const DEFAULT_MEMORY_EXTRACTION_PREFERRED_MODEL: &str = "gpt-5.6-luna";
-
-/// Default model used for memory consolidation when a provider does not require
-/// a backend-specific model ID.
-pub const DEFAULT_MEMORY_CONSOLIDATION_PREFERRED_MODEL: &str = "gpt-5.6-terra";
-
 /// Runtime provider abstraction used by model execution.
 ///
 /// Implementations own provider-specific behavior for a model backend. The
@@ -122,27 +108,6 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
     /// Returns the provider-owned capability upper bounds.
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities::default()
-    }
-
-    /// Returns the preferred model used for automatic approval review.
-    ///
-    /// Providers that require backend-specific model IDs should override this.
-    fn approval_review_preferred_model(&self) -> &'static str {
-        DEFAULT_APPROVAL_REVIEW_PREFERRED_MODEL
-    }
-
-    /// Returns the preferred model used for memory extraction.
-    ///
-    /// Providers that require backend-specific model IDs should override this.
-    fn memory_extraction_preferred_model(&self) -> &'static str {
-        DEFAULT_MEMORY_EXTRACTION_PREFERRED_MODEL
-    }
-
-    /// Returns the preferred model used for memory consolidation.
-    ///
-    /// Providers that require backend-specific model IDs should override this.
-    fn memory_consolidation_preferred_model(&self) -> &'static str {
-        DEFAULT_MEMORY_CONSOLIDATION_PREFERRED_MODEL
     }
 
     /// Returns whether requests made through this provider should include attestation.
@@ -424,18 +389,6 @@ impl ModelProvider for ConfiguredModelProvider {
         ProviderCapabilities::from_config(&self.info)
     }
 
-    fn approval_review_preferred_model(&self) -> &'static str {
-        if self
-            .auth_manager
-            .as_ref()
-            .and_then(|auth_manager| auth_manager.auth_cached())
-            .is_some_and(|auth| auth.is_api_key_auth())
-        {
-            API_KEY_APPROVAL_REVIEW_PREFERRED_MODEL
-        } else {
-            DEFAULT_APPROVAL_REVIEW_PREFERRED_MODEL
-        }
-    }
 
     fn auth_manager(&self) -> Option<Arc<AuthManager>> {
         self.auth_manager.clone()
@@ -739,46 +692,6 @@ mod tests {
             let provider = create_model_provider(provider_info, /*auth_manager*/ None);
             assert_eq!(provider.capabilities().remote_compaction, expected);
         }
-    }
-
-    #[test]
-    fn configured_provider_uses_default_approval_review_preferred_model() {
-        let provider = create_model_provider(
-            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
-            /*auth_manager*/ None,
-        );
-
-        assert_eq!(
-            provider.approval_review_preferred_model(),
-            DEFAULT_APPROVAL_REVIEW_PREFERRED_MODEL
-        );
-    }
-
-    #[test]
-    fn configured_provider_uses_luna_for_approval_review_with_api_key_auth() {
-        let provider = create_model_provider(
-            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
-            Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
-                "openai-api-key",
-            ))),
-        );
-
-        assert_eq!(provider.approval_review_preferred_model(), "gpt-5.6-luna");
-    }
-
-    #[test]
-    fn configured_provider_uses_default_approval_review_model_with_chatgpt_auth() {
-        let provider = create_model_provider(
-            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
-            Some(AuthManager::from_auth_for_testing(
-                CodexAuth::create_dummy_chatgpt_auth_for_testing(),
-            )),
-        );
-
-        assert_eq!(
-            provider.approval_review_preferred_model(),
-            DEFAULT_APPROVAL_REVIEW_PREFERRED_MODEL
-        );
     }
 
     #[tokio::test]

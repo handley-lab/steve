@@ -32,7 +32,6 @@ use codex_exec_server::ExecServerRuntimeOptions;
 use codex_protocol::ThreadId;
 use codex_utils_cli::CliConfigOverrides;
 use codex_utils_home_dir::find_codex_home;
-use codex_utils_oss::get_default_model_for_oss_provider;
 use color_eyre::eyre::Result;
 use color_eyre::eyre::WrapErr;
 use color_eyre::eyre::eyre;
@@ -346,12 +345,7 @@ pub(super) async fn start_app_server_for_session_command(
     } else {
         None
     };
-    let model = cli.model.clone().or_else(|| {
-        model_provider
-            .as_deref()
-            .and_then(get_default_model_for_oss_provider)
-            .map(ToOwned::to_owned)
-    });
+    let model = cli.model.clone();
     let cwd = cli.cwd.clone();
     let config = ConfigBuilder::default()
         .cli_overrides(cli_kv_overrides.clone())

@@ -38,7 +38,6 @@ use codex_core_api::ModelAvailabilityNuxConfig;
 use codex_core_api::MultiAgentV2Config;
 use codex_core_api::NewThread;
 use codex_core_api::Notice;
-use codex_core_api::OPENAI_PROVIDER_ID;
 use codex_core_api::OtelConfig;
 use codex_core_api::PermissionProfile;
 use codex_core_api::Permissions;
@@ -228,11 +227,19 @@ async fn new_config(
             .feature_requirements
             .as_ref(),
     )?;
-    let model_provider_id = OPENAI_PROVIDER_ID.to_string();
-    let model_providers = built_in_model_providers(bootstrap.config_toml.openai_base_url.clone());
+    let model_provider_id = bootstrap
+        .config_toml
+        .model_provider
+        .clone()
+        .context("Set model_provider in config.toml")?;
+    let model_providers = codex_core_api::merge_configured_model_providers(
+        built_in_model_providers(bootstrap.config_toml.openai_base_url.clone()),
+        bootstrap.config_toml.model_providers.clone(),
+    )
+    .map_err(anyhow::Error::msg)?;
     let model_provider = model_providers
         .get(&model_provider_id)
-        .context("OpenAI model provider should be available")?
+        .context("Configured model provider should be available")?
         .clone();
 
     let mut config = Config {
@@ -253,6 +260,7 @@ async fn new_config(
         model_post_turn_compact_threshold_percent: 0,
         async_compaction_threshold_percent: 65,
         model_provider_id,
+        fallback_model: None,
         model_provider,
         personality: None,
         permissions: Permissions::from_approval_and_profile(
@@ -269,6 +277,7 @@ async fn new_config(
         base_instructions_provenance: None,
         developer_instructions: None,
         guardian_model_provider: None,
+        guardian_model: None,
         guardian_policy_config: None,
         guardian_extra_policy: None,
         guardian_policy_template: None,
@@ -365,6 +374,7 @@ async fn new_config(
         experimental_realtime_ws_base_url: None,
         experimental_realtime_webrtc_call_base_url: None,
         experimental_realtime_ws_model: None,
+        experimental_realtime_transcription_model: None,
         realtime: RealtimeConfig::default(),
         experimental_realtime_ws_backend_prompt: None,
         experimental_realtime_ws_startup_context: None,

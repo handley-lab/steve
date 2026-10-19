@@ -1098,15 +1098,8 @@ impl App {
             && (config.features.enabled(Feature::FastMode)
                 || config.features.enabled(Feature::UltrafastMode))
         {
-            // Bootstrap's fallback model may be seeded from the client. Resolve tiers
-            // against the server catalog when config/read cleared the model.
-            config.model = self
-                .model_catalog
-                .models
-                .iter()
-                .find(|model| model.is_default)
-                .or_else(|| self.model_catalog.models.first())
-                .map(|model| model.model.clone());
+            // A cleared server selection remains absent until the operator chooses a model.
+            config.model = None;
         }
         Some((config, remote_cwd))
     }

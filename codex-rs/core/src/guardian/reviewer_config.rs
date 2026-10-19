@@ -85,13 +85,24 @@ pub fn build_guardian_review_session_config(
 pub(crate) async fn resolve_review_model(
     session: &crate::session::session::Session,
     context: &super::GuardianReviewContext,
-) -> (
+) -> anyhow::Result<(
     codex_guardian_reviewer::ReviewModel,
     Arc<codex_protocol::openai_models::ModelInfo>,
     Option<codex_models_manager::manager::SharedModelsManager>,
-) {
+)> {
     let turn = context.turn();
     let mut config = turn.config.as_ref().clone();
+    let review_model_id = config
+        .guardian_model
+        .clone()
+        .or_else(|| {
+            config
+                .model_catalog
+                .as_ref()
+                .and(context.model_info.auto_review_model_override.clone())
+        })
+        .filter(|model| !model.trim().is_empty())
+        .ok_or_else(|| anyhow::anyhow!("Set auto_review.model before enabling automatic review"))?;
     let independent_provider =
         if let Some((provider_id, provider)) = &config.guardian_model_provider {
             let changed =
@@ -102,54 +113,41 @@ pub(crate) async fn resolve_review_model(
         } else {
             false
         };
-    let (models_manager, provider, refresh) = if independent_provider {
+    if independent_provider || review_model_id != context.model_info.slug {
         config.model_context_window = None;
         config.model_auto_compact_token_limit = None;
+    }
+    let (models_manager, refresh) = if independent_provider {
         (
             crate::build_models_manager(&config, Arc::clone(&session.services.auth_manager)),
-            codex_model_provider::create_model_provider(
-                config.model_provider.clone(),
-                Some(Arc::clone(&session.services.auth_manager)),
-            ),
             codex_models_manager::manager::RefreshStrategy::OnlineIfUncached,
         )
     } else {
         (
             Arc::clone(&session.services.models_manager),
-            Arc::clone(&turn.provider),
             codex_models_manager::manager::RefreshStrategy::Offline,
         )
     };
     let available_models = models_manager
         .list_models(refresh, config.http_client_factory())
         .await;
-    let default_review_model_id = provider.approval_review_preferred_model();
     let review_model = codex_guardian_reviewer::select_review_model(
         &context.model_info,
         context.reasoning_effort.as_ref(),
-        default_review_model_id,
+        &review_model_id,
         &available_models,
     );
-    // Resolve a separate reviewer against the current catalog on every attempt.
-    // Same-provider parent fallback retains the action's metadata after a catalog refresh.
-    let guardian_model_info = if !independent_provider
-        && !review_model.catalog_contains_auto_review
-        && !review_model.model_overridden
-    {
-        Arc::clone(&context.model_info)
-    } else {
-        Arc::new(
-            models_manager
-                .get_model_info(
-                    review_model.model.as_str(),
-                    &config.to_models_manager_config(),
-                )
-                .await,
-        )
-    };
-    (
+    let guardian_model_info = Arc::new(
+        models_manager
+            .get_model_info(
+                review_model.model.as_str(),
+                &config.to_models_manager_config(),
+            )
+            .await,
+    );
+    Ok((
         review_model,
         guardian_model_info,
         independent_provider.then_some(models_manager),
-    )
+    ))
 }

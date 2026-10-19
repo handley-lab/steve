@@ -2004,7 +2004,7 @@ enum GuardianTestCatalog {
 }
 
 #[test_case::test_case(true, false, true; "same_slug_override")]
-#[test_case::test_case(false, false, true; "provider_preference_without_override")]
+#[test_case::test_case(false, false, true; "configured_model_without_catalog_override")]
 #[test_case::test_case(true, true, true; "provider_failure")]
 #[test_case::test_case(true, false, false; "guardian_off")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2025,12 +2025,7 @@ async fn guardian_review_uses_independent_provider_catalog(
     provider.experimental_bearer_token = Some("reviewer-key".into());
     provider.requires_openai_auth = false;
     provider.supports_websockets = false;
-    let preferred = create_model_provider(
-        provider.clone(),
-        Some(Arc::clone(&session.services.auth_manager)),
-    )
-    .approval_review_preferred_model()
-    .to_owned();
+    let preferred = "configured-reviewer".to_owned();
     let selected = if explicit_override {
         turn.model_info().slug.clone()
     } else {
@@ -2038,6 +2033,7 @@ async fn guardian_review_uses_independent_provider_catalog(
     };
     let config = Arc::make_mut(&mut Arc::get_mut(&mut turn).unwrap().config);
     config.guardian_model_provider = Some(("reviewer".to_owned(), provider));
+    config.guardian_model = Some(selected.clone());
     config.model_context_window = Some(3_072);
     config.model_auto_compact_token_limit = Some(2_000);
     config
@@ -2340,7 +2336,11 @@ async fn guardian_request_model_for_auto_review(
         },
     );
     let parent_model = turn.model_info().slug.clone();
-    let preferred_model = turn.provider.approval_review_preferred_model().to_string();
+    let preferred_model = turn
+        .config
+        .guardian_model
+        .clone()
+        .expect("configured review model");
     let parent_turn_id = turn.sub_id.clone();
     seed_guardian_parent_history(&session, &turn).await;
 

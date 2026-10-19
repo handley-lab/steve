@@ -294,7 +294,7 @@ mod agent {
     pub(super) fn get_config(
         config: &Config,
         parent_permission_profile: PermissionProfile,
-        provider: &dyn ModelProvider,
+        _provider: &dyn ModelProvider,
     ) -> Option<Config> {
         let root = config
             .codex_home
@@ -341,13 +341,16 @@ mod agent {
         }
         .ok()?;
 
-        agent_config.model = Some(
-            config
-                .memories
-                .consolidation_model
-                .clone()
-                .unwrap_or_else(|| provider.memory_consolidation_preferred_model().to_string()),
-        );
+        let Some(model) = config
+            .memories
+            .consolidation_model
+            .as_ref()
+            .filter(|model| !model.trim().is_empty())
+        else {
+            warn!("memory consolidation is unavailable: set memories.consolidation_model");
+            return None;
+        };
+        agent_config.model = Some(model.clone());
         agent_config.model_reasoning_effort = Some(crate::stage_two::REASONING_EFFORT);
 
         Some(agent_config)

@@ -726,7 +726,7 @@ async fn memories_startup_phase1_uses_live_thread_service_tier_and_detached_meta
 }
 
 #[tokio::test]
-async fn memories_startup_phase1_provider_default_drives_request_model() -> anyhow::Result<()> {
+async fn memories_startup_phase1_configured_model_drives_request_model() -> anyhow::Result<()> {
     let server = start_mock_server().await;
     let home = Arc::new(TempDir::new()?);
     let request =
@@ -748,7 +748,7 @@ async fn memories_startup_phase1_provider_default_drives_request_model() -> anyh
 }
 
 #[tokio::test]
-async fn memories_startup_phase2_provider_default_drives_request_model() -> anyhow::Result<()> {
+async fn memories_startup_phase2_configured_model_drives_request_model() -> anyhow::Result<()> {
     let server = start_mock_server().await;
     let home = Arc::new(TempDir::new()?);
     let request =
@@ -1092,6 +1092,8 @@ fn startup_test_memories_config() -> MemoriesConfig {
     MemoriesConfig {
         max_raw_memories_for_consolidation: 1,
         min_rollout_idle_hours: 0,
+        extract_model: Some(MOCK_PROVIDER_PHASE_ONE_MODEL.into()),
+        consolidation_model: Some(MOCK_PROVIDER_PHASE_TWO_MODEL.into()),
         ..MemoriesConfig::default()
     }
 }
@@ -1193,14 +1195,6 @@ impl MockMemoryModelProvider {
 impl ModelProvider for MockMemoryModelProvider {
     fn info(&self) -> &ModelProviderInfo {
         self.delegate.info()
-    }
-
-    fn memory_extraction_preferred_model(&self) -> &'static str {
-        MOCK_PROVIDER_PHASE_ONE_MODEL
-    }
-
-    fn memory_consolidation_preferred_model(&self) -> &'static str {
-        MOCK_PROVIDER_PHASE_TWO_MODEL
     }
 
     fn auth_manager(&self) -> Option<Arc<AuthManager>> {

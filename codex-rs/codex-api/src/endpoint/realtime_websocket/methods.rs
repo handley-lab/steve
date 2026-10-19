@@ -423,6 +423,7 @@ impl RealtimeWebsocketWriter {
         output_modality: RealtimeOutputModality,
         voice: RealtimeVoice,
         delegation_ack_filler: Option<bool>,
+        transcription_model: Option<String>,
     ) -> Result<(), ApiError> {
         let session_mode = normalized_session_mode(self.event_parser, session_mode);
         let message = session_update_message(
@@ -433,6 +434,7 @@ impl RealtimeWebsocketWriter {
             output_modality,
             voice,
             delegation_ack_filler,
+            transcription_model,
         );
         self.send_json(&message).await
     }
@@ -1035,6 +1037,19 @@ impl RealtimeWebsocketClient {
         session_initialization: RealtimeSessionInitialization,
         transcript_state: RealtimeTranscriptState,
     ) -> Result<RealtimeWebsocketConnection, ApiError> {
+        if matches!(
+            session_initialization,
+            RealtimeSessionInitialization::NewSession
+        ) && config.session_mode == RealtimeSessionMode::Transcription
+            && config
+                .transcription_model
+                .as_ref()
+                .is_none_or(|model| model.trim().is_empty())
+        {
+            return Err(ApiError::InvalidRequest {
+                message: "A transcription model must be configured".into(),
+            });
+        }
         ensure_rustls_crypto_provider();
 
         let mut request = ws_url
@@ -1108,6 +1123,7 @@ impl RealtimeWebsocketClient {
                     config.output_modality,
                     config.voice,
                     config.delegation_ack_filler,
+                    config.transcription_model,
                 )
                 .await?;
         }
@@ -2565,6 +2581,7 @@ mod tests {
         let connection = client
             .connect(
                 RealtimeSessionConfig {
+                    transcription_model: Some("fixture-transcription".into()),
                     instructions: "backend prompt".to_string(),
                     initial_items: Vec::new(),
                     delegation_ack_filler: None,
@@ -2745,7 +2762,7 @@ mod tests {
             assert_eq!(
                 first_json["session"]["audio"]["input"]["transcription"],
                 json!({
-                    "model": "gpt-4o-mini-transcribe",
+                    "model": "fixture-transcription",
                 })
             );
             assert_eq!(
@@ -2891,6 +2908,7 @@ mod tests {
         let connection = client
             .connect(
                 RealtimeSessionConfig {
+                    transcription_model: Some("fixture-transcription".into()),
                     instructions: "backend prompt".to_string(),
                     initial_items: Vec::new(),
                     delegation_ack_filler: None,
@@ -2972,7 +2990,7 @@ mod tests {
             assert_eq!(
                 first_json["session"]["audio"]["input"]["transcription"],
                 json!({
-                    "model": "gpt-4o-mini-transcribe",
+                    "model": "fixture-transcription",
                 })
             );
             assert!(first_json["session"]["audio"].get("output").is_none());
@@ -3018,6 +3036,7 @@ mod tests {
         let connection = client
             .connect(
                 RealtimeSessionConfig {
+                    transcription_model: Some("fixture-transcription".into()),
                     instructions: "backend prompt".to_string(),
                     initial_items: Vec::new(),
                     delegation_ack_filler: None,
@@ -3124,6 +3143,7 @@ mod tests {
         let connection = client
             .connect(
                 RealtimeSessionConfig {
+                    transcription_model: Some("fixture-transcription".into()),
                     instructions: "backend prompt".to_string(),
                     initial_items: Vec::new(),
                     delegation_ack_filler: None,
@@ -3216,6 +3236,7 @@ mod tests {
         let connection = client
             .connect(
                 RealtimeSessionConfig {
+                    transcription_model: Some("fixture-transcription".into()),
                     instructions: "backend prompt".to_string(),
                     initial_items: Vec::new(),
                     delegation_ack_filler: None,

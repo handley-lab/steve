@@ -15,7 +15,6 @@ use super::config::GuardianV2Config;
 use super::decisions::DecisionsError;
 use super::decisions::DecisionsSampler;
 use super::sampler::LunaSamplerConfig;
-use super::sampler::MODEL;
 
 // Decisions setup failures never affect the baseline sampler.
 pub(super) async fn decisions_sampler(
@@ -28,21 +27,21 @@ pub(super) async fn decisions_sampler(
         .comparison_model_provider
         .as_ref()
         .and_then(|provider_id| input.config.model_providers.get(provider_id));
-    let result = match provider {
-        Some(provider) => {
+    let model = guardian_config
+        .local_overrides
+        .comparison_model
+        .as_deref()
+        .filter(|model| !model.trim().is_empty());
+    let result = match (provider, model) {
+        (Some(provider), Some(model)) => {
             DecisionsSampler::new(
                 input.config.http_client_factory(),
                 create_model_provider(provider.clone(), Some(auth_manager)),
-                guardian_config
-                    .local_overrides
-                    .comparison_model
-                    .as_deref()
-                    .unwrap_or(super::decisions::MODEL)
-                    .to_owned(),
+                model.to_owned(),
             )
             .await
         }
-        None => Err(DecisionsError::Configuration),
+        _ => Err(DecisionsError::Configuration),
     };
     if let Err(error) = result {
         if let Some(metrics) = input.extension_metrics.as_deref() {
@@ -61,7 +60,7 @@ pub(super) async fn sampler_config(
     guardian_config: &GuardianV2Config,
     auth_manager: Arc<AuthManager>,
     manager: Option<Arc<ThreadManager>>,
-) -> LunaSamplerConfig {
+) -> Result<LunaSamplerConfig, String> {
     let mut config = input.config.clone();
     let independent_provider =
         if let Some(provider_id) = &guardian_config.local_overrides.model_provider {
@@ -78,7 +77,8 @@ pub(super) async fn sampler_config(
         .local_overrides
         .model
         .as_deref()
-        .unwrap_or(MODEL);
+        .filter(|model| !model.trim().is_empty())
+        .ok_or("Set features.guardianv2.model before enabling the classifier")?;
     let models_manager = if independent_provider {
         let models_manager = codex_core::build_models_manager(&config, Arc::clone(&auth_manager));
         models_manager
@@ -107,7 +107,7 @@ pub(super) async fn sampler_config(
                 )
             });
     let luna_compaction_hash = luna_model.and_then(|model| model.comp_hash);
-    LunaSamplerConfig {
+    Ok(LunaSamplerConfig {
         model: model.to_owned(),
         api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::from_config(&config),
         workspace_routing: input
@@ -127,5 +127,5 @@ pub(super) async fn sampler_config(
         luna_compaction_hash,
         max_input_tokens,
         metrics: input.extension_metrics.clone(),
-    }
+    })
 }

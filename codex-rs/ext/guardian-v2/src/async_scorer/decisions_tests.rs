@@ -1,3 +1,5 @@
+const MODEL: &str = "gpt-6-luna";
+
 use super::*;
 use codex_context_fragments::AnnotatedContent;
 use codex_context_fragments::ContextualUserFragment;

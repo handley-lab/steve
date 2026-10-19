@@ -89,7 +89,7 @@ use crate::async_scorer::metrics::TOOL_CALL_LAG_METRIC;
 use crate::async_scorer::sampler::CLASSIFICATION_TOKEN_USAGE_METRIC;
 use crate::async_scorer::sampler::INITIAL_WEBSOCKET_CONNECTIONS;
 use crate::async_scorer::sampler::LunaSampler;
-use crate::async_scorer::sampler::MODEL;
+const MODEL: &str = "gpt-5.6-luna";
 use crate::async_scorer::sampler::tests::ProxyPrewarmLimit;
 use crate::async_scorer::sampler::tests::proxy_websocket_servers_with_http;
 use crate::async_scorer::score::GuardianV2ScoreProgress;

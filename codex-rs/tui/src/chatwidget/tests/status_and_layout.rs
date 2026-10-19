@@ -215,10 +215,9 @@ async fn app_server_model_verification_renders_warning() {
     let cells = drain_insert_history_transcript(&mut rx);
     assert_eq!(cells.len(), 1);
     let rendered = lines_to_single_string(&cells[0]);
-    assert!(rendered.contains("multiple flags for possible cybersecurity risk"));
+    assert!(rendered.contains("configured service reports additional cybersecurity review"));
     assert!(rendered.contains("extra safety checks are on"));
-    assert!(rendered.contains("Trusted Access for Cyber"));
-    assert!(rendered.contains("https://chatgpt.com/cyber"));
+    assert!(!rendered.contains("chatgpt.com"));
 }
 
 #[tokio::test]

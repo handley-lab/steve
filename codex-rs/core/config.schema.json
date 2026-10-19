@@ -450,6 +450,10 @@
           "description": "Additional policy text inserted into the Guardian template's `{{ extra_policy }}` slot.",
           "type": "string"
         },
+        "model": {
+          "description": "Explicit model for synchronous automatic review.",
+          "type": "string"
+        },
         "model_provider": {
           "description": "Named provider for synchronous automatic review. Omission uses the action's provider.",
           "type": "string"
@@ -7077,6 +7081,10 @@
       "description": "Experimental / do not use. Replaces the built-in realtime start instructions inserted into developer messages when realtime becomes active.",
       "type": "string"
     },
+    "experimental_realtime_transcription_model": {
+      "description": "Explicit model for realtime input transcription; omission disables transcription.",
+      "type": "string"
+    },
     "experimental_realtime_webrtc_call_base_url": {
       "description": "Experimental / do not use. Overrides only the WebRTC realtime call creation base URL. This is separate from `experimental_realtime_ws_base_url` because WebRTC call creation is HTTP, while sideband control is websocket.",
       "type": "string"
@@ -7107,6 +7115,10 @@
     },
     "experimental_use_unified_exec_tool": {
       "type": "boolean"
+    },
+    "fallback_model": {
+      "description": "Model selected for automatic usage-limit recovery. Omission disables automatic switching.",
+      "type": "string"
     },
     "features": {
       "additionalProperties": false,

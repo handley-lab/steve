@@ -93,8 +93,6 @@ pub const AMAZON_BEDROCK_GPT_5_6_LUNA_MODEL_ID: &str = "openai.gpt-5.6-luna";
 pub const AMAZON_BEDROCK_RUNTIME_GLOBAL_GPT_5_6_TERRA_MODEL_ID: &str =
     "global.openai.gpt-5.6-terra";
 pub const AMAZON_BEDROCK_RUNTIME_GLOBAL_GPT_5_6_LUNA_MODEL_ID: &str = "global.openai.gpt-5.6-luna";
-pub const AMAZON_BEDROCK_DEFAULT_BASE_URL: &str =
-    "https://bedrock-mantle.us-east-1.api.aws/openai/v1";
 const AMAZON_BEDROCK_MANTLE_CLIENT_AGENT_HEADER: &str = "x-amzn-mantle-client-agent";
 const AMAZON_BEDROCK_MANTLE_CLIENT_AGENT_VALUE: &str = "codex";
 const CHAT_WIRE_API_REMOVED_ERROR: &str = "`wire_api = \"chat\"` is no longer supported.\nHow to fix: set `wire_api = \"responses\"` in your provider config.\nMore info: https://github.com/openai/codex/discussions/7782";
@@ -559,9 +557,6 @@ other non-default provider fields are not supported"
     ) -> ModelProviderInfo {
         ModelProviderInfo {
             name: AMAZON_BEDROCK_PROVIDER_NAME.into(),
-            // The runtime provider derives the regional Mantle endpoint when
-            // this is unset. A configured value is therefore unambiguously an
-            // endpoint override.
             base_url: None,
             model_catalog_url: None,
             env_key: None,
@@ -639,8 +634,6 @@ other non-default provider fields are not supported"
     }
 }
 
-pub const DEFAULT_LMSTUDIO_PORT: u16 = 1234;
-pub const DEFAULT_OLLAMA_PORT: u16 = 11434;
 
 pub const LMSTUDIO_OSS_PROVIDER_ID: &str = "lmstudio";
 pub const OLLAMA_OSS_PROVIDER_ID: &str = "ollama";
@@ -668,11 +661,11 @@ pub fn built_in_model_providers(
         ),
         (
             OLLAMA_OSS_PROVIDER_ID,
-            create_oss_provider(DEFAULT_OLLAMA_PORT, WireApi::Responses),
+            create_oss_provider(WireApi::Responses),
         ),
         (
             LMSTUDIO_OSS_PROVIDER_ID,
-            create_oss_provider(DEFAULT_LMSTUDIO_PORT, WireApi::Responses),
+            create_oss_provider(WireApi::Responses),
         ),
     ]
     .into_iter()
@@ -722,23 +715,13 @@ pub fn merge_configured_model_providers(
     Ok(model_providers)
 }
 
-pub fn create_oss_provider(default_provider_port: u16, wire_api: WireApi) -> ModelProviderInfo {
-    // These STEVE_OSS_ environment variables are experimental: we may
-    // switch to reading values from config.toml instead.
-    let default_codex_oss_base_url = format!(
-        "http://localhost:{codex_oss_port}/v1",
-        codex_oss_port = std::env::var("STEVE_OSS_PORT")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .and_then(|value| value.parse::<u16>().ok())
-            .unwrap_or(default_provider_port)
-    );
-
-    let codex_oss_base_url = std::env::var("STEVE_OSS_BASE_URL")
+pub fn create_oss_provider(wire_api: WireApi) -> ModelProviderInfo {
+    let base_url = std::env::var("STEVE_OSS_BASE_URL")
         .ok()
-        .filter(|v| !v.trim().is_empty())
-        .unwrap_or(default_codex_oss_base_url);
-    create_oss_provider_with_base_url(&codex_oss_base_url, wire_api)
+        .filter(|value| !value.trim().is_empty());
+    let mut provider = create_oss_provider_with_base_url("", wire_api);
+    provider.base_url = base_url;
+    provider
 }
 
 pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> ModelProviderInfo {

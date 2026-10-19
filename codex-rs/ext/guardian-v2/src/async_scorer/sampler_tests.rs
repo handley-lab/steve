@@ -49,7 +49,7 @@ use super::LunaSamplerConfig;
 use super::LunaSamplerError;
 use super::LunaSamplingRequest;
 use super::MAX_CONCURRENT_REQUESTS;
-use super::MODEL;
+pub(super) const MODEL: &str = "gpt-5.6-luna";
 
 #[path = "request_tests.rs"]
 mod request;

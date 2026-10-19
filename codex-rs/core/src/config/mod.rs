@@ -669,6 +669,8 @@ pub struct Config {
 
     /// Key into the model_providers map that specifies which provider to use.
     pub model_provider_id: String,
+    /// Explicit model for automatic usage-limit recovery.
+    pub fallback_model: Option<String>,
 
     /// Info needed to make an API request to the model.
     pub model_provider: ModelProviderInfo,
@@ -716,6 +718,8 @@ pub struct Config {
 
     /// Resolved named provider for synchronous Guardian review, when independently selected.
     pub guardian_model_provider: Option<(String, ModelProviderInfo)>,
+    /// Explicit model for synchronous Guardian review.
+    pub guardian_model: Option<String>,
 
     /// Guardian-specific policy config override from requirements.toml or config.toml.
     /// This is inserted into the fixed guardian prompt template under the
@@ -1093,6 +1097,8 @@ pub struct Config {
     /// Experimental / do not use. Selects the realtime websocket model/snapshot
     /// used for the `Op::RealtimeConversation` connection.
     pub experimental_realtime_ws_model: Option<String>,
+    /// Explicit model for realtime input transcription; omission disables transcription.
+    pub experimental_realtime_transcription_model: Option<String>,
     /// Experimental / do not use. Realtime websocket session selection.
     /// `version` controls v1/v2 and `type` controls conversational/transcription.
     pub realtime: RealtimeConfig,
@@ -3953,7 +3959,10 @@ impl Config {
         let model_provider_id = config_layer_stack.required_model_provider().map(str::to_string)
             .or(model_provider)
             .or(cfg.model_provider)
-            .unwrap_or_else(|| "openai".to_string());
+            .ok_or_else(|| std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Set model_provider explicitly in config.toml or with an override",
+            ))?;
         let model_provider = model_providers
             .get(&model_provider_id)
             .ok_or_else(|| {
@@ -4462,6 +4471,7 @@ impl Config {
                 .unwrap_or_default(),
             async_compaction_threshold_percent,
             model_provider_id,
+            fallback_model: cfg.fallback_model,
             model_provider,
             cwd: resolved_cwd,
             workspace_roots: workspace_roots.clone(),
@@ -4580,6 +4590,7 @@ impl Config {
                 .or(show_raw_agent_reasoning)
                 .unwrap_or(false),
             guardian_model_provider,
+            guardian_model: cfg.auto_review.as_ref().and_then(|review| review.model.clone()),
             guardian_policy_config,
             guardian_extra_policy,
             guardian_policy_template,
@@ -4613,6 +4624,7 @@ impl Config {
             experimental_realtime_webrtc_call_base_url: cfg
                 .experimental_realtime_webrtc_call_base_url,
             experimental_realtime_ws_model: cfg.experimental_realtime_ws_model,
+            experimental_realtime_transcription_model: cfg.experimental_realtime_transcription_model,
             realtime: cfg
                 .realtime
                 .map_or_else(RealtimeConfig::default, |realtime| {

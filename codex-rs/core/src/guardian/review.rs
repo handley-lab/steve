@@ -124,7 +124,7 @@ pub(super) async fn guardian_review_session_config(
         None => None,
     };
     let (review_model, guardian_model_info, models_manager) =
-        super::reviewer_config::resolve_review_model(session, context).await;
+        super::reviewer_config::resolve_review_model(session, context).await?;
     let reviewer_config = session
         .services
         .thread_extension_data

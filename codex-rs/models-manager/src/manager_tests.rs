@@ -1707,13 +1707,27 @@ async fn missing_model_does_not_select_or_fetch_a_catalog_default() {
     let endpoint = TestModelsEndpoint::new(Vec::new());
     let dynamic = openai_manager_for_tests(codex_home.path().to_path_buf(), endpoint.clone());
     let static_manager = static_manager_for_tests(ModelsResponse {
-        models: vec![remote_model("provider-default", "Default", /*priority*/ 0)],
+        models: vec![remote_model(
+            "provider-default",
+            "Default",
+            /*priority*/ 0,
+        )],
     });
-    for manager in [&dynamic as &dyn ModelsManager, &static_manager as &dyn ModelsManager] {
-        assert_eq!(manager.get_default_model(
-            &None, /*allow_provider_model_fallback*/ true,
-            RefreshStrategy::Online, DEFAULT_HTTP_CLIENT_FACTORY,
-        ).await, "");
+    for manager in [
+        &dynamic as &dyn ModelsManager,
+        &static_manager as &dyn ModelsManager,
+    ] {
+        assert_eq!(
+            manager
+                .get_default_model(
+                    &None,
+                    /*allow_provider_model_fallback*/ true,
+                    RefreshStrategy::Online,
+                    DEFAULT_HTTP_CLIENT_FACTORY,
+                )
+                .await,
+            ""
+        );
     }
     assert_eq!(endpoint.fetch_count(), 0);
 }

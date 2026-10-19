@@ -107,21 +107,14 @@ pub(super) fn startup_model(
     bootstrap: &AppServerBootstrap,
     server_defaults_read: bool,
 ) -> String {
-    config.model.clone().unwrap_or_else(|| {
-        if server_defaults_read {
-            // Legacy bootstrap paths may be seeded with local config, which can differ from a
-            // cleared server model. Use the server catalog when config/read returned model: null.
-            bootstrap
-                .available_models
-                .iter()
-                .find(|model| model.is_default)
-                .or_else(|| bootstrap.available_models.first())
-                .map(|model| model.model.clone())
-                .unwrap_or_else(|| bootstrap.default_model.clone())
-        } else {
-            bootstrap.default_model.clone()
-        }
-    })
+    if server_defaults_read {
+        config.model.clone().unwrap_or_default()
+    } else {
+        config
+            .model
+            .clone()
+            .unwrap_or_else(|| bootstrap.default_model.clone())
+    }
 }
 
 impl App {
