@@ -138,10 +138,21 @@ class ImageClientDestinationTests(unittest.TestCase):
         self.assertEqual(len(requests), 1)
         self.assertEqual(requests[0]["body"]["model"], "local-image")
 
+    def test_missing_model_does_not_send_a_request(self):
+        base, requests = self.server()
+        result = subprocess.run(
+            [sys.executable, "-B", str(SCRIPT), "generate", "--prompt", "synthetic image prompt"],
+            env={"OPENAI_API_KEY": "synthetic-image-key", "OPENAI_BASE_URL": f"{base}/v1"},
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--model", result.stderr)
+        self.assertEqual(requests, [])
+
     def test_dry_run_needs_neither_token_nor_endpoint(self):
         result = subprocess.run(
             [sys.executable, "-B", str(SCRIPT), "generate", "--prompt", "synthetic image prompt",
-             "--out", "/tmp/dry-run.png", "--dry-run", "--no-augment"],
+             "--model", "local-image", "--out", "/tmp/dry-run.png", "--dry-run", "--no-augment"],
             env={}, capture_output=True, text=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
