@@ -194,7 +194,7 @@ impl ChatWidget {
                 }
                 if !self.daybreak_enabled {
                     if !self.daybreak_account_eligible() {
-                        self.add_error_message("Daybreak requires the OpenAI provider with either ChatGPT sign-in or an API key with Daybreak support enabled.".into());
+                        self.add_error_message("Daybreak requires the OpenAI provider with a supplied token and Daybreak support enabled.".into());
                         return;
                     }
                     if !crate::daybreak::available(&self.model_catalog.models) {
