@@ -378,8 +378,8 @@ async fn create_client_for_route_async_with_builder(
 
 /// Builds the default Codex transport without blocking the async runtime worker.
 ///
-/// Route-aware proxy handling resolves each request and redirect destination. When it is disabled,
-/// or the client is running inside the Codex sandbox, this preserves the default client's proxy
+/// Requests do not follow redirects. Route-aware proxy handling resolves each request destination.
+/// When it is disabled, or the client is running inside the Codex sandbox, this preserves the default client's proxy
 /// behavior while retaining managed application network policy enforcement.
 pub async fn create_transport_for_routes_async(
     http_client_factory: HttpClientFactory,
@@ -399,13 +399,15 @@ pub async fn create_transport_for_routes_async(
         if !http_client_factory.network_policy().is_managed()
             && (transport_default_proxy || sandboxed)
         {
-            return ReqwestTransport::from_http_client(create_client());
+            return ReqwestTransport::from_http_client(build_default_client(
+                default_http_client_builder().without_redirects(),
+            ));
         }
 
         let mut pool = RouteAwareClientPool::with_builder(
             http_client_factory,
             route_class,
-            default_http_client_builder(),
+            default_http_client_builder().without_redirects(),
         );
         if sandboxed {
             pool = pool.with_legacy_direct_proxy_and_custom_ca_fallback();
