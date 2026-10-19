@@ -649,12 +649,15 @@ fn build_otlp_metric_exporter(
                     message: err.to_string(),
                 })?;
                 exporter_builder = exporter_builder.with_http_client(client);
-            } else if let Some(tls) = tls.as_ref() {
-                let client =
-                    crate::otlp::build_http_client(tls, OTEL_EXPORTER_OTLP_METRICS_TIMEOUT)
-                        .map_err(|err| MetricsError::InvalidConfig {
-                            message: err.to_string(),
-                        })?;
+            } else {
+                let client = crate::otlp::build_http_client(
+                    tls.as_ref()
+                        .unwrap_or(&crate::config::OtelTlsConfig::default()),
+                    OTEL_EXPORTER_OTLP_METRICS_TIMEOUT,
+                )
+                .map_err(|err| MetricsError::InvalidConfig {
+                    message: err.to_string(),
+                })?;
                 exporter_builder = exporter_builder.with_http_client(client);
             }
 

@@ -501,8 +501,12 @@ fn build_logger(
                     OTEL_EXPORTER_OTLP_LOGS_TIMEOUT,
                 )?;
                 exporter_builder = exporter_builder.with_http_client(client);
-            } else if let Some(tls) = tls.as_ref() {
-                let client = crate::otlp::build_http_client(tls, OTEL_EXPORTER_OTLP_LOGS_TIMEOUT)?;
+            } else {
+                let client = crate::otlp::build_http_client(
+                    tls.as_ref()
+                        .unwrap_or(&crate::config::OtelTlsConfig::default()),
+                    OTEL_EXPORTER_OTLP_LOGS_TIMEOUT,
+                )?;
                 exporter_builder = exporter_builder.with_http_client(client);
             }
 
@@ -610,9 +614,12 @@ fn build_tracer_provider(
                     OTEL_EXPORTER_OTLP_TRACES_TIMEOUT,
                 )?;
                 exporter_builder = exporter_builder.with_http_client(client);
-            } else if let Some(tls) = tls.as_ref() {
-                let client =
-                    crate::otlp::build_http_client(tls, OTEL_EXPORTER_OTLP_TRACES_TIMEOUT)?;
+            } else {
+                let client = crate::otlp::build_http_client(
+                    tls.as_ref()
+                        .unwrap_or(&crate::config::OtelTlsConfig::default()),
+                    OTEL_EXPORTER_OTLP_TRACES_TIMEOUT,
+                )?;
                 exporter_builder = exporter_builder.with_http_client(client);
             }
 
