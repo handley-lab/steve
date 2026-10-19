@@ -7,6 +7,7 @@ mod ui;
 pub(crate) mod util;
 pub use cli::Cli;
 
+use anyhow::Context;
 use anyhow::anyhow;
 use chrono::Utc;
 use codex_cloud_tasks_client::TaskStatus;
@@ -52,7 +53,7 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
         Some("mock") | Some("MOCK")
     );
     let base_url = std::env::var("STEVE_CLOUD_TASKS_BASE_URL")
-        .unwrap_or_else(|_| "https://chatgpt.com/backend-api".to_string());
+        .context("STEVE_CLOUD_TASKS_BASE_URL must be configured")?;
     let base_url = util::validate_chatgpt_base_url(&base_url)?;
 
     set_user_agent_suffix(user_agent_suffix);
@@ -2155,6 +2156,44 @@ mod tests {
     use codex_cloud_tasks_client::TaskSummary;
     use codex_cloud_tasks_mock_client::MockClient;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn backend_requires_a_supplied_destination() {
+        if let Ok(case) = std::env::var("STEVE_CLOUD_TASKS_ENDPOINT_TEST") {
+            let result = tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(init_backend("endpoint_test"));
+            if case == "configured" {
+                assert_eq!(result.unwrap().base_url, "https://chatgpt.com/backend-api");
+            } else {
+                let error = result.err().expect("missing destination must fail");
+                assert!(error.to_string().contains("STEVE_CLOUD_TASKS_BASE_URL"));
+            }
+            return;
+        }
+        for (case, destination) in [
+            ("missing", None),
+            ("blank", Some("")),
+            ("configured", Some("https://chatgpt.com/backend-api")),
+        ] {
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["--exact", "tests::backend_requires_a_supplied_destination"])
+                .env("STEVE_CLOUD_TASKS_ENDPOINT_TEST", case)
+                .env("STEVE_CLOUD_TASKS_MODE", "mock")
+                .env_remove("STEVE_CLOUD_TASKS_BASE_URL");
+            if let Some(destination) = destination {
+                command.env("STEVE_CLOUD_TASKS_BASE_URL", destination);
+            }
+            let output = command.output().unwrap();
+            assert!(
+                output.status.success(),
+                "{case}: {}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
 
     struct StubGitInfo {
         default_branch: Option<String>,
