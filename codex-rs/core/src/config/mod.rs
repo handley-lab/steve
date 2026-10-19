@@ -1058,6 +1058,9 @@ pub struct Config {
     /// Base URL for requests to ChatGPT (as opposed to the OpenAI API).
     pub chatgpt_base_url: String,
 
+    /// Additional configured origins permitted to receive backend-staged file contents.
+    pub file_upload_origins: Vec<String>,
+
     /// Whether Codex-owned clients should respect host system proxy settings.
     pub respect_system_proxy: bool,
 
@@ -4583,6 +4586,7 @@ impl Config {
             model_catalog,
             model_verbosity: cfg.model_verbosity,
             chatgpt_base_url: cfg.chatgpt_base_url.unwrap_or_default(),
+            file_upload_origins: cfg.file_upload_origins.unwrap_or_default(),
             respect_system_proxy,
             apps_mcp_product_sku: cfg.apps_mcp_product_sku.clone(),
             responses_api_metadata: cfg.responses_api_metadata.unwrap_or_default(),

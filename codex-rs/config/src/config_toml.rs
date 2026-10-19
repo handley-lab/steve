@@ -415,6 +415,10 @@ pub struct ConfigToml {
     /// Base URL for requests to ChatGPT (as opposed to the OpenAI API).
     pub chatgpt_base_url: Option<String>,
 
+    /// Additional HTTP(S) origins permitted to receive file uploads from the backend.
+    /// The configured backend's own origin is already permitted.
+    pub file_upload_origins: Option<Vec<String>>,
+
     /// Optional product SKU forwarded on host-owned Codex Apps MCP requests.
     pub apps_mcp_product_sku: Option<String>,
 

@@ -353,10 +353,8 @@ async fn new_config(
         model_reasoning_summary: None,
         model_catalog: None,
         model_verbosity: None,
-        chatgpt_base_url: auth_config
-            .chatgpt_base_url
-            .clone()
-            .unwrap_or_else(|| "https://chatgpt.com/backend-api/".to_string()),
+        chatgpt_base_url: auth_config.chatgpt_base_url.clone().unwrap_or_default(),
+        file_upload_origins: Vec::new(),
         respect_system_proxy,
         apps_mcp_product_sku: None,
         responses_api_metadata: BTreeMap::new(),

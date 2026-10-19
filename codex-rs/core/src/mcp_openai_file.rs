@@ -239,6 +239,7 @@ async fn build_uploaded_argument_value(
     let upload_auth = codex_model_provider::auth_provider_from_auth(auth);
     let uploaded = upload_openai_file(
         turn_context.config.chatgpt_base_url.trim_end_matches('/'),
+        &turn_context.config.file_upload_origins,
         upload_auth.as_ref(),
         &sess.services.openai_file_upload_client_pool,
         file_name,

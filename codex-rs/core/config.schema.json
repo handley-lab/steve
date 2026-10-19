@@ -1316,6 +1316,12 @@
           },
           "type": "object"
         },
+        "file_upload_origins": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "include_apps_instructions": {
           "type": "boolean"
         },
@@ -7678,6 +7684,13 @@
         }
       ],
       "description": "Optional URI-based file opener. If set, citations to files in the model output will be hyperlinked using the specified URI scheme."
+    },
+    "file_upload_origins": {
+      "description": "Additional HTTP(S) origins permitted to receive file uploads from the backend. The configured backend's own origin is already permitted.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
     },
     "forced_chatgpt_workspace_id": {
       "allOf": [

@@ -6281,6 +6281,31 @@ async fn config_resolves_explicit_keyring_auth_store_mode() -> std::io::Result<(
 }
 
 #[tokio::test]
+async fn file_upload_origins_follow_user_configuration() -> std::io::Result<()> {
+    for (source, expected) in [
+        ("", Vec::new()),
+        ("file_upload_origins = []", Vec::new()),
+        (
+            "file_upload_origins = ['http://127.0.0.1:43123', 'https://storage.example']",
+            vec![
+                "http://127.0.0.1:43123".to_string(),
+                "https://storage.example".to_string(),
+            ],
+        ),
+    ] {
+        let codex_home = TempDir::new()?;
+        let config = Config::load_from_base_config_with_overrides(
+            toml::from_str(source).expect("parse upload configuration"),
+            ConfigOverrides::default(),
+            codex_home.abs(),
+        )
+        .await?;
+        assert_eq!(config.file_upload_origins, expected);
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn config_requires_explicit_chatgpt_backend_destination() -> std::io::Result<()> {
     for backend in [
         None,

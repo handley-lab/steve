@@ -93,6 +93,7 @@ async fn retries_transient_upload_statuses_within_budget() {
 
         let result = upload_openai_file(
             &base_url_for(&server),
+            &[],
             &chatgpt_auth(),
             &default_http_client_pool(),
             "hello.txt".into(),
@@ -139,6 +140,7 @@ async fn reopens_after_a_stream_closure_and_sends_the_complete_body() {
 
     let result = upload_openai_file(
         &base_url_for(&server),
+        &[],
         &chatgpt_auth(),
         &default_http_client_pool(),
         "hello.txt".into(),
@@ -180,6 +182,7 @@ async fn reopening_cannot_extend_the_shared_upload_deadline() {
     let mut opens = 0;
     let result = upload_openai_file(
         &base_url_for(&server),
+        &[],
         &chatgpt_auth(),
         &default_http_client_pool(),
         "hello.txt".into(),

@@ -44,6 +44,14 @@ pub struct UploadedOpenAiFile {
 
 #[derive(Debug, thiserror::Error)]
 pub enum OpenAiFileError {
+    #[error("invalid file upload URL: {0}")]
+    InvalidUploadUrl(#[from] url::ParseError),
+    #[error(
+        "file_upload_origins must contain HTTP(S) origins without credentials, paths, queries or fragments"
+    )]
+    InvalidConfiguredUploadOrigin,
+    #[error("file upload origin {origin} is not configured in file_upload_origins")]
+    UnconfiguredUploadOrigin { origin: String },
     #[error("failed to open OpenAI file upload contents: {0}")]
     ReadContents(#[source] std::io::Error),
     #[error(
@@ -124,8 +132,11 @@ pub fn openai_file_uri(file_id: &str) -> String {
 }
 
 /// Creates and finalizes one file record, reopening the same contents for blob PUT retries.
+/// Blob contents go only to the backend's origin or a configured storage origin.
+#[allow(clippy::too_many_arguments)]
 pub async fn upload_openai_file<Open, OpenFuture, Contents>(
     base_url: &str,
+    file_upload_origins: &[String],
     auth: &dyn AuthProvider,
     client_pool: &RouteAwareClientPool,
     file_name: String,
@@ -144,6 +155,22 @@ where
             size_bytes: file_size_bytes,
             limit_bytes: OPENAI_FILE_UPLOAD_LIMIT_BYTES,
         });
+    }
+
+    let backend_origin = url::Url::parse(base_url)?.origin();
+    let mut storage_origins = Vec::new();
+    for configured in file_upload_origins {
+        let url = url::Url::parse(configured)?;
+        if !matches!(url.scheme(), "http" | "https")
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.path() != "/"
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
+            return Err(OpenAiFileError::InvalidConfiguredUploadOrigin);
+        }
+        storage_origins.push(url.origin());
     }
 
     let create_url = format!("{}/files", base_url.trim_end_matches('/'));
@@ -193,10 +220,14 @@ where
             source,
         })?;
 
-    let upload_host = url::Url::parse(&create_payload.upload_url)
-        .ok()
-        .and_then(|url| url.host_str().map(str::to_owned))
-        .unwrap_or_else(|| "unknown-host".to_string());
+    let upload_url = url::Url::parse(&create_payload.upload_url)?;
+    let upload_origin = upload_url.origin();
+    if upload_origin != backend_origin && !storage_origins.contains(&upload_origin) {
+        return Err(OpenAiFileError::UnconfiguredUploadOrigin {
+            origin: upload_origin.ascii_serialization(),
+        });
+    }
+    let upload_host = upload_url.host_str().unwrap_or("unknown-host").to_string();
     let upload_started_at = Instant::now();
     let deadline = upload_started_at + OPENAI_FILE_BLOB_UPLOAD_TIMEOUT;
     let mut retry_delay = Duration::ZERO;
@@ -235,7 +266,7 @@ where
                 return Err(request_error(RouteAwareRequestError::Timeout));
             }
             client_pool
-                .put(&create_payload.upload_url)
+                .put(upload_url.as_str())
                 .timeout(remaining)
                 .header("x-ms-blob-type", "BlockBlob")
                 .header("x-ms-client-request-id", &azure_client_request_id)
@@ -580,6 +611,7 @@ mod tests {
             || async { Ok(futures::stream::iter([Ok(Bytes::from_static(b"hello"))])) };
         let uploaded = upload_openai_file(
             &base_url,
+            &[],
             &chatgpt_auth(),
             &default_http_client_pool(),
             "hello.txt".to_string(),
@@ -600,6 +632,117 @@ mod tests {
         assert_eq!(uploaded.mime_type, Some("text/plain".to_string()));
         assert_eq!(finalize_attempts.load(Ordering::SeqCst), 2);
     }
+    #[tokio::test]
+    async fn upload_requires_configured_storage_origin() {
+        for configure_storage in [false, true] {
+            let backend = MockServer::start().await;
+            let storage = MockServer::start().await;
+            const CONTENTS: &[u8] = b"synthetic private file";
+            Mock::given(method("POST"))
+            .and(path("/backend-api/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "file_id": "file_private",
+                "upload_url": format!("{}/storage/file_private?sig=synthetic-signature", storage.uri()),
+            })))
+            .mount(&backend)
+            .await;
+            Mock::given(method("PUT"))
+                .and(path("/storage/file_private"))
+                .respond_with(ResponseTemplate::new(200))
+                .mount(&storage)
+                .await;
+            Mock::given(method("POST"))
+                .and(path("/backend-api/files/file_private/uploaded"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "status": "success",
+                    "download_url": format!("{}/download/file_private", backend.uri()),
+                })))
+                .mount(&backend)
+                .await;
+            let client = RouteAwareClientPool::new_without_redirects_or_request_logging(
+                HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+                ClientRouteClass::Api,
+            );
+            let file_upload_origins = if configure_storage {
+                vec![storage.uri()]
+            } else {
+                Vec::new()
+            };
+            let result = upload_openai_file(
+                &base_url_for(&backend),
+                &file_upload_origins,
+                &chatgpt_auth(),
+                &client,
+                "private.txt".to_string(),
+                CONTENTS.len() as u64,
+                || async { Ok(futures::stream::iter([Ok(Bytes::from_static(CONTENTS))])) },
+                None,
+            )
+            .await;
+            assert!(
+                backend
+                    .received_requests()
+                    .await
+                    .unwrap()
+                    .iter()
+                    .any(|request| {
+                        request.method == Method::POST && request.url.path() == "/backend-api/files"
+                    })
+            );
+            let received = storage.received_requests().await.unwrap();
+            eprintln!("configured={configure_storage}: result={result:?}; requests={received:?}");
+            if configure_storage {
+                assert!(result.is_ok(), "configured storage must remain usable");
+                assert_eq!(received.len(), 1);
+                assert_eq!(received[0].body, CONTENTS);
+                assert!(!received[0].headers.contains_key("authorization"));
+                assert!(!received[0].headers.contains_key("chatgpt-account-id"));
+            } else {
+                assert!(
+                    received.is_empty(),
+                    "file bytes reached unconfigured storage"
+                );
+                let error = result.expect_err("upload must report missing storage authority");
+                assert!(matches!(
+                    error,
+                    OpenAiFileError::UnconfiguredUploadOrigin { .. }
+                ));
+                assert!(!error.to_string().contains("synthetic-signature"));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_storage_configuration_fails_before_any_request() {
+        let backend = MockServer::start().await;
+        for invalid in [
+            "not a URL",
+            "ftp://storage.example",
+            "https://storage.example/bucket",
+            "https://storage.example?secret=value",
+            "https://storage.example/#fragment",
+            "https://user:password@storage.example",
+        ] {
+            let result = upload_openai_file(
+                &base_url_for(&backend),
+                &[invalid.to_string()],
+                &chatgpt_auth(),
+                &default_http_client_pool(),
+                "private.txt".to_string(),
+                1,
+                || async { Ok(futures::stream::iter([Ok(Bytes::from_static(b"x"))])) },
+                None,
+            )
+            .await;
+            assert!(matches!(
+                result,
+                Err(OpenAiFileError::InvalidUploadUrl(_))
+                    | Err(OpenAiFileError::InvalidConfiguredUploadOrigin)
+            ));
+            assert!(backend.received_requests().await.unwrap().is_empty());
+        }
+    }
+
     #[tokio::test]
     async fn upload_hosted_app_context_and_finalizes_reservation() {
         let server = MockServer::start().await;
@@ -653,6 +796,7 @@ mod tests {
         };
         let uploaded = upload_openai_file(
             &base_url_for(&server),
+            &[],
             &chatgpt_auth(),
             &default_http_client_pool(),
             "report.pdf".to_string(),
@@ -706,6 +850,7 @@ mod tests {
 
         let uploaded = upload_openai_file(
             &base_url_for(&server),
+            &[],
             &chatgpt_auth(),
             &default_http_client_pool(),
             "report.pdf".to_string(),
@@ -775,6 +920,7 @@ mod tests {
             };
             let uploaded = upload_openai_file(
                 &base_url_for(&server),
+                &[],
                 &chatgpt_auth(),
                 &client_pool,
                 file_name.to_string(),
@@ -835,6 +981,7 @@ mod tests {
 
         let error = upload_openai_file(
             &base_url_for(&server),
+            &[],
             &chatgpt_auth(),
             &default_http_client_pool(),
             "hello.txt".to_string(),
@@ -873,6 +1020,7 @@ mod tests {
 
         let error = upload_openai_file(
             &base_url_for(&server),
+            &[format!("http://{upload_address}")],
             &chatgpt_auth(),
             &default_http_client_pool(),
             "hello.txt".to_string(),
