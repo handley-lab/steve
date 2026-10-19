@@ -26,6 +26,44 @@ const TURN_COST_PATH: &str = "/v1/analytics/codex/turn-costs";
 #[path = "turn_cost_worker_chatgpt_tests.rs"]
 mod chatgpt;
 
+#[test_case(None; "absent inference endpoint")]
+#[test_case(Some(" \t"); "blank inference endpoint")]
+#[test_case(Some("http://127.0.0.1:1/unused-inference"); "independent inference endpoint")]
+#[tokio::test]
+async fn configured_cost_backend_is_independent_of_inference_endpoint(inference_base: Option<&str>) {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(TURN_COST_PATH))
+        .and(header("authorization", "Bearer synthetic-cost-key"))
+        .and(header("openai-project", "cost-fixture"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "turns": []
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let auth_manager =
+        AuthManager::from_auth_for_testing(CodexAuth::from_api_key("synthetic-cost-key"));
+    let mut runtime = test_runtime(&server, auth_manager).await;
+    let mut config = runtime.config.as_ref().clone();
+    config.model_provider.base_url = inference_base.map(str::to_string);
+    config.model_provider.http_headers = Some(HashMap::from([(
+        "openai-project".to_string(),
+        "cost-fixture".into(),
+    )]));
+    runtime.config = Arc::new(config);
+
+    assert!(
+        runtime
+            .query_turn_costs(&["fixture-turn".to_string()])
+            .await
+            .expect("configured cost backend")
+            .expect("cost result")
+            .is_empty()
+    );
+    server.verify().await;
+}
+
 #[tokio::test]
 async fn worker_starts_with_otlp_metrics_exporter_without_log_exporter() {
     let server = MockServer::start().await;
