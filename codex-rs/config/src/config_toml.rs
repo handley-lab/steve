@@ -170,6 +170,8 @@ pub struct ConfigToml {
     pub daybreak: Option<bool>,
     /// Review model override used by the `/review` feature.
     pub review_model: Option<String>,
+    /// Model used by the standalone image-generation tool.
+    pub image_generation_model: Option<String>,
 
     /// Provider to use from the model_providers map.
     pub model_provider: Option<String>,

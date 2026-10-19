@@ -30,6 +30,43 @@ use crate::artifact::image_generation_output_hint;
 
 const RESULT: &str = "cG5n";
 
+#[tokio::test]
+async fn configured_model_is_used_for_generation_and_editing() {
+    for editing in [false, true] {
+        let request = request_for_call_args(
+            "local-image-model",
+            &ImagegenArgs {
+                prompt: "paint a moonlit lake".to_string(),
+                transparent_background: false,
+                referenced_image_paths: None,
+                num_last_images_to_include: editing.then_some(1),
+            },
+            &[ResponseItem::Message {
+                status: None,
+                encrypted_content: None,
+                id: None,
+                role: "user".to_string(),
+                content: vec![input_image("reference")],
+                phase: None,
+                internal_chat_message_metadata_passthrough: None,
+            }],
+            &[],
+        )
+        .await
+        .expect("configured image request");
+        match request {
+            ImageRequest::Generate(request) => {
+                assert!(!editing);
+                assert_eq!(request.model, "local-image-model");
+            }
+            ImageRequest::Edit(request) => {
+                assert!(editing);
+                assert_eq!(request.model, "local-image-model");
+            }
+        }
+    }
+}
+
 #[test]
 fn artifact_path_sanitizes_session_and_call_ids() {
     let save_root = AbsolutePathBuf::current_dir().expect("current directory should be absolute");
@@ -59,6 +96,7 @@ fn uses_reserved_image_gen_namespace() {
 async fn omitted_references_generate_with_fixed_defaults() {
     assert_eq!(
         request_for_call_args(
+            super::IMAGE_MODEL,
             &ImagegenArgs {
                 prompt: "paint a moonlit lake".to_string(),
                 transparent_background: false,
@@ -155,6 +193,7 @@ async fn recent_image_fallback_selects_newest_images_in_chronological_order() {
 
     assert_eq!(
         request_for_call_args(
+            super::IMAGE_MODEL,
             &ImagegenArgs {
                 prompt: "change the lighting".to_string(),
                 transparent_background: false,
@@ -176,6 +215,7 @@ async fn recent_image_fallback_selects_newest_images_in_chronological_order() {
 #[tokio::test]
 async fn recent_image_fallback_passes_file_backed_image_to_edit_request() {
     let request = request_for_call_args(
+        super::IMAGE_MODEL,
         &ImagegenArgs {
             prompt: "change the lighting".to_string(),
             transparent_background: false,
@@ -224,6 +264,7 @@ async fn recent_image_fallback_passes_file_backed_image_to_edit_request() {
 #[tokio::test]
 async fn recent_image_fallback_passes_file_backed_tool_output_to_edit_request() {
     let request = request_for_call_args(
+        super::IMAGE_MODEL,
         &ImagegenArgs {
             prompt: "change the lighting".to_string(),
             transparent_background: false,
@@ -278,6 +319,7 @@ async fn recent_image_fallback_passes_file_backed_tool_output_to_edit_request() 
 #[tokio::test]
 async fn conflicting_image_selectors_return_tool_error() {
     let error = request_for_call_args(
+        super::IMAGE_MODEL,
         &ImagegenArgs {
             prompt: "change the lighting".to_string(),
             transparent_background: false,
@@ -303,6 +345,7 @@ async fn conflicting_image_selectors_return_tool_error() {
 #[tokio::test]
 async fn too_many_referenced_image_paths_return_tool_error() {
     let error = request_for_call_args(
+        super::IMAGE_MODEL,
         &ImagegenArgs {
             prompt: "change the lighting".to_string(),
             transparent_background: false,
@@ -332,6 +375,7 @@ async fn too_many_referenced_image_paths_return_tool_error() {
 #[tokio::test]
 async fn recent_image_fallback_requires_requested_count() {
     let error = request_for_call_args(
+        super::IMAGE_MODEL,
         &ImagegenArgs {
             prompt: "change the lighting".to_string(),
             transparent_background: false,

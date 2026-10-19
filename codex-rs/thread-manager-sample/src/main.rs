@@ -246,6 +246,7 @@ async fn new_config(
         daybreak_enabled: false,
         service_tier: None,
         review_model: None,
+        image_generation_model: bootstrap.config_toml.image_generation_model.clone(),
         model_context_window: None,
         model_auto_compact_token_limit: None,
         model_auto_compact_token_limit_scope: AutoCompactTokenLimitScope::Total,

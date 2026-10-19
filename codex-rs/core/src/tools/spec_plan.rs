@@ -789,12 +789,13 @@ fn image_generation_available(turn_context: &TurnContext, model_info: &ModelInfo
         return false;
     }
 
-    if turn_context
-        .auth_manager
-        .as_deref()
-        .and_then(AuthManager::auth_cached)
-        .and_then(|auth| auth.account_plan_type())
-        == Some(PlanType::Free)
+    if turn_context.provider.info().requires_openai_auth
+        && turn_context
+            .auth_manager
+            .as_deref()
+            .and_then(AuthManager::auth_cached)
+            .and_then(|auth| auth.account_plan_type())
+            == Some(PlanType::Free)
     {
         return false;
     }
@@ -807,13 +808,7 @@ fn image_generation_available(turn_context: &TurnContext, model_info: &ModelInfo
         return false;
     }
 
-    let provider = turn_context.provider.info();
-    provider.uses_openai_actor_authorization()
-        || (provider.requires_openai_auth
-            && turn_context
-                .auth_manager
-                .as_deref()
-                .is_some_and(AuthManager::current_auth_uses_codex_backend))
+    true
 }
 
 fn wait_agent_timeout_options(turn_context: &TurnContext) -> WaitAgentTimeoutOptions {

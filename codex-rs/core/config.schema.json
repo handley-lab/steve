@@ -7767,6 +7767,10 @@
       ],
       "description": "Lifecycle hooks configured inline in TOML plus user-level overrides."
     },
+    "image_generation_model": {
+      "description": "Model used by the standalone image-generation tool.",
+      "type": "string"
+    },
     "include_apps_instructions": {
       "description": "Whether to inject the `<apps_instructions>` developer block.",
       "type": "boolean"

@@ -35,6 +35,7 @@ struct ImageGenerationExtensionConfig {
     http_client_factory: HttpClientFactory,
     provider: ModelProviderInfo,
     save_root: Option<AbsolutePathBuf>,
+    model: Option<String>,
 }
 
 impl ImageGenerationExtensionConfig {
@@ -45,6 +46,7 @@ impl ImageGenerationExtensionConfig {
             http_client_factory: config.http_client_factory(),
             provider: config.model_provider.clone(),
             save_root: resolve_save_root(config),
+            model: config.image_generation_model.clone(),
         }
     }
 }
@@ -105,6 +107,7 @@ impl ToolContributor for ImageGenerationExtension {
                     .map(|originator| originator.0.clone()),
             ),
             config.save_root.clone(),
+            config.model.clone(),
             thread_store.level_id().to_string(),
         ))]
     }
@@ -155,7 +158,7 @@ mod tests {
                 std::fs::write(
                     home.path().join("config.toml"),
                     format!(
-                        "openai_base_url = 'http://127.0.0.1:1/v1'\n[features]\nimage_generation = {enabled}\n"
+                        "openai_base_url = 'http://127.0.0.1:1/v1'\nimage_generation_model = 'local-image-model'\n[features]\nimage_generation = {enabled}\n"
                     ),
                 )?;
                 let mut config = ConfigBuilder::default()
@@ -163,6 +166,10 @@ mod tests {
                     .codex_home(home.path().to_path_buf())
                     .build()
                     .await?;
+                assert_eq!(
+                    config.image_generation_model.as_deref(),
+                    Some("local-image-model")
+                );
                 if custom {
                     config.model_provider.name = "Local images".into();
                     config.model_provider.requires_openai_auth = false;
