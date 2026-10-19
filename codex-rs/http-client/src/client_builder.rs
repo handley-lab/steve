@@ -259,6 +259,10 @@ impl HttpClientBuilder {
     /// This preserves call sites that historically logged a custom-CA error and continued with
     /// system roots. New product traffic must propagate construction errors through
     /// [`Self::build_respecting_outbound_proxy_policy`] or [`HttpClientFactory::build_client`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the configured transport cannot be built with system roots either.
     #[deprecated(
         note = "legacy custom-CA fallback only; use HttpClientFactory::build_client or build_respecting_outbound_proxy_policy"
     )]
@@ -276,6 +280,10 @@ impl HttpClientBuilder {
     ///
     /// This combines the exceptional proxy bypass described by [`Self::build_direct`] with the
     /// historical behavior of logging a custom-CA error and continuing with system roots.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the configured transport cannot be built with system roots either.
     #[deprecated(
         note = "legacy custom-CA fallback only; use build_direct and propagate construction errors"
     )]
@@ -327,11 +335,9 @@ impl HttpClientBuilder {
                 self.reqwest_builder(proxy_routing)
                     .build()
                     .unwrap_or_else(|fallback_error| {
-                        tracing::warn!(
-                            error = %fallback_error,
-                            "failed to build fallback HTTP client"
-                        );
-                        reqwest::Client::new()
+                        panic!(
+                            "failed to build configured HTTP client with system roots: {fallback_error:?}"
+                        )
                     })
             }
         };
