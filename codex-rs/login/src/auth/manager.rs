@@ -2409,7 +2409,7 @@ fn auth_config_from(config: &impl AuthManagerConfig) -> AuthConfig {
 
 #[cfg(test)]
 #[path = "auth_tests.rs"]
-mod tests;
+pub(crate) mod tests;
 
 #[cfg(test)]
 #[path = "change_state_tests.rs"]

@@ -92,6 +92,10 @@ fn login_with_api_key_overwrites_existing_auth_json() {
 #[tokio::test]
 #[serial(codex_auth_env)]
 async fn login_with_access_token_writes_agent_identity_jwt() {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let dir = tempdir().unwrap();
     let auth_path = dir.path().join("auth.json");
     let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
@@ -163,6 +167,10 @@ async fn login_with_access_token_rejects_agent_identity_workspace_mismatch() {
 #[tokio::test]
 #[serial(codex_auth_env)]
 async fn agent_identity_jwt_uses_explicit_staging_endpoint_overrides() -> anyhow::Result<()> {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let jwks_server = MockServer::start().await;
     let authapi_server = MockServer::start().await;
     let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
@@ -205,6 +213,10 @@ async fn agent_identity_jwt_uses_explicit_staging_endpoint_overrides() -> anyhow
 #[tokio::test]
 #[serial(codex_auth_env)]
 async fn agent_identity_jwt_supports_existing_staging_launcher() -> anyhow::Result<()> {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let jwks_server = MockServer::start().await;
     let authapi_server = MockServer::start().await;
     let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
@@ -295,7 +307,36 @@ fn agent_identity_jwks_override_does_not_authorize_authapi() {
 
 #[tokio::test]
 #[serial(codex_auth_env)]
+async fn agent_identity_requires_issuer_before_contacting_jwks() -> anyhow::Result<()> {
+    let server = MockServer::start().await;
+    let _jwks_guard = EnvVarGuard::set("STEVE_AGENT_IDENTITY_JWKS_BASE_URL", &server.uri());
+    let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
+    let jwt = signed_agent_identity_jwt(&record, json!(record.plan_type))?;
+    for issuer in [None, Some(""), Some("  ")] {
+        let _issuer_guard = match issuer {
+            Some(issuer) => EnvVarGuard::set("STEVE_AGENT_IDENTITY_JWT_ISSUER", issuer),
+            None => EnvVarGuard::remove("STEVE_AGENT_IDENTITY_JWT_ISSUER"),
+        };
+        let error = verified_record_from_jwt(
+            &jwt,
+            None,
+            &crate::test_support::transport_default_auth_route_config(),
+        )
+        .await
+        .expect_err("verification requires an explicit issuer");
+        assert!(error.to_string().contains("STEVE_AGENT_IDENTITY_JWT_ISSUER"));
+    }
+    assert!(server.received_requests().await.expect("captured requests").is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+#[serial(codex_auth_env)]
 async fn agent_identity_jwks_override_selects_the_explicit_service() -> anyhow::Result<()> {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
     let jwt = signed_agent_identity_jwt(&record, json!(record.plan_type))?;
     let jwks_server = MockServer::start().await;
@@ -329,6 +370,10 @@ async fn agent_identity_jwks_override_selects_the_explicit_service() -> anyhow::
 #[tokio::test]
 #[serial(codex_auth_env)]
 async fn stored_agent_identity_jwt_keeps_auth_json_unchanged() -> anyhow::Result<()> {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let _access_token_guard = remove_access_token_env_var();
     let codex_home = tempdir()?;
     let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
@@ -568,6 +613,10 @@ async fn login_with_access_token_rejects_invalid_jwt() {
 #[tokio::test]
 #[serial(codex_auth_env)]
 async fn agent_identity_jwt_task_registration_retry_exhaustion_is_strict() -> anyhow::Result<()> {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
     let agent_identity =
         signed_agent_identity_jwt(&record, json!(record.plan_type)).expect("signed agent identity");
@@ -1421,14 +1470,14 @@ async fn build_config(
 /// Use sparingly.
 /// TODO (gpeal): replace this with an injectable env var provider.
 #[cfg(test)]
-struct EnvVarGuard {
+pub(crate) struct EnvVarGuard {
     key: &'static str,
     original: Option<std::ffi::OsString>,
 }
 
 #[cfg(test)]
 impl EnvVarGuard {
-    fn set(key: &'static str, value: &str) -> Self {
+    pub(crate) fn set(key: &'static str, value: &str) -> Self {
         let original = env::var_os(key);
         unsafe {
             env::set_var(key, value);
@@ -2145,6 +2194,10 @@ async fn enforce_login_restrictions_allows_any_matching_workspace_in_list() {
 #[tokio::test]
 #[serial(codex_auth_env)]
 async fn enforce_login_restrictions_logs_out_for_agent_identity_workspace_mismatch() {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let codex_home = tempdir().unwrap();
     let _access_token_guard = remove_access_token_env_var();
     let record = agent_identity_record(WORKSPACE_ID_DISALLOWED);
@@ -2422,6 +2475,10 @@ async fn assert_agent_identity_plan_alias(
     plan_type: serde_json::Value,
     expected_plan_type: AccountPlanType,
 ) {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let record = agent_identity_record("account-id");
     let jwt = signed_agent_identity_jwt(&record, plan_type).expect("agent identity jwt");
     let server = MockServer::start().await;

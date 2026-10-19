@@ -251,6 +251,7 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
+    use crate::auth::manager::tests::EnvVarGuard;
     use codex_agent_identity::generate_agent_key_material;
     use pretty_assertions::assert_eq;
     use serde_json::json;
@@ -350,6 +351,10 @@ mod tests {
     #[tokio::test]
     #[serial(codex_auth_env)]
     async fn from_jwt_registers_task() -> anyhow::Result<()> {
+        let _issuer_guard = EnvVarGuard::set(
+            "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+            "https://chatgpt.com/codex-backend/agent-identity",
+        );
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/backend-api/wham/agent-identities/jwks"))
