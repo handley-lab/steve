@@ -60,7 +60,6 @@ use tungstenite::protocol::frame::coding::CloseCode;
 use url::Url;
 
 const REALTIME_WIRE_LOG_TARGET: &str = "codex_api::realtime_websocket::wire";
-const OPENAI_REALTIME_API_BASE_URL: &str = "https://api.openai.com/v1";
 const MAX_ACTIVE_TRANSCRIPT_BYTES: usize = 8 * 1024;
 const TRUNCATED_TRANSCRIPT_PREFIX: &str = "…";
 
@@ -832,7 +831,7 @@ fn contains_transcript_entry(entries: &[RealtimeTranscriptEntry], role: &str, te
 pub struct RealtimeWebsocketClient {
     provider: Provider,
     http_client_factory: HttpClientFactory,
-    webrtc_sideband_base_url: String,
+    webrtc_sideband_base_url: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -847,13 +846,13 @@ impl RealtimeWebsocketClient {
         Self {
             provider,
             http_client_factory,
-            webrtc_sideband_base_url: OPENAI_REALTIME_API_BASE_URL.to_string(),
+            webrtc_sideband_base_url: None,
         }
     }
 
-    /// Overrides the direct WebRTC sideband URL for local development and tests.
+    /// Sets the independently configured direct WebRTC sideband URL.
     pub fn with_webrtc_sideband_base_url(mut self, base_url: String) -> Self {
-        self.webrtc_sideband_base_url = base_url;
+        self.webrtc_sideband_base_url = Some(base_url);
         self
     }
 
@@ -961,6 +960,7 @@ impl RealtimeWebsocketClient {
                 Err(err @ ApiError::Transport(codex_http_client::TransportError::Policy(_))) => {
                     return Err(err);
                 }
+                Err(err @ ApiError::InvalidRequest { .. }) => return Err(err),
                 Err(err) if webrtc_sideband_session_ended(&err) => return Err(err),
                 Err(err) if attempt < self.provider.retry.max_attempts => {
                     let delay = backoff(self.provider.retry.base_delay, attempt + 1);
@@ -1010,8 +1010,15 @@ impl RealtimeWebsocketClient {
         session_mode: RealtimeSessionMode,
         call_id: &str,
     ) -> Result<Url, ApiError> {
+        let base_url = self
+            .webrtc_sideband_base_url
+            .as_deref()
+            .filter(|url| !url.trim().is_empty())
+            .ok_or_else(|| ApiError::InvalidRequest {
+                message: "realtime sideband requires an explicit base URL".into(),
+            })?;
         websocket_url_from_api_url_for_call(
-            self.webrtc_sideband_base_url.as_str(),
+            base_url,
             /*query_params*/ None,
             event_parser,
             session_mode,
@@ -2322,7 +2329,7 @@ mod tests {
     }
 
     #[test]
-    fn webrtc_frameless_sideband_ignores_provider_base_url() {
+    fn webrtc_sideband_requires_its_explicit_base_url() {
         let client = test_client(Provider {
             name: "chatgpt".to_string(),
             base_url: "https://chatgpt.com/backend-api/codex".to_string(),
@@ -2338,15 +2345,36 @@ mod tests {
             stream_idle_timeout: Duration::from_secs(5),
         });
 
-        let url = client
+        let missing = client.webrtc_sideband_url(
+            RealtimeEventParser::FramelessBidi,
+            RealtimeSessionMode::Conversational,
+            "rtc_test",
+        );
+        assert!(
+            matches!(missing, Err(ApiError::InvalidRequest { .. })),
+            "inference configuration must not authorize a sideband destination"
+        );
+        for base in ["", "   "] {
+            let blank =
+                test_client(client.provider.clone()).with_webrtc_sideband_base_url(base.into());
+            assert!(matches!(
+                blank.webrtc_sideband_url(
+                    RealtimeEventParser::FramelessBidi,
+                    RealtimeSessionMode::Conversational,
+                    "rtc_test"
+                ),
+                Err(ApiError::InvalidRequest { .. })
+            ));
+        }
+        let configured = client.with_webrtc_sideband_base_url("https://local.example/v1".into());
+        let url = configured
             .webrtc_sideband_url(
                 RealtimeEventParser::FramelessBidi,
                 RealtimeSessionMode::Conversational,
                 "rtc_test",
             )
-            .expect("build ws url");
-
-        assert_eq!(url.as_str(), "wss://api.openai.com/v1/live/rtc_test");
+            .expect("configured sideband URL");
+        assert_eq!(url.as_str(), "wss://local.example/v1/live/rtc_test");
     }
 
     #[tokio::test]
