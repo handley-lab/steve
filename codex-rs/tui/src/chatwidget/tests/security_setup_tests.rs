@@ -20,12 +20,40 @@ fn setup_identity() -> Identity {
 }
 
 #[tokio::test]
+async fn security_setup_accepts_configured_local_backend_action() {
+    let (mut chat, _events, _ops) = make_chatwidget_manual(Some("test-model-a")).await;
+    chat.config.chatgpt_base_url = "http://127.0.0.1:43210/backend-api".into();
+    let mut notice = setup_notice();
+    notice.action.url = "http://127.0.0.1:43210/security".into();
+    chat.show_security_setup(setup_identity(), notice);
+    assert!(render_bottom_popup(&chat, /*width*/ 70).contains("Set up security"));
+}
+
+#[tokio::test]
+async fn security_setup_rejects_unconfigured_openai_action() {
+    let (mut chat, _events, _ops) = make_chatwidget_manual(Some("test-model-a")).await;
+    chat.config.chatgpt_base_url.clear();
+    chat.show_security_setup(setup_identity(), setup_notice());
+    assert!(!render_bottom_popup(&chat, /*width*/ 70).contains("Set up security"));
+}
+
+#[tokio::test]
+async fn security_setup_retains_explicit_openai_action() {
+    let (mut chat, _events, _ops) = make_chatwidget_manual(Some("test-model-a")).await;
+    chat.config.chatgpt_base_url = "https://chatgpt.com/backend-api".into();
+    chat.show_security_setup(setup_identity(), setup_notice());
+    assert!(render_bottom_popup(&chat, /*width*/ 70).contains("Set up security"));
+}
+
+#[tokio::test]
 async fn security_setup_preserves_draft_action_and_dismissal_across_widgets() {
     let (mut chat, _rx, _ops) = make_chatwidget_manual(Some("test-model-a")).await;
+    chat.config.chatgpt_base_url = "https://chatgpt.com/backend-api".into();
     chat.show_security_setup(setup_identity(), setup_notice());
     let rendered = normalize_snapshot_paths(render_bottom_popup(&chat, /*width*/ 70));
     insta::assert_snapshot!("security_setup_banner", rendered);
     let (mut replacement, mut events, _ops) = make_chatwidget_manual(Some("test-model-a")).await;
+    replacement.config.chatgpt_base_url = "https://chatgpt.com/backend-api".into();
     chat.app_event_tx
         .voice_only
         .store(/*val*/ true, std::sync::atomic::Ordering::Relaxed);
@@ -41,6 +69,7 @@ async fn security_setup_preserves_draft_action_and_dismissal_across_widgets() {
     assert!(!render_bottom_popup(&chat, /*width*/ 70).contains("Set up security"));
 
     let (mut replacement, _events, _ops) = make_chatwidget_manual(Some("test-model-a")).await;
+    replacement.config.chatgpt_base_url = "https://chatgpt.com/backend-api".into();
     replacement.inherit_security_setup(&mut chat);
     replacement.show_security_setup(setup_identity(), setup_notice());
     assert_eq!(
@@ -69,6 +98,7 @@ async fn security_setup_preserves_draft_action_and_dismissal_across_widgets() {
 async fn security_setup_dismissal_survives_usage_banner_replacement() {
     for dismiss_security in [true, false] {
         let (mut chat, _events, _ops) = make_chatwidget_manual(Some("test-model-a")).await;
+        chat.config.chatgpt_base_url = "https://chatgpt.com/backend-api".into();
         chat.show_security_setup(setup_identity(), setup_notice());
         assert!(render_bottom_popup(&chat, /*width*/ 70).contains("Set up security"));
         if dismiss_security {
@@ -107,6 +137,7 @@ async fn security_setup_dismissal_survives_usage_banner_replacement() {
         }
 
         let (mut replacement, _events, _ops) = make_chatwidget_manual(Some("test-model-a")).await;
+        replacement.config.chatgpt_base_url = "https://chatgpt.com/backend-api".into();
         replacement.inherit_security_setup(&mut chat);
         replacement.invalidate_security_setup();
         replacement.show_security_setup(setup_identity(), setup_notice());
@@ -117,6 +148,7 @@ async fn security_setup_dismissal_survives_usage_banner_replacement() {
 
         // A fresh CLI run has no inherited dismissal and reminds the same eligible user.
         let (mut fresh, _events, _ops) = make_chatwidget_manual(Some("test-model-a")).await;
+        fresh.config.chatgpt_base_url = "https://chatgpt.com/backend-api".into();
         fresh.show_security_setup(setup_identity(), setup_notice());
         assert!(render_bottom_popup(&fresh, /*width*/ 70).contains("Set up security"));
     }
@@ -125,6 +157,7 @@ async fn security_setup_dismissal_survives_usage_banner_replacement() {
 #[tokio::test]
 async fn security_setup_after_cutoff_wraps_in_narrow_terminal() {
     let (mut chat, _events, _ops) = make_chatwidget_manual(Some("test-model-a")).await;
+    chat.config.chatgpt_base_url = "https://chatgpt.com/backend-api".into();
     let mut notice = setup_notice();
     notice.title = "Set up security for Daybreak mode".into();
     notice.description = "Set up Advanced Account Security with a hardware security key. Already Persona-verified? Add your key before October 15 to skip re-verification. You can keep using Steve while you finish setup.".into();
@@ -138,6 +171,7 @@ async fn security_setup_after_cutoff_wraps_in_narrow_terminal() {
 #[tokio::test]
 async fn security_setup_after_persona_grace_wraps_in_narrow_terminal() {
     let (mut chat, _events, _ops) = make_chatwidget_manual(Some("test-model-a")).await;
+    chat.config.chatgpt_base_url = "https://chatgpt.com/backend-api".into();
     let mut notice = setup_notice();
     notice.title = "Set up security for Daybreak mode".into();
     notice.description = "Set up Advanced Account Security with a hardware security key. Verify each new hardware security key with Persona. You can keep using Steve while you finish setup.".into();
@@ -152,6 +186,7 @@ async fn security_setup_after_persona_grace_wraps_in_narrow_terminal() {
 async fn security_setup_respects_applicable_backend_banner() {
     for state in ["visible", "dismissed", "another-model"] {
         let (mut chat, _events, _ops) = make_chatwidget_manual(Some("test-model-a")).await;
+        chat.config.chatgpt_base_url = "https://chatgpt.com/backend-api".into();
         let response = codex_app_server_protocol::GetAccountRateLimitsResponse {
             ordinary_usage_allowed: None,
             account_id: Some("workspace-a".into()),

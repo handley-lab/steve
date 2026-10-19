@@ -15,7 +15,10 @@ fn parse_rejects_more_actions_than_the_inline_banner_can_display() {
     let banner = BackendBanner::parse(&raw).expect("eight actions fit");
     assert_eq!(
         banner
-            .actionable_banner(crate::clock_format::ClockFormat::TwentyFourHour)
+            .actionable_banner(
+                crate::clock_format::ClockFormat::TwentyFourHour,
+                "https://chatgpt.com/backend-api"
+            )
             .actions
             .into_iter()
             .map(|action| action.name)

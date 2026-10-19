@@ -49,7 +49,7 @@ impl Identity {
     }
 }
 impl Notice {
-    pub(crate) fn valid(&self) -> bool {
+    pub(crate) fn valid(&self, backend_base_url: &str) -> bool {
         !self.title.trim().is_empty()
             && self.title.len() <= 256
             && self.description.len() <= 2048
@@ -59,11 +59,11 @@ impl Notice {
             && self.action.label.len() <= 128
             && !self.action.label.chars().any(char::is_control)
             && url::Url::parse(&self.action.url).is_ok_and(|url| {
-                url.scheme() == "https"
-                    && url.host_str() == Some("chatgpt.com")
+                matches!(url.scheme(), "http" | "https")
+                    && url::Url::parse(backend_base_url)
+                        .is_ok_and(|backend| url.origin() == backend.origin())
                     && url.username().is_empty()
                     && url.password().is_none()
-                    && url.port().is_none()
             })
     }
 }
@@ -129,8 +129,11 @@ pub(crate) fn prefetch(
                 return None;
             }
             let notice = response.json::<Response>().await.ok()?.notice?;
-            tracing::debug!(valid = notice.valid(), "received security setup notice");
-            if !notice.valid() {
+            tracing::debug!(
+                valid = notice.valid(&config.chatgpt_base_url),
+                "received security setup notice"
+            );
+            if !notice.valid(&config.chatgpt_base_url) {
                 return None;
             }
             let current = config

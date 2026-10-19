@@ -26,6 +26,59 @@ fn banner_response(
 }
 
 #[tokio::test]
+async fn backend_banner_browser_actions_use_the_configured_backend() {
+    let mut observations = Vec::new();
+    for (backend, origin) in [
+        (
+            "http://127.0.0.1:43210/backend-api",
+            Some("http://127.0.0.1:43210"),
+        ),
+        (
+            "https://chatgpt.com/backend-api",
+            Some("https://chatgpt.com"),
+        ),
+        ("", None),
+    ] {
+        for (action, path) in [
+            ("view_usage", "/settings/usage"),
+            (
+                "view_workspace_usage",
+                "/admin/usage-limits/workspace?account_id=workspace-a",
+            ),
+        ] {
+            let (mut chat, mut events, _ops) = make_chatwidget_manual(Some("test-model-a")).await;
+            chat.config.chatgpt_base_url = backend.into();
+            chat.update_backend_banner(&banner_response(
+                None,
+                json!([{"action":action,"label":"View usage"}]),
+            ));
+            assert!(
+                render_bottom_popup(&chat, /*width*/ 70).contains("Selected model usage exhausted")
+            );
+            chat.handle_key_event(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
+            let mut opened = Vec::new();
+            while let Ok(event) = events.try_recv() {
+                if let AppEvent::OpenUrlInBrowser { url } = event {
+                    opened.push(url);
+                }
+            }
+            let expected: Vec<_> = origin
+                .map(|origin| format!("{origin}{path}"))
+                .into_iter()
+                .collect();
+            observations.push((backend, action, opened, expected));
+        }
+    }
+    eprintln!("backend banner browser observations: {observations:?}");
+    assert!(
+        observations
+            .iter()
+            .all(|(_, _, actual, expected)| actual == expected),
+        "backend, action, opened URLs, expected URLs: {observations:?}"
+    );
+}
+
+#[tokio::test]
 async fn backend_banner_presentation_and_cta_do_not_imply_recovery() {
     for presentation in [None, Some("inline"), Some("dismissible")] {
         let (mut chat, mut rx, _ops) = make_chatwidget_manual(Some("test-model-a")).await;

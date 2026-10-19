@@ -49,7 +49,7 @@ async fn security_setup_fetch_with_default_features_uses_authenticated_codex_end
         .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
             "notice": {
                 "title": "Keep using Daybreak mode", "description": "Set up security.",
-                "action": {"label": "Set up security", "url": "https://chatgpt.com/cyber"}
+                "action": {"label": "Set up security", "url": format!("{}/cyber", backend.uri())}
             }
         })))
         .expect(3)
@@ -86,7 +86,7 @@ async fn security_setup_fetch_with_default_features_uses_authenticated_codex_end
         }
     })
     .await?;
-    assert!(notice.valid());
+    assert!(notice.valid(&app.config.chatgpt_base_url));
     let identity = Identity {
         account: "account".into(),
         user: "user".into(),
@@ -218,7 +218,7 @@ async fn security_setup_skips_fetch_when_server_auth_does_not_match_saved_login(
             .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
                 "notice": {
                     "title": "Keep using Daybreak mode", "description": "Set up security.",
-                    "action": {"label": "Set up security", "url": "https://chatgpt.com/cyber"}
+                    "action": {"label": "Set up security", "url": format!("{}/cyber", backend.uri())}
                 }
             })))
             .expect(0)

@@ -4,9 +4,6 @@ use super::BackendBanner;
 use codex_app_server_protocol::AddCreditsNudgeCreditType;
 use codex_protocol::account::PlanType;
 
-const USAGE_URL: &str = "https://chatgpt.com/settings/usage";
-const WORKSPACE_USAGE_URL: &str = "https://chatgpt.com/admin/usage-limits/workspace";
-
 pub(super) enum BannerAction {
     OpenUrl(String),
     NotifyOwner(AddCreditsNudgeCreditType),
@@ -14,7 +11,11 @@ pub(super) enum BannerAction {
 }
 
 impl BackendBanner {
-    pub(super) fn resolve_action(&self, action: &str) -> Option<BannerAction> {
+    pub(super) fn resolve_action(
+        &self,
+        action: &str,
+        backend_base_url: &str,
+    ) -> Option<BannerAction> {
         match action {
             "notify_owner" | "contact_owner" => {
                 return Some(BannerAction::NotifyOwner(
@@ -41,20 +42,28 @@ impl BackendBanner {
             "reset_usage" => return Some(BannerAction::ResetUsage),
             _ => {}
         }
+        let backend = url::Url::parse(backend_base_url).ok()?;
+        if !matches!(backend.scheme(), "https" | "http") {
+            return None;
+        }
+        let origin = backend.origin().ascii_serialization();
+        let usage_url = format!("{origin}/settings/usage");
         let destination = match action {
             "add_credits" | "buy_credits"
                 if self.plan_type.is_some_and(PlanType::is_workspace_account) =>
             {
-                "https://chatgpt.com/admin/billing?codex_credit_action=add_credits".to_string()
+                format!("{origin}/admin/billing?codex_credit_action=add_credits")
             }
-            "add_credits" | "buy_credits" => format!("{USAGE_URL}?credits_modal=true"),
-            "buy_reset" => "https://chatgpt.com/codex/purchase/reset".to_string(),
-            "view_usage" | "request_increase_usage_settings" => USAGE_URL.to_string(),
-            "view_workspace_usage" | "increase_spend_cap" => WORKSPACE_USAGE_URL.to_string(),
-            "open_plus_pricing_web" => "https://chatgpt.com/explore/plus".to_string(),
-            "open_pro_pricing_web" => "https://chatgpt.com/explore/pro".to_string(),
+            "add_credits" | "buy_credits" => format!("{usage_url}?credits_modal=true"),
+            "buy_reset" => format!("{origin}/codex/purchase/reset"),
+            "view_usage" | "request_increase_usage_settings" => usage_url,
+            "view_workspace_usage" | "increase_spend_cap" => {
+                format!("{origin}/admin/usage-limits/workspace")
+            }
+            "open_plus_pricing_web" => format!("{origin}/explore/plus"),
+            "open_pro_pricing_web" => format!("{origin}/explore/pro"),
             "open_pricing_dialog" => {
-                let mut url = url::Url::parse("https://chatgpt.com/").ok()?;
+                let mut url = url::Url::parse(&format!("{origin}/")).ok()?;
                 let target = if matches!(self.plan_type, Some(PlanType::Plus | PlanType::ProLite)) {
                     "pro"
                 } else {
