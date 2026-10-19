@@ -366,7 +366,7 @@ async fn load_exec_server_remote_auth_provider(
 
     let auth = load_exec_server_remote_auth(
         config,
-        "remote exec-server registration requires ChatGPT authentication or API key authentication; run `steve login` or set STEVE_API_KEY",
+        "remote exec-server registration requires supplied backend credentials or an API key; set STEVE_API_KEY",
     )
     .await?;
 
@@ -399,22 +399,15 @@ pub(super) fn validate_api_key_remote_host(base_url: &str) -> anyhow::Result<()>
         url::Host::Ipv4(ip) => ip.is_loopback(),
         url::Host::Ipv6(ip) => ip.is_loopback(),
     };
-    let is_openai_host = match &host {
-        url::Host::Domain(host) => ["openai.com", "openai.org"].into_iter().any(|domain| {
-            host.eq_ignore_ascii_case(domain)
-                || host.to_ascii_lowercase().ends_with(&format!(".{domain}"))
-        }),
-        _ => false,
-    };
     let is_allowed = match url.scheme() {
-        "https" => is_loopback || is_openai_host,
+        "https" => true,
         "http" => is_loopback,
         _ => false,
     };
 
     if !is_allowed {
         anyhow::bail!(
-            "remote exec-server API-key authentication is restricted to HTTPS openai.com and openai.org hosts and subdomains or loopback hosts"
+            "remote exec-server API-key authentication requires HTTPS or an HTTP loopback URL"
         );
     }
 
