@@ -7,7 +7,7 @@ pub struct AppCommand {
     #[arg(value_name = "PATH", default_value = ".")]
     pub path: PathBuf,
 
-    /// Override the app installer download URL (advanced).
+    /// App installer download URL (required for installation on macOS).
     #[arg(long = "download-url")]
     pub download_url_override: Option<String>,
 }
