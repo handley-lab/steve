@@ -196,3 +196,16 @@ fn rendering_preferences_default_individually_and_ignore_animation_switch() {
         );
     }
 }
+
+#[test]
+fn metrics_require_an_explicit_exporter_destination() {
+    assert_eq!(
+        OtelConfig::default().metrics_exporter,
+        OtelExporterKind::None
+    );
+    assert!(toml::from_str::<OtelConfigToml>("metrics_exporter = \"statsig\"").is_err());
+    let explicit: OtelConfigToml = toml::from_str(r#"metrics_exporter = { otlp-http = { endpoint = "http://127.0.0.1:4318/v1/metrics", protocol = "json" } }"#).expect("explicit OTLP configuration");
+    assert!(
+        matches!(explicit.metrics_exporter, Some(OtelExporterKind::OtlpHttp { endpoint, .. }) if endpoint == "http://127.0.0.1:4318/v1/metrics")
+    );
+}
