@@ -661,7 +661,7 @@ async fn static_manager_preserves_supported_requested_model_when_fallback_is_all
 }
 
 #[tokio::test]
-async fn static_manager_falls_back_from_unsupported_requested_model_when_allowed() {
+async fn static_manager_preserves_unsupported_requested_model_when_fallback_is_allowed() {
     let manager = static_manager_for_tests(ModelsResponse {
         models: vec![
             remote_model("provider-default", "Default", /*priority*/ 0),
@@ -679,7 +679,7 @@ async fn static_manager_falls_back_from_unsupported_requested_model_when_allowed
         )
         .await;
 
-    assert_eq!(model, "provider-default");
+    assert_eq!(model, "unsupported");
 }
 
 #[tokio::test]
@@ -706,7 +706,7 @@ async fn static_manager_preserves_unsupported_requested_model_when_fallback_is_d
 }
 
 #[tokio::test]
-async fn static_manager_uses_empty_default_when_fallback_is_allowed_and_catalog_is_empty() {
+async fn static_manager_preserves_requested_model_when_catalog_is_empty() {
     let manager = static_manager_for_tests(ModelsResponse { models: Vec::new() });
     let requested_model = Some("unsupported".to_string());
 
@@ -719,7 +719,7 @@ async fn static_manager_uses_empty_default_when_fallback_is_allowed_and_catalog_
         )
         .await;
 
-    assert_eq!(model, "");
+    assert_eq!(model, "unsupported");
 }
 
 #[tokio::test]
@@ -1699,4 +1699,21 @@ fn bundled_models_json_roundtrips() {
         !response.models.is_empty(),
         "bundled models.json should contain at least one model"
     );
+}
+
+#[tokio::test]
+async fn missing_model_does_not_select_or_fetch_a_catalog_default() {
+    let codex_home = tempdir().expect("temp dir");
+    let endpoint = TestModelsEndpoint::new(Vec::new());
+    let dynamic = openai_manager_for_tests(codex_home.path().to_path_buf(), endpoint.clone());
+    let static_manager = static_manager_for_tests(ModelsResponse {
+        models: vec![remote_model("provider-default", "Default", /*priority*/ 0)],
+    });
+    for manager in [&dynamic as &dyn ModelsManager, &static_manager as &dyn ModelsManager] {
+        assert_eq!(manager.get_default_model(
+            &None, /*allow_provider_model_fallback*/ true,
+            RefreshStrategy::Online, DEFAULT_HTTP_CLIENT_FACTORY,
+        ).await, "");
+    }
+    assert_eq!(endpoint.fetch_count(), 0);
 }
