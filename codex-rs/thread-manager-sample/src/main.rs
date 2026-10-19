@@ -398,6 +398,7 @@ async fn new_config(
         disable_paste_burst: false,
         analytics_enabled: Some(false),
         feedback_enabled: false,
+        feedback_dsn: None,
         tool_suggest: ToolSuggestConfig::default(),
         otel: OtelConfig::default(),
     };

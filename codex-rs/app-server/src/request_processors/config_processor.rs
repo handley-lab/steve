@@ -575,6 +575,7 @@ fn map_requirements_to_api(
         allow_login_shell: requirements.allow_login_shell,
         feedback: requirements.feedback.map(|feedback| FeedbackRequirements {
             enabled: feedback.enabled,
+            dsn: feedback.dsn,
         }),
     })
 }
@@ -1277,6 +1278,7 @@ client_id = "mcp-client"
             allow_login_shell: Some(false),
             feedback: Some(FeedbackConfigToml {
                 enabled: Some(false),
+                dsn: Some("http://public@127.0.0.1:4318/42".to_string()),
             }),
             ..ConfigRequirementsToml::default()
         });
@@ -1293,6 +1295,7 @@ client_id = "mcp-client"
             mapped.feedback,
             Some(FeedbackRequirements {
                 enabled: Some(false),
+                dsn: Some("http://public@127.0.0.1:4318/42".to_string()),
             })
         );
     }

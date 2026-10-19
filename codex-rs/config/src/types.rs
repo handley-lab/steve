@@ -256,6 +256,8 @@ pub struct AnalyticsConfigToml {
 pub struct FeedbackConfigToml {
     /// When `false`, disables the feedback flow across Codex product surfaces.
     pub enabled: Option<bool>,
+    /// Explicit Sentry-compatible destination for feedback uploads. No default.
+    pub dsn: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, JsonSchema)]

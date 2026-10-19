@@ -1637,6 +1637,13 @@ impl ConfigRequirementsToml {
         if let Some(enabled) = self.feedback.as_ref().and_then(|feedback| feedback.enabled) {
             config.feedback.get_or_insert_default().enabled = Some(enabled);
         }
+        if let Some(dsn) = self
+            .feedback
+            .as_ref()
+            .and_then(|feedback| feedback.dsn.as_ref())
+        {
+            config.feedback.get_or_insert_default().dsn = Some(dsn.clone());
+        }
     }
 
     /// Returns the exact managed field affected by editing `segments`.
@@ -1648,7 +1655,7 @@ impl ConfigRequirementsToml {
         }) {
             return Some("model_providers");
         }
-        let managed_fields: [(bool, &[&str], &'static str); 9] = [
+        let managed_fields: [(bool, &[&str], &'static str); 10] = [
             (
                 self.model_provider.is_some(),
                 &["model_provider"],
@@ -1678,6 +1685,14 @@ impl ConfigRequirementsToml {
                     .is_some(),
                 &["feedback", "enabled"],
                 "feedback.enabled",
+            ),
+            (
+                self.feedback
+                    .as_ref()
+                    .and_then(|feedback| feedback.dsn.as_ref())
+                    .is_some(),
+                &["feedback", "dsn"],
+                "feedback.dsn",
             ),
             (
                 self.cli_auth_credentials_store.is_some(),
@@ -2233,6 +2248,7 @@ mod tests {
             allow_login_shell: Some(false),
             feedback: Some(FeedbackConfigToml {
                 enabled: Some(false),
+                dsn: Some("http://public@127.0.0.1:4318/42".to_string()),
             }),
             ..Default::default()
         };
@@ -2251,6 +2267,7 @@ mod tests {
             ),
             (&["allow_login_shell"], Some("allow_login_shell")),
             (&["feedback", "enabled"], Some("feedback.enabled")),
+            (&["feedback", "dsn"], Some("feedback.dsn")),
             (&[], Some("sqlite_home")),
             (&["feedback"], Some("feedback.enabled")),
             (&["feedback", "other"], None),
@@ -2265,6 +2282,12 @@ mod tests {
                 "segments: {segments:?}"
             );
         }
+        let mut config = ConfigToml::default();
+        requirements.apply_exact_to_config(&mut config);
+        assert_eq!(
+            config.feedback.and_then(|feedback| feedback.dsn).as_deref(),
+            Some("http://public@127.0.0.1:4318/42")
+        );
     }
 
     #[test]
@@ -2852,6 +2875,7 @@ mod tests {
                 .expect("managed model catalog path should be absolute");
         let feedback = FeedbackConfigToml {
             enabled: Some(false),
+            dsn: None,
         };
         let windows = WindowsRequirementsToml {
             allowed_sandbox_implementations: Some(vec![WindowsSandboxImplementationToml::Elevated]),

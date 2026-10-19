@@ -20,7 +20,6 @@ use crate::FeedbackAttachment;
 use crate::FeedbackSnapshot;
 use crate::MAX_DECODED_UPLOAD_BYTES;
 use crate::MAX_EVENT_BYTES;
-use crate::SENTRY_DSN;
 use crate::upload;
 
 // Background parts must tolerate slow links without inheriting the interactive
@@ -48,15 +47,13 @@ pub struct FeedbackTransport {
 }
 
 impl FeedbackTransport {
-    pub fn new(http_client_factory: HttpClientFactory) -> Result<Self> {
+    pub fn new(http_client_factory: HttpClientFactory, dsn: &str) -> Result<Self> {
         Ok(Self {
             client_pool: RouteAwareClientPool::new_without_redirects_or_request_logging(
                 http_client_factory,
                 ClientRouteClass::Other,
             ),
-            dsn: SENTRY_DSN
-                .parse()
-                .map_err(|_| anyhow!("invalid feedback DSN"))?,
+            dsn: dsn.parse().map_err(|_| anyhow!("invalid feedback DSN"))?,
         })
     }
 

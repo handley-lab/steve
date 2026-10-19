@@ -64,6 +64,14 @@ impl FeedbackRequestProcessor {
                 "sending feedback is disabled by configuration",
             ));
         }
+        let dsn = self
+            .config
+            .feedback_dsn
+            .clone()
+            .filter(|dsn| !dsn.trim().is_empty())
+            .ok_or_else(|| {
+                invalid_request("feedback uploads require an explicit feedback.dsn destination")
+            })?;
         let permit = self
             .uploads
             .clone()
@@ -291,6 +299,7 @@ impl FeedbackRequestProcessor {
                     logs_override: sqlite_feedback_logs,
                 },
                 &http_client_factory,
+                &dsn,
             ))
         })
         .await;

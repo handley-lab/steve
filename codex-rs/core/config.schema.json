@@ -1728,6 +1728,10 @@
     "FeedbackConfigToml": {
       "additionalProperties": false,
       "properties": {
+        "dsn": {
+          "description": "Explicit Sentry-compatible destination for feedback uploads. No default.",
+          "type": "string"
+        },
         "enabled": {
           "description": "When `false`, disables the feedback flow across Codex product surfaces.",
           "type": "boolean"

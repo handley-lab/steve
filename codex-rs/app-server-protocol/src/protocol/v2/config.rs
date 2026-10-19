@@ -497,6 +497,7 @@ pub struct NewThreadModelDefaults {
 #[ts(export_to = "v2/")]
 pub struct FeedbackRequirements {
     pub enabled: Option<bool>,
+    pub dsn: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]

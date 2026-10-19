@@ -1184,6 +1184,7 @@ pub struct Config {
     /// When `false`, disables feedback collection across Codex product surfaces.
     /// Defaults to `true`.
     pub feedback_enabled: bool,
+    pub feedback_dsn: Option<String>,
 
     /// Configured discoverable tools for tool suggestions.
     pub tool_suggest: ToolSuggestConfig,
@@ -4648,6 +4649,7 @@ impl Config {
                 .as_ref()
                 .and_then(|feedback| feedback.enabled)
                 .unwrap_or(true),
+            feedback_dsn: cfg.feedback.as_ref().and_then(|feedback| feedback.dsn.clone()),
             tool_suggest,
             tui_notifications: cfg
                 .tui

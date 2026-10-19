@@ -1436,6 +1436,7 @@ class FeedbackRequirements(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
+    dsn: str | None = None
     enabled: bool | None = None
 
 
