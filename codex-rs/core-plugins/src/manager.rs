@@ -767,6 +767,13 @@ impl PluginsManager {
         {
             self.start_curated_repo_sync(
                 config.http_client_factory.clone(),
+                (!config.chatgpt_base_url.trim().is_empty()).then(|| {
+                    codex_backend_client::Client::new(
+                        config.chatgpt_base_url.clone(),
+                        config.http_client_factory.clone(),
+                    )
+                    .curated_plugins_export_url()
+                }),
                 on_effective_plugins_changed,
             );
         }
@@ -3299,6 +3306,7 @@ impl PluginsManager {
     fn start_curated_repo_sync(
         self: &Arc<Self>,
         http_client_factory: HttpClientFactory,
+        backup_archive_api_url: Option<String>,
         on_effective_plugins_changed: Option<EffectivePluginsChangedCallback>,
     ) {
         if CURATED_REPO_SYNC_STARTED.swap(true, Ordering::SeqCst) {
@@ -3322,7 +3330,11 @@ impl PluginsManager {
         if let Err(err) = std::thread::Builder::new()
             .name("plugins-curated-repo-sync".to_string())
             .spawn(move || {
-                match sync_openai_plugins_repo(codex_home.as_path(), http_client_factory) {
+                match sync_openai_plugins_repo(
+                    codex_home.as_path(),
+                    http_client_factory,
+                    backup_archive_api_url.as_deref(),
+                ) {
                     Ok(curated_plugin_version) => {
                         let configured_curated_plugin_ids =
                             configured_curated_plugin_ids_from_codex_home(codex_home.as_path());

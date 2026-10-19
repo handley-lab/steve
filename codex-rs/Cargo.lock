@@ -3114,6 +3114,7 @@ dependencies = [
  "chrono",
  "codex-analytics",
  "codex-app-server-protocol",
+ "codex-backend-client",
  "codex-config",
  "codex-connectors",
  "codex-core-plugin-common",

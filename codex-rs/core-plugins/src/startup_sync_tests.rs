@@ -34,6 +34,7 @@ fn pretrust_startup_sync_uses_installed_git_with_hostile_path() {
         sync_openai_plugins_repo(
             Path::new(&home),
             crate::test_support::test_http_client_factory(),
+            None,
         )
         .expect("Git-only startup sync should succeed");
         return;
@@ -593,7 +594,7 @@ async fn run_sync_with_transport_overrides(
             codex_home.as_path(),
             Some(git_binary.as_path()),
             &api_base_url,
-            &backup_archive_api_url,
+            Some(&backup_archive_api_url),
             &crate::test_support::test_http_client_factory(),
         )
     })
@@ -613,7 +614,7 @@ async fn run_sync_without_git(
             codex_home.as_path(),
             /*git_binary*/ None,
             &api_base_url,
-            &backup_archive_api_url,
+            Some(&backup_archive_api_url),
             &crate::test_support::test_http_client_factory(),
         )
     })
@@ -770,7 +771,7 @@ exit 1
                 tmp.path(),
                 Some(git_path.as_path()),
                 "http://127.0.0.1:9",
-                "http://127.0.0.1:9/backend-api/plugins/export/curated",
+                Some("http://127.0.0.1:9/backend-api/plugins/export/curated"),
                 &crate::test_support::test_http_client_factory(),
             )
         };
@@ -1262,6 +1263,57 @@ async fn sync_openai_plugins_repo_skips_archive_download_when_sha_matches() {
 }
 
 #[tokio::test]
+async fn sync_without_configured_backend_keeps_public_repository_acquisition() {
+    for github_succeeds in [true, false] {
+        let tmp = tempdir().expect("tempdir");
+        let server = MockServer::start().await;
+        if github_succeeds {
+            mount_github_repo_and_ref(&server, TEST_CURATED_PLUGIN_SHA).await;
+            mount_github_zipball(
+                &server,
+                TEST_CURATED_PLUGIN_SHA,
+                curated_repo_zipball_bytes(TEST_CURATED_PLUGIN_SHA),
+            )
+            .await;
+        } else {
+            Mock::given(method("GET"))
+                .and(path("/repos/openai/plugins"))
+                .respond_with(ResponseTemplate::new(500))
+                .mount(&server)
+                .await;
+        }
+        let home = tmp.path().to_path_buf();
+        let api_base = server.uri();
+        let result = tokio::task::spawn_blocking(move || {
+            sync_openai_plugins_repo_with_transport_overrides(
+                &home,
+                None,
+                &api_base,
+                None,
+                &crate::test_support::test_http_client_factory(),
+            )
+        })
+        .await
+        .expect("sync task should join");
+        if github_succeeds {
+            assert_eq!(
+                result.expect("public acquisition needs no backend"),
+                TEST_CURATED_PLUGIN_SHA
+            );
+            assert_curated_gmail_repo(&curated_plugins_repo_path(tmp.path()));
+        } else {
+            assert!(
+                result
+                    .expect_err("no implicit export service")
+                    .contains("requires a configured backend")
+            );
+            assert_eq!(server.received_requests().await.unwrap().len(), 1);
+            assert!(!curated_plugins_repo_path(tmp.path()).exists());
+        }
+    }
+}
+
+#[tokio::test]
 async fn sync_openai_plugins_repo_falls_back_to_export_archive_when_no_snapshot_exists() {
     let tmp = tempdir().expect("tempdir");
     let server = MockServer::start().await;
@@ -1274,12 +1326,18 @@ async fn sync_openai_plugins_repo_falls_back_to_export_archive_when_no_snapshot_
         .await;
     let export_api_url =
         mount_export_archive(&server, curated_repo_backup_archive_zip_bytes(export_sha)).await;
+    let configured_export_url = codex_backend_client::Client::new(
+        format!("{}/backend-api", server.uri()),
+        crate::test_support::test_http_client_factory(),
+    )
+    .curated_plugins_export_url();
+    assert_eq!(configured_export_url, export_api_url);
 
     let synced_sha = run_sync_with_transport_overrides(
         tmp.path().to_path_buf(),
         "missing-git-for-test",
         server.uri(),
-        export_api_url,
+        configured_export_url,
     )
     .await
     .expect("export fallback sync should succeed");

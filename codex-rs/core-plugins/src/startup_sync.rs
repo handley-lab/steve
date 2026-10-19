@@ -23,8 +23,6 @@ mod http_client;
 const GITHUB_API_BASE_URL: &str = "https://api.github.com";
 const GITHUB_API_ACCEPT_HEADER: &str = "application/vnd.github+json";
 const GITHUB_API_VERSION_HEADER: &str = "2022-11-28";
-const CURATED_PLUGINS_BACKUP_ARCHIVE_API_URL: &str =
-    "https://chatgpt.com/backend-api/plugins/export/curated";
 const OPENAI_PLUGINS_OWNER: &str = "openai";
 const OPENAI_PLUGINS_REPO: &str = "plugins";
 pub(crate) const OPENAI_PLUGINS_GIT_URL: &str = "https://github.com/openai/plugins.git";
@@ -77,6 +75,7 @@ fn curated_plugins_sha_path(codex_home: &Path) -> PathBuf {
 pub fn sync_openai_plugins_repo(
     codex_home: &Path,
     http_client_factory: HttpClientFactory,
+    backup_archive_api_url: Option<&str>,
 ) -> Result<String, String> {
     // Keep Git-only egress working without trusting workspace PATH entries.
     let git_binary = codex_utils_path::system_executable("git");
@@ -88,7 +87,7 @@ pub fn sync_openai_plugins_repo(
         codex_home,
         git_binary.as_deref(),
         GITHUB_API_BASE_URL,
-        CURATED_PLUGINS_BACKUP_ARCHIVE_API_URL,
+        backup_archive_api_url,
         &http_client_factory,
     )
 }
@@ -97,7 +96,7 @@ fn sync_openai_plugins_repo_with_transport_overrides(
     codex_home: &Path,
     git_binary: Option<&Path>,
     api_base_url: &str,
-    backup_archive_api_url: &str,
+    backup_archive_api_url: Option<&str>,
     http_client_factory: &HttpClientFactory,
 ) -> Result<String, String> {
     let _file_guard = lock_curated_plugins_startup_sync(codex_home)?;
@@ -141,6 +140,12 @@ fn sync_openai_plugins_repo_with_transport_overrides(
                     } else {
                         // The export archive is a lagging backup path. Only use it to bootstrap a
                         // missing local curated snapshot, never to refresh an existing one.
+                        let Some(backup_archive_api_url) = backup_archive_api_url else {
+                            emit_curated_plugins_startup_sync_final_metric("http", "failure");
+                            return Err(format!(
+                                "git sync failed for curated plugin sync: {err}; GitHub HTTP sync failed for curated plugin sync: {http_err}; export archive fallback requires a configured backend"
+                            ));
+                        };
                         warn!(
                             error = %http_err,
                             backup_archive_api_url,

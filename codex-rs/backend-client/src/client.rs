@@ -541,6 +541,10 @@ impl Client {
         }
     }
 
+    pub fn curated_plugins_export_url(&self) -> String {
+        format!("{}/plugins/export/curated", self.base_url)
+    }
+
     /// Fetch authenticated Codex user settings from the active backend route.
     ///
     /// Uses `GET /api/codex/settings/user` for Codex API hosts and
@@ -1263,6 +1267,30 @@ mod tests {
             ],
             [Some("Bearer e30.e30.c2ln"), Some("workspace-123")]
         );
+    }
+
+    #[test]
+    fn curated_export_uses_the_configured_backend() {
+        for (base, expected) in [
+            (
+                "http://127.0.0.1:43123/local/",
+                "http://127.0.0.1:43123/local/plugins/export/curated",
+            ),
+            (
+                "https://chatgpt.com",
+                "https://chatgpt.com/backend-api/plugins/export/curated",
+            ),
+            (
+                "https://backend.example/backend-api/",
+                "https://backend.example/backend-api/plugins/export/curated",
+            ),
+        ] {
+            let client = Client::new(
+                base,
+                HttpClientFactory::new(codex_http_client::OutboundProxyPolicy::ReqwestDefault),
+            );
+            assert_eq!(client.curated_plugins_export_url(), expected);
+        }
     }
 
     fn test_client(base_url: &str, path_style: PathStyle) -> Client {

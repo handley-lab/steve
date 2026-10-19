@@ -17,6 +17,7 @@ codex-utils-process = { workspace = true }
 anyhow = { workspace = true }
 codex-analytics = { workspace = true }
 codex-app-server-protocol = { workspace = true }
+codex-backend-client = { workspace = true }
 codex-config = { workspace = true }
 codex-connectors = { workspace = true }
 codex-core-plugin-common = { workspace = true }
