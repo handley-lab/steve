@@ -3763,10 +3763,12 @@ version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
  "codex-api",
+ "codex-config",
  "codex-core",
  "codex-exec-server",
  "codex-extension-api",
  "codex-extension-items",
+ "codex-features",
  "codex-http-client",
  "codex-login",
  "codex-model-provider",
@@ -3781,6 +3783,7 @@ dependencies = [
  "schemars 0.8.22",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
 ]
