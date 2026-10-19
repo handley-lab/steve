@@ -207,6 +207,7 @@ impl PluginsConfigInput {
         });
         RemotePluginServiceConfig {
             chatgpt_base_url: self.chatgpt_base_url.clone(),
+            archive_origins: self.plugins.archive_origins.clone(),
             product_sku: self
                 .product_sku
                 .clone()
@@ -776,6 +777,7 @@ impl PluginsManager {
                     )
                     .curated_plugins_export_url()
                 }),
+                config.plugins.archive_origins.clone(),
                 on_effective_plugins_changed,
             );
         }
@@ -3309,6 +3311,7 @@ impl PluginsManager {
         self: &Arc<Self>,
         http_client_factory: HttpClientFactory,
         backup_archive_api_url: Option<String>,
+        archive_origins: Vec<String>,
         on_effective_plugins_changed: Option<EffectivePluginsChangedCallback>,
     ) {
         if CURATED_REPO_SYNC_STARTED.swap(true, Ordering::SeqCst) {
@@ -3336,6 +3339,7 @@ impl PluginsManager {
                     codex_home.as_path(),
                     http_client_factory,
                     backup_archive_api_url.as_deref(),
+                    &archive_origins,
                 ) {
                     Ok(curated_plugin_version) => {
                         let configured_curated_plugin_ids =

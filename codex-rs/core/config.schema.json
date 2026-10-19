@@ -3778,6 +3778,13 @@
             }
           ],
           "description": "Defaults for installed plugin activation. Omission preserves source enablement. Explicit plugin enablement settings override this default, but cannot enable an installation disabled by its source."
+        },
+        "archive_origins": {
+          "description": "Additional HTTP(S) origins permitted for plugin archive downloads.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "type": "object"

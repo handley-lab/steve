@@ -534,10 +534,12 @@ async fn canceled_waiters_do_not_retry_a_failed_preparation() -> Result<()> {
     if !isolated_bundle_test("canceled_waiters_do_not_retry_a_failed_preparation")? {
         return Ok(());
     }
-    let f = Arc::new(Fixture::new().await?);
+    let mut f = Fixture::new().await?;
     let (target, _, _) = target(f.executor.path(), "1.0.0").await?;
     let target = Arc::new(target);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    f.config.plugins.archive_origins = vec![format!("http://{}", listener.local_addr()?)];
+    let f = Arc::new(f);
     let mut plugin = installed(&f.server, "1.0.0");
     plugin["release"]["bundle_download_url"] =
         json!(format!("http://{}/bundle", listener.local_addr()?));
@@ -697,9 +699,11 @@ async fn dropping_the_cache_cancels_an_unused_download() -> Result<()> {
     if !isolated_bundle_test("dropping_the_cache_cancels_an_unused_download")? {
         return Ok(());
     }
-    let f = Arc::new(Fixture::new().await?);
+    let mut f = Fixture::new().await?;
     let (target, _, _) = target(f.executor.path(), "1.0.0").await?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    f.config.plugins.archive_origins = vec![format!("http://{}", listener.local_addr()?)];
+    let f = Arc::new(f);
     let mut plugin = installed(&f.server, "1.0.0");
     plugin["release"]["bundle_download_url"] =
         json!(format!("http://{}/bundle", listener.local_addr()?));

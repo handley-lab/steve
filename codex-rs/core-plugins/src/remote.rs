@@ -147,6 +147,7 @@ const REMOTE_INSTALLED_MARKETPLACE_DISPLAY_ORDER: [(&str, &str); 6] = [
 #[derive(Debug, Clone)]
 pub struct RemotePluginServiceConfig {
     pub chatgpt_base_url: String,
+    pub archive_origins: Vec<String>,
     pub(crate) product_sku: String,
     pub(crate) http_clients: Arc<dyn HttpClientSelector>,
 }
@@ -168,6 +169,7 @@ impl RemotePluginServiceConfig {
             );
         Self {
             chatgpt_base_url,
+            archive_origins: Vec::new(),
             product_sku: product_sku.unwrap_or_else(|| CODEX_PRODUCT_SKU.to_string()),
             http_clients: Arc::new(http_clients),
         }
@@ -183,6 +185,7 @@ impl RemotePluginServiceConfig {
 impl PartialEq for RemotePluginServiceConfig {
     fn eq(&self, other: &Self) -> bool {
         self.chatgpt_base_url == other.chatgpt_base_url
+            && self.archive_origins == other.archive_origins
             && self.product_sku == other.product_sku
             && self.http_clients.outbound_proxy_policy()
                 == other.http_clients.outbound_proxy_policy()

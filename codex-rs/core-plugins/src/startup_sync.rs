@@ -4,11 +4,14 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::process::Output;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use self::http_client::StartupSyncHttpClient;
+use codex_http_client::ClientRouteClass;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::RequestBuilder;
+use codex_http_client::RouteAwareClientPool;
 use codex_login::default_client::default_headers;
 use codex_otel::CURATED_PLUGINS_STARTUP_SYNC_FINAL_METRIC;
 use codex_otel::CURATED_PLUGINS_STARTUP_SYNC_METRIC;
@@ -76,6 +79,7 @@ pub fn sync_openai_plugins_repo(
     codex_home: &Path,
     http_client_factory: HttpClientFactory,
     backup_archive_api_url: Option<&str>,
+    archive_origins: &[String],
 ) -> Result<String, String> {
     // Keep Git-only egress working without trusting workspace PATH entries.
     let git_binary = codex_utils_path::system_executable("git");
@@ -89,6 +93,7 @@ pub fn sync_openai_plugins_repo(
         GITHUB_API_BASE_URL,
         backup_archive_api_url,
         &http_client_factory,
+        archive_origins,
     )
 }
 
@@ -98,6 +103,7 @@ fn sync_openai_plugins_repo_with_transport_overrides(
     api_base_url: &str,
     backup_archive_api_url: Option<&str>,
     http_client_factory: &HttpClientFactory,
+    archive_origins: &[String],
 ) -> Result<String, String> {
     let _file_guard = lock_curated_plugins_startup_sync(codex_home)?;
 
@@ -155,6 +161,7 @@ fn sync_openai_plugins_repo_with_transport_overrides(
                             codex_home,
                             backup_archive_api_url,
                             http_client_factory,
+                            archive_origins,
                         );
                         let status = if result.is_ok() { "success" } else { "failure" };
                         emit_curated_plugins_startup_sync_metric("export_archive", status);
@@ -346,6 +353,7 @@ fn sync_openai_plugins_repo_via_backup_archive(
     codex_home: &Path,
     backup_archive_api_url: &str,
     http_client_factory: &HttpClientFactory,
+    archive_origins: &[String],
 ) -> Result<String, String> {
     let repo_path = curated_plugins_repo_path(codex_home);
     let sha_path = curated_plugins_sha_path(codex_home);
@@ -354,10 +362,17 @@ fn sync_openai_plugins_repo_via_backup_archive(
         .build()
         .map_err(|err| format!("failed to create curated plugins sync runtime: {err}"))?;
     let staged_repo_dir = prepare_curated_repo_parent_and_temp_dir(&repo_path)?;
-    let http_clients = StartupSyncHttpClient::new(http_client_factory);
+    let http_clients = StartupSyncHttpClient::route_aware(Arc::new(
+        RouteAwareClientPool::with_chatgpt_cloudflare_cookies_without_redirects_or_request_logging(
+            http_client_factory.clone(),
+            ClientRouteClass::Api,
+        )
+        .with_legacy_custom_ca_fallback(),
+    ));
     let zipball_bytes = runtime.block_on(fetch_curated_repo_backup_archive_zip(
         &http_clients,
         backup_archive_api_url,
+        archive_origins,
     ))?;
     extract_zipball_to_dir(&zipball_bytes, staged_repo_dir.path())?;
     ensure_marketplace_manifest_exists(staged_repo_dir.path())?;
@@ -806,6 +821,7 @@ async fn fetch_curated_repo_zipball(
 async fn fetch_curated_repo_backup_archive_zip(
     http_clients: &StartupSyncHttpClient,
     backup_archive_api_url: &str,
+    archive_origins: &[String],
 ) -> Result<Vec<u8>, String> {
     let export_body = fetch_public_text(
         http_clients,
@@ -825,9 +841,14 @@ async fn fetch_curated_repo_backup_archive_zip(
         ));
     }
 
+    let download_url = crate::remote_bundle::validate_archive_download_url(
+        backup_archive_api_url,
+        &export_response.download_url,
+        archive_origins,
+    )?;
     fetch_public_bytes(
         http_clients,
-        &export_response.download_url,
+        download_url.as_str(),
         "download curated plugins export archive",
     )
     .await

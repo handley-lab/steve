@@ -300,13 +300,60 @@ pub(crate) async fn download_remote_plugin_bundle(
     .await
 }
 
+pub(crate) fn validate_archive_download_url(
+    backend_url: &str,
+    download_url: &str,
+    archive_origins: &[String],
+) -> Result<Url, String> {
+    let url = Url::parse(download_url)
+        .map_err(|error| format!("invalid plugin archive download URL: {error}"))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("plugin archive download URL must use HTTP or HTTPS".into());
+    }
+    let mut origins = Vec::new();
+    for configured in archive_origins {
+        let configured = Url::parse(configured.trim())
+            .map_err(|error| format!("invalid plugins.archive_origins entry: {error}"))?;
+        if !matches!(configured.scheme(), "http" | "https")
+            || !configured.username().is_empty()
+            || configured.password().is_some()
+            || configured.path() != "/"
+            || configured.query().is_some()
+            || configured.fragment().is_some()
+        {
+            return Err("plugins.archive_origins must contain HTTP(S) origins without credentials, paths, queries or fragments".into());
+        }
+        origins.push(configured.origin());
+    }
+    if origins.contains(&url.origin()) {
+        return Ok(url);
+    }
+    if !backend_url.trim().is_empty() {
+        let backend = Url::parse(backend_url.trim())
+            .map_err(|error| format!("invalid configured plugin backend URL: {error}"))?;
+        if backend.origin() == url.origin() {
+            return Ok(url);
+        }
+    }
+    Err(format!(
+        "plugin archive origin {} is not configured; add it to plugins.archive_origins",
+        url.origin().ascii_serialization()
+    ))
+}
+
 async fn download_remote_plugin_bundle_with_limit(
     config: &RemotePluginServiceConfig,
     bundle_download_url: &str,
     max_bytes: u64,
 ) -> Result<Vec<u8>, RemotePluginBundleInstallError> {
+    let bundle_download_url = validate_archive_download_url(
+        &config.chatgpt_base_url,
+        bundle_download_url,
+        &config.archive_origins,
+    )
+    .map_err(RemotePluginBundleInstallError::InvalidBundle)?;
     let response = config
-        .http_request(Method::GET, bundle_download_url)
+        .http_request(Method::GET, bundle_download_url.as_str())
         .timeout(REMOTE_PLUGIN_BUNDLE_DOWNLOAD_TIMEOUT)
         .send()
         .await
@@ -316,8 +363,7 @@ async fn download_remote_plugin_bundle_with_limit(
         })?;
 
     let final_url = response.url().clone();
-    // The shared client has already followed redirects here. Reject an unsupported final scheme
-    // before caching a backend-issued bundle.
+    // Reject an unsupported response URL scheme before caching a backend-issued bundle.
     if !is_allowed_bundle_download_url(&final_url, allow_test_loopback_http_bundle_downloads()) {
         return Err(
             RemotePluginBundleInstallError::UnsupportedBundleDownloadFinalUrl {
@@ -807,6 +853,48 @@ mod tests {
             recorded_http_client_urls(&selected_urls),
             vec![download_url]
         );
+    }
+
+    #[tokio::test]
+    async fn bundle_download_requires_configured_origin_before_dispatch() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"bundle"))
+            .mount(&server)
+            .await;
+        let download_url = format!("{}/signed/plugin-bundle?sig=synthetic-secret", server.uri());
+        let (direct, _) = recording_remote_plugin_service_config(server.uri());
+        let control = download_remote_plugin_bundle_with_limit(&direct, &download_url, 64).await;
+        assert!(matches!(
+            control,
+            Err(RemotePluginBundleInstallError::UnsupportedBundleDownloadFinalUrl { .. })
+        ));
+        let (mut config, selected_urls) =
+            recording_remote_plugin_service_config("https://backend.example".into());
+        let error = download_remote_plugin_bundle_with_limit(&config, &download_url, 64)
+            .await
+            .expect_err("unconfigured recipient must fail before dispatch");
+        assert!(matches!(
+            error,
+            RemotePluginBundleInstallError::InvalidBundle(_)
+        ));
+        assert!(!error.to_string().contains("synthetic-secret"));
+        assert!(recorded_http_client_urls(&selected_urls).is_empty());
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+
+        // A separately configured archive origin needs no unrelated backend endpoint.
+        config.chatgpt_base_url.clear();
+        config.archive_origins = vec![server.uri()];
+        let result = download_remote_plugin_bundle_with_limit(&config, &download_url, 64).await;
+        assert!(matches!(
+            result,
+            Err(RemotePluginBundleInstallError::UnsupportedBundleDownloadFinalUrl { .. })
+        ));
+        assert_eq!(
+            recorded_http_client_urls(&selected_urls),
+            vec![download_url]
+        );
+        assert_eq!(server.received_requests().await.unwrap().len(), 2);
     }
 
     #[test]

@@ -363,6 +363,7 @@ pub(crate) fn recording_remote_plugin_service_config(
     (
         RemotePluginServiceConfig {
             chatgpt_base_url,
+            archive_origins: Vec::new(),
             product_sku: crate::remote::CODEX_PRODUCT_SKU.to_string(),
             http_clients,
         },

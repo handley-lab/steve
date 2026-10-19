@@ -1058,6 +1058,10 @@ pub struct PluginsDefaultConfig {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct PluginsConfigToml {
+    /// Additional HTTP(S) origins permitted for plugin archive downloads.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub archive_origins: Vec<String>,
+
     /// Defaults for installed plugin activation. Omission preserves source enablement.
     /// Explicit plugin enablement settings override this default, but cannot enable
     /// an installation disabled by its source.

@@ -35,6 +35,7 @@ fn pretrust_startup_sync_uses_installed_git_with_hostile_path() {
             Path::new(&home),
             crate::test_support::test_http_client_factory(),
             None,
+            &[],
         )
         .expect("Git-only startup sync should succeed");
         return;
@@ -184,9 +185,13 @@ async fn backup_archive_routes_metadata_and_backend_supplied_download_urls() {
     let (http_clients, selected_urls) = RecordingHttpClientSelector::new();
     let http_clients = StartupSyncHttpClient::route_aware(http_clients);
 
-    let body = fetch_curated_repo_backup_archive_zip(&http_clients, &metadata_url)
-        .await
-        .expect("backup archive download should succeed");
+    let body = fetch_curated_repo_backup_archive_zip(
+        &http_clients,
+        &metadata_url,
+        &[download_server.uri()],
+    )
+    .await
+    .expect("backup archive download should succeed");
 
     assert_eq!(body, b"archive");
     let controller = codex_http_client::NetworkPolicyController::default();
@@ -202,6 +207,148 @@ async fn backup_archive_routes_metadata_and_backend_supplied_download_urls() {
     assert_eq!(
         recorded_http_client_urls(&selected_urls),
         vec![metadata_url, download_url]
+    );
+}
+
+#[derive(Clone, Copy, Debug)]
+enum CuratedArchiveDestination {
+    ReturnedUrl,
+    ConfiguredReturnedUrl,
+    InvalidConfiguredOrigin,
+    MetadataRedirect,
+    ArchiveRedirect,
+}
+
+#[tokio::test]
+async fn curated_archive_rejects_unconfigured_returned_origin() {
+    assert_curated_archive_destination(CuratedArchiveDestination::ReturnedUrl).await;
+}
+
+#[tokio::test]
+async fn curated_archive_accepts_configured_returned_origin() {
+    assert_curated_archive_destination(CuratedArchiveDestination::ConfiguredReturnedUrl).await;
+}
+
+#[tokio::test]
+async fn curated_archive_rejects_malformed_origin_configuration() {
+    assert_curated_archive_destination(CuratedArchiveDestination::InvalidConfiguredOrigin).await;
+}
+
+#[tokio::test]
+async fn curated_archive_rejects_metadata_redirect() {
+    assert_curated_archive_destination(CuratedArchiveDestination::MetadataRedirect).await;
+}
+
+#[tokio::test]
+async fn curated_archive_rejects_archive_redirect() {
+    assert_curated_archive_destination(CuratedArchiveDestination::ArchiveRedirect).await;
+}
+
+async fn assert_curated_archive_destination(stage: CuratedArchiveDestination) {
+    let source = MockServer::start().await;
+    let target = MockServer::start().await;
+    let export_sha = "1111111111111111111111111111111111111111";
+    let target_metadata =
+        mount_export_archive(&target, curated_repo_backup_archive_zip_bytes(export_sha)).await;
+    let control_home = tempdir().unwrap();
+    let control_path = control_home.path().to_path_buf();
+    let control = tokio::task::spawn_blocking(move || {
+        sync_openai_plugins_repo_via_backup_archive(
+            &control_path,
+            &target_metadata,
+            &crate::test_support::test_http_client_factory(),
+            &[],
+        )
+    })
+    .await
+    .unwrap();
+    assert_eq!(control.unwrap(), export_sha);
+
+    let target_archive = format!("{}/files/curated-plugins.zip", target.uri());
+    let source_archive = format!("{}/files/curated-plugins.zip", source.uri());
+    let metadata_response = match stage {
+        CuratedArchiveDestination::ReturnedUrl
+        | CuratedArchiveDestination::ConfiguredReturnedUrl
+        | CuratedArchiveDestination::InvalidConfiguredOrigin => ResponseTemplate::new(200)
+            .set_body_json(serde_json::json!({"download_url": target_archive})),
+        CuratedArchiveDestination::MetadataRedirect => {
+            ResponseTemplate::new(307).insert_header("location", target_archive.clone())
+        }
+        CuratedArchiveDestination::ArchiveRedirect => ResponseTemplate::new(200)
+            .set_body_json(serde_json::json!({"download_url": source_archive})),
+    };
+    Mock::given(method("GET"))
+        .and(path("/backend-api/plugins/export/curated"))
+        .respond_with(metadata_response)
+        .mount(&source)
+        .await;
+    if matches!(stage, CuratedArchiveDestination::ArchiveRedirect) {
+        Mock::given(method("GET"))
+            .and(path("/files/curated-plugins.zip"))
+            .respond_with(ResponseTemplate::new(307).insert_header("location", target_archive))
+            .mount(&source)
+            .await;
+    }
+    let home = tempdir().unwrap();
+    let configured_origin = matches!(stage, CuratedArchiveDestination::ConfiguredReturnedUrl);
+    let invalid_origin = matches!(stage, CuratedArchiveDestination::InvalidConfiguredOrigin);
+    if configured_origin || invalid_origin {
+        let origin = if invalid_origin {
+            format!("{}/not-an-origin?token=synthetic-secret", target.uri())
+        } else {
+            target.uri()
+        };
+        std::fs::write(
+            home.path().join("config.toml"),
+            format!("[plugins]\narchive_origins = [\"{origin}\"]\n"),
+        )
+        .unwrap();
+    }
+    let input = crate::test_support::load_plugins_config(home.path(), home.path()).await;
+    let archive_origins = input.remote_plugin_service_config().archive_origins;
+    let home_path = home.path().to_path_buf();
+    let metadata_url = format!("{}/backend-api/plugins/export/curated", source.uri());
+    let result = tokio::task::spawn_blocking(move || {
+        sync_openai_plugins_repo_via_backup_archive(
+            &home_path,
+            &metadata_url,
+            &crate::test_support::test_http_client_factory(),
+            &archive_origins,
+        )
+    })
+    .await
+    .unwrap();
+    let source_requests = source.received_requests().await.unwrap();
+    let target_requests = target.received_requests().await.unwrap();
+    eprintln!(
+        "stage={stage:?}\nsource requests={source_requests:?}\ntarget requests={target_requests:?}\nresult={result:?}\nsnapshot activated={}",
+        curated_plugins_repo_path(home.path()).exists()
+    );
+    assert_eq!(
+        source_requests.len(),
+        if matches!(stage, CuratedArchiveDestination::ArchiveRedirect) {
+            2
+        } else {
+            1
+        }
+    );
+    assert_eq!(
+        target_requests.len(),
+        if configured_origin { 3 } else { 2 },
+        "only configured archive origins may receive downloads"
+    );
+    if configured_origin {
+        assert_eq!(result.unwrap(), export_sha);
+    } else {
+        let error = result.expect_err("unconfigured or redirected archive must fail");
+        if invalid_origin {
+            assert!(error.contains("plugins.archive_origins"));
+            assert!(!error.contains("synthetic-secret"));
+        }
+    }
+    assert_eq!(
+        curated_plugins_repo_path(home.path()).exists(),
+        configured_origin
     );
 }
 
@@ -596,6 +743,7 @@ async fn run_sync_with_transport_overrides(
             &api_base_url,
             Some(&backup_archive_api_url),
             &crate::test_support::test_http_client_factory(),
+            &[],
         )
     })
     .await
@@ -616,6 +764,7 @@ async fn run_sync_without_git(
             &api_base_url,
             Some(&backup_archive_api_url),
             &crate::test_support::test_http_client_factory(),
+            &[],
         )
     })
     .await
@@ -773,6 +922,7 @@ exit 1
                 "http://127.0.0.1:9",
                 Some("http://127.0.0.1:9/backend-api/plugins/export/curated"),
                 &crate::test_support::test_http_client_factory(),
+                &[],
             )
         };
         let first = scope.spawn(run_sync);
@@ -1291,6 +1441,7 @@ async fn sync_without_configured_backend_keeps_public_repository_acquisition() {
                 &api_base,
                 None,
                 &crate::test_support::test_http_client_factory(),
+                &[],
             )
         })
         .await
