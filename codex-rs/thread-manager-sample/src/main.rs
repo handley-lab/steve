@@ -229,7 +229,7 @@ async fn new_config(
             .as_ref(),
     )?;
     let model_provider_id = OPENAI_PROVIDER_ID.to_string();
-    let model_providers = built_in_model_providers(/*openai_base_url*/ None);
+    let model_providers = built_in_model_providers(bootstrap.config_toml.openai_base_url.clone());
     let model_provider = model_providers
         .get(&model_provider_id)
         .context("OpenAI model provider should be available")?
