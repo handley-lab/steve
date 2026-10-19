@@ -1,4 +1,4 @@
-//! Exercise Cloud credential isolation through the CLI using a synthetic login.
+//! Exercise Cloud credential isolation through the CLI using a supplied API key.
 
 use anyhow::Result;
 use predicates::str::contains;
@@ -11,81 +11,60 @@ use wiremock::matchers::header;
 use wiremock::matchers::path;
 
 #[tokio::test]
-async fn cloud_list_only_allows_trusted_credential_destinations() -> Result<()> {
-    let server = MockServer::start().await;
+async fn cloud_list_only_allows_configured_credential_destinations() -> Result<()> {
+    let configured = MockServer::start().await;
+    let other = MockServer::start().await;
     let codex_home = TempDir::new()?;
     std::fs::write(
         codex_home.path().join("config.toml"),
-        "cli_auth_credentials_store = 'file'\n",
+        format!(
+            "cli_auth_credentials_store = 'file'\nchatgpt_base_url = {:?}\n",
+            configured.uri()
+        ),
     )?;
-    std::fs::write(
-        codex_home.path().join("auth.json"),
-        serde_json::to_vec(&json!({
-            "auth_mode": "chatgpt",
-            "tokens": {
-                "id_token": "eyJhbGciOiJub25lIn0.e30.c2ln",
-                "access_token": "synthetic-cloud-access-token",
-                "refresh_token": "synthetic-cloud-refresh-token",
-                "account_id": "synthetic-cloud-account",
-            },
-            "last_refresh": chrono::Utc::now(),
-        }))?,
+    codex_login::login_with_api_key(
+        codex_home.path(),
+        "synthetic-cloud-api-key",
+        codex_login::AuthCredentialsStoreMode::File,
+        codex_login::AuthKeyringBackendKind::Direct,
     )?;
+    Mock::given(path("/api/codex/tasks/list"))
+        .and(header("authorization", "Bearer synthetic-cloud-api-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": []})))
+        .expect(1)
+        .mount(&configured)
+        .await;
 
     let command = || -> Result<assert_cmd::Command> {
         let mut command = assert_cmd::Command::new(codex_utils_cargo_bin::cargo_bin("steve")?);
         command
             .current_dir(codex_home.path())
             .env("STEVE_HOME", codex_home.path())
+            .env_remove("STEVE_API_KEY")
             .env_remove("STEVE_ACCESS_TOKEN")
             .env_remove("OPENAI_API_KEY")
             .env_remove("STEVE_CLOUD_TASKS_MODE")
+            .env_remove("STEVE_CLOUD_TASKS_BASE_URL")
             .env("NO_PROXY", "127.0.0.1,localhost")
             .env("no_proxy", "127.0.0.1,localhost")
             .timeout(std::time::Duration::from_secs(15));
         Ok(command)
     };
-    // Establish that the isolated profile has a usable ChatGPT login.
     command()?
-        .args(["login", "status"])
-        .assert()
-        .success()
-        .stderr(contains("Logged in using ChatGPT"));
-
-    let output = command()?
-        .env(
-            "STEVE_CLOUD_TASKS_BASE_URL",
-            format!("{}/backend-api", server.uri()),
-        )
+        .env("STEVE_CLOUD_TASKS_BASE_URL", other.uri())
         .args(["cloud", "list", "--limit", "1", "--json"])
         .assert()
         .failure()
-        .get_output()
-        .stderr
-        .clone();
-    insta::assert_snapshot!(String::from_utf8(output)?, @"Error: STEVE_CLOUD_TASKS_BASE_URL must use a trusted HTTPS origin on port 443, without user information, a query, or a fragment; custom backends cannot use saved ChatGPT credentials");
-    assert!(server.received_requests().await.unwrap().is_empty());
+        .stderr(contains("must retain the configured backend origin"));
+    assert!(other.received_requests().await.unwrap().is_empty());
+    assert!(configured.received_requests().await.unwrap().is_empty());
 
-    // Staging must reach explicit PAT authentication. Reject the synthetic PAT locally so
-    // this test never sends a request to the real staging backend.
-    let auth_server = MockServer::start().await;
-    Mock::given(path("/v1/user-auth-credential/whoami"))
-        .and(header("authorization", "Bearer at-synthetic-cloud"))
-        .respond_with(ResponseTemplate::new(401))
-        .expect(1)
-        .mount(&auth_server)
-        .await;
+    // Positive control: configuration alone selects the local service and sends the key.
     command()?
-        .env(
-            "STEVE_CLOUD_TASKS_BASE_URL",
-            "https://chatgpt-staging.com/backend-api",
-        )
-        .env("STEVE_ACCESS_TOKEN", "at-synthetic-cloud")
-        .env("STEVE_AUTHAPI_BASE_URL", auth_server.uri())
         .args(["cloud", "list", "--limit", "1", "--json"])
         .assert()
-        .failure()
-        .stderr(contains("Not signed in. Please run 'steve login'"));
-    auth_server.verify().await;
+        .success();
+    configured.verify().await;
+    assert!(other.received_requests().await.unwrap().is_empty());
     Ok(())
 }

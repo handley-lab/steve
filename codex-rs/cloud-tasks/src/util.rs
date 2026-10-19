@@ -41,12 +41,12 @@ pub fn normalize_base_url(input: &str) -> String {
     base_url
 }
 
-/// Validate the destination before loading saved ChatGPT credentials, including in mock mode:
+/// Validate the configured destination before loading credentials, including in mock mode:
 /// environment discovery still makes authenticated HTTP requests when the task backend is mocked.
-pub(crate) fn validate_chatgpt_base_url(input: &str) -> anyhow::Result<String> {
+pub(crate) fn validate_backend_base_url(input: &str) -> anyhow::Result<String> {
     let invalid_url = || {
         anyhow::anyhow!(
-            "STEVE_CLOUD_TASKS_BASE_URL must use a trusted HTTPS origin on port 443, without user information, a query, or a fragment; custom backends cannot use saved ChatGPT credentials"
+            "STEVE_CLOUD_TASKS_BASE_URL must be an HTTP(S) base URL without user information, a query, or a fragment"
         )
     };
     let uri = input.parse::<http::Uri>().map_err(|_| invalid_url())?;
@@ -55,30 +55,35 @@ pub(crate) fn validate_chatgpt_base_url(input: &str) -> anyhow::Result<String> {
         .ok_or_else(invalid_url)?
         .as_str()
         .to_ascii_lowercase();
-    if uri.scheme_str() != Some("https")
-        || !matches!(
-            authority.as_str(),
-            "chatgpt.com"
-                | "chatgpt.com:443"
-                | "chat.openai.com"
-                | "chat.openai.com:443"
-                | "chatgpt-staging.com"
-                | "chatgpt-staging.com:443"
-        )
+    let scheme = uri.scheme_str().ok_or_else(invalid_url)?;
+    if !matches!(scheme, "http" | "https")
+        || authority.contains('@')
         || uri.query().is_some()
         || input.contains('#')
     {
         return Err(invalid_url());
     }
     Ok(normalize_base_url(&format!(
-        "https://{authority}{}",
+        "{scheme}://{authority}{}",
         uri.path()
     )))
 }
 
-pub async fn load_auth_manager(
-    chatgpt_base_url: Option<String>,
-) -> (Option<Arc<AuthManager>>, HttpClientFactory) {
+/// Select the cloud destination before credentials are loaded. An environment override
+/// may change the path, but must retain the operator-configured recipient.
+pub(crate) fn select_backend_base_url(
+    configured: &str,
+    override_url: Option<&str>,
+) -> anyhow::Result<String> {
+    let configured = validate_backend_base_url(configured)?;
+    let selected = validate_backend_base_url(override_url.unwrap_or(&configured))?;
+    if url::Url::parse(&configured)?.origin() != url::Url::parse(&selected)?.origin() {
+        anyhow::bail!("STEVE_CLOUD_TASKS_BASE_URL must retain the configured backend origin");
+    }
+    Ok(selected)
+}
+
+pub async fn load_auth_manager(base_url: &str) -> (Option<Arc<AuthManager>>, HttpClientFactory) {
     // TODO: pass in cli overrides once cloud tasks properly support them.
     let config = match Config::load_with_cli_overrides(Vec::new()).await {
         Ok(config) => config,
@@ -92,7 +97,7 @@ pub async fn load_auth_manager(
     };
     let http_client_factory = config.http_client_factory();
     let mut auth_config = config.auth_config();
-    auth_config.chatgpt_base_url = chatgpt_base_url.or(Some(config.chatgpt_base_url.clone()));
+    auth_config.chatgpt_base_url = Some(base_url.to_string());
     let auth_manager = match AuthManager::shared_from_auth_config(
         auth_config,
         /*enable_codex_api_key_env*/ false,
@@ -108,9 +113,9 @@ pub async fn load_auth_manager(
     (Some(auth_manager), http_client_factory)
 }
 
-/// Build headers for ChatGPT-backed requests: `User-Agent`, optional `Authorization`,
+/// Build headers for the configured backend: `User-Agent`, optional `Authorization`,
 /// and optional `ChatGPT-Account-Id`.
-pub async fn build_chatgpt_headers() -> HeaderMap {
+pub async fn build_backend_headers(base_url: &str) -> HeaderMap {
     use http::header::HeaderValue;
     use http::header::USER_AGENT;
 
@@ -121,9 +126,9 @@ pub async fn build_chatgpt_headers() -> HeaderMap {
         USER_AGENT,
         HeaderValue::from_str(&ua).unwrap_or(HeaderValue::from_static("codex-cli")),
     );
-    if let Some(am) = load_auth_manager(/*chatgpt_base_url*/ None).await.0
+    if let Some(am) = load_auth_manager(base_url).await.0
         && let Some(auth) = am.auth().await
-        && auth.uses_codex_backend()
+        && (auth.uses_codex_backend() || matches!(&auth, codex_login::CodexAuth::ApiKey(_)))
     {
         headers.extend(codex_model_provider::auth_provider_from_auth(&auth).to_auth_headers());
     }
@@ -174,6 +179,57 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::normalize_base_url;
+    use super::validate_backend_base_url;
+
+    #[test]
+    fn configured_backend_urls_preserve_destination_and_reject_ambiguous_bases() {
+        for (input, expected) in [
+            (
+                "http://127.0.0.1:8080/service/",
+                "http://127.0.0.1:8080/service",
+            ),
+            ("https://backend.example/", "https://backend.example"),
+            ("https://chatgpt.com/", "https://chatgpt.com/backend-api"),
+        ] {
+            assert_eq!(validate_backend_base_url(input).unwrap(), expected);
+        }
+        for input in [
+            "",
+            "/relative",
+            "ftp://backend.example/",
+            "https://user:password@backend.example/",
+            "https://backend.example/?query=value",
+            "https://backend.example/#fragment",
+        ] {
+            assert!(validate_backend_base_url(input).is_err(), "{input}");
+        }
+    }
+
+    #[test]
+    fn cloud_override_retains_configured_credential_recipient() {
+        use super::select_backend_base_url;
+        assert_eq!(
+            select_backend_base_url("http://localhost:8080/base", None).unwrap(),
+            "http://localhost:8080/base"
+        );
+        assert_eq!(
+            select_backend_base_url(
+                "https://backend.example/base",
+                Some("https://backend.example:443/tasks")
+            )
+            .unwrap(),
+            "https://backend.example:443/tasks"
+        );
+        for (configured, selected) in [
+            ("", "https://backend.example"),
+            ("https://backend.example", "https://other.example"),
+            ("https://backend.example", "http://backend.example"),
+            ("http://localhost:8080", "http://localhost:8081"),
+            ("https://backend.example", ""),
+        ] {
+            assert!(select_backend_base_url(configured, Some(selected)).is_err());
+        }
+    }
 
     #[test]
     fn normalize_base_url_normalizes_urls() {

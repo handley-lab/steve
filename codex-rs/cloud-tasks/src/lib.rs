@@ -7,7 +7,6 @@ mod ui;
 pub(crate) mod util;
 pub use cli::Cli;
 
-use anyhow::Context;
 use anyhow::anyhow;
 use chrono::Utc;
 use codex_cloud_tasks_client::TaskStatus;
@@ -52,9 +51,13 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
         std::env::var("STEVE_CLOUD_TASKS_MODE").ok().as_deref(),
         Some("mock") | Some("MOCK")
     );
-    let base_url = std::env::var("STEVE_CLOUD_TASKS_BASE_URL")
-        .context("STEVE_CLOUD_TASKS_BASE_URL must be configured")?;
-    let base_url = util::validate_chatgpt_base_url(&base_url)?;
+    let config = codex_core::config::Config::load_with_cli_overrides(Vec::new()).await?;
+    let configured = config.chatgpt_base_url.as_str();
+    if configured.trim().is_empty() {
+        anyhow::bail!("chatgpt_base_url must be configured for cloud tasks");
+    }
+    let override_url = std::env::var("STEVE_CLOUD_TASKS_BASE_URL").ok();
+    let base_url = util::select_backend_base_url(configured, override_url.as_deref())?;
 
     set_user_agent_suffix(user_agent_suffix);
 
@@ -72,7 +75,7 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
     }
 
     let ua = get_codex_user_agent();
-    let (auth_manager, http_client_factory) = util::load_auth_manager(Some(base_url.clone())).await;
+    let (auth_manager, http_client_factory) = util::load_auth_manager(&base_url).await;
     let environment_http = RouteAwareClientPool::new_without_redirects_or_request_logging(
         http_client_factory.clone(),
         ClientRouteClass::Api,
@@ -93,9 +96,7 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
     let auth = match auth {
         Some(auth) => auth,
         None => {
-            eprintln!(
-                "Not signed in. Please run 'codex login' to sign in with ChatGPT, then re-run 'codex cloud'."
-            );
+            eprintln!("Cloud tasks require a supplied API key or backend token.");
             std::process::exit(1);
         }
     };
@@ -104,10 +105,8 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
         append_error_log(format!("auth: mode=ChatGPT account_id={acc}"));
     }
 
-    if !auth.uses_codex_backend() {
-        eprintln!(
-            "Not signed in. Please run 'codex login' to sign in with ChatGPT, then re-run 'codex cloud'."
-        );
+    if !auth.uses_codex_backend() && !matches!(&auth, codex_login::CodexAuth::ApiKey(_)) {
+        eprintln!("Cloud tasks require API-key or backend-token authentication.");
         std::process::exit(1);
     }
 
@@ -207,7 +206,7 @@ async fn resolve_environment_id(ctx: &BackendContext, requested: &str) -> anyhow
         return Err(anyhow!("environment id must not be empty"));
     }
     let normalized = util::normalize_base_url(&ctx.base_url);
-    let headers = util::build_chatgpt_headers().await;
+    let headers = util::build_backend_headers(&ctx.base_url).await;
     let environments =
         crate::env_detect::list_environments(&ctx.environment_http, &normalized, &headers).await?;
     if environments.is_empty() {
@@ -870,8 +869,8 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
         let environment_http = environment_http.clone();
         tokio::spawn(async move {
             let base_url = util::normalize_base_url(&base_url);
-            // Build headers: UA + ChatGPT auth if available
-            let headers = util::build_chatgpt_headers().await;
+            // Build headers for the configured backend.
+            let headers = util::build_backend_headers(&base_url).await;
 
             // Run autodetect. If it fails, we keep using "All".
             let res = crate::env_detect::autodetect_environment_id(
@@ -2031,7 +2030,7 @@ fn spawn_environment_load(
 ) {
     tokio::spawn(async move {
         let base_url = util::normalize_base_url(&base_url);
-        let headers = util::build_chatgpt_headers().await;
+        let headers = util::build_backend_headers(&base_url).await;
         let result = crate::env_detect::list_environments(&http, &base_url, &headers).await;
         let _ = tx.send(app::AppEvent::EnvironmentsLoaded(result));
     });
@@ -2167,7 +2166,7 @@ mod tests {
                 assert_eq!(result.unwrap().base_url, "https://chatgpt.com/backend-api");
             } else {
                 let error = result.err().expect("missing destination must fail");
-                assert!(error.to_string().contains("STEVE_CLOUD_TASKS_BASE_URL"));
+                assert!(error.to_string().contains("configured"));
             }
             return;
         }
@@ -2176,8 +2175,18 @@ mod tests {
             ("blank", Some("")),
             ("configured", Some("https://chatgpt.com/backend-api")),
         ] {
+            let home = tempfile::tempdir().unwrap();
+            if case == "configured" {
+                std::fs::write(
+                    home.path().join("config.toml"),
+                    "chatgpt_base_url = 'https://chatgpt.com/backend-api'\n",
+                )
+                .unwrap();
+            }
             let mut command = std::process::Command::new(std::env::current_exe().unwrap());
             command
+                .current_dir(home.path())
+                .env("STEVE_HOME", home.path())
                 .args(["--exact", "tests::backend_requires_a_supplied_destination"])
                 .env("STEVE_CLOUD_TASKS_ENDPOINT_TEST", case)
                 .env("STEVE_CLOUD_TASKS_MODE", "mock")
@@ -2193,6 +2202,101 @@ mod tests {
                 String::from_utf8_lossy(&output.stderr)
             );
         }
+    }
+
+    #[tokio::test]
+    async fn configured_local_backend_uses_supplied_api_key() {
+        if std::env::var_os("STEVE_CLOUD_TASKS_LOCAL_TEST").is_some() {
+            let context = init_backend("local_backend_test")
+                .await
+                .expect("configured local backend");
+            let page = context.backend.list_tasks(None, None, None).await.unwrap();
+            assert!(page.tasks.is_empty());
+            assert_eq!(
+                resolve_environment_id(&context, "local").await.unwrap(),
+                "local"
+            );
+            return;
+        }
+        use codex_cloud_tasks_client::CloudBackend;
+        use wiremock::Mock;
+        use wiremock::MockServer;
+        use wiremock::ResponseTemplate;
+        use wiremock::matchers::header;
+        use wiremock::matchers::path;
+
+        let server = MockServer::start().await;
+        let key = "synthetic-local-cloud-key";
+        Mock::given(path("/api/codex/tasks/list"))
+            .and(header("authorization", format!("Bearer {key}")))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"items": []})),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(path("/api/codex/environments"))
+            .and(header("authorization", format!("Bearer {key}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                {"id": "local", "label": "Local backend"}
+            ])))
+            .mount(&server)
+            .await;
+        let auth = codex_login::CodexAuth::from_api_key(key);
+        let direct = codex_cloud_tasks_client::HttpClient::new(
+            server.uri(),
+            HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+        )
+        .with_auth_provider(codex_model_provider::auth_provider_from_auth(&auth));
+        assert!(
+            direct
+                .list_tasks(None, None, None)
+                .await
+                .unwrap()
+                .tasks
+                .is_empty()
+        );
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        let home = tempfile::tempdir().unwrap();
+        codex_login::login_with_api_key(
+            home.path(),
+            key,
+            codex_login::AuthCredentialsStoreMode::File,
+            codex_login::AuthKeyringBackendKind::Direct,
+        )
+        .unwrap();
+        std::fs::write(
+            home.path().join("config.toml"),
+            format!("chatgpt_base_url = {:?}\n", server.uri()),
+        )
+        .unwrap();
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "tests::configured_local_backend_uses_supplied_api_key",
+                "--nocapture",
+            ])
+            .current_dir(home.path())
+            .env("STEVE_HOME", home.path())
+            .env_remove("STEVE_CLOUD_TASKS_BASE_URL")
+            .env("STEVE_CLOUD_TASKS_LOCAL_TEST", "1")
+            .env_remove("STEVE_CLOUD_TASKS_MODE")
+            .env_remove("STEVE_API_KEY")
+            .env_remove("STEVE_ACCESS_TOKEN")
+            .env_remove("OPENAI_API_KEY");
+        let output = tokio::task::spawn_blocking(move || command.output())
+            .await
+            .unwrap()
+            .unwrap();
+        let requests = server.received_requests().await.unwrap();
+        assert!(
+            output.status.success(),
+            "configured {}: {}{}; requests={requests:?}",
+            server.uri(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(requests.len(), 3);
     }
 
     struct StubGitInfo {

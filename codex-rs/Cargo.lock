@@ -2695,12 +2695,15 @@ dependencies = [
  "serde",
  "serde_json",
  "supports-color 3.0.2",
+ "tempfile",
  "tokio",
  "tokio-stream",
  "tracing",
  "tracing-subscriber",
  "unicode-segmentation",
  "unicode-width 0.2.1",
+ "url",
+ "wiremock",
 ]
 
 [[package]]
