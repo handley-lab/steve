@@ -142,6 +142,12 @@ pub(super) async fn verified_record_from_jwt(
     auth_route_config: &AuthRouteConfig,
 ) -> std::io::Result<AgentIdentityAuthRecord> {
     AgentIdentityAuthRecord::from_agent_identity_jwt(jwt)?;
+    let issuer =
+        agent_identity_endpoint_override("STEVE_AGENT_IDENTITY_JWT_ISSUER").ok_or_else(|| {
+            std::io::Error::other(
+                "Agent Identity verification requires STEVE_AGENT_IDENTITY_JWT_ISSUER",
+            )
+        })?;
     let jwks_base_url = agent_identity_endpoint_override(CODEX_AGENT_IDENTITY_JWKS_BASE_URL_ENV_VAR)
         .or_else(|| chatgpt_base_url.filter(|base_url| !base_url.trim().is_empty()).map(str::to_owned))
         .ok_or_else(|| std::io::Error::other("Agent Identity verification requires STEVE_AGENT_IDENTITY_JWKS_BASE_URL or a configured backend"))?;
@@ -150,7 +156,8 @@ pub(super) async fn verified_record_from_jwt(
     let jwks = fetch_agent_identity_jwks(&client, &jwks_base_url)
         .await
         .map_err(std::io::Error::other)?;
-    let claims = decode_agent_identity_jwt(jwt, Some(&jwks)).map_err(std::io::Error::other)?;
+    let claims = decode_agent_identity_jwt(jwt, Some(&jwks), Some(&issuer))
+        .map_err(std::io::Error::other)?;
     Ok(claims.into())
 }
 

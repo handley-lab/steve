@@ -131,7 +131,7 @@ where
 impl AgentIdentityAuthRecord {
     pub(crate) fn from_agent_identity_jwt(jwt: &str) -> std::io::Result<Self> {
         let claims =
-            decode_agent_identity_jwt(jwt, /*jwks*/ None).map_err(std::io::Error::other)?;
+            decode_agent_identity_jwt(jwt, /*jwks*/ None, /*issuer*/ None).map_err(std::io::Error::other)?;
 
         Ok(claims.into())
     }

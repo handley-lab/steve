@@ -37,7 +37,6 @@ use sha2::Sha512;
 const AGENT_TASK_REGISTRATION_TIMEOUT: Duration = Duration::from_secs(30);
 const AGENT_IDENTITY_JWKS_TIMEOUT: Duration = Duration::from_secs(10);
 const AGENT_IDENTITY_JWT_AUDIENCE: &str = "codex-app-server";
-const AGENT_IDENTITY_JWT_ISSUER: &str = "https://chatgpt.com/codex-backend/agent-identity";
 const AGENT_IDENTITY_KEY_SEED_BYTES: usize = 64;
 const AGENT_IDENTITY_KEY_DERIVATION_CONTEXT: &[u8] = b"codex-agent-identity-ed25519-v1";
 
@@ -199,6 +198,7 @@ pub async fn fetch_agent_identity_jwks(
 pub fn decode_agent_identity_jwt(
     jwt: &str,
     jwks: Option<&JwkSet>,
+    issuer: Option<&str>,
 ) -> Result<AgentIdentityJwtClaims> {
     let Some(jwks) = jwks else {
         return decode_agent_identity_jwt_payload(jwt);
@@ -214,7 +214,10 @@ pub fn decode_agent_identity_jwt(
     let decoding_key = DecodingKey::from_jwk(jwk).context("failed to build JWT decoding key")?;
     let mut validation = Validation::new(Algorithm::RS256);
     validation.set_audience(&[AGENT_IDENTITY_JWT_AUDIENCE]);
-    validation.set_issuer(&[AGENT_IDENTITY_JWT_ISSUER]);
+    let issuer = issuer
+        .filter(|issuer| !issuer.trim().is_empty())
+        .context("Agent Identity verification requires a configured issuer")?;
+    validation.set_issuer(&[issuer]);
     validation.required_spec_claims.insert("iss".to_string());
     validation.required_spec_claims.insert("aud".to_string());
     decode::<AgentIdentityJwtClaims>(jwt, &decoding_key, &validation)
@@ -437,6 +440,7 @@ fn signing_key_from_private_key_pkcs8_base64(private_key_pkcs8_base64: &str) -> 
 
 #[cfg(test)]
 mod tests {
+    const AGENT_IDENTITY_JWT_ISSUER: &str = "fixture-issuer";
     use base64::Engine as _;
     use ed25519_dalek::Signature;
     use ed25519_dalek::Verifier as _;
@@ -530,7 +534,8 @@ mod tests {
             "chatgpt_account_is_fedramp": false,
         }));
 
-        let claims = decode_agent_identity_jwt(&jwt, /*jwks*/ None).expect("JWT should decode");
+        let claims = decode_agent_identity_jwt(&jwt, /*jwks*/ None, /*issuer*/ None)
+            .expect("JWT should decode");
 
         assert_eq!(
             claims,
@@ -565,7 +570,8 @@ mod tests {
             "chatgpt_account_is_fedramp": false,
         }));
 
-        let claims = decode_agent_identity_jwt(&jwt, /*jwks*/ None).expect("JWT should decode");
+        let claims = decode_agent_identity_jwt(&jwt, /*jwks*/ None, /*issuer*/ None)
+            .expect("JWT should decode");
 
         assert_eq!(claims.email, None);
     }
@@ -586,7 +592,8 @@ mod tests {
             "chatgpt_account_is_fedramp": false,
         }));
 
-        let claims = decode_agent_identity_jwt(&jwt, /*jwks*/ None).expect("JWT should decode");
+        let claims = decode_agent_identity_jwt(&jwt, /*jwks*/ None, /*issuer*/ None)
+            .expect("JWT should decode");
 
         assert_eq!(claims.plan_type, AuthPlanType::Known(KnownPlan::Enterprise));
     }
@@ -640,9 +647,12 @@ mod tests {
             chatgpt_account_is_fedramp: false,
         };
         assert_eq!(
-            decode_agent_identity_jwt(&jwt, Some(&jwks)).expect("JWT should verify"),
+            decode_agent_identity_jwt(&jwt, Some(&jwks), Some(AGENT_IDENTITY_JWT_ISSUER))
+                .expect("JWT should verify"),
             expected_claims
         );
+        assert!(decode_agent_identity_jwt(&jwt, Some(&jwks), None).is_err());
+        assert!(decode_agent_identity_jwt(&jwt, Some(&jwks), Some("another-issuer")).is_err());
     }
 
     #[test]
@@ -668,7 +678,8 @@ mod tests {
         )
         .expect("JWT should encode");
 
-        decode_agent_identity_jwt(&jwt, Some(&jwks)).expect_err("JWT should not verify");
+        decode_agent_identity_jwt(&jwt, Some(&jwks), Some(AGENT_IDENTITY_JWT_ISSUER))
+            .expect_err("JWT should not verify");
     }
 
     #[test]
@@ -691,7 +702,8 @@ mod tests {
         )
         .expect("JWT should encode");
 
-        decode_agent_identity_jwt(&jwt, Some(&jwks)).expect_err("JWT should not verify");
+        decode_agent_identity_jwt(&jwt, Some(&jwks), Some(AGENT_IDENTITY_JWT_ISSUER))
+            .expect_err("JWT should not verify");
     }
 
     fn test_jwt_header(kid: &str) -> Header {
