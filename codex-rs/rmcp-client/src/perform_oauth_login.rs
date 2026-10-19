@@ -1169,7 +1169,15 @@ mod tests {
 
     #[tokio::test]
     async fn configured_client_preserves_exact_scopes_and_redirect_without_registration() {
-        for (scopes, expected_scope) in [(&[][..], None), (&["read"][..], Some("read"))] {
+        for (client_id, scopes, expected_scope) in [
+            ("eci-prd-pub-codex-123", &[][..], None),
+            ("eci-prd-pub-codex-123", &["read"][..], Some("read")),
+            (
+                "https://metadata.example/client.json",
+                &["read"][..],
+                Some("read"),
+            ),
+        ] {
             let (base_url, registration_requests) = spawn_oauth_metadata_server().await;
             let redirect_uri = "http://127.0.0.1:43123/callback/configured-client";
             let (auth_manager, metadata) = resolve_authorization_manager(
@@ -1191,7 +1199,7 @@ mod tests {
                 scopes,
                 redirect_uri,
                 "configured-client",
-                "eci-prd-pub-codex-123",
+                client_id,
                 /*client_secret*/ None,
                 OAuthLoginPurpose::Mcp,
             )
@@ -1209,10 +1217,7 @@ mod tests {
                 .into_owned()
                 .collect::<HashMap<String, String>>();
 
-            assert_eq!(
-                query.get("client_id").map(String::as_str),
-                Some("eci-prd-pub-codex-123")
-            );
+            assert_eq!(query.get("client_id").map(String::as_str), Some(client_id));
             assert_eq!(
                 query.get("redirect_uri").map(String::as_str),
                 Some(redirect_uri)

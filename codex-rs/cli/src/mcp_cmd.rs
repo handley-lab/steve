@@ -398,8 +398,8 @@ async fn run_add(config: &Config, add_args: AddArgs) -> Result<()> {
         }
     };
 
-    // DCR and CIMD register their callbacks during login; only an existing
-    // client ID has a redirect that must be persisted with the MCP server.
+    // Dynamic registration chooses callbacks at login; a configured client ID
+    // (including a metadata URL) persists its callback with the MCP server.
     let callback_url = oauth_client_id
         .as_ref()
         .map(|_| {
