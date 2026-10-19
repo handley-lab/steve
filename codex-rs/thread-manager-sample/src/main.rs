@@ -306,6 +306,7 @@ async fn new_config(
         tui_theme: None,
         tui_raw_output_mode: false,
         tui_pet: None,
+        tui_pet_asset_base_url: None,
         tui_pet_anchor: TuiPetAnchor::Composer,
         terminal_resize_reflow: TerminalResizeReflowConfig::default(),
         tui_keymap: TuiKeymap::default(),

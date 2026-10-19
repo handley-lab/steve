@@ -953,6 +953,9 @@ pub struct Tui {
     #[serde(default)]
     pub pet: Option<String>,
 
+    /// Base URL for downloading built-in pet assets when they are not cached.
+    pub pet_asset_base_url: Option<String>,
+
     /// Where the terminal pet should anchor vertically.
     ///
     /// Defaults to `composer`, which follows the current TUI composer viewport.

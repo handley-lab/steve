@@ -79,6 +79,7 @@ impl LocalSettings {
                 terminal_title: config.tui_terminal_title.clone(),
                 theme: config.tui_theme.clone(),
                 pet: config.tui_pet.clone(),
+                pet_asset_base_url: config.tui_pet_asset_base_url.clone(),
                 pet_anchor: config.tui_pet_anchor,
                 session_picker_view: Some(config.tui_session_picker_view),
                 agents_overview_grouping: config.tui_agents_overview_grouping,

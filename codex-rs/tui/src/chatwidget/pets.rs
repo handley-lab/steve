@@ -54,6 +54,7 @@ pub(super) fn start_configured_pet_load_if_needed(
 
     let codex_home = config.codex_home.clone();
     let animations_enabled = config.tui.animations;
+    let asset_base_url = config.tui.pet_asset_base_url.clone();
     let event_pet_id = pet_id.clone();
     spawn_pet_load(
         async move {
@@ -62,6 +63,7 @@ pub(super) fn start_configured_pet_load_if_needed(
                 codex_home,
                 frame_requester,
                 animations_enabled,
+                asset_base_url.as_deref(),
                 &pet_http_client,
             )
             .await
@@ -307,6 +309,7 @@ impl ChatWidget {
         let frame_requester = self.frame_requester.clone();
         let tx = self.app_event_tx.clone();
         let pet_http_client = self.pet_http_client.clone();
+        let asset_base_url = self.local_settings.tui.pet_asset_base_url.clone();
         spawn_pet_load(
             async move {
                 crate::pets::load_pet_with_assets(
@@ -314,6 +317,7 @@ impl ChatWidget {
                     codex_home,
                     frame_requester,
                     /*animations_enabled*/ false,
+                    asset_base_url.as_deref(),
                     &pet_http_client,
                 )
                 .await

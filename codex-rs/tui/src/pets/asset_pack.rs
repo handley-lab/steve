@@ -1,7 +1,7 @@
 //! Built-in pet asset acquisition and cache ownership.
 //!
 //! Unlike custom pets, built-in pets are not checked into the TUI package as
-//! local spritesheets. The TUI resolves them from the public Steve pets CDN on
+//! local spritesheets. The TUI resolves them from a configured asset source on
 //! first use, verifies that the downloaded file has the expected spritesheet
 //! geometry, and installs it into a versioned cache under STEVE_HOME.
 //!
@@ -26,7 +26,6 @@ use super::catalog;
 
 const PET_PACK_VERSION: &str = "v1";
 const PET_PACK_DIR: &str = "cache/tui-pets";
-const PET_CDN_BASE_URL: &str = "https://persistent.oaistatic.com/codex/pets/v1";
 const PET_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
 const PET_MAX_DOWNLOAD_BYTES: u64 = 4 * 1024 * 1024;
 
@@ -45,6 +44,7 @@ pub(crate) fn builtin_spritesheet_path(codex_home: &Path, file: &str) -> PathBuf
 pub(crate) async fn ensure_builtin_pet(
     codex_home: &Path,
     pet: catalog::BuiltinPet,
+    asset_base_url: Option<&str>,
     http_client: &RouteAwareClientPool,
 ) -> Result<()> {
     let destination = builtin_spritesheet_path(codex_home, pet.spritesheet_file);
@@ -58,7 +58,7 @@ pub(crate) async fn ensure_builtin_pet(
         return Ok(());
     }
 
-    let url = builtin_pet_url(pet)?;
+    let url = builtin_pet_url(pet, asset_base_url)?;
     let bytes = download_bytes_with_limit(http_client, &url, PET_MAX_DOWNLOAD_BYTES).await?;
     tokio::task::spawn_blocking(move || {
         let parent = destination
@@ -96,8 +96,11 @@ pub(crate) async fn ensure_builtin_pet(
     .context("join pet spritesheet install task")?
 }
 
-fn builtin_pet_url(pet: catalog::BuiltinPet) -> Result<String> {
-    let url = format!("{PET_CDN_BASE_URL}/{}", pet.spritesheet_file);
+fn builtin_pet_url(pet: catalog::BuiltinPet, asset_base_url: Option<&str>) -> Result<String> {
+    let base = asset_base_url
+        .filter(|base| !base.trim().is_empty())
+        .context("tui.pet_asset_base_url must be configured to download built-in pet assets")?;
+    let url = format!("{}/{}", base.trim_end_matches('/'), pet.spritesheet_file);
     validate_download_url(&url)?;
     Ok(url)
 }
@@ -156,7 +159,7 @@ fn install_downloaded_spritesheet(staging: &Path, destination: &Path) -> Result<
 
 fn validate_download_url(value: &str) -> Result<()> {
     let url = Url::parse(value).with_context(|| format!("parse pet asset download URL {value}"))?;
-    if url.scheme() != "https" {
+    if !matches!(url.scheme(), "http" | "https") {
         bail!("unsupported pet asset download URL scheme {}", url.scheme());
     }
     Ok(())
@@ -194,15 +197,105 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
-    fn builtin_pet_url_uses_public_cdn_path() {
+    fn builtin_pet_url_does_not_invent_asset_source() {
+        let pet = catalog::builtin_pet("dewey").unwrap();
+        for source in [None, Some(""), Some("  ")] {
+            let result = builtin_pet_url(pet, source);
+            eprintln!("unconfigured pet asset URL: {result:?}");
+            assert!(
+                result.is_err(),
+                "pet acquisition requires a configured source"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_pet_url_uses_configured_source() {
         let pet = catalog::builtin_pet("dewey").unwrap();
 
-        let url = builtin_pet_url(pet).unwrap();
+        let url = builtin_pet_url(pet, Some("https://assets.example/pets/v1/")).unwrap();
 
         assert_eq!(
             url,
-            "https://persistent.oaistatic.com/codex/pets/v1/dewey-spritesheet-v4.webp"
+            "https://assets.example/pets/v1/dewey-spritesheet-v4.webp"
         );
+    }
+
+    #[tokio::test]
+    async fn configured_source_preserves_downloads_cache_and_redirect_boundary() {
+        use wiremock::Mock;
+        use wiremock::MockServer;
+        use wiremock::ResponseTemplate;
+        use wiremock::matchers::method;
+        use wiremock::matchers::path;
+
+        let (chat, _tx, _rx, _op_rx) =
+            crate::chatwidget::tests::make_chatwidget_manual_with_sender().await;
+        let pet = catalog::builtin_pet("dewey").unwrap();
+        let fixture = tempfile::tempdir().unwrap();
+        let image_path = fixture.path().join("pet.webp");
+        catalog::write_test_spritesheet(&image_path);
+        let bytes = fs::read(image_path).unwrap();
+        let asset_path = format!("/assets/{}", pet.spritesheet_file);
+
+        for redirect in [false, true] {
+            let source = MockServer::start().await;
+            let other = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path(asset_path.as_str()))
+                .respond_with(ResponseTemplate::new(200).set_body_bytes(bytes.clone()))
+                .mount(&other)
+                .await;
+            let response = if redirect {
+                ResponseTemplate::new(307)
+                    .insert_header("Location", format!("{}{asset_path}", other.uri()))
+            } else {
+                ResponseTemplate::new(200).set_body_bytes(bytes.clone())
+            };
+            Mock::given(method("GET"))
+                .and(path(asset_path.as_str()))
+                .respond_with(response)
+                .mount(&source)
+                .await;
+            if redirect {
+                let control = chat
+                    .pet_http_client
+                    .get(format!("{}{asset_path}", other.uri()))
+                    .send()
+                    .await
+                    .unwrap()
+                    .bytes()
+                    .await
+                    .unwrap();
+                assert_eq!(control.as_ref(), bytes.as_slice());
+            }
+            let other_before = other.received_requests().await.unwrap().len();
+            let home = tempfile::tempdir().unwrap();
+            assert!(
+                ensure_builtin_pet(home.path(), pet, None, &chat.pet_http_client)
+                    .await
+                    .is_err()
+            );
+            assert!(source.received_requests().await.unwrap().is_empty());
+            let base_url = format!("{}/assets", source.uri());
+            let result =
+                ensure_builtin_pet(home.path(), pet, Some(&base_url), &chat.pet_http_client).await;
+            eprintln!("pet redirect={redirect}: result={result:?}");
+            assert_eq!(source.received_requests().await.unwrap().len(), 1);
+            assert_eq!(other.received_requests().await.unwrap().len(), other_before);
+            let destination = builtin_spritesheet_path(home.path(), pet.spritesheet_file);
+            if redirect {
+                assert!(result.is_err());
+                assert!(!destination.exists());
+            } else {
+                result.unwrap();
+                validate_cached_spritesheet(&destination).unwrap();
+                ensure_builtin_pet(home.path(), pet, None, &chat.pet_http_client)
+                    .await
+                    .unwrap();
+                assert_eq!(source.received_requests().await.unwrap().len(), 1);
+            }
+        }
     }
 
     #[test]

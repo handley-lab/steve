@@ -4989,6 +4989,10 @@
           "default": "composer",
           "description": "Where the terminal pet should anchor vertically.\n\nDefaults to `composer`, which follows the current TUI composer viewport."
         },
+        "pet_asset_base_url": {
+          "description": "Base URL for downloading built-in pet assets when they are not cached.",
+          "type": "string"
+        },
         "question_esc_back": {
           "default": true,
           "description": "Escape returns from async questions to the composer, preserving the answer draft.",

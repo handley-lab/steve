@@ -870,6 +870,9 @@ pub struct Config {
     /// Pet id preselected by the terminal pet picker.
     pub tui_pet: Option<String>,
 
+    /// Explicit source for uncached built-in pet assets.
+    pub tui_pet_asset_base_url: Option<String>,
+
     /// Vertical anchor used by terminal pet rendering.
     pub tui_pet_anchor: TuiPetAnchor,
 
@@ -4719,6 +4722,7 @@ impl Config {
             tui_terminal_title: cfg.tui.as_ref().and_then(|t| t.terminal_title.clone()),
             tui_theme: cfg.tui.as_ref().and_then(|t| t.theme.clone()),
             tui_pet: cfg.tui.as_ref().and_then(|t| t.pet.clone()),
+            tui_pet_asset_base_url: cfg.tui.as_ref().and_then(|t| t.pet_asset_base_url.clone()),
             tui_pet_anchor: cfg
                 .tui
                 .as_ref()

@@ -81,6 +81,7 @@ impl App {
         let codex_home = self.local_settings.codex_home.clone();
         let frame_requester = tui.frame_requester();
         let animations_enabled = self.local_settings.tui.animations;
+        let asset_base_url = self.local_settings.tui.pet_asset_base_url.clone();
         let tx = self.app_event_tx.clone();
         let pet_http_client = self.chat_widget.pet_http_client.clone();
         std::mem::drop(tokio::spawn(async move {
@@ -89,6 +90,7 @@ impl App {
                 codex_home,
                 frame_requester,
                 animations_enabled,
+                asset_base_url.as_deref(),
                 &pet_http_client,
             )
             .await
