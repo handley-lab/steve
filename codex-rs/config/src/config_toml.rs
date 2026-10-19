@@ -552,6 +552,10 @@ pub struct ConfigToml {
     #[serde(default)]
     pub desktop: Option<HashMap<String, JsonValue>>,
 
+    /// Explicit desktop update feed URL. Unset or blank disables its network probe.
+    /// Existing desktop bootstrap settings control appcast query parameters.
+    pub desktop_update_url: Option<String>,
+
     /// OTEL configuration.
     pub otel: Option<OtelConfigToml>,
 

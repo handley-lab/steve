@@ -1064,6 +1064,9 @@ pub struct Config {
     /// Additional configured origins permitted to receive backend-staged file contents.
     pub file_upload_origins: Vec<String>,
 
+    /// Optional explicitly configured desktop update feed.
+    pub desktop_update_url: Option<String>,
+
     /// Whether Codex-owned clients should respect host system proxy settings.
     pub respect_system_proxy: bool,
 
@@ -4590,6 +4593,7 @@ impl Config {
             model_verbosity: cfg.model_verbosity,
             chatgpt_base_url: cfg.chatgpt_base_url.unwrap_or_default(),
             file_upload_origins: cfg.file_upload_origins.unwrap_or_default(),
+            desktop_update_url: cfg.desktop_update_url,
             respect_system_proxy,
             apps_mcp_product_sku: cfg.apps_mcp_product_sku.clone(),
             responses_api_metadata: cfg.responses_api_metadata.unwrap_or_default(),

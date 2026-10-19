@@ -7050,6 +7050,10 @@
       "description": "Opaque desktop settings stored alongside the rest of config.toml.",
       "type": "object"
     },
+    "desktop_update_url": {
+      "description": "Explicit desktop update feed URL. Unset or blank disables its network probe. Existing desktop bootstrap settings control appcast query parameters.",
+      "type": "string"
+    },
     "developer_instructions": {
       "default": null,
       "description": "Developer instructions inserted as a `developer` role message.",

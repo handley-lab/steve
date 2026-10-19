@@ -356,6 +356,7 @@ async fn new_config(
         model_verbosity: None,
         chatgpt_base_url: auth_config.chatgpt_base_url.clone().unwrap_or_default(),
         file_upload_origins: Vec::new(),
+        desktop_update_url: None,
         respect_system_proxy,
         apps_mcp_product_sku: None,
         responses_api_metadata: BTreeMap::new(),
