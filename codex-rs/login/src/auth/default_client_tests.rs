@@ -355,6 +355,86 @@ fn test_macos() {
 }
 
 #[tokio::test]
+async fn private_backend_clients_do_not_delegate_requests() -> anyhow::Result<()> {
+    use codex_http_client::DestinationPolicy;
+    use codex_http_client::NetworkPolicyController;
+    use wiremock::Mock;
+    use wiremock::MockServer;
+    use wiremock::ResponseTemplate;
+    use wiremock::matchers::path;
+
+    let mut observations = Vec::new();
+    for (routed, managed) in [(false, false), (false, true), (true, false), (true, true)] {
+        let origin = MockServer::start().await;
+        let target = MockServer::start().await;
+        let destination = format!("{}/receive", target.uri());
+        Mock::given(path("/private"))
+            .respond_with(
+                ResponseTemplate::new(307).insert_header("location", destination.as_str()),
+            )
+            .mount(&origin)
+            .await;
+        Mock::given(path("/receive"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&target)
+            .await;
+        let controller = NetworkPolicyController::default();
+        let policy = controller.policy();
+        assert!(controller.publish(policy.revision(), DestinationPolicy::Unrestricted));
+        let mut factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
+        if managed {
+            factory = factory.with_network_policy(policy);
+        }
+        let endpoint = format!("{}/private", origin.uri());
+        let client = if routed {
+            create_client_for_route_without_request_logging_async(
+                factory,
+                endpoint.clone(),
+                ClientRouteClass::Api,
+            )
+            .await?
+        } else {
+            create_client_with_chatgpt_cookies(&factory)
+        };
+        let body = "synthetic-private-body";
+        let direct = client.post(&destination).body(body).send().await?;
+        assert!(direct.status().is_success());
+        let direct_requests = target.received_requests().await.unwrap();
+        assert_eq!(direct_requests.len(), 1);
+        assert_eq!(direct_requests[0].body, body.as_bytes());
+
+        let get = client
+            .get(&endpoint)
+            .header("ChatGPT-Account-Id", "synthetic-account")
+            .send()
+            .await?;
+        let post = client
+            .post(&endpoint)
+            .header("ChatGPT-Account-Id", "synthetic-account")
+            .body(body)
+            .send()
+            .await?;
+        assert_eq!(origin.received_requests().await.unwrap().len(), 2);
+        observations.push((
+            routed,
+            managed,
+            get.status(),
+            post.status(),
+            target.received_requests().await.unwrap(),
+        ));
+    }
+    assert!(
+        observations.iter().all(|(_, _, get, post, requests)| {
+            requests.len() == 1
+                && *get == http::StatusCode::TEMPORARY_REDIRECT
+                && *post == http::StatusCode::TEMPORARY_REDIRECT
+        }),
+        "routed, managed, GET status, POST status, target requests: {observations:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn auth_endpoint_client_does_not_follow_redirects() -> anyhow::Result<()> {
     use wiremock::Mock;
     use wiremock::MockServer;

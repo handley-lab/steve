@@ -222,6 +222,7 @@ pub fn create_client() -> HttpClient {
 pub fn create_client_with_chatgpt_cookies(http_client_factory: &HttpClientFactory) -> HttpClient {
     let builder = default_http_client_builder()
         .with_chatgpt_cookies(http_client_factory)
+        .without_redirects()
         .without_request_logging();
     if !http_client_factory.network_policy().is_managed() {
         return build_default_client(builder);
@@ -332,7 +333,7 @@ pub async fn create_client_for_route_async(
     .await
 }
 
-/// Builds a routed default client without request URL or response-header diagnostics.
+/// Builds a routed private-service client without redirects or request diagnostics.
 pub async fn create_client_for_route_without_request_logging_async(
     http_client_factory: HttpClientFactory,
     request_url: String,
@@ -342,7 +343,11 @@ pub async fn create_client_for_route_without_request_logging_async(
         http_client_factory,
         request_url,
         route_class,
-        || default_http_client_builder().without_request_logging(),
+        || {
+            default_http_client_builder()
+                .without_redirects()
+                .without_request_logging()
+        },
     )
     .await
 }
