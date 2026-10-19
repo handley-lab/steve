@@ -33,7 +33,6 @@ use codex_connectors::ConnectorRuntimeManager;
 use codex_connectors::ConnectorSnapshot;
 use codex_connectors::connector_runtime_context_key;
 use codex_login::CodexAuth;
-use codex_model_provider::CHATGPT_CODEX_BASE_URL;
 use codex_protocol::mcp::ClientMcpExtensions;
 use codex_protocol::mcp::McpServerInfo;
 use codex_protocol::mcp::Resource;
@@ -374,21 +373,11 @@ fn is_trusted_chatgpt_mcp_server(
         return false;
     }
 
-    if url::Url::parse(CHATGPT_CODEX_BASE_URL)
-        .ok()
-        .is_some_and(|chatgpt_url| server_url.origin() == chatgpt_url.origin())
-    {
-        return true;
-    }
-
     url::Url::parse(chatgpt_base_url)
         .ok()
-        .is_some_and(|staging_url| {
-            staging_url.scheme() == "https"
-                && staging_url.domain().is_some_and(|host| {
-                    host == "chatgpt-staging.com" || host.ends_with(".chatgpt-staging.com")
-                })
-                && server_url.origin() == staging_url.origin()
+        .is_some_and(|backend_url| {
+            matches!(backend_url.scheme(), "http" | "https")
+                && server_url.origin() == backend_url.origin()
         })
 }
 
