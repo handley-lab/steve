@@ -10,8 +10,13 @@ set -e
 
 # Default the work directory to WORKSPACE_ROOT_DIR if not provided.
 WORK_DIR="${WORKSPACE_ROOT_DIR:-$(pwd)}"
-# Default allowed domains - can be overridden with OPENAI_ALLOWED_DOMAINS env var
-OPENAI_ALLOWED_DOMAINS="${OPENAI_ALLOWED_DOMAINS:-api.openai.com}"
+# Require explicit allowed domains through OPENAI_ALLOWED_DOMAINS
+OPENAI_ALLOWED_DOMAINS="${OPENAI_ALLOWED_DOMAINS:-}"
+
+if [ -z "$OPENAI_ALLOWED_DOMAINS" ]; then
+  echo "Error: OPENAI_ALLOWED_DOMAINS is empty."
+  exit 1
+fi
 
 # Parse optional flag.
 if [ "$1" = "--work_dir" ]; then
@@ -44,12 +49,6 @@ fi
 # Check if WORK_DIR is set.
 if [ -z "$WORK_DIR" ]; then
   echo "Error: No work directory provided and WORKSPACE_ROOT_DIR is not set."
-  exit 1
-fi
-
-# Verify that OPENAI_ALLOWED_DOMAINS is not empty
-if [ -z "$OPENAI_ALLOWED_DOMAINS" ]; then
-  echo "Error: OPENAI_ALLOWED_DOMAINS is empty."
   exit 1
 fi
 
