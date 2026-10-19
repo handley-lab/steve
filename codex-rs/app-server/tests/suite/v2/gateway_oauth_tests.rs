@@ -270,7 +270,7 @@ async fn primary_account_is_required_before_gateway_login() -> Result<()> {
     .await??;
     assert_eq!(
         error.error.message,
-        "Sign in to your primary account before signing in to the gateway"
+        "Supply a primary provider token before signing in to the gateway"
     );
     assert!(oauth.received_requests().await.unwrap().is_empty());
     Ok(())
