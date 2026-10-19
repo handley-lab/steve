@@ -1733,11 +1733,12 @@ impl Session {
                 show_raw_agent_reasoning: config.show_raw_agent_reasoning,
                 exec_policy,
                 auth_manager: Arc::clone(&auth_manager),
-                openai_file_upload_client_pool: RouteAwareClientPool::new_without_request_logging(
-                    config.http_client_factory(),
-                    ClientRouteClass::Api,
-                )
-                .with_legacy_custom_ca_fallback(),
+                openai_file_upload_client_pool:
+                    RouteAwareClientPool::new_without_redirects_or_request_logging(
+                        config.http_client_factory(),
+                        ClientRouteClass::Api,
+                    )
+                    .with_legacy_custom_ca_fallback(),
                 session_telemetry,
                 models_manager: Arc::clone(&models_manager),
                 git_root_discovery,
