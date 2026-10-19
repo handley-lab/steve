@@ -1867,7 +1867,7 @@ class GetAccountParams(BaseModel):
         bool | None,
         Field(
             alias="refreshToken",
-            description="When `true`, requests a proactive token refresh before returning.\n\nIn managed auth mode this triggers the normal refresh-token flow. In external auth mode this flag is ignored. Clients should refresh tokens themselves and call `account/login/start` with `chatgptAuthTokens`.",
+            description="When `true`, reloads credentials and asks the configured external credential owner to refresh them before returning. Built-in account renewal is unavailable.\n\nFor client-supplied `chatgptAuthTokens`, this flag is ignored. Clients should supply replacement tokens through `account/login/start` instead.",
         ),
     ] = None
 
