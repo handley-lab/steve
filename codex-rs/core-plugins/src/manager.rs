@@ -750,7 +750,9 @@ impl PluginsManager {
     }
 
     fn remote_global_catalog_active(&self, config: &PluginsConfigInput) -> bool {
-        config.remote_plugin_enabled && self.auth_mode().is_some_and(AuthMode::uses_codex_backend)
+        config.remote_plugin_enabled
+            && !config.chatgpt_base_url.trim().is_empty()
+            && self.auth_mode().is_some_and(AuthMode::uses_codex_backend)
     }
 
     /// Starts the local curated marketplace sync when the remote catalog is unavailable.

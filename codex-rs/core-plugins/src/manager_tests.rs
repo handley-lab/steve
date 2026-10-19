@@ -161,6 +161,34 @@ async fn plugins_manager_reads_auth_mode_from_auth_manager() {
 }
 
 #[test]
+fn remote_catalog_requires_a_configured_backend() {
+    let tmp = TempDir::new().unwrap();
+    let manager = test_plugins_manager_with_options(
+        tmp.path().to_path_buf(),
+        Some(Product::Codex),
+        Some(AuthMode::ChatgptAuthTokens),
+    );
+    for (base_url, active) in [
+        ("", false),
+        (" \t ", false),
+        ("https://backend.example/local", true),
+        ("https://chatgpt.com/backend-api", true),
+    ] {
+        let config = PluginsConfigInput::new(
+            unrestricted_config_layer_stack(),
+            Default::default(),
+            "configured-provider".to_string(),
+            /*plugins_enabled*/ true,
+            /*remote_plugin_enabled*/ true,
+            base_url.to_string(),
+            test_http_client_factory(),
+            /*product_sku*/ None,
+        );
+        assert_eq!(manager.remote_global_catalog_active(&config), active);
+    }
+}
+
+#[test]
 fn curated_repo_sync_stays_deferred_for_remote_chatgpt_catalog() {
     CURATED_REPO_SYNC_STARTED.store(false, std::sync::atomic::Ordering::SeqCst);
     let tmp = TempDir::new().unwrap();
