@@ -49,8 +49,8 @@ pub struct Args {
     #[arg(long)]
     pub http_shutdown: bool,
 
-    /// Absolute URL the proxy should forward requests to (defaults to OpenAI).
-    #[arg(long, default_value = "https://api.openai.com/v1/responses")]
+    /// Absolute URL the proxy should forward requests to.
+    #[arg(long)]
     pub upstream_url: String,
 
     /// Directory where request/response dumps should be written as JSON.
@@ -103,6 +103,7 @@ pub fn run_main(args: Args) -> Result<()> {
         Client::builder()
             // Disable reqwest's 30s default so long-lived response streams keep flowing.
             .timeout(None::<Duration>)
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .context("building reqwest client")?,
     );
@@ -272,4 +273,25 @@ fn forward_request(
 
     let _ = req.respond(response);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upstream_destination_is_required() {
+        assert!(Args::try_parse_from(["responses-api-proxy"]).is_err());
+    }
+
+    #[test]
+    fn explicit_upstream_destinations_are_preserved() {
+        for url in [
+            "http://127.0.0.1:43123/responses",
+            "https://api.openai.com/v1/responses",
+        ] {
+            let args = Args::try_parse_from(["responses-api-proxy", "--upstream-url", url]).unwrap();
+            assert_eq!(args.upstream_url, url);
+        }
+    }
 }
