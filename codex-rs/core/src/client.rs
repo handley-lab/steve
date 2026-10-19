@@ -1142,10 +1142,10 @@ impl ModelClient {
                 }
                 ClientRouting::ConfiguredProvider => (
                     self.state.provider.api_provider().await?,
-                    ClientRedirectPolicy::Default,
+                    ClientRedirectPolicy::Reject,
                 ),
                 ClientRouting::ExplicitProvider(provider) => {
-                    (provider.clone(), ClientRedirectPolicy::Default)
+                    (provider.clone(), ClientRedirectPolicy::Reject)
                 }
             };
             let resolved_auth = self.state.provider.api_auth_for_scope().await?;

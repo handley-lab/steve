@@ -511,10 +511,10 @@ async fn http_cache_preserves_no_constraint_redirect_policy_and_configured_heade
     *pool.retry_after.lock().unwrap() = Some(Instant::now() + CONNECT_COOLDOWN);
     let mut previous: Option<Arc<HttpTransport>> = None;
     for (routing, expected_policy) in [
-        (None, ClientRedirectPolicy::Default),
+        (None, ClientRedirectPolicy::Reject),
         (Some("NO_CONSTRAINT"), ClientRedirectPolicy::Reject),
         (Some("NO_CONSTRAINT"), ClientRedirectPolicy::Reject),
-        (None, ClientRedirectPolicy::Default),
+        (None, ClientRedirectPolicy::Reject),
     ] {
         *resolver.0.lock().unwrap() = routing.map(|account_routing_override| WorkspaceRouting {
             chatgpt_account_id: "account_id".into(),
@@ -553,7 +553,7 @@ async fn http_cache_preserves_no_constraint_redirect_policy_and_configured_heade
     *pool.retry_after.lock().unwrap() = Some(Instant::now() + CONNECT_COOLDOWN);
     assert_eq!(
         pool.client_setup().await?.redirect_policy,
-        ClientRedirectPolicy::Default
+        ClientRedirectPolicy::Reject
     );
     let lease = pool.lease().await?;
     assert!(matches!(lease.connection, Connection::Http(_)));

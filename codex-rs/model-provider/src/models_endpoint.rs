@@ -60,16 +60,12 @@ impl OpenAiModelsEndpoint {
         auth_manager: Option<Arc<AuthManager>>,
         gateway_auth_manager: Option<Result<Arc<GatewayAuthManager>, String>>,
     ) -> Self {
-        let redirect_policy = if provider_info.model_catalog_url.is_some() {
-            ClientRedirectPolicy::Reject
-        } else {
-            ClientRedirectPolicy::Default
-        };
+        let request_logging = provider_info.model_catalog_url.is_none();
         Self {
             provider_info,
             auth_manager,
             gateway_auth_manager,
-            transport_builder: Arc::new(RouteAwareModelsTransportBuilder { redirect_policy }),
+            transport_builder: Arc::new(RouteAwareModelsTransportBuilder { request_logging }),
         }
     }
 
@@ -259,7 +255,7 @@ trait ModelsTransportBuilder: fmt::Debug + Send + Sync {
 
 #[derive(Debug)]
 struct RouteAwareModelsTransportBuilder {
-    redirect_policy: ClientRedirectPolicy,
+    request_logging: bool,
 }
 
 impl ModelsTransportBuilder for RouteAwareModelsTransportBuilder {
@@ -268,18 +264,19 @@ impl ModelsTransportBuilder for RouteAwareModelsTransportBuilder {
         http_client_factory: HttpClientFactory,
         request_url: String,
     ) -> ModelsTransportFuture<'_> {
-        let redirect_policy = self.redirect_policy;
+        let request_logging = self.request_logging;
         Box::pin(async move {
             let client = create_client_for_route_async(
                 http_client_factory,
                 request_url,
                 ClientRouteClass::Api,
-                redirect_policy,
+                ClientRedirectPolicy::Reject,
             )
             .await?;
-            let client = match redirect_policy {
-                ClientRedirectPolicy::Default => client,
-                ClientRedirectPolicy::Reject => client.without_request_logging(),
+            let client = if request_logging {
+                client
+            } else {
+                client.without_request_logging()
             };
             Ok(ReqwestTransport::from_http_client(client))
         })
@@ -961,5 +958,69 @@ mod tests {
         assert!(!error.to_string().contains("catalog-secret"));
         assert!(!format!("{error:?}").contains("catalog-secret"));
         assert_eq!(destination.received_requests().await.unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn ordinary_models_reject_redirects_without_forwarding_provider_headers() {
+        let destination = MockServer::builder().start().await;
+        let redirect = MockServer::builder().start().await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(ModelsResponse { models: Vec::new() }),
+            )
+            .expect(1)
+            .mount(&destination)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(
+                ResponseTemplate::new(302)
+                    .insert_header("location", format!("{}/models", destination.uri())),
+            )
+            .expect(1)
+            .mount(&redirect)
+            .await;
+        for (base, direct) in [(destination.uri(), true), (redirect.uri(), false)] {
+            let endpoint = OpenAiModelsEndpoint::new(
+                ModelProviderInfo {
+                    base_url: Some(base),
+                    experimental_bearer_token: Some("provider-key".into()),
+                    http_headers: Some(std::collections::HashMap::from([(
+                        "x-provider-private".into(),
+                        "private-provider-header-sentinel".into(),
+                    )])),
+                    request_max_retries: Some(0),
+                    ..ModelProviderInfo::default()
+                },
+                None,
+                None,
+            );
+            let result = endpoint
+                .list_models(
+                    "1.2.3",
+                    HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+                )
+                .await;
+            let captured = destination.received_requests().await.unwrap();
+            for request in &captured {
+                eprintln!(
+                    "Models redirect capture {} {:?}",
+                    request.url, request.headers
+                );
+            }
+            assert_eq!(
+                captured.len(),
+                1,
+                "provider headers must not follow a redirect"
+            );
+            if direct {
+                assert!(result.is_ok(), "configured model endpoint must work");
+            } else {
+                assert!(result.is_err(), "unconfigured redirect must remain visible");
+            }
+        }
+        destination.verify().await;
+        redirect.verify().await;
     }
 }

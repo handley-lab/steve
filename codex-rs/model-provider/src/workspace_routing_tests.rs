@@ -189,7 +189,7 @@ async fn workspace_routing_preserves_paths_and_excludes_other_providers() {
             (
                 ordinary.base_url,
                 ordinary.headers,
-                ClientRedirectPolicy::Default
+                ClientRedirectPolicy::Reject
             )
         );
     }

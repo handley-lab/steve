@@ -218,7 +218,6 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
     ) -> ModelProviderFuture<'a, codex_protocol::error::Result<ResolvedResponsesProvider>> {
         Box::pin(async move {
             let mut provider = self.api_provider().await?;
-            let mut redirect_policy = ClientRedirectPolicy::Default;
             if provider_uses_first_party_auth_path(self.info())
                 && self.info().supports_codex_backend_routes()
                 && let Some(auth) = self.auth().await.filter(CodexAuth::is_chatgpt_auth)
@@ -238,13 +237,12 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
                     .await?
                 {
                     crate::workspace_routing::apply_workspace_routing(&mut provider, routing)?;
-                    redirect_policy = ClientRedirectPolicy::Reject;
                     *previously_routed = true;
                 }
             }
             Ok(ResolvedResponsesProvider {
                 provider,
-                redirect_policy,
+                redirect_policy: ClientRedirectPolicy::Reject,
             })
         })
     }
@@ -1385,5 +1383,84 @@ printf '%s\n' '{"AccessKeyId":"exported","SecretAccessKey":"secret"}'
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    async fn responses_reject_redirects_without_forwarding_private_input() {
+        let destination = MockServer::builder().start().await;
+        let redirect = MockServer::builder().start().await;
+        Mock::given(method("POST")).and(path("/v1/responses"))
+            .respond_with(ResponseTemplate::new(200).insert_header("content-type", "text/event-stream")
+                .set_body_string("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"local-response\",\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"total_tokens\":0}}}\n\n"))
+            .expect(1).mount(&destination).await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(307)
+                    .insert_header("location", format!("{}/v1/responses", destination.uri())),
+            )
+            .expect(1)
+            .mount(&redirect)
+            .await;
+        let request = codex_api::ResponsesApiRequest {
+            model: "local-model".into(), stream: true, service_tier: None,
+            input: vec![serde_json::from_value(json!({"type":"message", "role":"user", "content":[{"type":"input_text", "text":"private provider redirect sentinel"}]})).unwrap()],
+            tools: None, tool_choice: "none".into(), parallel_tool_calls: false,
+            reasoning: None, store: false, stream_options: None, include: Vec::new(),
+            prompt_cache_key: None, text: None, client_metadata: None, access_programs: None,
+        };
+        for (base, direct) in [(destination.uri(), true), (redirect.uri(), false)] {
+            let mut info = provider_for(format!("{base}/v1"));
+            info.experimental_bearer_token = Some("provider-key".into());
+            let provider = crate::create_model_provider(info, None);
+            let resolved = provider
+                .responses_api_provider(&WorkspaceRoutingContext::new(String::new()))
+                .await
+                .unwrap();
+            let client = codex_login::default_client::create_client_for_route_async(
+                HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+                resolved.provider.url_for_path("responses"),
+                codex_http_client::ClientRouteClass::Api,
+                resolved.redirect_policy,
+            )
+            .await
+            .unwrap();
+            let client = codex_api::ResponsesClient::new(
+                codex_api::ReqwestTransport::from_http_client(client),
+                resolved.provider,
+                provider.api_auth().await.unwrap(),
+            );
+            let result = client
+                .stream_request(request.clone(), codex_api::ResponsesOptions::default())
+                .await;
+            let captured = destination.received_requests().await.unwrap();
+            for request in &captured {
+                eprintln!(
+                    "Responses redirect capture {} {:?} {}",
+                    request.url,
+                    request.headers,
+                    String::from_utf8_lossy(&request.body)
+                );
+            }
+            assert_eq!(
+                captured.len(),
+                1,
+                "private input must not follow a redirect"
+            );
+            if direct {
+                let mut stream = result.expect("configured destination must work");
+                let mut completed = false;
+                while let Some(event) = stream.rx_event.recv().await {
+                    if matches!(event.unwrap(), codex_api::ResponseEvent::Completed { .. }) {
+                        completed = true;
+                    }
+                }
+                assert!(completed);
+            } else {
+                assert!(result.is_err(), "unconfigured redirect must remain visible");
+            }
+        }
+        destination.verify().await;
+        redirect.verify().await;
     }
 }

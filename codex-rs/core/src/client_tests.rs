@@ -191,7 +191,9 @@ async fn workspace_routed_http_rejects_redirects_without_a_routing_header() {
         manager.set_workspace_routing_resolver(Arc::downgrade(&resolver));
         let mut client = test_model_client(SessionSource::Exec);
         Arc::get_mut(&mut client.state).unwrap().provider = create_model_provider(
-            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+            ModelProviderInfo::create_openai_provider(Some(
+                "https://gov.chatgpt.com/backend-api/codex".into(),
+            )),
             Some(manager),
         );
         let mut setup = client
@@ -214,26 +216,65 @@ async fn workspace_routed_http_rejects_redirects_without_a_routing_header() {
             .build_request(http::Method::POST, "/responses")
             .with_json(&json!({"input": "workspace content"}));
         let result = transport.execute(request).await;
-        if routing_override.is_some() {
-            assert!(
-                matches!(
-                    result,
-                    Err(TransportError::Http {
-                        retry_after: None,
-                        status: http::StatusCode::TEMPORARY_REDIRECT,
-                        ..
-                    })
-                ),
-                "workspace redirect must be rejected: {routing_override:?}"
-            );
-        } else {
-            assert_eq!(result.unwrap().status, http::StatusCode::OK);
-        }
-        assert_eq!(
-            destination.received_requests().await.unwrap().len(),
-            usize::from(routing_override.is_none())
+        assert!(
+            matches!(
+                result,
+                Err(TransportError::Http {
+                    status: http::StatusCode::TEMPORARY_REDIRECT,
+                    ..
+                })
+            ),
+            "workspace redirect must be rejected: {routing_override:?}"
         );
+        assert!(destination.received_requests().await.unwrap().is_empty());
     }
+}
+
+#[tokio::test]
+async fn configured_and_explicit_private_routes_reject_redirects() {
+    use codex_client::HttpTransport;
+
+    let origin = MockServer::start().await;
+    let destination = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(
+            ResponseTemplate::new(307)
+                .insert_header("location", format!("{}/responses", destination.uri())),
+        )
+        .mount(&origin)
+        .await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&destination)
+        .await;
+    let mut client = test_model_client(SessionSource::Exec);
+    Arc::get_mut(&mut client.state).unwrap().provider = create_model_provider(
+        create_oss_provider_with_base_url(&origin.uri(), WireApi::Responses),
+        None,
+    );
+    let explicit = client.state.provider.api_provider().await.unwrap();
+    for routing in [
+        super::ClientRouting::ConfiguredProvider,
+        super::ClientRouting::ExplicitProvider(explicit),
+    ] {
+        let setup = client.current_client_setup(routing).await.unwrap();
+        let transport = client
+            .build_api_transport(&setup.api_provider, "/responses", setup.redirect_policy)
+            .unwrap();
+        let request = setup
+            .api_provider
+            .build_request(http::Method::POST, "/responses")
+            .with_json(&json!({"input": "private route sentinel"}));
+        assert!(matches!(
+            transport.execute(request).await,
+            Err(TransportError::Http {
+                status: http::StatusCode::TEMPORARY_REDIRECT,
+                ..
+            })
+        ));
+    }
+    assert_eq!(origin.received_requests().await.unwrap().len(), 2);
+    assert!(destination.received_requests().await.unwrap().is_empty());
 }
 
 #[derive(Debug)]
