@@ -10,7 +10,7 @@ The word `batch` in a user request is not CLI opt-in by itself.
 - `edit`: edit one or more existing images
 - `generate-batch`: run many generation jobs from a JSONL file after the user explicitly chooses CLI/API/model controls
 
-Real API calls require **network access** + `OPENAI_API_KEY`. `--dry-run` does not.
+Real API calls require **network access**, `OPENAI_API_KEY`, and an explicit `OPENAI_BASE_URL` for the image API. `--dry-run` does not.
 
 ## Quick start (works from any repo)
 Set a stable path to the skill CLI (default `STEVE_HOME` is `~/.steve`):
@@ -37,7 +37,7 @@ Notes:
 - One-off dry-runs print the API payload and the computed output path(s).
 - Repo-local finals should live under `output/imagegen/`.
 
-Generate (requires `OPENAI_API_KEY` + network):
+Generate (requires `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and network):
 
 ```bash
 python "$IMAGE_GEN" generate \
@@ -63,7 +63,7 @@ python "$IMAGE_GEN" edit \
 
 ## Defaults
 - Model: `gpt-image-2`
-- Supported model family for this CLI: GPT Image models (`gpt-image-*`)
+- Model: select one supported by the configured image API with `--model`. GPT Image-specific option checks remain in effect for those models.
 - Size: `auto`
 - Quality: `medium`
 - Output format: `png`

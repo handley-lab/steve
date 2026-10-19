@@ -5,7 +5,7 @@ This file is for the fallback CLI mode only. Read it when the user explicitly as
 This guidance is intentionally isolated from `SKILL.md` because it can vary by environment and may become stale. Prefer the defaults in your environment when in doubt.
 
 ## Why am I asked to approve image generation calls?
-The fallback CLI uses the OpenAI Image API, so it needs outbound network access. In many Codex setups, network access is disabled by default and/or the approval policy requires confirmation before networked commands run.
+The fallback CLI uses the image API at the explicitly configured `OPENAI_BASE_URL`, so it needs outbound network access. In many Codex setups, network access is disabled by default and/or the approval policy requires confirmation before networked commands run.
 
 ## Important note about approvals vs network
 - `--ask-for-approval never` suppresses approval prompts.
