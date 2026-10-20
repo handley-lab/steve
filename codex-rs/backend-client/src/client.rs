@@ -38,6 +38,7 @@ use std::fmt;
 use std::time::Duration;
 
 pub(crate) mod analytics;
+mod chatgpt_turn_cost;
 pub(crate) mod plan_history;
 pub(crate) mod profile;
 mod rate_limit_resets;
@@ -45,6 +46,8 @@ pub(crate) mod task_usage;
 mod thread_usage;
 pub(crate) mod turn_usage;
 
+pub use chatgpt_turn_cost::ChatgptThreadTurnCosts;
+pub use chatgpt_turn_cost::ChatgptTurnCost;
 pub use thread_usage::ThreadUsage;
 pub use thread_usage::ThreadUsageBreakdownGroup;
 

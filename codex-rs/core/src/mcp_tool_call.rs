@@ -9,6 +9,7 @@ use crate::connectors;
 use crate::guardian::GuardianApprovalRequest;
 use crate::guardian::GuardianMcpAnnotations;
 use crate::guardian::GuardianReviewContext;
+use crate::mcp_openai_file::rewrite_mcp_tool_arguments_for_openai_files;
 use crate::mcp_tool_approval_templates::RenderedMcpToolApprovalParam;
 use crate::mcp_tool_approval_templates::render_mcp_tool_approval_template;
 use crate::session::session::Session;
@@ -26,6 +27,7 @@ use codex_analytics::ElicitationType;
 use codex_analytics::InvocationType;
 use codex_analytics::McpToolCallElicitation;
 use codex_analytics::build_track_events_context;
+use codex_api::HostedFileUploadContext;
 use codex_config::ConfigLayerSource;
 use codex_config::types::AppToolApproval;
 use codex_connectors::AppToolPolicy;
@@ -495,6 +497,27 @@ async fn handle_approved_mcp_tool_call(
                     }
                     maybe_mark_thread_memory_mode_polluted(sess, turn_context, &prepared_call)
                         .await;
+                    let hosted_upload = item_metadata
+                        .connector_id
+                        .as_ref()
+                        .zip(item_metadata.action_name.as_ref())
+                        .map(|(connector_id, action_name)| HostedFileUploadContext {
+                            connector_id: connector_id.clone(),
+                            action_name: action_name.clone(),
+                            model: step_context.settings.model_info.slug.clone(),
+                        });
+                    let rewritten_arguments = rewrite_mcp_tool_arguments_for_openai_files(
+                        sess,
+                        step_context,
+                        arguments_value,
+                        metadata.openai_file_input_optional_fields.as_ref(),
+                        hosted_upload.as_ref(),
+                    )
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+                    if let Some(rewritten_arguments) = rewritten_arguments.as_ref() {
+                        tool_input = rewritten_arguments.clone();
+                    }
                     let request_meta = build_mcp_tool_call_request_meta(
                         step_context,
                         &server,
@@ -519,7 +542,7 @@ async fn handle_approved_mcp_tool_call(
                         .rollout_thread_trace
                         .start_mcp_call_trace(call_id);
                     Ok((
-                        arguments_value.clone(),
+                        rewritten_arguments,
                         mcp_call_trace.add_request_meta(request_meta),
                     ))
                 })
@@ -1156,6 +1179,7 @@ pub(crate) struct McpToolApprovalMetadata {
     mcp_app_resource_uri: Option<String>,
     mcp_app_ui: Option<McpAppUi>,
     codex_apps_meta: Option<serde_json::Map<String, serde_json::Value>>,
+    openai_file_input_optional_fields: Option<HashMap<String, Vec<String>>>,
 }
 
 #[derive(Clone)]
@@ -1630,6 +1654,7 @@ pub(crate) async fn request_mcp_tool_user_approval(
             mcp_app_resource_uri: None,
             mcp_app_ui: None,
             codex_apps_meta: None,
+            openai_file_input_optional_fields: None,
         };
         let request_id = rmcp::model::RequestId::String(question_id.clone().into());
         let request =
@@ -1833,7 +1858,21 @@ fn mcp_tool_metadata(
         mcp_app_resource_uri,
         mcp_app_ui,
         codex_apps_meta,
+        // Disallow custom MCPs from uploading files via fileParams.
+        openai_file_input_optional_fields: openai_file_input_optional_fields_for_server(
+            server,
+            &tool_info.openai_file_input_optional_fields,
+        ),
     })
+}
+
+fn openai_file_input_optional_fields_for_server(
+    server: &str,
+    openai_file_input_optional_fields: &HashMap<String, Vec<String>>,
+) -> Option<HashMap<String, Vec<String>>> {
+    (server == CODEX_APPS_MCP_SERVER_NAME)
+        .then(|| openai_file_input_optional_fields.clone())
+        .filter(|params| !params.is_empty())
 }
 
 fn get_mcp_app_resource_uri(

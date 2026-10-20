@@ -23,6 +23,9 @@ use wiremock::matchers::path;
 
 const TURN_COST_PATH: &str = "/v1/analytics/codex/turn-costs";
 
+#[path = "turn_cost_worker_chatgpt_tests.rs"]
+mod chatgpt;
+
 #[test_case(None; "absent inference endpoint")]
 #[test_case(Some(" \t"); "blank inference endpoint")]
 #[test_case(Some("http://127.0.0.1:1/unused-inference"); "independent inference endpoint")]

@@ -25,7 +25,8 @@ use crate::turn_metadata::ExecutionMetadata;
 use codex_analytics::ThreadProductUpdate;
 use codex_attachment_store::AttachmentStore;
 use codex_extension_api::ExtensionDataInit;
-
+use codex_http_client::ClientRouteClass;
+use codex_http_client::RouteAwareClientPool;
 use codex_model_provider::SharedModelProvider;
 use codex_prompts::render_model_instructions;
 use codex_protocol::SessionId;
@@ -1715,6 +1716,12 @@ impl Session {
                 show_raw_agent_reasoning: config.show_raw_agent_reasoning,
                 exec_policy,
                 auth_manager: Arc::clone(&auth_manager),
+                openai_file_upload_client_pool:
+                    RouteAwareClientPool::new_without_redirects_or_request_logging(
+                        config.http_client_factory(),
+                        ClientRouteClass::Api,
+                    )
+                    .with_legacy_custom_ca_fallback(),
                 session_telemetry,
                 models_manager: Arc::clone(&models_manager),
                 git_root_discovery,

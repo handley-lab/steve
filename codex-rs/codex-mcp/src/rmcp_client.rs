@@ -28,6 +28,7 @@ use crate::client_tool_catalog::ClientToolCatalog;
 use crate::codex_apps::normalize_codex_apps_callable_name;
 use crate::codex_apps::normalize_codex_apps_callable_namespace;
 use crate::codex_apps::normalize_codex_apps_tool_title;
+use crate::codex_apps::prepare_openai_file_params_for_model;
 use crate::elicitation::ElicitationRequestManager;
 use crate::executor_environment_http_client::ExecutorEnvironmentHttpClient;
 use crate::mcp::CODEX_APPS_MCP_SERVER_NAME;
@@ -709,14 +710,16 @@ pub(crate) async fn list_tools_for_client_uncached(
     Ok(tools)
 }
 
-/// Filters disabled connectors and adds plugin names to each tool. Plugin membership is
-/// resolved by connector ID, falling back to the MCP server when absent.
+/// Filters disabled connectors, presents declared Codex Apps file parameters to the model as
+/// local-path inputs, and adds plugin names to each tool. Plugin membership is resolved by
+/// connector ID, falling back to the MCP server when absent.
 pub(crate) fn prepare_codex_apps_tools_for_model(
     mut tools: Vec<ToolInfo>,
     tool_plugin_context: &ToolPluginContext,
 ) -> Vec<ToolInfo> {
     tools.retain(|tool| tool_plugin_context.allows_connector_id(tool.connector_id.as_deref()));
     for tool in &mut tools {
+        prepare_openai_file_params_for_model(tool);
         let plugin_names = match tool.connector_id.as_deref() {
             Some(connector_id) => {
                 tool_plugin_context.plugin_display_names_for_connector_id(connector_id)
@@ -829,6 +832,7 @@ fn codex_apps_tool_info_from_listed_tool(
         callable_namespace,
         namespace_description,
         tool: tool_def,
+        openai_file_input_optional_fields: HashMap::new(),
         connector_id,
         connector_name,
         plugin_display_names: Vec::new(),
@@ -852,6 +856,7 @@ fn regular_mcp_tool_info_from_listed_tool(
         callable_namespace: server_name.to_string(),
         namespace_description: server_instructions.map(str::to_string),
         tool: tool_def,
+        openai_file_input_optional_fields: HashMap::new(),
         connector_id: None,
         connector_name: None,
         plugin_display_names: Vec::new(),
@@ -1495,6 +1500,7 @@ mod tests {
             callable_namespace: "codex_apps__gmail".to_string(),
             namespace_description: Some("Mail connector".to_string()),
             tool: expected_tool,
+            openai_file_input_optional_fields: HashMap::new(),
             connector_id: Some("connector_gmail".to_string()),
             connector_name: Some("Gmail".to_string()),
             plugin_display_names: Vec::new(),
