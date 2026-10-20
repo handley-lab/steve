@@ -46,37 +46,7 @@ impl ChatWidget {
         if !subtitle.is_empty() {
             header.push(Line::from(subtitle.dim()));
         }
-        if let Some(warning) = self.model_menu_warning_line() {
-            header.push(warning);
-        }
         Box::new(Paragraph::new(header).wrap(Wrap { trim: false }))
-    }
-
-    fn model_menu_warning_line(&self) -> Option<Line<'static>> {
-        let base_url = self.custom_openai_base_url()?;
-        let warning = format!(
-            "Warning: OpenAI base URL is overridden to {base_url}. Selecting models may not be supported or work properly."
-        );
-        Some(Line::from(warning.red()))
-    }
-
-    fn custom_openai_base_url(&self) -> Option<String> {
-        if !self.config.model_provider.is_openai() {
-            return None;
-        }
-
-        let base_url = self.config.model_provider.base_url.as_ref()?;
-        let trimmed = base_url.trim();
-        if trimmed.is_empty() {
-            return None;
-        }
-
-        let normalized = trimmed.trim_end_matches('/');
-        if normalized == DEFAULT_OPENAI_BASE_URL {
-            return None;
-        }
-
-        Some(trimmed.to_string())
     }
 
     pub(crate) fn open_model_popup_with_presets(&mut self, presets: Vec<ModelPreset>) {
