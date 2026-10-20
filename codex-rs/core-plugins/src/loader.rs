@@ -142,6 +142,7 @@ pub(crate) async fn load_plugins_from_layer_stack(
     store: &PluginStore,
     plugin_skill_snapshots: Option<&SkillRootSnapshots<PluginSkillRoot>>,
     restriction_product: Option<Product>,
+    remote_global_catalog_active: bool,
     skill_root_loader: &dyn SkillRootLoader<PluginSkillRoot>,
 ) -> Vec<LoadedPlugin<McpServerConfig>> {
     let skill_config_rules = skill_config_rules_from_stack(config_layer_stack);
@@ -154,6 +155,7 @@ pub(crate) async fn load_plugins_from_layer_stack(
         plugin_policy,
         extra_plugins,
         store,
+        remote_global_catalog_active,
         PluginLoadScope::AllCapabilities {
             restriction_product,
             skill_config_rules: &skill_config_rules,
@@ -170,12 +172,14 @@ async fn load_plugins_from_layer_stack_with_scope(
     plugin_policy: &codex_config::types::PluginsConfigToml,
     extra_plugins: HashMap<String, PluginConfig>,
     store: &PluginStore,
+    remote_global_catalog_active: bool,
     scope: PluginLoadScope<'_>,
 ) -> Vec<LoadedPlugin<McpServerConfig>> {
     let mut configured_plugins = merge_configured_plugins_with_remote_installed(
         configured_plugins_from_stack(config_layer_stack, store.codex_home().as_path()),
         extra_plugins,
         store,
+        remote_global_catalog_active,
     );
     for (plugin_id, plugin) in &mut configured_plugins {
         plugin.enabled =
@@ -213,12 +217,14 @@ pub async fn load_plugin_hooks_from_layer_stack(
     extra_plugins: HashMap<String, PluginConfig>,
     store: &PluginStore,
     target_curated_marketplace: TargetCuratedMarketplace,
+    remote_global_catalog_active: bool,
 ) -> PluginHookLoadOutcome {
     let mut plugins = load_plugins_from_layer_stack_with_scope(
         config_layer_stack,
         plugin_policy,
         extra_plugins,
         store,
+        remote_global_catalog_active,
         PluginLoadScope::HooksOnly,
     )
     .await;
@@ -243,7 +249,27 @@ fn merge_configured_plugins_with_remote_installed(
     mut configured_plugins: HashMap<String, PluginConfig>,
     extra_plugins: HashMap<String, PluginConfig>,
     store: &PluginStore,
+    remote_global_catalog_active: bool,
 ) -> HashMap<String, PluginConfig> {
+    if remote_global_catalog_active {
+        // Older Desktop clients can still sync bundled Sites to an independently updated
+        // SSH app-server. A cached remote install takes precedence, even when disabled.
+        if extra_plugins.contains_key("sites@openai-curated-remote") {
+            configured_plugins.remove("sites@openai-bundled");
+        }
+        if extra_plugins.contains_key("visualize@openai-curated-remote") {
+            configured_plugins.remove("visualize@openai-bundled");
+        }
+        configured_plugins.retain(|plugin_key, _| match PluginId::parse(plugin_key) {
+            Ok(plugin_id) => plugin_id.marketplace_name != crate::OPENAI_CURATED_MARKETPLACE_NAME,
+            Err(_) => true,
+        });
+        for (plugin_key, plugin_config) in extra_plugins {
+            merge_remote_plugin_config(&mut configured_plugins, plugin_key, plugin_config);
+        }
+        return configured_plugins;
+    }
+
     let mut local_curated_installed_plugin_keys = HashMap::<String, Vec<String>>::new();
     for plugin_key in configured_plugins.keys() {
         let Ok(plugin_id) = PluginId::parse(plugin_key) else {
