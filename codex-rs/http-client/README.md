@@ -103,8 +103,7 @@ Store the client or pool on the component that owns the traffic so its connectio
 Normal clients emit debug diagnostics containing the request URL and response headers. For
 endpoints where those values may contain credentials, use
 `HttpClientFactory::build_client_without_request_logging` or
-`RouteAwareClientPool::new_without_request_logging`. The corresponding ChatGPT cookie-pool
-constructor is `with_chatgpt_cloudflare_cookies_without_request_logging`.
+`RouteAwareClientPool::new_without_request_logging`.
 
 The wrapper's `Debug` implementations redact request URLs and resolved proxy settings, but callers
 should still avoid putting secrets in URLs whenever possible.

@@ -329,7 +329,7 @@ pub(crate) struct RecordingHttpClientSelector {
 impl RecordingHttpClientSelector {
     pub(crate) fn new() -> (Arc<Self>, Arc<Mutex<Vec<String>>>) {
         let selected_urls = Arc::new(Mutex::new(Vec::new()));
-        let delegate = RouteAwareClientPool::with_chatgpt_cloudflare_cookies(
+        let delegate = RouteAwareClientPool::new(
             test_http_client_factory(),
             ClientRouteClass::Api,
         );

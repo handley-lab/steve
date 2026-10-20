@@ -195,7 +195,7 @@ impl Client {
         http_client_factory: HttpClientFactory,
     ) -> Self {
         let http =
-            RouteAwareClientPool::with_chatgpt_cloudflare_cookies_without_redirects_or_request_logging(
+            RouteAwareClientPool::new_without_redirects_or_request_logging(
                 http_client_factory,
                 ClientRouteClass::Api,
             );
@@ -203,16 +203,8 @@ impl Client {
     }
 
     fn with_http(mut base_url: String, http: RouteAwareClientPool) -> Self {
-        // Normalize common ChatGPT hostnames to include /backend-api so we hit the WHAM paths.
-        // Also trim trailing slashes for consistent URL building.
         while base_url.ends_with('/') {
             base_url.pop();
-        }
-        if (base_url.starts_with("https://chatgpt.com")
-            || base_url.starts_with("https://chat.openai.com"))
-            && !base_url.contains("/backend-api")
-        {
-            base_url = format!("{base_url}/backend-api");
         }
         let path_style = PathStyle::from_base_url(&base_url);
         Self {
@@ -1278,7 +1270,7 @@ mod tests {
             ),
             (
                 "https://chatgpt.com",
-                "https://chatgpt.com/backend-api/plugins/export/curated",
+                "https://chatgpt.com/plugins/export/curated",
             ),
             (
                 "https://backend.example/backend-api/",

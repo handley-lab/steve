@@ -394,7 +394,7 @@ async fn private_backend_clients_do_not_delegate_requests() -> anyhow::Result<()
             )
             .await?
         } else {
-            create_client_with_chatgpt_cookies(&factory)
+            create_client_without_redirects_or_request_logging(&factory)
         };
         let body = "synthetic-private-body";
         let direct = client.post(&destination).body(body).send().await?;

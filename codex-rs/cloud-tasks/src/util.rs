@@ -27,18 +27,9 @@ pub fn append_error_log(message: impl AsRef<str>) {
     }
 }
 
-/// Normalize the configured base URL to a canonical form used by the backend client.
-/// - trims trailing '/'
-/// - appends '/backend-api' for ChatGPT hosts when missing
+/// Trim trailing slashes from a configured base URL.
 pub fn normalize_base_url(input: &str) -> String {
-    let mut base_url = input.trim_end_matches('/').to_string();
-    if (base_url.starts_with("https://chatgpt.com")
-        || base_url.starts_with("https://chat.openai.com"))
-        && !base_url.contains("/backend-api")
-    {
-        base_url = format!("{base_url}/backend-api");
-    }
-    base_url
+    input.trim_end_matches('/').to_string()
 }
 
 /// Validate the configured destination before loading credentials, including in mock mode:
@@ -189,7 +180,7 @@ mod tests {
                 "http://127.0.0.1:8080/service",
             ),
             ("https://backend.example/", "https://backend.example"),
-            ("https://chatgpt.com/", "https://chatgpt.com/backend-api"),
+            ("https://chatgpt.com/", "https://chatgpt.com"),
         ] {
             assert_eq!(validate_backend_base_url(input).unwrap(), expected);
         }
@@ -239,14 +230,14 @@ mod tests {
             ("https://example.com/path///", "https://example.com/path"),
             ("", ""),
             ("///", ""),
-            ("https://chatgpt.com///", "https://chatgpt.com/backend-api"),
+            ("https://chatgpt.com///", "https://chatgpt.com"),
             (
                 "https://chatgpt.com/backend-api///",
                 "https://chatgpt.com/backend-api",
             ),
             (
                 "https://chat.openai.com///",
-                "https://chat.openai.com/backend-api",
+                "https://chat.openai.com",
             ),
             (
                 "https://chat.openai.com/backend-api///",

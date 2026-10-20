@@ -134,7 +134,7 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_absolute_path::AbsolutePathBufGuard;
 use codex_utils_path_uri::PathConvention;
 use codex_utils_path_uri::PathUri;
-use http::HeaderValue;
+
 use rmcp::model::ElicitationCapability;
 use rmcp::model::FormElicitationCapability;
 use rmcp::model::UrlElicitationCapability;
@@ -1778,11 +1778,7 @@ impl Config {
         if !self.respect_system_proxy && self.features.enabled(Feature::SystemProxyFallback) {
             factory = factory.with_system_proxy_fallback();
         }
-        if self.features.enabled(Feature::Psp) {
-            factory.with_chatgpt_cookies([HeaderValue::from_static("oai-chat-psp=true")])
-        } else {
-            factory
-        }
+        factory
     }
 
     /// Build the plugin-manager input from the effective config.

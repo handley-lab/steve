@@ -96,7 +96,7 @@ impl AppLinkViewParams {
             return None;
         };
         if server_name == MCP_CODEX_APPS_SERVER_NAME {
-            let url = validate_external_url(url, /*require_chatgpt_host*/ true)?;
+            let url = validate_external_url(url)?;
             return Self::from_codex_apps_auth_url_parts(
                 thread_id,
                 server_name,
@@ -108,7 +108,7 @@ impl AppLinkViewParams {
             );
         }
 
-        let url = validate_external_url(url, /*require_chatgpt_host*/ false)?;
+        let url = validate_external_url(url)?;
         Some(Self::from_generic_url_parts(
             thread_id,
             server_name,
@@ -203,7 +203,7 @@ impl AppLinkViewParams {
     }
 }
 
-pub(super) fn validate_external_url(url: &str, require_chatgpt_host: bool) -> Option<Url> {
+pub(super) fn validate_external_url(url: &str) -> Option<Url> {
     let parsed = Url::parse(url).ok()?;
     if parsed.scheme() != "https" || parsed.host_str().is_none() {
         return None;
@@ -211,18 +211,7 @@ pub(super) fn validate_external_url(url: &str, require_chatgpt_host: bool) -> Op
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return None;
     }
-    if require_chatgpt_host && !is_allowed_chatgpt_auth_host(parsed.host_str()?) {
-        return None;
-    }
     Some(parsed)
-}
-
-fn is_allowed_chatgpt_auth_host(host: &str) -> bool {
-    let host = host.to_ascii_lowercase();
-    host == "chatgpt.com"
-        || host == "chatgpt-staging.com"
-        || host.ends_with(".chatgpt.com")
-        || host.ends_with(".chatgpt-staging.com")
 }
 
 pub(crate) struct AppLinkView {
@@ -995,8 +984,6 @@ mod tests {
         for url in [
             "http://chatgpt.com/apps/google-calendar/connector_calendar",
             "https://user:pass@chatgpt.com/apps/google-calendar/connector_calendar",
-            "https://chatgpt.com.evil.example/apps/google-calendar/connector_calendar",
-            "https://evilchatgpt.com/apps/google-calendar/connector_calendar",
         ] {
             let request = auth_url_request(url);
             let params = AppLinkViewParams::from_url_app_server_request(

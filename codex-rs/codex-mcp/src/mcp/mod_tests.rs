@@ -435,7 +435,7 @@ fn codex_apps_mcp_url_for_base_url_uses_plugin_service_paths() {
     );
     assert_eq!(
         codex_apps_mcp_url_for_base_url("https://chat.openai.com"),
-        "https://chat.openai.com/backend-api/ps/mcp"
+        "https://chat.openai.com/api/codex/ps/mcp"
     );
     assert_eq!(
         codex_apps_mcp_url_for_base_url("http://localhost:8080/api/codex"),
@@ -459,7 +459,7 @@ fn codex_apps_server_config_uses_plugin_service_path() {
         _ => panic!("expected streamable http transport for codex apps"),
     };
 
-    assert_eq!(url, "https://chatgpt.com/backend-api/ps/mcp");
+    assert_eq!(url, "https://chatgpt.com/api/codex/ps/mcp");
 }
 
 #[test]
@@ -725,7 +725,7 @@ async fn effective_mcp_servers_preserve_runtime_servers() {
     }
     match &codex_apps.transport {
         McpServerTransportConfig::StreamableHttp { url, .. } => {
-            assert_eq!(url, "https://chatgpt.com/backend-api/ps/mcp");
+            assert_eq!(url, "https://chatgpt.com/api/codex/ps/mcp");
         }
         other => panic!("expected streamable http transport, got {other:?}"),
     }

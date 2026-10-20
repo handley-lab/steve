@@ -1,6 +1,6 @@
 use super::*;
 use anyhow::Result;
-use axum::http::HeaderValue;
+
 use codex_app_server_protocol::AppConfig;
 use codex_app_server_protocol::AppToolApproval;
 use codex_app_server_protocol::AppsConfig;
@@ -738,7 +738,6 @@ async fn psp_feature_configures_first_party_routing() -> Result<()> {
         HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault)
             .with_system_proxy_fallback()
             .with_network_policy(config.application_network_policy.clone())
-            .with_chatgpt_cookies([HeaderValue::from_static("oai-chat-psp=true")])
     );
     assert_eq!(
         config

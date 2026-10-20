@@ -2087,10 +2087,7 @@ impl BottomPane {
         if let Some(tool_suggestion) = request.tool_suggestion()
             && let Some(install_url) = tool_suggestion.install_url.clone()
         {
-            let Some(install_url) = app_link_view::validate_external_url(
-                &install_url,
-                /*require_chatgpt_host*/ false,
-            ) else {
+            let Some(install_url) = app_link_view::validate_external_url(&install_url) else {
                 self.app_event_tx.resolve_elicitation(
                     request.thread_id(),
                     request.server_name().to_string(),

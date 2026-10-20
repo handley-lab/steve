@@ -633,9 +633,9 @@ async fn responses_request_includes_internal_metadata_for_provider_grant_or_firs
     );
     responses_metadata.mcp_attribution = Some(attribution.clone());
     for (provider_grant, base_url, allowed) in [
-        (false, "https://api.openai.com/v1", true),
-        (false, "https://chatgpt.com/backend-api/codex", true),
-        (false, "https://api.chatgpt-staging.com/v1", true),
+        (false, "https://api.openai.com/v1", false),
+        (false, "https://chatgpt.com/backend-api/codex", false),
+        (false, "https://api.chatgpt-staging.com/v1", false),
         (false, "https://proxy.example.com/v1", false),
         (false, "http://api.openai.com/v1", false),
         (false, "https://api.openai.com.evil.example/v1", false),
@@ -862,7 +862,7 @@ fn responses_request_preserves_result_metadata_above_previous_aggregate_budget()
 #[test]
 fn websocket_incremental_reuse_tracks_raw_result_metadata() -> anyhow::Result<()> {
     let provider = ModelProviderInfo {
-        include_internal_metadata: false,
+        include_internal_metadata: true,
         ..ModelProviderInfo::create_openai_provider(Some("https://api.openai.com/v1".to_string()))
     };
     let mut api_provider = provider.to_api_provider(/*auth_mode*/ None)?;
@@ -907,11 +907,11 @@ fn websocket_incremental_reuse_tracks_raw_result_metadata() -> anyhow::Result<()
             true,
         ),
         (
-            "filtered_result",
+            "other_host",
             "https://proxy.example.com/v1",
             None,
             Some("first"),
-            true,
+            false,
         ),
     ] {
         let [mut previous_output, mut current_output] =

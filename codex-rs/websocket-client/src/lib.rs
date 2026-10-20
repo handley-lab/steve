@@ -1,5 +1,4 @@
-//! Proxy-aware WebSocket connection setup shared by Codex API clients, reusing the HTTP factory's
-//! ChatGPT cookie store for secure handshakes.
+//! Proxy-aware WebSocket connection setup shared by Codex API clients.
 
 mod dialer;
 
@@ -32,7 +31,6 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::client::Request;
 use tokio_tungstenite::tungstenite::handshake::client::Response;
 use tokio_tungstenite::tungstenite::http::Uri;
-use tokio_tungstenite::tungstenite::http::header::COOKIE;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
 /// Recovers a deterministic policy denial from Tungstenite's I/O error boundary.
@@ -150,7 +148,7 @@ impl WebSocketConnector {
 
     async fn connect_with_route(
         &self,
-        mut request: Request,
+        request: Request,
         config: WebSocketConfig,
         route: impl std::future::Future<Output = io::Result<OutboundProxyRoute>>,
         loopback_direct: bool,
@@ -168,13 +166,8 @@ impl WebSocketConnector {
             .acquire(&url)
             .map_err(policy_error)?;
         let connect = async {
-            if !request.headers().contains_key(COOKIE)
-                && let Some(cookies) = self.http_client_factory.chatgpt_cookie_header(&uri)
-            {
-                request.headers_mut().insert(COOKIE, cookies);
-            }
             let proxy_route = route.await.map_err(WebSocketError::Io)?;
-            let result = dialer::connect(
+            dialer::connect(
                 request,
                 config,
                 self.tls_config.clone(),
@@ -183,18 +176,7 @@ impl WebSocketConnector {
                 loopback_direct,
             )
             .boxed()
-            .await;
-            // Like HTTP responses, rejected upgrades can also refresh infrastructure cookies.
-            match &result {
-                Ok((_, response)) => self
-                    .http_client_factory
-                    .store_chatgpt_response_cookies(&uri, response.headers()),
-                Err(WebSocketError::Http(response)) => self
-                    .http_client_factory
-                    .store_chatgpt_response_cookies(&uri, response.headers()),
-                Err(_) => {}
-            }
-            result
+            .await
         };
         let (inner, response) = permit.run(connect).await.map_err(policy_error)??;
         Ok((WebSocketConnection::new(inner, permit), response))
@@ -365,10 +347,6 @@ impl<T> AsyncIo for T where T: AsyncRead + AsyncWrite + Send + Unpin {}
 #[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "cookie_tests.rs"]
-mod cookie_tests;
 
 #[cfg(test)]
 #[path = "network_policy_tests.rs"]

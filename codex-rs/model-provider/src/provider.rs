@@ -95,14 +95,8 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
     fn info(&self) -> &ModelProviderInfo;
 
     /// Returns whether the resolved Responses provider may receive internal tool metadata.
-    fn include_internal_metadata(&self, provider: &Provider) -> bool {
+    fn include_internal_metadata(&self, _provider: &Provider) -> bool {
         self.info().include_internal_metadata
-            || url::Url::parse(&provider.base_url).ok().is_some_and(|url| {
-                url.scheme() == "https"
-                    && url.host_str().is_some_and(|host| {
-                        host == "api.openai.com" || codex_http_client::is_allowed_chatgpt_host(host)
-                    })
-            })
     }
 
     /// Returns the provider-owned capability upper bounds.
