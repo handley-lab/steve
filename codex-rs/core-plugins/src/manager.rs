@@ -2875,6 +2875,53 @@ impl PluginsManager {
                     warn!("failed to start configured marketplace auto-upgrade task: {err}");
                 }
             }
+            let config_for_remote_sync = config.clone();
+            let manager = Arc::clone(self);
+            let on_effective_plugins_changed = on_effective_plugins_changed.clone();
+            tokio::spawn(async move {
+                let auth = manager.auth_manager.auth().await;
+                manager.maybe_start_remote_plugin_caches_refresh(
+                    &config_for_remote_sync,
+                    auth.clone(),
+                    on_effective_plugins_changed.clone(),
+                );
+                manager.maybe_start_remote_installed_plugin_bundle_sync(
+                    &config_for_remote_sync,
+                    auth.clone(),
+                    on_effective_plugins_changed,
+                );
+                let mut scopes = crate::remote::cached_remote_plugin_catalog_scopes(
+                    manager.codex_home.as_path(),
+                    &remote_plugin_service_config(&config_for_remote_sync),
+                    auth.as_ref(),
+                );
+                if config_for_remote_sync.remote_plugin_enabled {
+                    scopes.insert(RemotePluginScope::Global);
+                } else {
+                    scopes.retain(|scope| *scope == RemotePluginScope::Workspace);
+                }
+                manager.maybe_start_remote_catalog_cache_refresh(
+                    &config_for_remote_sync,
+                    auth,
+                    scopes,
+                    RemoteCatalogCacheRefreshMode::Force,
+                );
+            });
+
+            let config_for_featured_plugins = config.clone();
+            let manager = Arc::clone(self);
+            tokio::spawn(async move {
+                let auth = manager.auth_manager.auth().await;
+                if let Err(err) = manager
+                    .featured_plugin_ids_for_config(&config_for_featured_plugins, auth.as_ref())
+                    .await
+                {
+                    warn!(
+                        error = %err,
+                        "failed to warm featured plugin ids cache"
+                    );
+                }
+            });
         }
     }
 
