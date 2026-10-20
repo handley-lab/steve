@@ -2,11 +2,6 @@ pub mod auth;
 pub mod auth_env_telemetry;
 pub mod test_support;
 pub mod token_data;
-pub use auth::WorkspaceRouting;
-pub use auth::WorkspaceRoutingRequest;
-pub use auth::WorkspaceRoutingResolver;
-pub use auth::WorkspaceRoutingSession;
-
 mod gateway_auth;
 mod oauth;
 mod outbound_proxy;

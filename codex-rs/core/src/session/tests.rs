@@ -55,10 +55,8 @@ use core_test_support::test_codex::TurnInputRequest as ExternalTurnInputRequest;
 
 use codex_features::Feature;
 use codex_file_system::FileSystemSandboxContext;
-use codex_http_client::ClientRouteClass;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
-use codex_http_client::RouteAwareClientPool;
 use codex_login::CodexAuth;
 use codex_model_provider::create_model_provider;
 use codex_model_provider_info::ModelProviderInfo;
@@ -864,9 +862,6 @@ fn test_model_client_session() -> crate::client::ModelClientSession {
         /*output_token_replay_enabled*/ false,
         /*attestation_provider*/ None,
         HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-        codex_model_provider::WorkspaceRoutingContext::new(
-            "https://chatgpt.com/backend-api".into(),
-        ),
         Vec::new(),
     )
     .new_session()
@@ -6911,12 +6906,6 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         show_raw_agent_reasoning: config.show_raw_agent_reasoning,
         exec_policy,
         auth_manager: auth_manager.clone(),
-        openai_file_upload_client_pool:
-            RouteAwareClientPool::new_without_redirects_or_request_logging(
-                config.http_client_factory(),
-                ClientRouteClass::Api,
-            )
-            .with_legacy_custom_ca_fallback(),
         session_telemetry: session_telemetry.clone(),
         models_manager: Arc::clone(&models_manager),
         git_root_discovery: Arc::default(),
@@ -6969,7 +6958,6 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
             /*output_token_replay_enabled*/ false,
             /*attestation_provider*/ None,
             config.http_client_factory(),
-            config.workspace_routing_context(),
             Vec::new(),
         ),
         executed_tool_calls: executed_tool_calls.clone(),
@@ -9179,12 +9167,6 @@ where
         show_raw_agent_reasoning: config.show_raw_agent_reasoning,
         exec_policy,
         auth_manager: Arc::clone(&auth_manager),
-        openai_file_upload_client_pool:
-            RouteAwareClientPool::new_without_redirects_or_request_logging(
-                config.http_client_factory(),
-                ClientRouteClass::Api,
-            )
-            .with_legacy_custom_ca_fallback(),
         session_telemetry: session_telemetry.clone(),
         models_manager: Arc::clone(&models_manager),
         git_root_discovery: Arc::default(),
@@ -9237,7 +9219,6 @@ where
             /*output_token_replay_enabled*/ false,
             /*attestation_provider*/ None,
             config.http_client_factory(),
-            config.workspace_routing_context(),
             Vec::new(),
         ),
         executed_tool_calls: executed_tool_calls.clone(),

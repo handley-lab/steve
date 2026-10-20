@@ -141,7 +141,6 @@ use codex_login::auth_env_telemetry::collect_auth_env_telemetry;
 use codex_model_provider::ProviderUnauthorizedRecovery;
 use codex_model_provider::ResponsesConnectionKey;
 use codex_model_provider::SharedModelProvider;
-use codex_model_provider::WorkspaceRoutingContext;
 use codex_model_provider::create_model_provider;
 #[cfg(test)]
 use codex_model_provider_info::DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS;
@@ -199,7 +198,6 @@ fn session_telemetry_for_request(
 struct ModelClientState {
     thread_id: ThreadId,
     provider: SharedModelProvider,
-    workspace_routing: WorkspaceRoutingContext,
     auth_env_telemetry: AuthEnvTelemetry,
     session_source: SessionSource,
     originator: String,
@@ -551,7 +549,6 @@ impl ModelClient {
         output_token_replay_enabled: bool,
         attestation_provider: Option<Arc<dyn AttestationProvider>>,
         http_client_factory: HttpClientFactory,
-        workspace_routing: WorkspaceRoutingContext,
         request_contributors: Vec<Arc<dyn codex_extension_api::ModelRequestContributor>>,
     ) -> Self {
         let model_provider = create_model_provider(provider_info, auth_manager);
@@ -576,7 +573,6 @@ impl ModelClient {
             state: Arc::new(ModelClientState {
                 thread_id,
                 provider: model_provider,
-                workspace_routing,
                 auth_env_telemetry,
                 session_source,
                 originator,
@@ -1133,11 +1129,7 @@ impl ModelClient {
             let auth = self.state.provider.auth().await;
             let (api_provider, redirect_policy) = match &routing {
                 ClientRouting::Workspace => {
-                    let resolved = self
-                        .state
-                        .provider
-                        .responses_api_provider(&self.state.workspace_routing)
-                        .await?;
+                    let resolved = self.state.provider.responses_api_provider().await?;
                     (resolved.provider, resolved.redirect_policy)
                 }
                 ClientRouting::ConfiguredProvider => (
@@ -1255,14 +1247,6 @@ impl ModelClient {
         endpoint: &str,
         redirect_policy: ClientRedirectPolicy,
     ) -> Result<ReqwestTransport> {
-        let redirect_policy = if api_provider
-            .headers
-            .contains_key(codex_model_provider::ACCOUNT_ROUTING_HEADER)
-        {
-            ClientRedirectPolicy::Reject
-        } else {
-            redirect_policy
-        };
         let client = create_client_for_route(
             &self.http_client_factory,
             &api_provider.url_for_path(endpoint),

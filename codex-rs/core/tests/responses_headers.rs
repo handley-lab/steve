@@ -140,7 +140,6 @@ async fn responses_stream_includes_subagent_header_on_review() {
         /*output_token_replay_enabled*/ false,
         /*attestation_provider*/ None,
         config.http_client_factory(),
-        config.workspace_routing_context(),
         Vec::new(),
     );
     let responses_metadata = test_turn_responses_metadata(&client, thread_id, &session_source);
@@ -286,7 +285,6 @@ async fn responses_stream_includes_subagent_header_on_other() {
         /*output_token_replay_enabled*/ false,
         /*attestation_provider*/ None,
         config.http_client_factory(),
-        config.workspace_routing_context(),
         Vec::new(),
     );
     let responses_metadata = test_turn_responses_metadata(&client, thread_id, &session_source);
@@ -417,7 +415,6 @@ async fn responses_respects_model_info_overrides_from_config() {
         /*output_token_replay_enabled*/ false,
         /*attestation_provider*/ None,
         config.http_client_factory(),
-        config.workspace_routing_context(),
         Vec::new(),
     );
     let responses_metadata = test_turn_responses_metadata(&client, thread_id, &session_source);

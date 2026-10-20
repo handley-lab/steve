@@ -110,11 +110,6 @@ pub(super) async fn sampler_config(
     Ok(LunaSamplerConfig {
         model: model.to_owned(),
         api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::from_config(&config),
-        workspace_routing: input
-            .thread_store
-            .get_or_init(|| input.config.workspace_routing_context())
-            .as_ref()
-            .clone(),
         provider: create_model_provider(config.model_provider, Some(auth_manager)),
         http_client_factory: input.config.http_client_factory(),
         session_id: input.session_store.level_id().to_string(),

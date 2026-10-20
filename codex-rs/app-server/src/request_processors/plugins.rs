@@ -557,7 +557,6 @@ impl PluginRequestProcessor {
             force_refetch,
         } = params;
         let roots = cwds.unwrap_or_default();
-        let explicit_marketplace_kinds = marketplace_kinds.is_some();
         let marketplace_kinds =
             marketplace_kinds.unwrap_or_else(|| vec![PluginListMarketplaceKind::Local]);
         let include_local = marketplace_kinds.contains(&PluginListMarketplaceKind::Local);
@@ -581,7 +580,6 @@ impl PluginRequestProcessor {
             return Ok(empty_response());
         }
         let auth = self.auth_manager.auth().await;
-        let auth_mode = auth.as_ref().map(CodexAuth::api_auth_mode);
         if include_local
             && force_refetch
             && plugins_manager
@@ -590,24 +588,7 @@ impl PluginRequestProcessor {
         {
             self.on_effective_plugins_changed().await;
         }
-        let include_vertical = context.global_config.plugins_enabled
-            && marketplace_kinds.contains(&PluginListMarketplaceKind::Vertical);
-        let include_shared_with_me = context.global_config.plugins_enabled
-            && marketplace_kinds.contains(&PluginListMarketplaceKind::SharedWithMe);
-        let include_created_by_me_remote = context.remote_plugins_enabled()
-            && marketplace_kinds.contains(&PluginListMarketplaceKind::CreatedByMeRemote);
-        let include_global_remote = context.remote_plugins_enabled() && !explicit_marketplace_kinds;
-        let use_remote_global_catalog =
-            include_global_remote && auth_mode.is_some_and(DomainAuthMode::uses_codex_backend);
-        let remote_plugin_service_config = remote_plugin_service_config(&config);
-        let plugin_policy = &config.plugins;
-        let remote_catalog_cache_mode = if force_refetch {
-            RemotePluginCatalogCacheMode::ForceRefetch
-        } else {
-            RemotePluginCatalogCacheMode::PreferCache
-        };
-        let mut remote_catalog_cache_refresh_scopes = Default::default();
-        let (mut data, marketplace_load_errors, local_marketplaces) = if include_local {
+        let (data, marketplace_load_errors, local_marketplaces) = if include_local {
             let context_for_marketplace_listing = context.clone();
             let plugins_manager_for_marketplace_listing = plugins_manager.clone();
             let shared_plugin_ids_by_local_path = load_shared_plugin_ids_by_local_path(&config)?;
@@ -615,7 +596,7 @@ impl PluginRequestProcessor {
                 let outcome = plugins_manager_for_marketplace_listing
                     .list_marketplaces_for_context(
                         &context_for_marketplace_listing,
-                        /*include_openai_curated*/ !use_remote_global_catalog,
+                        /*include_openai_curated*/ true,
                     )?;
                 let local_marketplaces = outcome.marketplaces.clone();
                 Ok::<
@@ -675,143 +656,19 @@ impl PluginRequestProcessor {
         } else {
             (Vec::new(), Vec::new(), Vec::new())
         };
-
-        // TODO(remote plugins): Remove this once remote plugins are ready and vertical plugins are
-        // served directly from the normal remote catalog.
-        if include_vertical && !config.features.enabled(Feature::RemotePlugin) {
-            match codex_core_plugins::remote::fetch_openai_curated_remote_collection_marketplace(
-                &remote_plugin_service_config,
-                auth.as_ref(),
-                /*catalog_cache_root*/ None,
-                RemotePluginCatalogCacheMode::ForceRefetch,
-            )
-            .await
-            .map(|outcome| outcome.marketplace)
-            {
-                Ok(Some(remote_marketplace)) => {
-                    data.push(remote_marketplace_to_info(
-                        remote_marketplace,
-                        plugin_policy,
-                    ));
-                }
-                Ok(None) => {}
-                Err(RemotePluginCatalogError::UnsupportedAuthMode) => {}
-                Err(err) if explicit_marketplace_kinds => {
-                    return Err(remote_plugin_catalog_error_to_jsonrpc(
-                        err,
-                        "list OpenAI Curated remote plugin catalog",
-                    ));
-                }
-                Err(RemotePluginCatalogError::AuthRequired) => {}
-                Err(err) => {
-                    warn!(
-                        error = %err,
-                        "plugin/list openai-curated-remote collection fetch failed; returning local marketplaces only"
-                    );
-                }
-            }
-        }
-
-        let mut remote_sources = Vec::new();
-        if use_remote_global_catalog {
-            remote_sources.push(RemoteMarketplaceSource::Global);
-        }
-        if include_created_by_me_remote {
-            remote_sources.push(RemoteMarketplaceSource::CreatedByMeRemote);
-        }
-        if context.global_config.plugins_enabled
-            && marketplace_kinds.contains(&PluginListMarketplaceKind::WorkspaceDirectory)
-        {
-            remote_sources.push(RemoteMarketplaceSource::WorkspaceDirectory);
-        }
-        if include_shared_with_me && config.features.enabled(Feature::PluginSharing) {
-            remote_sources.push(RemoteMarketplaceSource::SharedWithMe);
-        }
-        if !remote_sources.is_empty() {
-            match codex_core_plugins::remote::fetch_remote_marketplaces(
-                &remote_plugin_service_config,
-                auth.as_ref(),
-                &remote_sources,
-                /*catalog_cache_root*/ Some(config.codex_home.as_path()),
-                remote_catalog_cache_mode,
-            )
-            .await
-            {
-                Ok(outcome) => {
-                    remote_catalog_cache_refresh_scopes = outcome.catalog_cache_refresh_scopes;
-                    for remote_marketplace in outcome
-                        .marketplaces
-                        .into_iter()
-                        .map(|marketplace| remote_marketplace_to_info(marketplace, plugin_policy))
-                    {
-                        data.push(remote_marketplace);
-                    }
-                }
-                Err(
-                    err @ (RemotePluginCatalogError::AuthRequired
-                    | RemotePluginCatalogError::UnsupportedAuthMode),
-                ) if explicit_marketplace_kinds => {
-                    return Err(remote_plugin_catalog_error_to_jsonrpc(
-                        err,
-                        "list remote plugin catalog",
-                    ));
-                }
-                Err(
-                    RemotePluginCatalogError::AuthRequired
-                    | RemotePluginCatalogError::UnsupportedAuthMode,
-                ) => {}
-                Err(err) if explicit_marketplace_kinds => {
-                    return Err(remote_plugin_catalog_error_to_jsonrpc(
-                        err,
-                        "list remote plugin catalog",
-                    ));
-                }
-                Err(err) => {
-                    warn!(
-                        error = %err,
-                        "plugin/list remote plugin catalog fetch failed; returning local marketplaces only"
-                    );
-                }
-            }
-        }
-        if include_local
-            || include_created_by_me_remote
-            || include_shared_with_me
-            || include_global_remote
-            || !remote_catalog_cache_refresh_scopes.is_empty()
-        {
+        if include_local {
             plugins_manager.maybe_start_plugin_list_background_tasks(
                 &context,
-                auth.clone(),
+                auth,
                 PluginListBackgroundTaskOptions {
                     local_marketplaces,
-                    remote_catalog_cache_refresh_scopes,
+                    remote_catalog_cache_refresh_scopes: Default::default(),
                 },
                 Some(self.effective_plugins_changed_callback()),
             );
         }
 
-        let featured_plugin_ids = if data.iter().any(|marketplace| {
-            marketplace.name == OPENAI_CURATED_MARKETPLACE_NAME
-                || marketplace.name == REMOTE_GLOBAL_MARKETPLACE_NAME
-        }) {
-            match plugins_manager
-                .featured_plugin_ids_for_config(&context.global_config, auth.as_ref())
-                .await
-            {
-                Ok(featured_plugin_ids) => featured_plugin_ids,
-                Err(err) => {
-                    warn!(
-                        error = %err,
-                        "plugin/list featured plugin fetch failed; returning empty featured ids"
-                    );
-                    Vec::new()
-                }
-            }
-        } else {
-            Vec::new()
-        };
-
+        let featured_plugin_ids = Vec::new();
         Ok(PluginListResponse {
             marketplaces: data,
             marketplace_load_errors,
@@ -850,11 +707,6 @@ impl PluginRequestProcessor {
             && auth_mode.is_some_and(DomainAuthMode::uses_codex_backend);
         let remote_installed_plugin_visible_marketplaces =
             remote_installed_plugin_visible_marketplaces(&config, use_remote_global_catalog);
-        plugins_manager.maybe_start_remote_installed_plugin_bundle_sync(
-            &context.global_config,
-            auth.clone(),
-            Some(self.effective_plugins_changed_callback()),
-        );
 
         let (mut data, marketplace_load_errors) = self
             .load_local_installed_and_suggested_plugins(

@@ -43,9 +43,6 @@ pub(crate) struct AccountRequestProcessor {
     outgoing: Arc<OutgoingMessageSender>,
     config: Arc<Config>,
     config_manager: ConfigManager,
-    workspace_routing: Arc<Mutex<Option<workspace_routing::CachedWorkspaceRouting>>>,
-    workspace_routing_fetches: Arc<Mutex<workspace_routing::WorkspaceRoutingFetches>>,
-    workspace_routing_shutdown: CancellationToken,
     gateway_login: Arc<std::sync::Mutex<Option<gateway_oauth::ActiveGatewayLogin>>>,
     gateway_client: Arc<std::sync::Mutex<Option<Arc<codex_login::GatewayAuthManager>>>>,
     _gateway_notifications: Arc<tokio_util::task::AbortOnDropHandle<()>>,
@@ -79,20 +76,7 @@ impl AccountRequestProcessor {
             config_manager,
             gateway_login: Arc::new(std::sync::Mutex::new(/*t*/ None)),
             gateway_client: Arc::new(std::sync::Mutex::new(/*t*/ None)),
-            workspace_routing: Arc::new(Mutex::new(None)),
-            workspace_routing_fetches: Arc::new(Mutex::new(HashMap::new())),
-            workspace_routing_shutdown: CancellationToken::new(),
             enterprise_login,
-        });
-        let resolver: Arc<dyn codex_login::WorkspaceRoutingResolver> = processor.clone();
-        processor
-            .auth_manager
-            .set_workspace_routing_resolver(Arc::downgrade(&resolver));
-        let startup = processor.clone();
-        tokio::spawn(async move {
-            let _ = startup
-                .read_account_for_background_workspace_routing()
-                .await;
         });
         processor
     }
@@ -171,7 +155,6 @@ impl AccountRequestProcessor {
     }
 
     pub(crate) fn clear_external_auth(&self) {
-        self.workspace_routing_shutdown.cancel();
         self.auth_manager.clear_external_auth();
     }
 
@@ -568,7 +551,7 @@ impl AccountRequestProcessor {
         let auth_changes = self.auth_manager.auth_change_state_receiver();
         let owner_generation = auth_changes.borrow().owner_generation;
         if payload.success
-            && let Err(error) = self.read_account(/*request*/ None).await
+            && let Err(error) = self.read_account().await
         {
             payload.success = false;
             payload.error = Some(error.to_string());
@@ -671,8 +654,6 @@ impl AccountRequestProcessor {
         if config.model_provider.is_amazon_bedrock() {
             clear_user_model_provider_if_bedrock(&self.config_manager, &config).await?;
         }
-
-        *self.workspace_routing.lock().await = None;
 
         Self::maybe_refresh_plugin_caches_for_current_config(
             &self.config_manager,

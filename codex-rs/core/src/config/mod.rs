@@ -1967,14 +1967,6 @@ impl Config {
         }
     }
 
-    pub fn workspace_routing_context(&self) -> codex_model_provider::WorkspaceRoutingContext {
-        codex_model_provider::WorkspaceRoutingContext::new(self.chatgpt_base_url.clone())
-            .with_session(codex_login::WorkspaceRoutingSession {
-                cwd: self.cwd.to_path_buf(),
-                config_layer_stack: self.config_layer_stack.clone(),
-            })
-    }
-
     pub async fn rebuild_with_session_layers(
         session_layers: &ConfigLayerStack,
         cwd: PathBuf,

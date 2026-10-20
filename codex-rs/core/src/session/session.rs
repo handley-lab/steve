@@ -25,8 +25,7 @@ use crate::turn_metadata::ExecutionMetadata;
 use codex_analytics::ThreadProductUpdate;
 use codex_attachment_store::AttachmentStore;
 use codex_extension_api::ExtensionDataInit;
-use codex_http_client::ClientRouteClass;
-use codex_http_client::RouteAwareClientPool;
+
 use codex_model_provider::SharedModelProvider;
 use codex_prompts::render_model_instructions;
 use codex_protocol::SessionId;
@@ -1164,7 +1163,6 @@ impl Session {
         ));
 
         let mut mcp_auth_changes = auth_manager.auth_change_receiver();
-        let plugins_manager_for_prewarm = Arc::clone(&plugins_manager);
         let config_for_mcp = Arc::clone(&config);
         let mcp_manager_for_mcp = Arc::clone(&mcp_manager);
         let mcp_thread_init_for_startup = &mcp_thread_init;
@@ -1179,20 +1177,6 @@ impl Session {
             .unwrap_or_else(|| session_configuration.cwd().to_path_buf());
         let auth_and_mcp_fut = async move {
             let auth = mcp_auth.await;
-            if config_for_mcp.features.plugin_recommendations_enabled() {
-                let plugins_config = config_for_mcp.plugins_config_input();
-                let auth_for_prewarm = auth.clone();
-                // Fetch the catalog while MCP and plugin/skill initialization continue.
-                // Context construction still handles filtering and prompt insertion.
-                tokio::spawn(async move {
-                    plugins_manager_for_prewarm
-                        .recommended_plugins_mode_for_config(
-                            &plugins_config,
-                            auth_for_prewarm.as_ref(),
-                        )
-                        .await;
-                });
-            }
             let mcp_projection = mcp_manager_for_mcp
                 .runtime_config_for_step(
                     &config_for_mcp,
@@ -1687,8 +1671,6 @@ impl Session {
             let mcp_resource_client = Arc::new(McpResourceClient::new(Arc::clone(&mcp_runtime)));
             let extension_metrics =
                 extension_metrics::from_session_telemetry(session_telemetry.clone());
-            let workspace_routing =
-                thread_extension_data.get_or_init(|| config.workspace_routing_context());
             for contributor in extensions.thread_lifecycle_contributors() {
                 contributor
                     .on_thread_start(codex_extension_api::ThreadStartInput {
@@ -1733,12 +1715,6 @@ impl Session {
                 show_raw_agent_reasoning: config.show_raw_agent_reasoning,
                 exec_policy,
                 auth_manager: Arc::clone(&auth_manager),
-                openai_file_upload_client_pool:
-                    RouteAwareClientPool::new_without_redirects_or_request_logging(
-                        config.http_client_factory(),
-                        ClientRouteClass::Api,
-                    )
-                    .with_legacy_custom_ca_fallback(),
                 session_telemetry,
                 models_manager: Arc::clone(&models_manager),
                 git_root_discovery,
@@ -1787,7 +1763,6 @@ impl Session {
                     config.features.enabled(Feature::OutputTokenReplay),
                     attestation_provider,
                     config.http_client_factory(),
-                    workspace_routing.as_ref().clone(),
                     extensions.model_request_contributors().to_vec(),
                 )
                 .with_executed_tool_calls(executed_tool_calls.clone())

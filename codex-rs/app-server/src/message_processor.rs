@@ -815,8 +815,6 @@ impl MessageProcessor {
         connection_id: ConnectionId,
         request_attestation: bool,
     ) {
-        self.account_processor
-            .notify_workspace_routing_to_connection(connection_id);
         self.thread_processor
             .connection_initialized(
                 connection_id,
@@ -1920,7 +1918,3 @@ mod gateway_oauth_tests;
 #[cfg(test)]
 #[path = "message_processor_thread_lifecycle_tests.rs"]
 mod thread_lifecycle_tests;
-
-#[cfg(test)]
-#[path = "message_processor_workspace_routing_tests.rs"]
-mod workspace_routing_tests;

@@ -337,7 +337,6 @@ impl MemoryStartupContext {
             /*output_token_replay_enabled*/ false,
             /*attestation_provider*/ None,
             config.http_client_factory(),
-            config.workspace_routing_context(),
             Vec::new(),
         );
 

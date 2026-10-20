@@ -11,7 +11,6 @@ use codex_api::TransportError;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_login::GatewayAuthManager;
-use codex_login::WorkspaceRoutingRequest;
 use codex_login::default_client::ClientRedirectPolicy;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_models_manager::cache::ModelsCache;
@@ -25,7 +24,6 @@ use codex_protocol::openai_models::ModelsResponse;
 use crate::ProviderCapabilities;
 #[cfg(test)]
 use crate::RemoteCompactionSupport;
-use crate::ResolvedResponsesProvider;
 use crate::amazon_bedrock::AmazonBedrockModelProvider;
 use crate::auth::ResolvedProviderAuth;
 use crate::auth::auth_manager_for_provider;
@@ -33,7 +31,29 @@ use crate::auth::resolve_provider_auth;
 use crate::auth::resolve_provider_auth_for_scope;
 use crate::combined_auth::compose_auth;
 use crate::models_endpoint::OpenAiModelsEndpoint;
-use crate::workspace_routing::WorkspaceRoutingContext;
+
+/// API deployment and redirect policy resolved for one Responses request.
+#[derive(Debug)]
+pub struct ResolvedResponsesProvider {
+    pub provider: codex_api::Provider,
+    pub redirect_policy: ClientRedirectPolicy,
+}
+
+/// Effective destination and credentials that permit reusing a Responses socket.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ResponsesConnectionKey {
+    base_url: String,
+    auth_revision: Option<u64>,
+}
+
+impl ResponsesConnectionKey {
+    pub fn new(provider: &codex_api::Provider, auth_revision: Option<u64>) -> Self {
+        Self {
+            base_url: provider.base_url.clone(),
+            auth_revision,
+        }
+    }
+}
 
 /// Current app-visible account state for a model provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,39 +186,12 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
         })
     }
 
-    /// Resolves routing for Responses HTTP, compaction, and WebSocket handshakes.
-    #[expect(
-        clippy::await_holding_invalid_type,
-        reason = "serialize discovery and the session's first successful routing transition"
-    )]
-    fn responses_api_provider<'a>(
-        &'a self,
-        routing_context: &'a WorkspaceRoutingContext,
-    ) -> ModelProviderFuture<'a, codex_protocol::error::Result<ResolvedResponsesProvider>> {
+    /// Resolves the configured provider for Responses HTTP, compaction, and WebSocket handshakes.
+    fn responses_api_provider(
+        &self,
+    ) -> ModelProviderFuture<'_, codex_protocol::error::Result<ResolvedResponsesProvider>> {
         Box::pin(async move {
-            let mut provider = self.api_provider().await?;
-            if provider_uses_first_party_auth_path(self.info())
-                && self.info().supports_codex_backend_routes()
-                && let Some(auth) = self.auth().await.filter(CodexAuth::is_chatgpt_auth)
-                && let Some(auth_manager) = self.auth_manager()
-            {
-                let mut previously_routed = routing_context.previously_routed.lock().await;
-                if let Some(routing) = auth_manager
-                    .workspace_routing(
-                        &auth,
-                        WorkspaceRoutingRequest {
-                            provider_base_url: provider.base_url.clone(),
-                            chatgpt_base_url: routing_context.chatgpt_base_url.clone(),
-                            previously_routed: *previously_routed,
-                            session: routing_context.session.clone(),
-                        },
-                    )
-                    .await?
-                {
-                    crate::workspace_routing::apply_workspace_routing(&mut provider, routing)?;
-                    *previously_routed = true;
-                }
-            }
+            let provider = self.api_provider().await?;
             Ok(ResolvedResponsesProvider {
                 provider,
                 redirect_policy: ClientRedirectPolicy::Reject,
@@ -1320,10 +1313,7 @@ printf '%s\n' '{"AccessKeyId":"exported","SecretAccessKey":"secret"}'
             let mut info = provider_for(format!("{base}/v1"));
             info.experimental_bearer_token = Some("provider-key".into());
             let provider = crate::create_model_provider(info, None);
-            let resolved = provider
-                .responses_api_provider(&WorkspaceRoutingContext::new(String::new()))
-                .await
-                .unwrap();
+            let resolved = provider.responses_api_provider().await.unwrap();
             let client = codex_login::default_client::create_client_for_route_async(
                 HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
                 resolved.provider.url_for_path("responses"),

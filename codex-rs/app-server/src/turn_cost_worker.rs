@@ -173,7 +173,7 @@ impl TurnCostWorkerHandle {
             let Some(auth) = auth_manager.auth_cached() else {
                 return;
             };
-            if !auth.is_api_key_auth() && !auth.is_chatgpt_auth() {
+            if !auth.is_api_key_auth() {
                 return;
             }
         }
@@ -409,12 +409,6 @@ impl WorkerRuntime {
                     .config
                     .http_client_factory()
                     .with_network_policy(captured_factory.network_policy().clone());
-                if auth.is_chatgpt_auth() {
-                    return self
-                        .query_chatgpt_turn_costs(&auth, http_client_factory, turn_ids)
-                        .await
-                        .map(Some);
-                }
                 if !auth.is_api_key_auth() {
                     return Ok(None);
                 }
@@ -529,9 +523,6 @@ impl WorkerRuntime {
         entry.next_poll_at = Instant::now() + POLL_INTERVAL;
     }
 }
-
-#[path = "turn_cost_worker_chatgpt.rs"]
-mod chatgpt;
 
 #[cfg(test)]
 #[path = "turn_cost_worker_tests.rs"]
