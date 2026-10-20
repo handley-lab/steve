@@ -2879,6 +2879,7 @@ async fn websocket_harness_with_provider_options_and_auth(
         config.features.enabled(Feature::OutputTokenReplay),
         /*attestation_provider*/ None,
         http_client_factory,
+        config.workspace_routing_context(),
         Vec::new(),
     );
 

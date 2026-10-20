@@ -30,6 +30,7 @@ use codex_login::default_client::ClientRedirectPolicy;
 use codex_login::default_client::add_originator_header;
 use codex_login::default_client::create_client_for_route_async;
 use codex_login::default_client::default_headers;
+use codex_model_provider::ACCOUNT_ROUTING_HEADER;
 use codex_model_provider::ResolvedResponsesProvider;
 use codex_model_provider::ResponsesConnectionKey;
 use codex_protocol::ThreadId;
@@ -263,6 +264,11 @@ impl ConnectionPool {
                 provider.retry.max_attempts = 0;
                 let request_kind = self.responses_request_kind().await;
                 let url = provider.url_for_path("/responses");
+                let redirect_policy = if provider.headers.contains_key(ACCOUNT_ROUTING_HEADER) {
+                    ClientRedirectPolicy::Reject
+                } else {
+                    redirect_policy
+                };
                 let transport = {
                     let mut cached = self
                         .http_transport
@@ -357,7 +363,7 @@ impl ConnectionPool {
         } = self
             .config
             .provider
-            .responses_api_provider()
+            .responses_api_provider(&self.config.workspace_routing)
             .await
             .map_err(LunaSamplerError::Provider)?;
         let auth = self

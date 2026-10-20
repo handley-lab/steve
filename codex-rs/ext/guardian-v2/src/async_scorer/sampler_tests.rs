@@ -55,6 +55,8 @@ pub(super) const MODEL: &str = "gpt-5.6-luna";
 mod request;
 #[path = "retained_sampling_tests.rs"]
 mod retained;
+#[path = "sampler_routing_tests.rs"]
+mod routing;
 
 impl LunaSampler {
     /// Waits for warm sockets to enter the client pool, beyond the server handshake.
@@ -207,6 +209,9 @@ pub(in crate::async_scorer) fn sampler_config(base_url: String) -> LunaSamplerCo
     LunaSamplerConfig {
         model: MODEL.to_owned(),
         api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::Disabled,
+        workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
+            "https://chatgpt.com/backend-api".into(),
+        ),
         provider: create_model_provider(
             ModelProviderInfo::create_openai_provider(Some(base_url)),
             Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
@@ -577,6 +582,9 @@ async fn preconnected_sampler_reuses_authenticated_websocket_for_classifications
     let sampler = connect_sampler(LunaSamplerConfig {
         model: MODEL.to_owned(),
         api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::Disabled,
+        workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
+            "https://chatgpt.com/backend-api".into(),
+        ),
         provider,
         http_client_factory: HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
         session_id: "session-1".to_owned(),
@@ -841,6 +849,9 @@ async fn sampler_returns_classification_token_before_terminal_response_events() 
     let sampler = connect_sampler(LunaSamplerConfig {
         model: MODEL.to_owned(),
         api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::Disabled,
+        workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
+            "https://chatgpt.com/backend-api".into(),
+        ),
         provider,
         http_client_factory: HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
         session_id: "session-1".to_owned(),

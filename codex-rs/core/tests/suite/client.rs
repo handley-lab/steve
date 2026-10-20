@@ -1771,6 +1771,7 @@ async fn send_request_with_provider(provider: ModelProviderInfo) {
         /*output_token_replay_enabled*/ false,
         /*attestation_provider*/ None,
         config.http_client_factory(),
+        config.workspace_routing_context(),
         Vec::new(),
     );
     let responses_metadata = test_turn_responses_metadata(&client, thread_id);
@@ -3267,6 +3268,7 @@ async fn azure_responses_request_does_not_store_and_preserves_prefixed_item_ids(
         /*output_token_replay_enabled*/ false,
         /*attestation_provider*/ None,
         config.http_client_factory(),
+        config.workspace_routing_context(),
         Vec::new(),
     );
     let responses_metadata = test_turn_responses_metadata(&client, thread_id);

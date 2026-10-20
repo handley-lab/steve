@@ -70,9 +70,13 @@ const WORKSPACE_ID_INITIAL: &str = "123e4567-e89b-42d3-a456-426614174011";
 const WORKSPACE_ID_STALE: &str = "123e4567-e89b-42d3-a456-426614174014";
 
 fn expected_workspace_routing(
-    _account_id: &str,
+    account_id: &str,
 ) -> Option<codex_app_server_protocol::WorkspaceRouting> {
-    None
+    Some(codex_app_server_protocol::WorkspaceRouting {
+        chatgpt_account_id: account_id.to_string(),
+        backend_origin: "https://chatgpt.com".to_string(),
+        account_routing_override: codex_app_server_protocol::AccountRoutingOverride::NoConstraint,
+    })
 }
 
 #[path = "account_enterprise_tests.rs"]

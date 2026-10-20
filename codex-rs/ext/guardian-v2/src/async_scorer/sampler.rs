@@ -24,6 +24,7 @@ use codex_extension_api::ExtensionMetrics;
 use codex_history::ResponseItemEnvelope;
 use codex_http_client::HttpClientFactory;
 use codex_model_provider::SharedModelProvider;
+use codex_model_provider::WorkspaceRoutingContext;
 use codex_protocol::ResponseItemId;
 use codex_protocol::error::CodexErr;
 use codex_protocol::models::ContentItem;
@@ -48,6 +49,8 @@ pub struct LunaSamplerConfig {
     pub provider: SharedModelProvider,
     /// Provider and feature policy shared with ordinary model requests.
     pub api_key_cyber_access_programs: ApiKeyCyberAccessPrograms,
+    /// Routing scope and retained configuration layers for the owning thread.
+    pub workspace_routing: WorkspaceRoutingContext,
     /// Effective proxy, custom-CA, and cookie configuration.
     pub http_client_factory: HttpClientFactory,
     /// Owning runtime session identifier.
