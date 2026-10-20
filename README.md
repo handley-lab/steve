@@ -30,13 +30,32 @@ Steve defaults to `~/.steve`; `STEVE_HOME` selects another home. Project
 configuration is discovered under `.steve`. It does not automatically import
 Codex's home or project configuration.
 
-For Cambridge HPC, put this provider configuration in `~/.steve/config.toml`:
+The recommended Cambridge configuration uses Kimi for coding, blocking Guardian
+review and baseline risk classification, with D3 alongside for decision comparison.
+Put this in `~/.steve/config.toml`:
 
 ```toml
 model = "moonshotai/Kimi-K3"
 model_provider = "cambridge"
 web_search = "disabled"
 check_for_update_on_startup = false
+approval_policy = "on-request"
+approvals_reviewer = "auto_review"
+
+[auto_review]
+model_provider = "cambridge"
+model = "moonshotai/Kimi-K3"
+
+[features]
+guardian_approval = true
+guardianv2_decisions_comparison = true
+
+[features.guardianv2]
+enabled = true
+model_provider = "cambridge"
+model = "moonshotai/Kimi-K3"
+comparison_model_provider = "cambridge"
+comparison_model = "vllm-sr/d3"
 
 [model_providers.cambridge]
 name = "Cambridge HPC"
@@ -52,7 +71,11 @@ enabled = false
 ```
 
 Supply `CAMBRIDGE_LLM_API_KEY` in the process environment. Keep credentials out
-of this repository. OpenAI account login and managed account-token renewal are
+of this repository. D3 uses the configured provider's `/decisions` endpoint;
+its comparison result does not approve actions or replace the baseline classifier.
+The tests establish protocol compatibility, not comparative safety quality.
+
+OpenAI account login and managed account-token renewal are
 removed; supplied API keys and configured authentication commands remain available.
 Every inference provider needs an explicit `base_url`, including OpenAI providers.
 Set `model_provider` and `model` explicitly; catalogue defaults do not select them.
