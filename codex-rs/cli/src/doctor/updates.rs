@@ -33,8 +33,9 @@ use super::network;
 const MAX_VERSION_RESPONSE_BYTES: usize = 1024 * 1024;
 
 const VERSION_FILE_NAME: &str = "version.json";
-const GITHUB_LATEST_RELEASE_URL: &str = "https://api.github.com/repos/openai/codex/releases/latest";
-const HOMEBREW_CASK_API_URL: &str = "https://formulae.brew.sh/api/cask/codex.json";
+const GITHUB_LATEST_RELEASE_URL: &str =
+    "https://api.github.com/repos/handley-lab/steve/releases/latest";
+const HOMEBREW_CASK_API_URL: &str = "https://formulae.brew.sh/api/cask/steve.json";
 
 /// Builds the update-health row for the current installation.
 ///
@@ -404,10 +405,10 @@ fn push_cached_version_details(details: &mut Vec<String>, version_file: &Path) {
 
 fn update_action_label(context: &InstallContext) -> &'static str {
     match &context.method {
-        InstallMethod::Npm => "npm install -g @openai/codex",
-        InstallMethod::Bun => "bun install -g @openai/codex",
-        InstallMethod::VitePlus => "vp install -g @openai/codex",
-        InstallMethod::Pnpm => "pnpm add -g @openai/codex",
+        InstallMethod::Npm => "npm install -g @handley-lab/steve",
+        InstallMethod::Bun => "bun install -g @handley-lab/steve",
+        InstallMethod::VitePlus => "vp install -g @handley-lab/steve",
+        InstallMethod::Pnpm => "pnpm add -g @handley-lab/steve",
         InstallMethod::Brew => "brew upgrade --cask steve",
         InstallMethod::Standalone { .. } => "standalone installer",
         InstallMethod::Other => "manual or unknown",
@@ -803,14 +804,36 @@ mod tests {
                 method: InstallMethod::Npm,
                 package_layout: None,
             }),
-            "npm install -g @openai/codex"
+            "npm install -g @handley-lab/steve"
+        );
+        assert_eq!(
+            update_action_label(&InstallContext {
+                method: InstallMethod::Bun,
+                package_layout: None,
+            }),
+            "bun install -g @handley-lab/steve"
+        );
+        assert_eq!(
+            update_action_label(&InstallContext {
+                method: InstallMethod::VitePlus,
+                package_layout: None,
+            }),
+            "vp install -g @handley-lab/steve"
         );
         assert_eq!(
             update_action_label(&InstallContext {
                 method: InstallMethod::Pnpm,
                 package_layout: None,
             }),
-            "pnpm add -g @openai/codex"
+            "pnpm add -g @handley-lab/steve"
+        );
+        assert_eq!(
+            GITHUB_LATEST_RELEASE_URL,
+            "https://api.github.com/repos/handley-lab/steve/releases/latest"
+        );
+        assert_eq!(
+            HOMEBREW_CASK_API_URL,
+            "https://formulae.brew.sh/api/cask/steve.json"
         );
         assert_eq!(
             update_action_label(&InstallContext {
