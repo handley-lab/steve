@@ -2,12 +2,12 @@
 name: skill-installer
 description: Install Codex skills into $STEVE_HOME/skills from a curated list or a GitHub repo path. Use when a user asks to list installable skills, install a curated skill, or install a skill from another repo (including private repos).
 metadata:
-  short-description: Install curated skills from openai/skills or other repos
+  short-description: Install skills from a GitHub repo the user names
 ---
 
 # Skill Installer
 
-Helps install skills. By default these are from https://github.com/openai/skills/tree/main/skills/.curated, but users can also provide other locations. Experimental skills live in https://github.com/openai/skills/tree/main/skills/.experimental and can be installed the same way.
+Helps install skills from a GitHub repo the user names. Listings use the path the user gives, or skills/.curated when they do not. Experimental skills live under skills/.experimental and can be installed the same way.
 
 Use the helper scripts based on the task:
 - List skills when the user asks what is available, or if the user uses this skill without specifying what to do. Default listing is `.curated`, but you can pass `--path skills/.experimental` when they ask about experimental skills.
@@ -33,12 +33,12 @@ After installing a skill, tell the user it will be available on their next turn.
 
 All of these scripts use network, so when running in the sandbox, request escalation when running them.
 
-- `scripts/list-skills.py` (prints skills list with installed annotations)
-- `scripts/list-skills.py --format json`
-- Example (experimental list): `scripts/list-skills.py --path skills/.experimental`
+- `scripts/list-skills.py --repo <owner>/<repo>` (prints skills list with installed annotations)
+- `scripts/list-skills.py --repo <owner>/<repo> --format json`
+- Example (experimental list): `scripts/list-skills.py --repo <owner>/<repo> --path skills/.experimental`
 - `scripts/install-skill-from-github.py --repo <owner>/<repo> --path <path/to/skill> [<path/to/skill> ...]`
 - `scripts/install-skill-from-github.py --url https://github.com/<owner>/<repo>/tree/<ref>/<path>`
-- Example (experimental skill): `scripts/install-skill-from-github.py --repo openai/skills --path skills/.experimental/<skill-name>`
+- Example (experimental skill): `scripts/install-skill-from-github.py --repo <owner>/<repo> --path skills/.experimental/<skill-name>`
 
 ## Behavior and Options
 
@@ -51,8 +51,7 @@ All of these scripts use network, so when running in the sandbox, request escala
 
 ## Notes
 
-- Curated listing is fetched from `https://github.com/openai/skills/tree/main/skills/.curated` via the GitHub API. If it is unavailable, explain the error and exit.
+- The listing is fetched from the named GitHub repo via the GitHub API. The default path is `skills/.curated` and the default ref is `main`. If it is unavailable, explain the error and exit.
 - Private GitHub repos can be accessed via existing git credentials or optional `GITHUB_TOKEN`/`GH_TOKEN` for download.
 - Git fallback tries HTTPS first, then SSH.
-- The skills at https://github.com/openai/skills/tree/main/skills/.system are preinstalled, so no need to help users install those. If they ask, just explain this. If they insist, you can download and overwrite.
 - Installed annotations come from `$STEVE_HOME/skills`.
