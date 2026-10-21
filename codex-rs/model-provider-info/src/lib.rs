@@ -197,10 +197,20 @@ pub struct ModelProviderInfo {
     /// Whether this provider supports the standalone web-search endpoint.
     #[serde(default)]
     pub supports_standalone_web_search: bool,
-    /// Runtime-only opt-in for internal metadata, independent of the destination check.
-    /// This cannot be loaded from or written to serialized provider configuration.
-    #[serde(skip)]
-    #[schemars(skip)]
+    /// Whether stored continuation items are sent to this provider.
+    ///
+    /// When false, the request drops the internal chat-message passthrough
+    /// container, encrypted function arguments, and encrypted content on items
+    /// other than reasoning and compaction. Tool-result metadata lives inside
+    /// that container, so this field removes it as well. MCP attribution is
+    /// controlled separately by `include_internal_metadata`.
+    #[serde(default)]
+    pub accepts_response_continuation: bool,
+    /// Consent to send nested tool-result metadata and MCP attribution.
+    ///
+    /// Nested tool-result metadata is sent only when the passthrough container
+    /// is still present. MCP attribution is attached separately.
+    #[serde(default)]
     pub include_internal_metadata: bool,
 }
 
@@ -547,7 +557,11 @@ other non-default provider fields are not supported"
             requires_openai_auth: true,
             supports_websockets: true,
             supports_standalone_web_search: true,
-            capabilities: None,
+            capabilities: Some(ModelProviderCapabilities {
+                external_web_access: None,
+                remote_compaction: Some(RemoteCompactionSupport::V2),
+            }),
+            accepts_response_continuation: true,
             include_internal_metadata: true,
         }
     }
@@ -585,6 +599,7 @@ other non-default provider fields are not supported"
             supports_websockets: false,
             supports_standalone_web_search: false,
             capabilities: None,
+            accepts_response_continuation: false,
             include_internal_metadata: false,
         }
     }
@@ -602,12 +617,11 @@ other non-default provider fields are not supported"
     }
 
     pub fn supports_codex_backend_routes(&self) -> bool {
-        self.is_openai()
-            && self.base_url.as_deref().is_none_or(|base_url| {
-                base_url
-                    .trim_end_matches('/')
-                    .ends_with("/backend-api/codex")
-            })
+        self.base_url.as_deref().is_none_or(|base_url| {
+            base_url
+                .trim_end_matches('/')
+                .ends_with("/backend-api/codex")
+        })
     }
 
     pub fn uses_openai_actor_authorization(&self) -> bool {
@@ -747,6 +761,7 @@ pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> M
         supports_websockets: false,
         supports_standalone_web_search: false,
         capabilities: None,
+        accepts_response_continuation: false,
         include_internal_metadata: false,
     }
 }

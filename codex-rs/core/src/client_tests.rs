@@ -2323,3 +2323,248 @@ async fn inference_tools_changes_follow_full_specs_across_turns() {
         );
     }
 }
+
+fn continuation_history() -> Vec<ResponseItem> {
+    let passthrough = Some(codex_protocol::models::InternalChatMessageMetadataPassthrough {
+        turn_id: Some("turn-1".to_string()),
+        ..Default::default()
+    });
+    vec![
+        ResponseItem::Message {
+            encrypted_content: Some("message-secret".to_string()),
+            status: None,
+            id: None,
+            role: "assistant".to_string(),
+            content: vec![ContentItem::OutputText {
+                text: "kept".to_string(),
+                annotations: None,
+                logprobs: None,
+            }],
+            phase: None,
+            internal_chat_message_metadata_passthrough: passthrough.clone(),
+        },
+        ResponseItem::Reasoning {
+            id: None,
+            summary: Vec::new(),
+            content: None,
+            encrypted_content: Some("reasoning-secret".to_string()),
+            internal_chat_message_metadata_passthrough: passthrough.clone(),
+        },
+        ResponseItem::Compaction {
+            id: None,
+            encrypted_content: "compaction-secret".to_string(),
+            internal_chat_message_metadata_passthrough: passthrough.clone(),
+        },
+        ResponseItem::ContextCompaction {
+            id: None,
+            encrypted_content: Some("context-secret".to_string()),
+            internal_chat_message_metadata_passthrough: passthrough,
+        },
+        ResponseItem::FunctionCall {
+            encrypted_content: Some("call-secret".to_string()),
+            status: None,
+            id: None,
+            name: "tool".to_string(),
+            namespace: None,
+            arguments: "{}".to_string(),
+            encrypted_function_args: Some(vec!["arg-secret".to_string()]),
+            call_id: "call-1".to_string(),
+            internal_chat_message_metadata_passthrough: None,
+        },
+        output_with_tool_result_metadata(ToolResultMetadata::new(&json!({
+            "private": "raw-result-metadata",
+        }))),
+    ]
+}
+
+fn responses_body(
+    client: &mut ModelClient,
+    provider: ModelProviderInfo,
+    prompt: &Prompt,
+    responses_metadata: &CodexResponsesMetadata,
+) -> serde_json::Value {
+    let include_internal = provider.include_internal_metadata;
+    Arc::get_mut(&mut client.state)
+        .expect("test client should have unique session state")
+        .provider = create_model_provider(provider, /*auth_manager*/ None);
+    let request = client
+        .build_responses_request(
+            prompt,
+            &test_model_info(),
+            /*effort*/ None,
+            codex_protocol::config_types::ReasoningSummary::None,
+            /*service_tier*/ None,
+            responses_metadata,
+            include_internal,
+        )
+        .expect("build responses request");
+    serde_json::to_value(&request).expect("serialize responses request")
+}
+
+fn provider_named(name: &str, continuation: bool, metadata: bool) -> ModelProviderInfo {
+    ModelProviderInfo {
+        name: name.to_string(),
+        base_url: Some("https://hpc.example/v1".to_string()),
+        wire_api: WireApi::Responses,
+        accepts_response_continuation: continuation,
+        include_internal_metadata: metadata,
+        ..ModelProviderInfo::default()
+    }
+}
+
+fn input_item<'a>(body: &'a serde_json::Value, item_type: &str) -> &'a serde_json::Value {
+    body["input"]
+        .as_array()
+        .expect("request input")
+        .iter()
+        .find(|item| item.get("type").and_then(serde_json::Value::as_str) == Some(item_type))
+        .unwrap_or_else(|| panic!("missing {item_type}"))
+}
+
+#[test]
+fn display_name_does_not_change_the_responses_body() {
+    let mut client = test_model_client(SessionSource::Cli);
+    let mut responses_metadata = test_responses_metadata_for_client(
+        &client,
+        /*turn_id*/ None,
+        format!("{}:0", client.state.thread_id),
+        /*parent_thread_id*/ None,
+        TestCodexResponsesRequestKind::Turn,
+    );
+    responses_metadata.mcp_attribution = Some(McpAttribution {
+        status: McpAttributionStatus::Complete,
+        error_reason: None,
+        sources: Vec::new(),
+    });
+    let prompt = Prompt {
+        input: continuation_history(),
+        ..Default::default()
+    };
+    let openai = responses_body(
+        &mut client,
+        provider_named("OpenAI", true, true),
+        &prompt,
+        &responses_metadata,
+    );
+    let cambridge = responses_body(
+        &mut client,
+        provider_named("Cambridge", true, true),
+        &prompt,
+        &responses_metadata,
+    );
+    assert_eq!(openai, cambridge);
+}
+
+#[test]
+fn continuation_and_metadata_flags_compose_in_the_request_body() {
+    let mut client = test_model_client(SessionSource::Cli);
+    let mut responses_metadata = test_responses_metadata_for_client(
+        &client,
+        /*turn_id*/ None,
+        format!("{}:0", client.state.thread_id),
+        /*parent_thread_id*/ None,
+        TestCodexResponsesRequestKind::Turn,
+    );
+    responses_metadata.mcp_attribution = Some(McpAttribution {
+        status: McpAttributionStatus::Complete,
+        error_reason: None,
+        sources: Vec::new(),
+    });
+    let prompt = Prompt {
+        input: continuation_history(),
+        ..Default::default()
+    };
+    for (continuation, metadata) in [(false, false), (false, true), (true, false), (true, true)] {
+        let body = responses_body(
+            &mut client,
+            provider_named("Cambridge", continuation, metadata),
+            &prompt,
+            &responses_metadata,
+        );
+        let message = body["input"]
+            .as_array()
+            .expect("request input")
+            .iter()
+            .find(|item| {
+                item.get("type").and_then(serde_json::Value::as_str) == Some("message")
+                    && item
+                        .get("content")
+                        .is_some_and(|content| content.to_string().contains("\"kept\""))
+            })
+            .expect("history message");
+        let reasoning = input_item(&body, "reasoning");
+        let compaction = input_item(&body, "compaction");
+        let context = input_item(&body, "context_compaction");
+        let call = input_item(&body, "function_call");
+        let output = input_item(&body, "function_call_output");
+        assert_eq!(
+            message.get("encrypted_content").and_then(serde_json::Value::as_str),
+            continuation.then_some("message-secret"),
+            "continuation={continuation}"
+        );
+        assert_eq!(
+            reasoning["encrypted_content"],
+            json!("reasoning-secret"),
+            "continuation={continuation}"
+        );
+        assert_eq!(compaction["encrypted_content"], json!("compaction-secret"));
+        assert_eq!(context["encrypted_content"], json!("context-secret"));
+        assert_eq!(
+            call.get("encrypted_content").and_then(serde_json::Value::as_str),
+            continuation.then_some("call-secret")
+        );
+        assert_eq!(
+            call.get("encrypted_function_args"),
+            continuation.then_some(&json!(["arg-secret"]))
+        );
+        let passthrough = output.get("internal_chat_message_metadata_passthrough");
+        if continuation {
+            let metadata_value = passthrough
+                .and_then(|container| container.get("executed_tool_calls"))
+                .and_then(serde_json::Value::as_array)
+                .and_then(|calls| calls.first())
+                .and_then(|call| call.get("tool_result_metadata"));
+            if metadata {
+                assert_eq!(metadata_value, Some(&json!({"private": "raw-result-metadata"})));
+            } else {
+                assert!(metadata_value.is_none());
+                assert!(passthrough.is_some());
+            }
+        } else {
+            assert!(passthrough.is_none());
+        }
+        let attribution = body
+            .get("client_metadata")
+            .and_then(|metadata| metadata.get(MCP_ATTRIBUTION_CLIENT_METADATA_KEY));
+        assert_eq!(attribution.is_some(), metadata);
+        assert!(
+            body["client_metadata"]
+                .get(X_CODEX_INSTALLATION_ID_HEADER)
+                .is_some()
+        );
+    }
+}
+
+#[test]
+fn output_token_replay_adds_only_its_include_entry() {
+    let mut client = test_model_client(SessionSource::Cli);
+    let responses_metadata = test_responses_metadata_for_client(
+        &client,
+        /*turn_id*/ None,
+        format!("{}:0", client.state.thread_id),
+        /*parent_thread_id*/ None,
+        TestCodexResponsesRequestKind::Turn,
+    );
+    let prompt = Prompt::default();
+    let provider = provider_named("Cambridge", false, false);
+    let without = responses_body(&mut client, provider.clone(), &prompt, &responses_metadata);
+    Arc::get_mut(&mut client.state)
+        .expect("test client should have unique session state")
+        .output_token_replay_enabled = true;
+    let with = responses_body(&mut client, provider, &prompt, &responses_metadata);
+    assert_eq!(without["include"], json!(["reasoning.encrypted_content"]));
+    assert_eq!(
+        with["include"],
+        json!(["reasoning.encrypted_content", "output.encrypted_content"])
+    );
+}

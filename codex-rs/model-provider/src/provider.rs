@@ -587,6 +587,7 @@ mod tests {
             supports_websockets: false,
             supports_standalone_web_search: false,
             capabilities: None,
+            accepts_response_continuation: false,
             include_internal_metadata: false,
         }
     }
@@ -678,6 +679,38 @@ mod tests {
             ),
             (
                 provider_for("https://example.test/v1".to_string()),
+                RemoteCompactionSupport::Unsupported,
+            ),
+            (
+                ModelProviderInfo {
+                    name: "OpenAI".to_string(),
+                    base_url: Some("https://example.test/v1".to_string()),
+                    ..ModelProviderInfo::default()
+                },
+                RemoteCompactionSupport::Unsupported,
+            ),
+            (
+                ModelProviderInfo {
+                    name: "Cambridge".to_string(),
+                    base_url: Some("https://hpc.example/v1".to_string()),
+                    capabilities: Some(codex_model_provider_info::ModelProviderCapabilities {
+                        external_web_access: None,
+                        remote_compaction: Some(RemoteCompactionSupport::V2),
+                    }),
+                    ..ModelProviderInfo::default()
+                },
+                RemoteCompactionSupport::V2,
+            ),
+            (
+                ModelProviderInfo {
+                    name: "Azure".to_string(),
+                    base_url: Some("https://example.openai.azure.com/openai/v1".to_string()),
+                    capabilities: Some(codex_model_provider_info::ModelProviderCapabilities {
+                        external_web_access: None,
+                        remote_compaction: Some(RemoteCompactionSupport::Unsupported),
+                    }),
+                    ..ModelProviderInfo::default()
+                },
                 RemoteCompactionSupport::Unsupported,
             ),
         ];

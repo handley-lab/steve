@@ -613,7 +613,6 @@ impl ModelClient {
 
     pub(crate) fn reasoning_effort_override_enabled(&self, model_info: &ModelInfo) -> bool {
         self.state.reasoning_effort_override_enabled
-            && self.state.provider.info().is_openai()
             && model_info.supports_reasoning_effort_updates
     }
 
@@ -965,7 +964,8 @@ impl ModelClient {
             // Filter only the request copy; persisted history remains unchanged.
             input.retain(|item| !matches!(item, ResponseItem::ConfigurationUpdate { .. }));
         }
-        let is_openai = self.state.provider.info().is_openai();
+        let accepts_response_continuation =
+            self.state.provider.info().accepts_response_continuation;
         // These prompt-only items are rebuilt on every request. Hash their visible payloads
         // within the thread so retries and resumed sessions preserve their identity.
         let prefix_namespace = Uuid::new_v5(
@@ -1006,7 +1006,7 @@ impl ModelClient {
                 item.clear_content_item_metadata();
             }
         }
-        if !is_openai {
+        if !accepts_response_continuation {
             for item in &mut input {
                 item.clear_internal_chat_message_metadata_passthrough();
                 if !matches!(
@@ -1028,13 +1028,12 @@ impl ModelClient {
         }
         let reasoning = self.build_reasoning(model_info, effort, summary);
         let stream_options = (self.state.concurrent_reasoning_summaries_enabled
-            && is_openai
             && reasoning.summary.is_some())
         .then_some(StreamOptions {
             reasoning_summary_delivery: codex_api::ReasoningSummaryDelivery::SequentialCutoff,
         });
         let mut include = vec!["reasoning.encrypted_content".to_string()];
-        if self.state.output_token_replay_enabled && is_openai {
+        if self.state.output_token_replay_enabled {
             include.push("output.encrypted_content".to_string());
         }
         let verbosity = if model_info.support_verbosity {
@@ -1190,7 +1189,6 @@ impl ModelClient {
     fn uses_codex_backend(&self, auth: Option<&CodexAuth>) -> bool {
         let provider = self.state.provider.info();
         auth.is_some_and(CodexAuth::uses_codex_backend)
-            && provider.is_openai()
             && provider.requires_openai_auth
             && provider.env_key.is_none()
             && provider.experimental_bearer_token.is_none()
@@ -1722,7 +1720,6 @@ impl ResponsesHttpExecutor<'_> {
     fn responses_request_compression(&self, auth: Option<&CodexAuth>) -> Compression {
         if self.client.state.enable_request_compression
             && auth.is_some_and(CodexAuth::uses_codex_backend)
-            && self.client.state.provider.info().is_openai()
         {
             Compression::Zstd
         } else {

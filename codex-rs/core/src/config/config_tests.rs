@@ -1279,6 +1279,7 @@ fn config_toml_deserializes_model_availability_nux() {
             terminal_title: None,
             theme: None,
             pet: None,
+            pet_asset_base_url: None,
             pet_anchor: TuiPetAnchor::Composer,
             session_picker_view: None,
             agents_overview_grouping: Default::default(),
@@ -4491,6 +4492,7 @@ fn tui_config_missing_notifications_field_defaults_to_enabled() {
             terminal_title: None,
             theme: None,
             pet: None,
+            pet_asset_base_url: None,
             pet_anchor: TuiPetAnchor::Composer,
             session_picker_view: None,
             agents_overview_grouping: Default::default(),
@@ -8583,6 +8585,7 @@ async fn load_config_uses_auto_review_guardian_policy_config_and_template(
         features: Some(toml::from_str(features).unwrap()),
         auto_review: Some(AutoReviewToml {
             model_provider: None,
+            model: None,
             circuit_break_action: None,
             policy: Some("  Use the user-configured guardian policy.  ".to_string()),
             extra_policy: Some("  Use the user-configured additional policy.  ".to_string()),
@@ -8647,6 +8650,7 @@ async fn requirements_guardian_policy_beats_auto_review() -> std::io::Result<()>
         let cfg = ConfigToml {
             auto_review: Some(AutoReviewToml {
                 model_provider: None,
+                model: None,
                 circuit_break_action: None,
                 policy: Some("Use the user-configured guardian policy.".to_string()),
                 extra_policy: Some("Use the user-configured additional policy.".to_string()),
@@ -8689,6 +8693,7 @@ async fn load_config_ignores_empty_auto_review_guardian_policy_config() -> std::
     let cfg = ConfigToml {
         auto_review: Some(AutoReviewToml {
             model_provider: None,
+            model: None,
             circuit_break_action: None,
             policy: Some("   ".to_string()),
             extra_policy: Some("   ".to_string()),

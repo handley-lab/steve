@@ -2673,8 +2673,7 @@ async fn try_run_sampling_request(
     let uses_sequential_cutoff_reasoning_summaries = turn_context
         .config
         .features
-        .enabled(Feature::ConcurrentReasoningSummaries)
-        && turn_context.provider.info().is_openai();
+        .enabled(Feature::ConcurrentReasoningSummaries);
     let mut preempt = step_context.preempt.clone().unwrap_or_default();
     let effort = sess
         .reasoning_effort_for_request(&step_context.settings, super::RequestEffortUsage::Sampling)

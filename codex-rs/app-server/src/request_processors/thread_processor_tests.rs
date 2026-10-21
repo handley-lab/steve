@@ -614,6 +614,7 @@ mod thread_processor_behavior_tests {
             supports_websockets: true,
             supports_standalone_web_search: false,
             capabilities: None,
+            accepts_response_continuation: false,
             include_internal_metadata: false,
         };
         let config_manager = ConfigManager::new(

@@ -8,6 +8,7 @@ use tempfile::tempdir;
 #[test]
 fn runtime_internal_metadata_opt_in_is_not_serialized_or_configurable() {
     let trusted = ModelProviderInfo {
+        accepts_response_continuation: false,
         include_internal_metadata: true,
         ..Default::default()
     };
@@ -97,6 +98,7 @@ base_url = "http://localhost:11434/v1"
         supports_websockets: false,
         supports_standalone_web_search: false,
         capabilities: None,
+        accepts_response_continuation: false,
         include_internal_metadata: false,
     };
 
@@ -136,6 +138,7 @@ query_params = { api-version = "2025-04-01-preview" }
         supports_websockets: false,
         supports_standalone_web_search: false,
         capabilities: None,
+        accepts_response_continuation: false,
         include_internal_metadata: false,
     };
 
@@ -179,6 +182,7 @@ supports_standalone_web_search = true
         supports_websockets: false,
         supports_standalone_web_search: true,
         capabilities: None,
+        accepts_response_continuation: false,
         include_internal_metadata: false,
     };
 
@@ -262,6 +266,16 @@ fn codex_backend_routes_require_codex_base_url() {
         let provider = ModelProviderInfo::create_openai_provider(base_url.map(str::to_owned));
         assert_eq!(provider.supports_codex_backend_routes(), expected);
     }
+
+    let mut cambridge =
+        ModelProviderInfo::create_openai_provider(Some("https://hpc.example/backend-api/codex".into()));
+    cambridge.name = "Cambridge".to_string();
+    assert!(cambridge.supports_codex_backend_routes());
+
+    let openai_other_path =
+        ModelProviderInfo::create_openai_provider(Some("https://api.openai.com/v1".into()));
+    assert_eq!(openai_other_path.name, "OpenAI");
+    assert!(!openai_other_path.supports_codex_backend_routes());
 }
 
 #[test]
@@ -390,6 +404,7 @@ fn test_create_amazon_bedrock_provider() {
             supports_websockets: false,
             supports_standalone_web_search: false,
             capabilities: None,
+            accepts_response_continuation: false,
             include_internal_metadata: false,
         }
     );
@@ -902,5 +917,40 @@ model_catalog_url = "https://gateway.example/codex/catalog?token=catalog-secret"
             .unwrap()
             .base_url,
         "https://gateway.example/v1"
+    );
+}
+
+#[test]
+fn continuation_and_metadata_round_trip_provider_toml() {
+    let omitted: ModelProviderInfo = toml::from_str(
+        r#"
+name = "Cambridge"
+base_url = "https://hpc.example/v1"
+"#,
+    )
+    .unwrap();
+    assert!(!omitted.accepts_response_continuation);
+    assert!(!omitted.include_internal_metadata);
+
+    let provider: ModelProviderInfo = toml::from_str(
+        r#"
+name = "Cambridge"
+base_url = "https://hpc.example/v1"
+accepts_response_continuation = true
+include_internal_metadata = false
+"#,
+    )
+    .unwrap();
+    assert!(provider.accepts_response_continuation);
+    assert!(!provider.include_internal_metadata);
+    let encoded = toml::to_string(&provider).unwrap();
+    let again: ModelProviderInfo = toml::from_str(&encoded).unwrap();
+    assert_eq!(
+        (
+            again.accepts_response_continuation,
+            again.include_internal_metadata,
+            again.base_url.as_deref(),
+        ),
+        (true, false, Some("https://hpc.example/v1"))
     );
 }

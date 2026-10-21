@@ -112,8 +112,14 @@ impl TurnCostWorker {
         {
             return None;
         }
-        let is_openai = config.model_provider.is_openai();
-        let backend = if is_openai {
+        let provider = &config.model_provider;
+        let account_backend = provider.requires_openai_auth
+            && provider.env_key.is_none()
+            && provider.experimental_bearer_token.is_none()
+            && provider.auth.is_none()
+            && provider.aws.is_none()
+            && !config.chatgpt_base_url.trim().is_empty();
+        let backend = if account_backend {
             TurnCostBackend::OpenAi(Arc::clone(&auth_manager))
         } else {
             TurnCostBackend::ModelProvider(create_model_provider(

@@ -2839,6 +2839,11 @@
       "additionalProperties": false,
       "description": "Serializable representation of a provider definition.",
       "properties": {
+        "accepts_response_continuation": {
+          "default": false,
+          "description": "Whether stored continuation items are sent to this provider.\n\nWhen false, the request drops the internal chat-message passthrough container, encrypted function arguments, and encrypted content on items other than reasoning and compaction. Tool-result metadata lives inside that container, so this field removes it as well. MCP attribution is controlled separately by `include_internal_metadata`.",
+          "type": "boolean"
+        },
         "auth": {
           "allOf": [
             {
@@ -2900,6 +2905,11 @@
           },
           "description": "Additional HTTP headers to include in requests to this provider where the (key, value) pairs are the header name and value.",
           "type": "object"
+        },
+        "include_internal_metadata": {
+          "default": false,
+          "description": "Consent to send nested tool-result metadata and MCP attribution.\n\nNested tool-result metadata is sent only when the passthrough container is still present. MCP attribution is attached separately.",
+          "type": "boolean"
         },
         "model_catalog_url": {
           "description": "Optional full URL for a Codex-native model catalog.",

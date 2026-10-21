@@ -35,7 +35,6 @@ use codex_http_client::HttpClientFactory;
 use codex_login::CodexAuth;
 use codex_login::default_client::add_originator_header;
 use codex_login::default_client::default_headers;
-use codex_login::read_openai_api_key_from_env;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::error::CodexErr;
@@ -1949,14 +1948,6 @@ fn realtime_api_key(auth: Option<&CodexAuth>, provider: &ModelProviderInfo) -> C
 
     if let Some(api_key) = auth.and_then(CodexAuth::api_key) {
         return Ok(api_key.to_string());
-    }
-
-    // TODO(aibrahim): Remove this temporary fallback once realtime auth no longer
-    // requires API key auth for ChatGPT/SIWC sessions.
-    if provider.is_openai()
-        && let Some(api_key) = read_openai_api_key_from_env()
-    {
-        return Ok(api_key);
     }
 
     Err(CodexErr::InvalidRequest(
