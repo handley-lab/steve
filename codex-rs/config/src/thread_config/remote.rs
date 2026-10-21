@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use std::num::NonZeroU64;
 use std::time::Duration;
 
+use codex_model_provider_info::ModelProviderCapabilities;
 use codex_model_provider_info::ModelProviderInfo;
+use codex_model_provider_info::RemoteCompactionSupport;
 use codex_model_provider_info::WireApi;
 use codex_protocol::config_types::ModelProviderAuthInfo;
 use codex_utils_absolute_path::AbsolutePathBuf;
@@ -194,11 +196,51 @@ fn model_provider_from_proto(
         requires_openai_auth: provider.requires_openai_auth,
         supports_websockets: provider.supports_websockets,
         supports_standalone_web_search: provider.supports_standalone_web_search,
-        capabilities: None,
-        accepts_response_continuation: false,
-        include_internal_metadata: false,
+        capabilities: remote_compaction_from_proto(provider.remote_compaction)?.map(
+            |remote_compaction| ModelProviderCapabilities {
+                external_web_access: None,
+                remote_compaction: Some(remote_compaction),
+            },
+        ),
+        accepts_response_continuation: provider.accepts_response_continuation,
+        include_internal_metadata: provider.include_internal_metadata,
     };
     Ok((id, info))
+}
+
+fn remote_compaction_from_proto(
+    value: Option<i32>,
+) -> Result<Option<RemoteCompactionSupport>, ThreadConfigLoadError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    match proto::RemoteCompaction::try_from(value) {
+        Ok(proto::RemoteCompaction::Unsupported) => Ok(Some(RemoteCompactionSupport::Unsupported)),
+        Ok(proto::RemoteCompaction::V2) => Ok(Some(RemoteCompactionSupport::V2)),
+        Ok(proto::RemoteCompaction::Unspecified) => Err(parse_error(
+            "remote thread config returned unspecified remote_compaction",
+        )),
+        Err(_) => Err(parse_error(format!(
+            "remote thread config returned unknown remote_compaction: {value}"
+        ))),
+    }
+}
+
+#[cfg(test)]
+fn config_layer(
+    source: ThreadConfigSource,
+) -> Result<Option<crate::ConfigLayerEntry>, ThreadConfigLoadError> {
+    super::thread_config_source_to_layer(source)
+}
+
+#[cfg(test)]
+fn remote_compaction_to_proto(capabilities: Option<ModelProviderCapabilities>) -> Option<i32> {
+    capabilities
+        .and_then(|capabilities| capabilities.remote_compaction)
+        .map(|remote_compaction| match remote_compaction {
+            RemoteCompactionSupport::Unsupported => proto::RemoteCompaction::Unsupported,
+            RemoteCompactionSupport::V2 => proto::RemoteCompaction::V2,
+        } as i32)
 }
 
 #[cfg(test)]
@@ -227,9 +269,9 @@ fn model_provider_to_proto(
         requires_openai_auth,
         supports_websockets,
         supports_standalone_web_search,
-        accepts_response_continuation: _,
-        include_internal_metadata: _,
-        capabilities: _,
+        accepts_response_continuation,
+        include_internal_metadata,
+        capabilities,
     } = provider;
 
     proto::ModelProvider {
@@ -252,6 +294,9 @@ fn model_provider_to_proto(
         requires_openai_auth,
         supports_websockets,
         supports_standalone_web_search,
+        accepts_response_continuation,
+        include_internal_metadata,
+        remote_compaction: remote_compaction_to_proto(capabilities),
     }
 }
 
@@ -333,7 +378,9 @@ mod tests {
     use std::collections::HashMap;
     use std::num::NonZeroU64;
 
+    use codex_model_provider_info::ModelProviderCapabilities;
     use codex_model_provider_info::ModelProviderInfo;
+    use codex_model_provider_info::RemoteCompactionSupport;
     use codex_model_provider_info::WireApi;
     use codex_protocol::config_types::ModelProviderAuthInfo;
     use codex_utils_absolute_path::AbsolutePathBuf;
@@ -521,6 +568,9 @@ mod tests {
                             requires_openai_auth: false,
                             supports_websockets: true,
                             supports_standalone_web_search: true,
+                            accepts_response_continuation: false,
+                            include_internal_metadata: false,
+                            remote_compaction: None,
                         }],
                         features: HashMap::from([
                             ("plugins".to_string(), false),
@@ -588,6 +638,113 @@ mod tests {
             capabilities: None,
             accepts_response_continuation: false,
             include_internal_metadata: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn remote_provider_controls_reach_the_config_layer() {
+        let explicit = controlled_provider(true, true, Some(RemoteCompactionSupport::V2));
+        let omitted = controlled_provider(false, false, None);
+        let sources = vec![proto::ThreadConfigSource {
+            source: Some(proto::thread_config_source::Source::Session(
+                proto::SessionThreadConfig {
+                    model_provider: Some("explicit".to_string()),
+                    model_providers: vec![
+                        model_provider_to_proto("explicit", explicit.clone()),
+                        model_provider_to_proto("omitted", omitted.clone()),
+                    ],
+                    features: HashMap::new(),
+                },
+            )),
+        }];
+        let cwd = workspace_dir().join("project");
+        let expected_cwd = cwd.to_string_lossy().into_owned();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test server");
+        let addr = listener.local_addr().expect("test server addr");
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            Server::builder()
+                .add_service(ThreadConfigLoaderServer::new(TestServer {
+                    sources,
+                    expected_cwd,
+                }))
+                .serve_with_incoming_shutdown(
+                    tokio_stream::wrappers::TcpListenerStream::new(listener),
+                    async {
+                        let _ = shutdown_rx.await;
+                    },
+                )
+                .await
+        });
+        let loaded = RemoteThreadConfigLoader::new(format!("http://{addr}"))
+            .load(ThreadConfigContext {
+                thread_id: Some("thread-1".to_string()),
+                cwd: Some(cwd),
+            })
+            .await
+            .expect("load thread config");
+        let _ = shutdown_tx.send(());
+        server.await.expect("join server").expect("server");
+
+        let layer = config_layer(loaded.into_iter().next().expect("session source"))
+            .expect("config layer")
+            .expect("session layer");
+        let parsed: HashMap<String, ModelProviderInfo> = layer
+            .config
+            .get("model_providers")
+            .expect("model providers")
+            .clone()
+            .try_into()
+            .expect("provider toml");
+        assert_eq!(parsed.get("explicit"), Some(&explicit));
+        assert_eq!(parsed.get("omitted"), Some(&omitted));
+    }
+
+    #[test]
+    fn remote_compaction_false_and_unsupported_round_trip() {
+        let provider = controlled_provider(false, false, Some(RemoteCompactionSupport::Unsupported));
+        let proto = model_provider_to_proto("local", provider.clone());
+        assert!(!proto.accepts_response_continuation);
+        assert!(!proto.include_internal_metadata);
+        assert_eq!(
+            proto.remote_compaction,
+            Some(proto::RemoteCompaction::Unsupported as i32)
+        );
+        let (id, actual) = model_provider_from_proto(proto).expect("provider");
+        assert_eq!(id, "local");
+        assert_eq!(actual, provider);
+    }
+
+    #[test]
+    fn remote_compaction_rejects_unspecified_and_unknown_values() {
+        let mut proto = model_provider_to_proto(
+            "local",
+            controlled_provider(false, false, None),
+        );
+        proto.remote_compaction = Some(proto::RemoteCompaction::Unspecified as i32);
+        assert!(model_provider_from_proto(proto.clone()).is_err());
+        proto.remote_compaction = Some(99);
+        assert!(model_provider_from_proto(proto).is_err());
+    }
+
+    fn controlled_provider(
+        continuation: bool,
+        metadata: bool,
+        remote_compaction: Option<RemoteCompactionSupport>,
+    ) -> ModelProviderInfo {
+        ModelProviderInfo {
+            name: "OpenAI".to_string(),
+            base_url: Some("https://configured.example/v1".to_string()),
+            wire_api: WireApi::Responses,
+            accepts_response_continuation: continuation,
+            include_internal_metadata: metadata,
+            capabilities: remote_compaction.map(|remote_compaction| ModelProviderCapabilities {
+                external_web_access: None,
+                remote_compaction: Some(remote_compaction),
+            }),
+            ..Default::default()
         }
     }
 

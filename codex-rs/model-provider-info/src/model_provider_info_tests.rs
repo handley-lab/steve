@@ -6,20 +6,24 @@ use std::num::NonZeroU64;
 use tempfile::tempdir;
 
 #[test]
-fn runtime_internal_metadata_opt_in_is_not_serialized_or_configurable() {
+fn include_internal_metadata_round_trips_through_provider_toml() {
     let trusted = ModelProviderInfo {
-        accepts_response_continuation: false,
         include_internal_metadata: true,
         ..Default::default()
     };
-    assert_eq!(
-        toml::to_string(&trusted).unwrap(),
-        toml::to_string(&ModelProviderInfo::default()).unwrap(),
+    let encoded = toml::to_string(&trusted).unwrap();
+    assert_ne!(
+        encoded,
+        toml::to_string(&ModelProviderInfo::default()).unwrap()
     );
-    assert_eq!(
-        toml::from_str::<ModelProviderInfo>("include_internal_metadata = true").unwrap(),
-        ModelProviderInfo::default(),
-    );
+    let decoded: ModelProviderInfo = toml::from_str(&encoded).unwrap();
+    assert!(decoded.include_internal_metadata);
+
+    let omitted: ModelProviderInfo = toml::from_str("name = \"Cambridge\"\n").unwrap();
+    assert!(!omitted.include_internal_metadata);
+    let explicit_false: ModelProviderInfo =
+        toml::from_str("include_internal_metadata = false\n").unwrap();
+    assert!(!explicit_false.include_internal_metadata);
 }
 
 #[test]
