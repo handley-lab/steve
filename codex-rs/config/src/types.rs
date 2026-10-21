@@ -67,6 +67,15 @@ const fn default_enabled() -> bool {
     true
 }
 
+/// Account-backend path dialect selected beside `chatgpt_base_url`.
+#[derive(Serialize, Deserialize, Debug, Default, Copy, Clone, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountPathStyle {
+    #[default]
+    CodexApi,
+    ChatgptApi,
+}
+
 /// Last selected grouping in Agent Command Center.
 #[derive(Serialize, Deserialize, Debug, Default, Copy, Clone, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "kebab-case")]

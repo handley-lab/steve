@@ -395,7 +395,8 @@ impl AccountRequestProcessor {
                             &config.chatgpt_base_url,
                             &discovery_auth,
                             config.http_client_factory(),
-                        );
+                        )
+                        .with_account_path_style(config.chatgpt_path_style);
                         match client.get_accounts_check().await {
                             Ok(response) => break response,
                             Err(error) => {

@@ -8,6 +8,7 @@ use crate::windows_sandbox::WindowsSandboxLevelExt;
 use crate::windows_sandbox::resolve_windows_sandbox_mode;
 use crate::windows_sandbox::windows_sandbox_level_for_legacy_checks;
 use codex_agent_roles::load_agent_roles;
+use codex_config::AccountPathStyle;
 use codex_config::CloudConfigBundleLoader;
 use codex_config::ConfigLayerSource;
 use codex_config::ConfigLayerStack;
@@ -179,6 +180,7 @@ pub(crate) use runtime_refresh::RuntimeConfigRefresh;
 mod schema;
 mod token_budget_startup;
 mod windows_sandbox_config;
+pub use auth_keyring::bootstrap_account_path_style;
 pub use auth_keyring::bootstrap_auth_config;
 pub use auth_keyring::resolve_bootstrap_auth_keyring_backend_kind;
 pub use codex_agent_roles::AgentRoleConfig;
@@ -1068,6 +1070,9 @@ pub struct Config {
     /// Base URL for requests to ChatGPT (as opposed to the OpenAI API).
     pub chatgpt_base_url: String,
 
+    /// Path dialect for [`Self::chatgpt_base_url`]. Omission selects `codex_api`.
+    pub chatgpt_path_style: AccountPathStyle,
+
     /// Additional configured origins permitted to receive backend-staged file contents.
     pub file_upload_origins: Vec<String>,
 
@@ -1487,6 +1492,10 @@ impl AuthManagerConfig for Config {
 
     fn chatgpt_base_url(&self) -> String {
         self.chatgpt_base_url.clone()
+    }
+
+    fn account_path_style(&self) -> AccountPathStyle {
+        self.chatgpt_path_style
     }
 
     fn auth_route_config(&self) -> AuthRouteConfig {
@@ -4604,6 +4613,7 @@ impl Config {
             model_catalog,
             model_verbosity: cfg.model_verbosity,
             chatgpt_base_url: cfg.chatgpt_base_url.unwrap_or_default(),
+            chatgpt_path_style: cfg.chatgpt_path_style.unwrap_or_default(),
             file_upload_origins: cfg.file_upload_origins.unwrap_or_default(),
             desktop_update_url: cfg.desktop_update_url,
             respect_system_proxy,

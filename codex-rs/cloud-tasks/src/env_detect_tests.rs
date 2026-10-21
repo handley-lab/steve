@@ -15,6 +15,8 @@ use http::StatusCode;
 use http::header::AUTHORIZATION;
 use pretty_assertions::assert_eq;
 
+use codex_cloud_tasks_client::PathStyle;
+
 use super::*;
 
 const BASE_URL: &str = "https://chatgpt.com/backend-api";
@@ -90,6 +92,7 @@ async fn production_http_forwards_headers_and_decodes_response() {
         autodetect_environment_id_with_origins(
             &http,
             &base_url,
+            PathStyle::CodexApi,
             &headers,
             /*desired_label*/ None,
             &[],
@@ -118,6 +121,35 @@ async fn production_http_forwards_headers_and_decodes_response() {
 }
 
 #[tokio::test]
+async fn codex_api_requests_the_codex_prefix_on_a_backend_api_base() {
+    let by_repo = "https://chatgpt.com/backend-api/api/codex/environments/by-repo/github/openai/codex";
+    let http = FakeHttp::new(HashMap::from([(
+        by_repo.to_string(),
+        json_response(r#"[{"id":"env-codex","label":"Codex"}]"#),
+    )]));
+
+    let selection = autodetect_environment_id_with_origins(
+        &http,
+        BASE_URL,
+        PathStyle::CodexApi,
+        &HeaderMap::new(),
+        /*desired_label*/ None,
+        &[SanitizedGitUrl::try_from("git@github.com:openai/codex.git").expect("valid Git remote")],
+    )
+    .await
+    .expect("codex-api environment should be selected");
+
+    assert_eq!(
+        selection,
+        AutodetectSelection {
+            id: "env-codex".to_string(),
+            label: Some("Codex".to_string()),
+        }
+    );
+    assert_eq!(http.requested_urls(), vec![by_repo.to_string()]);
+}
+
+#[tokio::test]
 async fn autodetect_requests_exact_repository_endpoint_and_decodes_selection() {
     let http = FakeHttp::new(HashMap::from([(
         BY_REPO_URL.to_string(),
@@ -131,6 +163,7 @@ async fn autodetect_requests_exact_repository_endpoint_and_decodes_selection() {
     let selection = autodetect_environment_id_with_origins(
         &http,
         BASE_URL,
+        PathStyle::ChatGptApi,
         &headers,
         Some("Repository".to_string()),
         &[SanitizedGitUrl::try_from("git@github.com:openai/codex.git").expect("valid Git remote")],
@@ -165,6 +198,7 @@ async fn autodetect_sanitizes_credential_bearing_git_origins() {
     let selection = autodetect_environment_id_with_origins(
         &http,
         BASE_URL,
+        PathStyle::ChatGptApi,
         &HeaderMap::new(),
         /*desired_label*/ None,
         &[SanitizedGitUrl::try_from(
@@ -196,6 +230,7 @@ async fn autodetect_recognizes_sanitized_scp_git_origins() {
     let selection = autodetect_environment_id_with_origins(
         &http,
         BASE_URL,
+        PathStyle::ChatGptApi,
         &HeaderMap::new(),
         /*desired_label*/ None,
         &[
@@ -229,6 +264,7 @@ async fn autodetect_falls_back_to_exact_global_endpoint_and_decodes_selection() 
     let selection = autodetect_environment_id_with_origins(
         &http,
         BASE_URL,
+        PathStyle::ChatGptApi,
         &HeaderMap::new(),
         /*desired_label*/ None,
         &[SanitizedGitUrl::try_from("git@github.com:openai/codex.git").expect("valid Git remote")],
@@ -267,6 +303,7 @@ async fn list_requests_exact_repository_and_global_endpoints_and_merges_results(
     let rows = list_environments_with_origins(
         &http,
         BASE_URL,
+        PathStyle::ChatGptApi,
         &HeaderMap::new(),
         &[
             SanitizedGitUrl::try_from("https://github.com/openai/codex.git")

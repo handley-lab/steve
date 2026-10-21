@@ -11,6 +11,7 @@ use crate::browser_use::BrowserUseConfigToml;
 use crate::computer_use::ComputerUseConfigToml;
 use crate::permissions_toml::PermissionsToml;
 use crate::profile_toml::ConfigProfile;
+use crate::types::AccountPathStyle;
 use crate::types::AnalyticsConfigToml;
 use crate::types::ApprovalsReviewer;
 use crate::types::AppsConfigToml;
@@ -418,6 +419,9 @@ pub struct ConfigToml {
 
     /// Base URL for requests to ChatGPT (as opposed to the OpenAI API).
     pub chatgpt_base_url: Option<String>,
+
+    /// Path dialect for the account backend. Omission selects `codex_api`.
+    pub chatgpt_path_style: Option<AccountPathStyle>,
 
     /// Additional HTTP(S) origins permitted to receive file uploads from the backend.
     /// The configured backend's own origin is already permitted.

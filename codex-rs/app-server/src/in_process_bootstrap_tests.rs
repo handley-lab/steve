@@ -50,12 +50,16 @@ async fn bootstrap_discovery_survives_identity_installation_but_account_access_i
         .build()
         .await?;
     let policy = EmbeddedNetworkPolicy::load(&overrides).await;
-    let auth_config = policy.bind_bootstrap_auth(config.auth_config());
+    let auth_config =
+        policy.bind_bootstrap_auth(config.auth_config(), config.chatgpt_path_style);
     let bootstrap = auth_config.auth_route_config.http_client_factory().clone();
-    let bundle_url =
-        codex_backend_client::Client::new(config.chatgpt_base_url.clone(), bootstrap.clone())
-            .config_bundle_url()
-            .parse()?;
+    let bundle_url = codex_backend_client::Client::new(
+        config.chatgpt_base_url.clone(),
+        bootstrap.clone(),
+    )
+    .with_account_path_style(config.chatgpt_path_style)
+    .config_bundle_url()
+    .parse()?;
     let content_url = "https://chatgpt.com/backend-api/codex/responses".parse()?;
     let manager = AuthManager::new(
         home.path().to_path_buf(),

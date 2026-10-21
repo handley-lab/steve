@@ -22,7 +22,8 @@ async fn rate_limits_check(auth_manager: &AuthManager, config: &Config) -> Optio
         config.chatgpt_base_url.clone(),
         &auth,
         config.http_client_factory(),
-    );
+    )
+    .with_account_path_style(config.chatgpt_path_style);
 
     let snapshots = client
         .get_rate_limits_many()

@@ -1,9 +1,16 @@
 use anyhow::Result;
 use app_test_support::ChatGptAuthFixture;
 use app_test_support::write_chatgpt_auth;
+use codex_app_server::in_process::EmbeddedNetworkPolicy;
+use codex_cloud_config::cloud_config_bundle_loader_for_storage;
+use codex_config::CloudConfigBundleLoader;
+use codex_config::ConfigLoadOptions;
 use codex_config::ConfigRequirementsToml;
 use codex_config::LoaderOverrides;
 use codex_config::types::AuthCredentialsStoreMode;
+use codex_core::config::bootstrap_account_path_style;
+use codex_core::config::bootstrap_auth_config;
+use codex_core::config::load_config_toml_with_layer_stack;
 use codex_protocol::permissions::NetworkSandboxPolicy;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use pretty_assertions::assert_eq;
@@ -20,7 +27,6 @@ use wiremock::matchers::path;
 use super::super::DebugSandboxConfigOptions;
 use super::super::ManagedRequirementsMode;
 use super::super::load_debug_sandbox_config_with_codex_home;
-use super::bootstrap_cloud_config_bundle;
 
 const CLOUD_MANAGED_PERMISSION_PROFILE_REQUIREMENTS: &str = r#"
 default_permissions = "managed-cloud"
@@ -37,6 +43,13 @@ enabled = true
 
 #[tokio::test]
 async fn debug_sandbox_bootstraps_cloud_managed_permission_profile_from_backend() -> Result<()> {
+    for (style_toml, request_path) in [
+        ("", "/backend-api/api/codex/config/bundle"),
+        (
+            "chatgpt_path_style = \"chatgpt_api\"\n",
+            "/backend-api/wham/config/bundle",
+        ),
+    ] {
     let server = MockServer::start().await;
     let expected_requirements = json!([{
         "id": "req-managed-cloud",
@@ -44,7 +57,7 @@ async fn debug_sandbox_bootstraps_cloud_managed_permission_profile_from_backend(
         "contents": CLOUD_MANAGED_PERMISSION_PROFILE_REQUIREMENTS,
     }]);
     Mock::given(method("GET"))
-        .and(path("/backend-api/wham/config/bundle"))
+        .and(path(request_path))
         .and(header("authorization", "Bearer chatgpt-token"))
         .and(header("chatgpt-account-id", "workspace-123"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -60,7 +73,7 @@ async fn debug_sandbox_bootstraps_cloud_managed_permission_profile_from_backend(
     std::fs::write(
         codex_home.path().join("config.toml"),
         format!(
-            "cli_auth_credentials_store = \"file\"\nchatgpt_base_url = \"{}/backend-api\"\n",
+            "model_provider = \"openai\"\ncli_auth_credentials_store = \"file\"\nchatgpt_base_url = \"{}/backend-api\"\n{style_toml}",
             server.uri(),
         ),
     )?;
@@ -81,11 +94,28 @@ async fn debug_sandbox_bootstraps_cloud_managed_permission_profile_from_backend(
         managed_requirements_mode: ManagedRequirementsMode::Include,
         loader_overrides: LoaderOverrides::without_managed_config_for_tests(),
     };
-    let cloud_config_bundle = bootstrap_cloud_config_bundle(
-        &[],
-        &options,
-        || AbsolutePathBuf::from_absolute_path(codex_home.path()),
-        /*strict_config*/ false,
+    let cwd = AbsolutePathBuf::from_absolute_path(codex_home.path())?;
+    let bootstrap_config = load_config_toml_with_layer_stack(
+        codex_home.path(),
+        Some(&cwd),
+        Vec::new(),
+        ConfigLoadOptions {
+            loader_overrides: options.loader_overrides.clone(),
+            strict_config: false,
+            cloud_config_bundle: CloudConfigBundleLoader::default(),
+        },
+    )
+    .await?;
+    let path_style = bootstrap_account_path_style(&bootstrap_config);
+    let cloud_config_bundle = cloud_config_bundle_loader_for_storage(
+        EmbeddedNetworkPolicy::load(&options.loader_overrides)
+            .await
+            .bind_bootstrap_auth(
+                bootstrap_auth_config(codex_home.path(), &bootstrap_config)?,
+                path_style,
+            ),
+        path_style,
+        /*enable_codex_api_key_env*/ false,
     )
     .await?;
     let config = load_debug_sandbox_config_with_codex_home(
@@ -132,6 +162,7 @@ async fn debug_sandbox_bootstraps_cloud_managed_permission_profile_from_backend(
         }),
     );
     server.verify().await;
+    }
 
     Ok(())
 }

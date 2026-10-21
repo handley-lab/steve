@@ -541,6 +541,7 @@ impl AccountRequestProcessor {
         self.config_manager.replace_cloud_config_bundle_loader(
             self.auth_manager.clone(),
             self.config.chatgpt_base_url.clone(),
+            self.config.chatgpt_path_style,
             self.config.http_client_factory(),
         );
         self.config_manager
@@ -612,6 +613,7 @@ impl AccountRequestProcessor {
         self.config_manager.replace_cloud_config_bundle_loader(
             Arc::clone(&self.auth_manager),
             self.config.chatgpt_base_url.clone(),
+            self.config.chatgpt_path_style,
             self.config.http_client_factory(),
         );
         let config = self
@@ -825,7 +827,8 @@ impl AccountRequestProcessor {
             self.config.chatgpt_base_url.clone(),
             &auth,
             http_client_factory,
-        );
+        )
+        .with_account_path_style(self.config.chatgpt_path_style);
 
         let usage_request = async {
             if params.supports_luna_reserve
@@ -942,7 +945,8 @@ impl AccountRequestProcessor {
             self.config.chatgpt_base_url.clone(),
             &auth,
             http_client_factory,
-        );
+        )
+        .with_account_path_style(self.config.chatgpt_path_style);
         if let Some(thread_id) = thread_id {
             let thread_id = thread_id.to_string();
             let usage = tokio::time::timeout(
@@ -1029,7 +1033,8 @@ impl AccountRequestProcessor {
             self.config.chatgpt_base_url.clone(),
             &auth,
             http_client_factory,
-        );
+        )
+        .with_account_path_style(self.config.chatgpt_path_style);
         let messages = tokio::time::timeout(
             ACCOUNT_WORKSPACE_MESSAGES_FETCH_TIMEOUT,
             client.list_workspace_messages(),
@@ -1123,7 +1128,8 @@ impl AccountRequestProcessor {
             self.config.chatgpt_base_url.clone(),
             &auth,
             http_client_factory,
-        );
+        )
+        .with_account_path_style(self.config.chatgpt_path_style);
 
         match client
             .send_add_credits_nudge_email(Self::backend_credit_type(params.credit_type))

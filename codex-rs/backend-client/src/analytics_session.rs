@@ -52,6 +52,7 @@ impl AnalyticsSession {
             plan_type: None,
         };
         let client = Client::new_without_redirects(config.chatgpt_base_url(), http_client_factory)
+            .with_account_path_style(config.account_path_style())
             .with_auth_provider(codex_model_provider::auth_provider_from_auth_manager(
                 Arc::clone(&auth_manager),
                 &auth,

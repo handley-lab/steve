@@ -1544,6 +1544,10 @@ impl AuthManagerConfig for TestAuthManagerConfig {
             .expect("test config should include a ChatGPT base URL")
     }
 
+    fn account_path_style(&self) -> codex_config::AccountPathStyle {
+        codex_config::AccountPathStyle::CodexApi
+    }
+
     fn auth_route_config(&self) -> AuthRouteConfig {
         self.0.auth_route_config.clone()
     }

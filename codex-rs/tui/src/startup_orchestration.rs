@@ -447,7 +447,9 @@ pub(super) async fn run_main_inner(
         .run_until(cloud_config_bundle_loader_for_storage(
             embedded_network_policy.bind_bootstrap_auth(
                 app_server_target.auth_config_for_cloud_loader(config.auth_config()),
+                config.chatgpt_path_style,
             ),
+            config.chatgpt_path_style,
             /*enable_codex_api_key_env*/ false,
         ))
         .await??;

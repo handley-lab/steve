@@ -554,6 +554,7 @@ pub async fn run_main_with_transport_options(
     config_manager.replace_cloud_config_bundle_loader(
         bootstrap_auth,
         bootstrap_config.chatgpt_base_url.clone(),
+        bootstrap_config.chatgpt_path_style,
         bootstrap_config.http_client_factory(),
     );
     let mut config_warnings = Vec::new();
@@ -590,6 +591,7 @@ pub async fn run_main_with_transport_options(
         config_manager.replace_cloud_config_bundle_loader(
             auth_manager.clone(),
             config.chatgpt_base_url.clone(),
+            config.chatgpt_path_style,
             config.http_client_factory(),
         );
     }

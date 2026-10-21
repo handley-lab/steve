@@ -2410,6 +2410,7 @@ dependencies = [
  "anyhow",
  "codex-api",
  "codex-backend-openapi-models",
+ "codex-config",
  "codex-http-client",
  "codex-login",
  "codex-model-provider",
@@ -3478,6 +3479,7 @@ name = "codex-git-attribution"
 version = "0.0.0"
 dependencies = [
  "codex-backend-client",
+ "codex-config",
  "codex-extension-api",
  "codex-http-client",
  "codex-login",

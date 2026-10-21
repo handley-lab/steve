@@ -630,6 +630,7 @@ mod tests {
             .build()
             .await
             .unwrap();
+        let path_style = config.chatgpt_path_style;
         let mut auth_config = config.auth_config();
         let client = InProcessAppServerClient::start(InProcessClientStartArgs {
             arg0_paths: Arg0DispatchPaths::default(),
@@ -639,6 +640,7 @@ mod tests {
             strict_config: false,
             cloud_config_bundle: cloud_config_bundle_loader_for_storage(
                 auth_config.clone(),
+                path_style,
                 /*enable_codex_api_key_env*/ false,
             )
             .await

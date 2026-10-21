@@ -147,11 +147,10 @@ pub enum PathStyle {
 }
 
 impl PathStyle {
-    pub fn from_base_url(base_url: &str) -> Self {
-        if base_url.contains("/backend-api") {
-            PathStyle::ChatGptApi
-        } else {
-            PathStyle::CodexApi
+    pub fn from_account_style(style: codex_config::AccountPathStyle) -> Self {
+        match style {
+            codex_config::AccountPathStyle::CodexApi => PathStyle::CodexApi,
+            codex_config::AccountPathStyle::ChatgptApi => PathStyle::ChatGptApi,
         }
     }
 }
@@ -206,7 +205,7 @@ impl Client {
         while base_url.ends_with('/') {
             base_url.pop();
         }
-        let path_style = PathStyle::from_base_url(&base_url);
+        let path_style = PathStyle::CodexApi;
         Self {
             base_url,
             http,
@@ -253,6 +252,14 @@ impl Client {
     pub fn with_path_style(mut self, style: PathStyle) -> Self {
         self.path_style = style;
         self
+    }
+
+    pub fn with_account_path_style(self, style: codex_config::AccountPathStyle) -> Self {
+        self.with_path_style(PathStyle::from_account_style(style))
+    }
+
+    pub fn path_style(&self) -> PathStyle {
+        self.path_style
     }
 
     fn headers(&self) -> HeaderMap {
@@ -539,8 +546,8 @@ impl Client {
 
     /// Fetch authenticated Codex user settings from the active backend route.
     ///
-    /// Uses `GET /api/codex/settings/user` for Codex API hosts and
-    /// `GET /wham/settings/user` for ChatGPT `backend-api` hosts.
+    /// Uses `GET /api/codex/settings/user` for `PathStyle::CodexApi` and
+    /// `GET /wham/settings/user` for `PathStyle::ChatGptApi`.
     pub async fn get_user_settings(
         &self,
     ) -> std::result::Result<CodexUserSettingsResponse, RequestError> {
@@ -1206,6 +1213,7 @@ mod tests {
             format!("{}/backend-api", server.uri()),
             HttpClientFactory::new(codex_http_client::OutboundProxyPolicy::ReqwestDefault),
         )
+        .with_path_style(PathStyle::ChatGptApi)
         .get_user_settings()
         .await
         .unwrap();
@@ -1258,6 +1266,27 @@ mod tests {
                     .and_then(|value| value.to_str().ok()),
             ],
             [Some("Bearer e30.e30.c2ln"), Some("workspace-123")]
+        );
+    }
+
+    #[test]
+    fn config_bundle_url_follows_the_account_path_style() {
+        let factory = HttpClientFactory::new(codex_http_client::OutboundProxyPolicy::ReqwestDefault);
+        let backend_api = "https://example.test/backend-api";
+        let already_prefixed = "https://example.test/api/codex";
+        assert_eq!(
+            Client::new(backend_api, factory.clone()).config_bundle_url(),
+            "https://example.test/backend-api/api/codex/config/bundle"
+        );
+        assert_eq!(
+            Client::new(already_prefixed, factory.clone()).config_bundle_url(),
+            "https://example.test/api/codex/api/codex/config/bundle"
+        );
+        assert_eq!(
+            Client::new(backend_api, factory)
+                .with_path_style(PathStyle::ChatGptApi)
+                .config_bundle_url(),
+            "https://example.test/backend-api/wham/config/bundle"
         );
     }
 

@@ -1583,6 +1583,9 @@ pub trait AuthManagerConfig {
     /// Returns the ChatGPT backend base URL used for first-party backend authorization.
     fn chatgpt_base_url(&self) -> String;
 
+    /// Returns the account-backend path dialect for [`Self::chatgpt_base_url`].
+    fn account_path_style(&self) -> codex_config::AccountPathStyle;
+
     /// Returns route-selection settings for auth-owned clients.
     fn auth_route_config(&self) -> AuthRouteConfig;
 }

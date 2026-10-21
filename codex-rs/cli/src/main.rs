@@ -2077,6 +2077,7 @@ async fn run_debug_prompt_input_command(
         &mut extensions,
         auth_manager,
         config.chatgpt_base_url.clone(),
+        config.chatgpt_path_style,
         config.http_client_factory(),
     );
     codex_skills_extension::install(&mut extensions, |config: &Config| {

@@ -4,6 +4,8 @@ mod world_state;
 use std::sync::Arc;
 use std::time::Instant;
 
+use codex_backend_client::PathStyle;
+use codex_config::AccountPathStyle;
 use codex_extension_api::ContextContributor;
 use codex_extension_api::ExtensionFuture;
 use codex_extension_api::ExtensionRegistryBuilder;
@@ -26,6 +28,7 @@ use crate::world_state::git_attribution_world_state_section;
 struct GitAttributionExtension {
     auth_manager: Arc<AuthManager>,
     base_url: String,
+    path_style: PathStyle,
     http_client_factory: HttpClientFactory,
 }
 
@@ -53,6 +56,7 @@ impl ContextContributor for GitAttributionExtension {
                         match resolve_attribution_policy(
                             &self.auth_manager,
                             &self.base_url,
+                            self.path_style,
                             &self.http_client_factory,
                         )
                         .await
@@ -99,11 +103,13 @@ pub fn install<C: Sync>(
     registry: &mut ExtensionRegistryBuilder<C>,
     auth_manager: Arc<AuthManager>,
     base_url: String,
+    path_style: AccountPathStyle,
     http_client_factory: HttpClientFactory,
 ) {
     registry.prompt_contributor(Arc::new(GitAttributionExtension {
         auth_manager,
         base_url,
+        path_style: PathStyle::from_account_style(path_style),
         http_client_factory,
     }));
 }

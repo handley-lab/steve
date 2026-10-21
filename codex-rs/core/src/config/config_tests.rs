@@ -6308,6 +6308,49 @@ async fn file_upload_origins_follow_user_configuration() -> std::io::Result<()> 
 }
 
 #[tokio::test]
+async fn chatgpt_path_style_loads_from_config_and_ignores_the_base_url() -> std::io::Result<()> {
+    let cases = [
+        (
+            ConfigToml {
+                model_provider: Some("openai".to_string()),
+                chatgpt_base_url: Some("https://local.example/backend-api/".to_string()),
+                ..Default::default()
+            },
+            codex_config::AccountPathStyle::CodexApi,
+        ),
+        (
+            ConfigToml {
+                model_provider: Some("openai".to_string()),
+                chatgpt_path_style: Some(codex_config::AccountPathStyle::ChatgptApi),
+                chatgpt_base_url: Some("https://local.example/api/codex".to_string()),
+                ..Default::default()
+            },
+            codex_config::AccountPathStyle::ChatgptApi,
+        ),
+        (
+            ConfigToml {
+                model_provider: Some("openai".to_string()),
+                chatgpt_path_style: Some(codex_config::AccountPathStyle::CodexApi),
+                ..Default::default()
+            },
+            codex_config::AccountPathStyle::CodexApi,
+        ),
+    ];
+    for (config_toml, expected) in cases {
+        let codex_home = TempDir::new()?;
+        let config = Config::load_from_base_config_with_overrides(
+            config_toml,
+            ConfigOverrides::default(),
+            codex_home.abs(),
+        )
+        .await?;
+        assert_eq!(config.chatgpt_path_style, expected);
+    }
+    assert!(toml::from_str::<ConfigToml>("chatgpt_path_style = \"wham\"\n").is_err());
+    Ok(())
+}
+
+#[tokio::test]
 async fn config_requires_explicit_chatgpt_backend_destination() -> std::io::Result<()> {
     for backend in [
         None,

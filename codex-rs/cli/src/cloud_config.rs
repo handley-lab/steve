@@ -8,6 +8,7 @@ use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
 use codex_core::config::LoaderOverrides;
+use codex_core::config::bootstrap_account_path_style;
 use codex_core::config::bootstrap_auth_config;
 use codex_core::config::find_codex_home;
 use codex_core::config::load_config_toml_with_layer_stack;
@@ -58,11 +59,14 @@ pub(crate) async fn config_builder(
     )
     .await
     .context("failed to load bootstrap configuration")?;
+    let path_style = bootstrap_account_path_style(&bootstrap_config);
     let cloud_config_bundle = cloud_config_bundle_loader_for_storage(
         network_policy.bind_bootstrap_auth(
             bootstrap_auth_config(codex_home.as_path(), &bootstrap_config)
                 .context("failed to resolve cloud configuration authentication")?,
+            path_style,
         ),
+        path_style,
         /*enable_codex_api_key_env*/ false,
     )
     .await

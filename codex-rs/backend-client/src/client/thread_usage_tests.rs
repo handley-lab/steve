@@ -18,7 +18,9 @@ fn thread_usage_contract_uses_expected_paths_and_payload() {
         "https://example.test/api/codex/usage/thread_usage/query"
     );
     assert_eq!(
-        Client::new("https://chatgpt.com/backend-api", factory).thread_usage_url(),
+        Client::new("https://chatgpt.com/backend-api", factory)
+            .with_path_style(PathStyle::ChatGptApi)
+            .thread_usage_url(),
         "https://chatgpt.com/backend-api/wham/usage/thread_usage/query"
     );
     assert_eq!(

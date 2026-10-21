@@ -8,6 +8,7 @@ use crate::legacy_core::config::Config;
 use crate::legacy_core::config::ConfigBuilder;
 use crate::legacy_core::config::ConfigOverrides;
 use crate::legacy_core::config::ConfigTomlLoadResult;
+use crate::legacy_core::config::bootstrap_account_path_style;
 use crate::legacy_core::config::bootstrap_auth_config;
 use crate::legacy_core::config::edit::ConfigEdit;
 use crate::legacy_core::config::edit::ConfigEditsBuilder;
@@ -1050,11 +1051,16 @@ async fn cloud_config_bundle_for_app_server_target(
     codex_home: &Path,
     embedded_network_policy: &codex_app_server_client::EmbeddedNetworkPolicy,
 ) -> std::io::Result<CloudConfigBundleLoader> {
+    let path_style = bootstrap_account_path_style(bootstrap_config);
     cloud_config_bundle_loader_for_storage(
-        embedded_network_policy
-            .bind_bootstrap_auth(app_server_target.auth_config_for_cloud_loader(
-                bootstrap_auth_config(codex_home, bootstrap_config)?,
-            )),
+        embedded_network_policy.bind_bootstrap_auth(
+            app_server_target.auth_config_for_cloud_loader(bootstrap_auth_config(
+                codex_home,
+                bootstrap_config,
+            )?),
+            path_style,
+        ),
+        path_style,
         /*enable_codex_api_key_env*/ false,
     )
     .await
@@ -1358,7 +1364,11 @@ async fn run_ratatui_app(
                 // policy due to login status detection edge cases.
                 if show_login_screen && !uses_remote_workspace {
                     cloud_config_bundle = cloud_config_bundle_loader_for_storage(
-                        embedded_network_policy.bind_bootstrap_auth(initial_config.auth_config()),
+                        embedded_network_policy.bind_bootstrap_auth(
+                            initial_config.auth_config(),
+                            initial_config.chatgpt_path_style,
+                        ),
+                        initial_config.chatgpt_path_style,
                         /*enable_codex_api_key_env*/ false,
                     )
                     .await?;

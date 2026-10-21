@@ -252,11 +252,12 @@ fn run_without_environment_proxies(test_name: &str) -> bool {
     true
 }
 
-fn fallback_client(base_url: &str) -> Client {
+fn fallback_client(base_url: &str, path_style: PathStyle) -> Client {
     Client::new(
         base_url,
         HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault).with_system_proxy_fallback(),
     )
+    .with_path_style(path_style)
     .with_auth_provider(Arc::new(codex_model_provider::BearerAuthProvider::new(
         "bootstrap-token".to_string(),
     )))
@@ -271,11 +272,14 @@ async fn bootstrap_gets_resolve_each_fallback_destination_and_preserve_headers()
     ) {
         return;
     }
-    for (base_suffix, api_prefix) in [("", "/api/codex"), ("/backend-api", "/wham")] {
+    for (base_suffix, path_style, api_prefix) in [
+        ("", PathStyle::CodexApi, "/api/codex"),
+        ("/backend-api", PathStyle::ChatGptApi, "/wham"),
+    ] {
         let bundle_proxy = MockServer::start().await;
         let accounts_proxy = MockServer::start().await;
         let base_url = format!("{BLOCKED_ORIGIN}{base_suffix}");
-        let client = fallback_client(&base_url);
+        let client = fallback_client(&base_url, path_style);
         for (endpoint, proxy) in [
             ("config/bundle", &bundle_proxy),
             ("accounts/check", &accounts_proxy),
@@ -323,7 +327,7 @@ async fn bootstrap_gets_keep_default_responses_without_proxy_retry() {
             .expect(2)
             .mount(&issuer)
             .await;
-        let client = fallback_client(&issuer.uri());
+        let client = fallback_client(&issuer.uri(), PathStyle::CodexApi);
         let bundle = client.get_config_bundle().await;
         let accounts = client.get_accounts_check().await;
         if status == 200 {
@@ -438,7 +442,7 @@ async fn bootstrap_gets_retry_post_connect_failure_with_system_proxy() {
             .expect(1)
             .mount(&proxy)
             .await;
-        let client = fallback_client(&issuer_url);
+        let client = fallback_client(&issuer_url, PathStyle::CodexApi);
         let result = client
             .exec_bootstrap_get(&format!("{issuer_url}{endpoint_path}"))
             .await;
@@ -492,7 +496,7 @@ async fn bootstrap_get_recovers_from_stalled_body_before_cloud_startup_timeout()
         .await;
     let result = tokio::time::timeout(
         Duration::from_secs(15),
-        fallback_client(&issuer_url).get_config_bundle(),
+        fallback_client(&issuer_url, PathStyle::CodexApi).get_config_bundle(),
     )
     .await;
     finish.send(()).expect("release stalled issuer");

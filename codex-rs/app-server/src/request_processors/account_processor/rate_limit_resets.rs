@@ -115,7 +115,8 @@ impl AccountRequestProcessor {
             self.config.chatgpt_base_url.clone(),
             &auth,
             http_client_factory,
-        ))
+        )
+        .with_account_path_style(self.config.chatgpt_path_style))
     }
 }
 

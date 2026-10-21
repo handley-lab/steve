@@ -70,6 +70,7 @@ use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
 use codex_core::config::ConfigTomlLoadResult;
+use codex_core::config::bootstrap_account_path_style;
 use codex_core::config::bootstrap_auth_config;
 use codex_core::config::find_codex_home;
 use codex_core::config::load_config_toml_with_layer_stack;
@@ -401,9 +402,13 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
             CloudConfigBundleLoader::default(),
         )
         .await;
+        let gate_path_style = bootstrap_account_path_style(&gate_bootstrap);
         let gate_cloud_config = cloud_config_bundle_loader_for_storage(
-            embedded_network_policy
-                .bind_bootstrap_auth(bootstrap_auth_config(&codex_home, &gate_bootstrap)?),
+            embedded_network_policy.bind_bootstrap_auth(
+                bootstrap_auth_config(&codex_home, &gate_bootstrap)?,
+                gate_path_style,
+            ),
+            gate_path_style,
             /*enable_codex_api_key_env*/ false,
         )
         .await?;
@@ -501,13 +506,17 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
     )
     .await;
     let bootstrap_config_toml = &bootstrap_config.config_toml;
-    let bootstrap_auth_config = embedded_network_policy
-        .bind_bootstrap_auth(bootstrap_auth_config(&codex_home, &bootstrap_config)?);
+    let path_style = bootstrap_account_path_style(&bootstrap_config);
+    let bootstrap_auth_config = embedded_network_policy.bind_bootstrap_auth(
+        bootstrap_auth_config(&codex_home, &bootstrap_config)?,
+        path_style,
+    );
     // API keys cannot fetch workspace-managed configuration. Preserve the
     // existing ChatGPT bootstrap identity even when model requests allow
     // STEVE_API_KEY.
     let cloud_config_bundle = cloud_config_bundle_loader_for_storage(
         bootstrap_auth_config,
+        path_style,
         /*enable_codex_api_key_env*/ false,
     )
     .await?;

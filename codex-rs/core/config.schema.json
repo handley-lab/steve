@@ -6,6 +6,14 @@
       "description": "A path that is guaranteed to be absolute and normalized (though it is not guaranteed to be canonicalized or exist on the filesystem).\n\nIMPORTANT: When deserializing an `AbsolutePathBuf`, a base path must be set using [AbsolutePathBufGuard::new]. If no base path is set, the deserialization will fail unless the path being deserialized is already absolute.",
       "type": "string"
     },
+    "AccountPathStyle": {
+      "description": "Account-backend path dialect selected beside `chatgpt_base_url`.",
+      "enum": [
+        "codex_api",
+        "chatgpt_api"
+      ],
+      "type": "string"
+    },
     "AgentRoleToml": {
       "additionalProperties": false,
       "properties": {
@@ -737,6 +745,9 @@
         },
         "chatgpt_base_url": {
           "type": "string"
+        },
+        "chatgpt_path_style": {
+          "$ref": "#/definitions/AccountPathStyle"
         },
         "experimental_compact_prompt_file": {
           "$ref": "#/definitions/AbsolutePathBuf"
@@ -7028,6 +7039,14 @@
     "chatgpt_base_url": {
       "description": "Base URL for requests to ChatGPT (as opposed to the OpenAI API).",
       "type": "string"
+    },
+    "chatgpt_path_style": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/AccountPathStyle"
+        }
+      ],
+      "description": "Path dialect for the account backend. Omission selects `codex_api`."
     },
     "check_for_update_on_startup": {
       "description": "When `true`, checks for Codex updates on startup and surfaces update prompts. Set to `false` only if your Codex updates are centrally managed. Defaults to `true`.",

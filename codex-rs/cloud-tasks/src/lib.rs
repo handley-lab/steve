@@ -9,6 +9,7 @@ pub use cli::Cli;
 
 use anyhow::anyhow;
 use chrono::Utc;
+use codex_cloud_tasks_client::PathStyle;
 use codex_cloud_tasks_client::TaskStatus;
 use codex_git_utils::current_branch_name;
 use codex_git_utils::default_branch_name;
@@ -42,6 +43,7 @@ struct ApplyJob {
 struct BackendContext {
     backend: Arc<dyn codex_cloud_tasks_client::CloudBackend>,
     base_url: String,
+    path_style: PathStyle,
     environment_http: RouteAwareClientPool,
 }
 
@@ -52,6 +54,7 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
         Some("mock") | Some("MOCK")
     );
     let config = codex_core::config::Config::load_with_cli_overrides(Vec::new()).await?;
+    let path_style = PathStyle::from_account_style(config.chatgpt_path_style);
     let configured = config.chatgpt_base_url.as_str();
     if configured.trim().is_empty() {
         anyhow::bail!("chatgpt_base_url must be configured for cloud tasks");
@@ -67,6 +70,7 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
         return Ok(BackendContext {
             backend: Arc::new(codex_cloud_tasks_mock_client::MockClient),
             base_url,
+            path_style,
             environment_http: RouteAwareClientPool::new_without_redirects_or_request_logging(
                 http_client_factory,
                 ClientRouteClass::Api,
@@ -81,11 +85,11 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
         ClientRouteClass::Api,
     );
     let mut http = codex_cloud_tasks_client::HttpClient::new(base_url.clone(), http_client_factory)
-        .with_user_agent(ua);
-    let style = if base_url.contains("/backend-api") {
-        "wham"
-    } else {
-        "codex-api"
+        .with_user_agent(ua)
+        .with_path_style(path_style);
+    let style = match path_style {
+        PathStyle::ChatGptApi => "wham",
+        PathStyle::CodexApi => "codex-api",
     };
     append_error_log(format!("startup: base_url={base_url} path_style={style}"));
 
@@ -119,6 +123,7 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
     Ok(BackendContext {
         backend: Arc::new(http),
         base_url,
+        path_style,
         environment_http,
     })
 }
@@ -207,8 +212,13 @@ async fn resolve_environment_id(ctx: &BackendContext, requested: &str) -> anyhow
     }
     let normalized = util::normalize_base_url(&ctx.base_url);
     let headers = util::build_backend_headers(&ctx.base_url).await;
-    let environments =
-        crate::env_detect::list_environments(&ctx.environment_http, &normalized, &headers).await?;
+    let environments = crate::env_detect::list_environments(
+        &ctx.environment_http,
+        &normalized,
+        ctx.path_style,
+        &headers,
+    )
+    .await?;
     if environments.is_empty() {
         return Err(anyhow!(
             "no cloud environments are available for this workspace"
@@ -778,6 +788,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
     let BackendContext {
         backend,
         base_url,
+        path_style,
         environment_http,
     } = init_backend("codex_cloud_tasks_tui").await?;
 
@@ -859,7 +870,12 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
         });
     }
     // Fetch environment list in parallel so the header can show friendly names quickly.
-    spawn_environment_load(tx.clone(), base_url.clone(), environment_http.clone());
+    spawn_environment_load(
+        tx.clone(),
+        base_url.clone(),
+        path_style,
+        environment_http.clone(),
+    );
 
     // Try to auto-detect a likely environment id on startup and refresh if found.
     // Do this concurrently so the initial list shows quickly; on success we refetch with filter.
@@ -876,6 +892,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
             let res = crate::env_detect::autodetect_environment_id(
                 &environment_http,
                 &base_url,
+                path_style,
                 &headers,
                 /*desired_label*/ None,
             )
@@ -1102,6 +1119,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                     spawn_environment_load(
                                         tx.clone(),
                                         base_url.clone(),
+                                        path_style,
                                         environment_http.clone(),
                                     );
                                     let _ = frame_tx.send(Instant::now());
@@ -1482,6 +1500,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                 spawn_environment_load(
                                     tx.clone(),
                                     base_url.clone(),
+                                    path_style,
                                     environment_http.clone(),
                                 );
                             }
@@ -1666,6 +1685,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                         spawn_environment_load(
                                             tx.clone(),
                                             base_url.clone(),
+                                            path_style,
                                             environment_http.clone(),
                                         );
                                     }
@@ -1840,6 +1860,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                         spawn_environment_load(
                                             tx.clone(),
                                             base_url.clone(),
+                                            path_style,
                                             environment_http.clone(),
                                         );
                                     }
@@ -2026,12 +2047,14 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
 fn spawn_environment_load(
     tx: UnboundedSender<app::AppEvent>,
     base_url: String,
+    path_style: PathStyle,
     http: RouteAwareClientPool,
 ) {
     tokio::spawn(async move {
         let base_url = util::normalize_base_url(&base_url);
         let headers = util::build_backend_headers(&base_url).await;
-        let result = crate::env_detect::list_environments(&http, &base_url, &headers).await;
+        let result =
+            crate::env_detect::list_environments(&http, &base_url, path_style, &headers).await;
         let _ = tx.send(app::AppEvent::EnvironmentsLoaded(result));
     });
 }
@@ -2266,7 +2289,10 @@ mod tests {
         .unwrap();
         std::fs::write(
             home.path().join("config.toml"),
-            format!("chatgpt_base_url = {:?}\n", server.uri()),
+            format!(
+                "model_provider = \"openai\"\nchatgpt_base_url = {:?}\n",
+                server.uri()
+            ),
         )
         .unwrap();
         let mut command = std::process::Command::new(std::env::current_exe().unwrap());
@@ -2297,6 +2323,122 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         assert_eq!(requests.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn configured_local_backend_path_style_selects_backend_api_prefix() {
+        if let Ok(case) = std::env::var("STEVE_CLOUD_TASKS_PATH_STYLE_TEST") {
+            let context = init_backend("path_style_test")
+                .await
+                .expect("configured backend-api");
+            let page = context.backend.list_tasks(None, None, None).await.unwrap();
+            assert!(page.tasks.is_empty());
+            assert_eq!(
+                resolve_environment_id(&context, "local").await.unwrap(),
+                "local"
+            );
+            assert_eq!(
+                context.path_style,
+                if case == "chatgpt" {
+                    PathStyle::ChatGptApi
+                } else {
+                    PathStyle::CodexApi
+                }
+            );
+            return;
+        }
+
+        use wiremock::Mock;
+        use wiremock::MockServer;
+        use wiremock::ResponseTemplate;
+        use wiremock::matchers::header;
+        use wiremock::matchers::path;
+
+        for (case, style_toml, task_path, environment_path) in [
+            (
+                "codex",
+                "",
+                "/backend-api/api/codex/tasks/list",
+                "/backend-api/api/codex/environments",
+            ),
+            (
+                "chatgpt",
+                "chatgpt_path_style = \"chatgpt_api\"\n",
+                "/backend-api/wham/tasks/list",
+                "/backend-api/wham/environments",
+            ),
+        ] {
+            let server = MockServer::start().await;
+            let key = "synthetic-local-cloud-key";
+            Mock::given(path(task_path))
+                .and(header("authorization", format!("Bearer {key}")))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(serde_json::json!({"items": []})),
+                )
+                .mount(&server)
+                .await;
+            Mock::given(path(environment_path))
+                .and(header("authorization", format!("Bearer {key}")))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                    {"id": "local", "label": "Local backend"}
+                ])))
+                .mount(&server)
+                .await;
+            let home = tempfile::tempdir().unwrap();
+            codex_login::login_with_api_key(
+                home.path(),
+                key,
+                codex_login::AuthCredentialsStoreMode::File,
+                codex_login::AuthKeyringBackendKind::Direct,
+            )
+            .unwrap();
+            std::fs::write(
+                home.path().join("config.toml"),
+                format!(
+                    "model_provider = \"openai\"\nchatgpt_base_url = {:?}\n{style_toml}",
+                    format!("{}/backend-api", server.uri())
+                ),
+            )
+            .unwrap();
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args([
+                    "--exact",
+                    "tests::configured_local_backend_path_style_selects_backend_api_prefix",
+                    "--nocapture",
+                ])
+                .current_dir(home.path())
+                .env("STEVE_HOME", home.path())
+                .env_remove("STEVE_CLOUD_TASKS_BASE_URL")
+                .env("STEVE_CLOUD_TASKS_PATH_STYLE_TEST", case)
+                .env_remove("STEVE_CLOUD_TASKS_MODE")
+                .env_remove("STEVE_API_KEY")
+                .env_remove("STEVE_ACCESS_TOKEN")
+                .env_remove("OPENAI_API_KEY");
+            let output = tokio::task::spawn_blocking(move || command.output())
+                .await
+                .unwrap()
+                .unwrap();
+            let requests = server.received_requests().await.unwrap();
+            let paths = requests
+                .iter()
+                .map(|request| request.url.path().to_string())
+                .collect::<Vec<_>>();
+            assert!(
+                output.status.success(),
+                "{case}: {}{}; requests={paths:?}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(
+                paths.contains(&task_path.to_string()),
+                "{case}: {paths:?}"
+            );
+            assert!(
+                paths.contains(&environment_path.to_string()),
+                "{case}: {paths:?}"
+            );
+        }
     }
 
     struct StubGitInfo {
