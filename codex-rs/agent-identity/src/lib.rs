@@ -375,11 +375,7 @@ pub fn agent_task_registration_url(
 
 pub fn agent_identity_jwks_url(agent_identity_jwt_base_url: &str) -> String {
     let trimmed = agent_identity_jwt_base_url.trim_end_matches('/');
-    if trimmed.contains("/backend-api") {
-        format!("{trimmed}/wham/agent-identities/jwks")
-    } else {
-        format!("{trimmed}/agent-identities/jwks")
-    }
+    format!("{trimmed}/agent-identities/jwks")
 }
 
 fn agent_identity_authapi_url(agent_identity_authapi_base_url: &str, api_path: &str) -> String {
@@ -813,11 +809,11 @@ J1bwkqKZTB5dHolX9A58e/xXnfZ5P8f3Z83+Izap3FwqQulk7b1WO1MQcHuVg2NN
     fn agent_identity_jwks_url_uses_agent_identity_jwt_route() {
         assert_eq!(
             agent_identity_jwks_url("https://chatgpt.com/backend-api"),
-            "https://chatgpt.com/backend-api/wham/agent-identities/jwks"
+            "https://chatgpt.com/backend-api/agent-identities/jwks"
         );
         assert_eq!(
             agent_identity_jwks_url("https://chatgpt.com/backend-api/"),
-            "https://chatgpt.com/backend-api/wham/agent-identities/jwks"
+            "https://chatgpt.com/backend-api/agent-identities/jwks"
         );
     }
 
@@ -830,6 +826,10 @@ J1bwkqKZTB5dHolX9A58e/xXnfZ5P8f3Z83+Izap3FwqQulk7b1WO1MQcHuVg2NN
         assert_eq!(
             agent_identity_jwks_url("http://localhost:8080/api/codex/"),
             "http://localhost:8080/api/codex/agent-identities/jwks"
+        );
+        assert_eq!(
+            agent_identity_jwks_url("https://chatgpt.com/backend-api/wham"),
+            "https://chatgpt.com/backend-api/wham/agent-identities/jwks"
         );
     }
 

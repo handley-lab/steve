@@ -103,7 +103,7 @@ async fn login_with_access_token_writes_agent_identity_jwt() {
         signed_agent_identity_jwt(&record, json!(record.plan_type)).expect("signed agent identity");
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/backend-api/wham/agent-identities/jwks"))
+        .and(path("/backend-api/agent-identities/jwks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
         .expect(1)
         .mount(&server)
@@ -381,7 +381,7 @@ async fn stored_agent_identity_jwt_keeps_auth_json_unchanged() -> anyhow::Result
         signed_agent_identity_jwt(&record, json!(record.plan_type)).expect("signed agent identity");
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/backend-api/wham/agent-identities/jwks"))
+        .and(path("/backend-api/agent-identities/jwks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
         .expect(1)
         .mount(&server)
@@ -622,7 +622,7 @@ async fn agent_identity_jwt_task_registration_retry_exhaustion_is_strict() -> an
         signed_agent_identity_jwt(&record, json!(record.plan_type)).expect("signed agent identity");
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/backend-api/wham/agent-identities/jwks"))
+        .and(path("/backend-api/agent-identities/jwks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
         .expect(1)
         .mount(&server)
@@ -655,12 +655,16 @@ async fn agent_identity_jwt_task_registration_retry_exhaustion_is_strict() -> an
 #[tokio::test]
 #[serial(codex_auth_env)]
 async fn login_with_access_token_rejects_unsigned_jwt() {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let dir = tempdir().unwrap();
     let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
     let agent_identity = fake_agent_identity_jwt(&record).expect("fake agent identity");
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/backend-api/wham/agent-identities/jwks"))
+        .and(path("/backend-api/agent-identities/jwks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
         .expect(1)
         .mount(&server)
@@ -1585,6 +1589,10 @@ fn auth_config_from_preserves_all_fields() {
 #[tokio::test]
 #[serial(codex_auth_env)]
 async fn load_auth_reads_access_token_from_env() {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let codex_home = tempdir().unwrap();
     let mut expected_record = agent_identity_record(WORKSPACE_ID_ALLOWED);
     let agent_identity =
@@ -1592,7 +1600,7 @@ async fn load_auth_reads_access_token_from_env() {
             .expect("signed agent identity");
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/backend-api/wham/agent-identities/jwks"))
+        .and(path("/backend-api/agent-identities/jwks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
         .expect(1)
         .mount(&server)
@@ -2209,7 +2217,7 @@ async fn enforce_login_restrictions_logs_out_for_agent_identity_workspace_mismat
         signed_agent_identity_jwt(&record, json!(record.plan_type)).expect("signed agent identity");
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/backend-api/wham/agent-identities/jwks"))
+        .and(path("/backend-api/agent-identities/jwks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
         .expect(1)
         .mount(&server)
@@ -2487,7 +2495,7 @@ async fn assert_agent_identity_plan_alias(
     let jwt = signed_agent_identity_jwt(&record, plan_type).expect("agent identity jwt");
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/backend-api/wham/agent-identities/jwks"))
+        .and(path("/backend-api/agent-identities/jwks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
         .expect(1)
         .mount(&server)

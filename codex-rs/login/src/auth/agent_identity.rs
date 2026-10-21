@@ -357,7 +357,7 @@ mod tests {
         );
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path("/backend-api/wham/agent-identities/jwks"))
+            .and(path("/backend-api/agent-identities/jwks"))
             .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
             .expect(1)
             .mount(&server)
