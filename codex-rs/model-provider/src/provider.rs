@@ -648,7 +648,7 @@ mod tests {
         assert_eq!(
             provider.capabilities(),
             ProviderCapabilities {
-                remote_compaction: RemoteCompactionSupport::V2,
+                remote_compaction: RemoteCompactionSupport::Unsupported,
                 ..ProviderCapabilities::default()
             }
         );
@@ -659,7 +659,7 @@ mod tests {
         let cases = [
             (
                 ModelProviderInfo::create_openai_provider(/*base_url*/ None),
-                RemoteCompactionSupport::V2,
+                RemoteCompactionSupport::Unsupported,
             ),
             (
                 ModelProviderInfo {
@@ -667,7 +667,7 @@ mod tests {
                     base_url: Some("https://example.com/openai".to_string()),
                     ..ModelProviderInfo::default()
                 },
-                RemoteCompactionSupport::V2,
+                RemoteCompactionSupport::Unsupported,
             ),
             (
                 ModelProviderInfo {
@@ -675,7 +675,7 @@ mod tests {
                     base_url: Some("https://example.openai.azure.com/openai/v1".to_string()),
                     ..ModelProviderInfo::default()
                 },
-                RemoteCompactionSupport::V2,
+                RemoteCompactionSupport::Unsupported,
             ),
             (
                 provider_for("https://example.test/v1".to_string()),
@@ -1014,8 +1014,10 @@ printf '%s\n' '{"AccessKeyId":"exported","SecretAccessKey":"secret"}'
 
     #[test]
     fn openai_provider_returns_unauthenticated_openai_account_state() {
+        let mut info = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+        info.requires_openai_auth = true;
         let provider = create_model_provider(
-            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+            info,
             /*auth_manager*/ None,
         );
 
@@ -1030,8 +1032,10 @@ printf '%s\n' '{"AccessKeyId":"exported","SecretAccessKey":"secret"}'
 
     #[test]
     fn openai_provider_returns_api_key_account_state() {
+        let mut info = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+        info.requires_openai_auth = true;
         let provider = create_model_provider(
-            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+            info,
             Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
                 "openai-api-key",
             ))),
@@ -1048,8 +1052,10 @@ printf '%s\n' '{"AccessKeyId":"exported","SecretAccessKey":"secret"}'
 
     #[test]
     fn openai_provider_returns_chatgpt_account_state_without_email() {
+        let mut info = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+        info.requires_openai_auth = true;
         let provider = create_model_provider(
-            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+            info,
             Some(AuthManager::from_auth_for_testing(
                 CodexAuth::create_dummy_chatgpt_auth_for_testing(),
             )),
@@ -1069,8 +1075,10 @@ printf '%s\n' '{"AccessKeyId":"exported","SecretAccessKey":"secret"}'
 
     #[test]
     fn openai_provider_rejects_bedrock_api_key_account_state() {
+        let mut info = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+        info.requires_openai_auth = true;
         let provider = create_model_provider(
-            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+            info,
             Some(AuthManager::from_auth_for_testing(bedrock_api_key_auth())),
         );
 

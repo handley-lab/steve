@@ -820,6 +820,7 @@ mod tests {
                         "us".into(),
                     ),
                 ])),
+                requires_openai_auth: true,
                 ..ModelProviderInfo::create_openai_provider(base_url.map(str::to_string))
             };
             let home = tempfile::tempdir().unwrap();

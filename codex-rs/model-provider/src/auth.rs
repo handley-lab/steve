@@ -468,7 +468,8 @@ mod tests {
 
     #[test]
     fn openai_provider_preserves_ambient_auth_headers() {
-        let provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+        let mut provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+        provider.requires_openai_auth = true;
         let mut expected = HeaderMap::new();
         expected.insert(
             AUTHORIZATION,
@@ -503,7 +504,8 @@ mod tests {
 
     #[test]
     fn openai_provider_rejects_bedrock_api_key_auth() {
-        let provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+        let mut provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+        provider.requires_openai_auth = true;
         let auth = CodexAuth::BedrockApiKey(BedrockApiKeyAuth {
             api_key: "bedrock-api-key-test".to_string(),
             region: "us-east-1".to_string(),
@@ -641,10 +643,9 @@ mod tests {
         let registration_count = Arc::new(AtomicUsize::new(0));
         mount_transient_agent_registration(&server, 503, Arc::clone(&registration_count)).await;
         let (_codex_home, auth_manager, _auth) = chatgpt_auth_manager(server.uri()).await;
-        let provider = crate::create_model_provider(
-            ModelProviderInfo::create_openai_provider(Some(server.uri())),
-            Some(auth_manager),
-        );
+        let mut info = ModelProviderInfo::create_openai_provider(Some(server.uri()));
+        info.requires_openai_auth = true;
+        let provider = crate::create_model_provider(info, Some(auth_manager));
         let resolved = provider
             .api_auth_for_scope()
             .await

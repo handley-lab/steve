@@ -47,7 +47,9 @@ fn cache_identity_tracks_account_email_user_plan_and_auth_mode_but_not_token_ref
 #[test]
 fn cache_identity_tracks_provider_routing_and_effective_api_credentials() {
     let auth = CodexAuth::from_api_key("first-key");
-    let provider = ModelProviderInfo::create_openai_provider(Some("https://one.example/v1".into()));
+    let mut provider =
+        ModelProviderInfo::create_openai_provider(Some("https://one.example/v1".into()));
+    provider.requires_openai_auth = true;
     let key = identity(&provider, Some(&auth)).unwrap();
     let other_key = CodexAuth::from_api_key("second-key");
     assert_ne!(identity(&provider, Some(&other_key)).unwrap(), key);
@@ -69,6 +71,7 @@ fn cache_identity_tracks_provider_routing_and_effective_api_credentials() {
 fn cache_identity_distinguishes_auth_requirements_and_unknown_plans() {
     let mut provider =
         ModelProviderInfo::create_openai_provider(Some("https://example.com/v1".into()));
+    provider.requires_openai_auth = true;
     let first = chatgpt_auth(
         "one@example.com",
         "user",

@@ -555,6 +555,98 @@ fn test_merge_configured_model_providers_adds_custom_provider() {
 }
 
 #[test]
+fn test_merge_configured_model_providers_keeps_builtin_openai_defaults() {
+    let builtin = built_in_model_providers(/*openai_base_url*/ None);
+    let openai = builtin
+        .get(OPENAI_PROVIDER_ID)
+        .expect("built-in openai provider");
+    assert_eq!(openai.wire_api, WireApi::Responses);
+    assert!(
+        openai
+            .http_headers
+            .as_ref()
+            .is_some_and(|headers| headers.contains_key("version"))
+    );
+    assert!(openai.base_url.is_none());
+    assert!(openai.env_http_headers.is_none());
+    assert!(!openai.requires_openai_auth);
+    assert!(!openai.supports_websockets);
+    assert!(!openai.supports_standalone_web_search);
+    assert!(openai.capabilities.is_none());
+    assert!(!openai.accepts_response_continuation);
+    assert!(!openai.include_internal_metadata);
+
+    let configured_openai = ModelProviderInfo {
+        name: "Replaced".to_string(),
+        base_url: Some("https://replaced.example/v1".to_string()),
+        requires_openai_auth: true,
+        supports_websockets: true,
+        supports_standalone_web_search: true,
+        accepts_response_continuation: true,
+        include_internal_metadata: true,
+        env_key: Some("OPENAI_API_KEY".to_string()),
+        env_http_headers: Some(std::collections::HashMap::from([(
+            "OpenAI-Organization".to_string(),
+            "OPENAI_ORGANIZATION".to_string(),
+        )])),
+        capabilities: Some(ModelProviderCapabilities {
+            external_web_access: None,
+            remote_compaction: Some(RemoteCompactionSupport::V2),
+        }),
+        ..ModelProviderInfo::default()
+    };
+    let enabled = ModelProviderInfo {
+        name: "Other".to_string(),
+        base_url: Some("https://other.example/v1".to_string()),
+        env_key: Some("OTHER_API_KEY".to_string()),
+        requires_openai_auth: true,
+        supports_websockets: true,
+        supports_standalone_web_search: true,
+        accepts_response_continuation: true,
+        include_internal_metadata: true,
+        env_http_headers: Some(std::collections::HashMap::from([(
+            "X-Org".to_string(),
+            "OTHER_ORG".to_string(),
+        )])),
+        capabilities: Some(ModelProviderCapabilities {
+            external_web_access: None,
+            remote_compaction: Some(RemoteCompactionSupport::V2),
+        }),
+        ..ModelProviderInfo::default()
+    };
+    let omitted = ModelProviderInfo {
+        name: "Omitted".to_string(),
+        base_url: Some("https://omitted.example/v1".to_string()),
+        ..ModelProviderInfo::default()
+    };
+    let merged = merge_configured_model_providers(
+        builtin,
+        std::collections::HashMap::from([
+            (OPENAI_PROVIDER_ID.to_string(), configured_openai),
+            ("other".to_string(), enabled.clone()),
+            ("omitted".to_string(), omitted.clone()),
+        ]),
+    )
+    .expect("merge");
+
+    assert_eq!(
+        merged.get(OPENAI_PROVIDER_ID),
+        built_in_model_providers(/*openai_base_url*/ None).get(OPENAI_PROVIDER_ID)
+    );
+    assert_eq!(merged.get("other"), Some(&enabled));
+    let stored_omitted = merged.get("omitted").expect("omitted provider");
+    assert_eq!(stored_omitted, &omitted);
+    assert!(stored_omitted.env_key.is_none());
+    assert!(stored_omitted.env_http_headers.is_none());
+    assert!(stored_omitted.capabilities.is_none());
+    assert!(!stored_omitted.requires_openai_auth);
+    assert!(!stored_omitted.supports_websockets);
+    assert!(!stored_omitted.supports_standalone_web_search);
+    assert!(!stored_omitted.accepts_response_continuation);
+    assert!(!stored_omitted.include_internal_metadata);
+}
+
+#[test]
 fn test_merge_configured_model_providers_applies_amazon_bedrock_aws_override() {
     let credential_export = AwsCredentialExportConfig {
         command: "aws-vault".to_string(),
@@ -747,7 +839,7 @@ fn test_validate_provider_aws_rejects_conflicting_auth() {
 
     assert_eq!(
         provider.validate(),
-        Err("provider aws cannot be combined with env_key, requires_openai_auth".to_string())
+        Err("provider aws cannot be combined with env_key".to_string())
     );
 }
 

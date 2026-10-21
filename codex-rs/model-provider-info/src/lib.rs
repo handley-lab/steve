@@ -538,31 +538,18 @@ other non-default provider fields are not supported"
                     .into_iter()
                     .collect(),
             ),
-            env_http_headers: Some(
-                [
-                    (
-                        "OpenAI-Organization".to_string(),
-                        "OPENAI_ORGANIZATION".to_string(),
-                    ),
-                    ("OpenAI-Project".to_string(), "OPENAI_PROJECT".to_string()),
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            env_http_headers: None,
             // Use global defaults for retry/timeout unless overridden in config.toml.
             request_max_retries: None,
             stream_max_retries: None,
             stream_idle_timeout_ms: None,
             websocket_connect_timeout_ms: None,
-            requires_openai_auth: true,
-            supports_websockets: true,
-            supports_standalone_web_search: true,
-            capabilities: Some(ModelProviderCapabilities {
-                external_web_access: None,
-                remote_compaction: Some(RemoteCompactionSupport::V2),
-            }),
-            accepts_response_continuation: true,
-            include_internal_metadata: true,
+            requires_openai_auth: false,
+            supports_websockets: false,
+            supports_standalone_web_search: false,
+            capabilities: None,
+            accepts_response_continuation: false,
+            include_internal_metadata: false,
         }
     }
 

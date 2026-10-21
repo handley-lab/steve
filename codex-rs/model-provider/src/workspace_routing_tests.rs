@@ -91,12 +91,11 @@ async fn concurrent_discovery_cannot_forget_established_routing() {
     auth.set_workspace_routing_resolver(Arc::downgrade(
         &(resolver.clone() as Arc<dyn WorkspaceRoutingResolver>),
     ));
-    let provider = create_model_provider(
-        ModelProviderInfo::create_openai_provider(Some(
-            "https://gov.chatgpt.com/backend-api/codex".into(),
-        )),
-        Some(auth),
-    );
+    let mut info = ModelProviderInfo::create_openai_provider(Some(
+        "https://gov.chatgpt.com/backend-api/codex".into(),
+    ));
+    info.requires_openai_auth = true;
+    let provider = create_model_provider(info, Some(auth));
     let mut first = provider.responses_api_provider(&context);
     let classifier_context = context.clone();
     let mut second = provider.responses_api_provider(&classifier_context);
@@ -147,9 +146,10 @@ async fn workspace_routing_preserves_paths_and_excludes_other_providers() {
         account_routing_override: "us_cr".into(),
     }));
     auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
-    let info = ModelProviderInfo::create_openai_provider(Some(
+    let mut info = ModelProviderInfo::create_openai_provider(Some(
         "https://gov.chatgpt.com:8443/backend-api/codex".into(),
     ));
+    info.requires_openai_auth = true;
     let provider = create_model_provider(info.clone(), Some(auth.clone()));
     let routed = provider
         .responses_api_provider(&routing_context)
@@ -220,6 +220,7 @@ async fn codex_suffix_routes_by_path_and_auth_not_by_display_name() {
     let mut codex_path = ModelProviderInfo::create_openai_provider(Some(
         "https://configured.example/backend-api/codex".into(),
     ));
+    codex_path.requires_openai_auth = true;
     let mut decisions = Vec::new();
     for name in ["OpenAI", "Cambridge"] {
         codex_path.name = name.to_string();
@@ -268,12 +269,11 @@ async fn missing_routing_owner_and_wrong_workspace_fail_closed() {
         account_routing_override: "NO_CONSTRAINT".into(),
     }));
     auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
-    let provider = create_model_provider(
-        ModelProviderInfo::create_openai_provider(Some(
-            "https://chatgpt.com/backend-api/codex".into(),
-        )),
-        Some(auth),
-    );
+    let mut info = ModelProviderInfo::create_openai_provider(Some(
+        "https://chatgpt.com/backend-api/codex".into(),
+    ));
+    info.requires_openai_auth = true;
+    let provider = create_model_provider(info, Some(auth));
     assert!(
         provider
             .responses_api_provider(&routing_context)

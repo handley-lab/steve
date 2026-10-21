@@ -72,6 +72,7 @@ async fn gateway_credentials_accompany_primary_auth_in_models_and_responses() {
         };
         let info = ModelProviderInfo {
             gateway_oauth: Some(config.clone()),
+            requires_openai_auth: true,
             ..ModelProviderInfo::create_openai_provider(Some(server.uri()))
         };
         let mut primary_headers = HeaderMap::new();
@@ -184,6 +185,7 @@ async fn gateway_refresh_preserves_primary_auth_and_hides_issuer_errors() {
                     scheme: "Bearer".into(),
                 },
             }),
+            requires_openai_auth: true,
             ..ModelProviderInfo::create_openai_provider(Some(server.uri()))
         };
         let body = if succeeds {
@@ -358,6 +360,7 @@ async fn models_observe_gateway_rotation(instance: ProviderInstance) {
                 scheme: "Bearer".into(),
             },
         }),
+        requires_openai_auth: true,
         ..ModelProviderInfo::create_openai_provider(Some(server.uri()))
     };
     let gateway = seed_gateway_auth(
