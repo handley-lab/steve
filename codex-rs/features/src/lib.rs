@@ -1438,7 +1438,7 @@ pub const FEATURES: &[FeatureSpec] = &[
         stage: Stage::Experimental {
             name: "Network proxy",
             menu_description: "Apply network proxy restrictions to sandboxed sessions that already have network access.",
-            announcement: "NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.",
+            announcement: "NEW: Network proxy can now be enabled from /experimental. Restart Steve after enabling it.",
         },
         default_enabled: false,
     },
