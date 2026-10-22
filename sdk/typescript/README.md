@@ -13,6 +13,9 @@ Requires Node.js 18+.
 
 ## Quickstart
 
+Configure a model provider, endpoint, and credentials in the Steve CLI configuration or through the SDK's `config` or
+`configOverrides` options. The SDK does not supply a missing `model_provider`.
+
 ```typescript
 import { Steve } from "@handley-lab/steve-sdk";
 
@@ -128,8 +131,9 @@ const steve = new Steve({
 });
 ```
 
-The SDK still injects its required variables (such as `STEVE_API_KEY`) on top of the environment you provide. If you set
-`baseUrl`, the SDK passes it as a `--config openai_base_url=...` override.
+If you supply `apiKey`, the SDK sets `STEVE_API_KEY` in the child environment. The selected provider must declare that
+credential source, for example with `env_key = "STEVE_API_KEY"`, to use it. If you set `baseUrl`, the SDK passes it as a
+`--config openai_base_url=...` override; it does not change a custom provider's `model_providers.<id>.base_url`.
 
 ### Passing `--config` overrides
 

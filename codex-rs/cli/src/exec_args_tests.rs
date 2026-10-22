@@ -21,9 +21,9 @@ fn exec_help_documents_cyber_access_program() {
         .join("\n");
     insta::assert_snapshot!(program_help.trim(), @r"
     --cyber-access-program <PROGRAM>
-              Request an experimental Cyber access program for this turn (OpenAI
-              provider only). Omit to use server defaults. Not supported with
-              review; fork requires a prompt
+              Request an experimental Cyber access program for this turn.
+              Omission leaves selection to the configured Daybreak behavior. Not
+              supported with review; fork requires a prompt
 
               [possible values: standard, daybreak_blue, daybreak_red]
     ");
