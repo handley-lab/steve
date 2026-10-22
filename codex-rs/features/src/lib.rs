@@ -1424,7 +1424,7 @@ pub const FEATURES: &[FeatureSpec] = &[
         id: Feature::EnableRequestCompression,
         key: "enable_request_compression",
         stage: Stage::Stable,
-        default_enabled: true,
+        default_enabled: false,
     },
     FeatureSpec {
         id: Feature::UnboundedConnectionRetries,

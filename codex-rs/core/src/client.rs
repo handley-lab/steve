@@ -1717,10 +1717,8 @@ impl ModelClientSession {
 }
 
 impl ResponsesHttpExecutor<'_> {
-    fn responses_request_compression(&self, auth: Option<&CodexAuth>) -> Compression {
-        if self.client.state.enable_request_compression
-            && auth.is_some_and(CodexAuth::uses_codex_backend)
-        {
+    fn responses_request_compression(&self) -> Compression {
+        if self.client.state.enable_request_compression {
             Compression::Zstd
         } else {
             Compression::None
@@ -1801,7 +1799,7 @@ impl ResponsesHttpExecutor<'_> {
                 RequestRouteTelemetry::for_endpoint("/responses"),
                 self.client.state.auth_env_telemetry.clone(),
             );
-            let compression = self.responses_request_compression(client_setup.auth.as_ref());
+            let compression = self.responses_request_compression();
             let mut options = self
                 .build_responses_options(
                     turn_state,
