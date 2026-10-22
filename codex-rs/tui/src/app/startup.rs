@@ -462,7 +462,6 @@ impl App {
             ModelCatalog::new(available_models.clone())
                 .with_collaboration_modes(bootstrap.collaboration_modes),
         );
-        let feedback_audience = bootstrap.feedback_audience;
         let auth_mode = bootstrap.auth_mode;
         let has_chatgpt_account = bootstrap.has_chatgpt_account;
         let has_codex_backend_auth = matches!(auth_mode, Some(TelemetryAuthMode::Chatgpt));
@@ -926,7 +925,6 @@ See the Steve keymap documentation for supported actions and examples."
             backtrack: BacktrackState::default(),
             backtrack_render_pending: false,
             feedback: feedback.clone(),
-            feedback_audience,
             environment_manager,
             app_server_target,
             pending_right_click_paste: None,

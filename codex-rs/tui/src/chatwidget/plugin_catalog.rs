@@ -27,6 +27,7 @@ use crate::motion::shimmer_text;
 use crate::onboarding::mark_url_hyperlink;
 use crate::render::renderable::ColumnRenderable;
 use crate::render::renderable::Renderable;
+use crate::terminal_hyperlinks::web_destination;
 use crate::tui::FrameRequester;
 use codex_app_server_protocol::PluginAuthPolicy;
 use codex_app_server_protocol::PluginAvailability;
@@ -64,7 +65,6 @@ const OPENAI_CURATED_TAB_ID: &str = "marketplace:openai-curated";
 const PLUGIN_ROW_PREFIX_WIDTH: usize = 6;
 const LOADING_ANIMATION_DELAY: Duration = Duration::from_secs(1);
 const LOADING_ANIMATION_INTERVAL: Duration = Duration::from_millis(100);
-const APPS_HELP_ARTICLE_URL: &str = "https://help.openai.com/en/articles/11487775-apps-in-chatgpt";
 const PERSONAL_MARKETPLACE_RELATIVE_PATH: &str = ".agents/plugins/marketplace.json";
 const REMOTE_LOADING_TAB_ID_PREFIX: &str = "remote-loading:";
 const REMOTE_EMPTY_TAB_ID_PREFIX: &str = "remote-empty:";
@@ -319,6 +319,7 @@ impl Renderable for DelayedLoadingHeader {
 
 struct PluginDisclosureLine {
     line: Line<'static>,
+    destination: String,
 }
 
 impl Renderable for PluginDisclosureLine {
@@ -326,7 +327,7 @@ impl Renderable for PluginDisclosureLine {
         Paragraph::new(self.line.clone())
             .wrap(Wrap { trim: false })
             .render(area, buf);
-        mark_url_hyperlink(buf, area, APPS_HELP_ARTICLE_URL);
+        mark_url_hyperlink(buf, area, &self.destination);
     }
 
     fn desired_height(&self, width: u16) -> u16 {
@@ -989,17 +990,22 @@ impl ChatWidget {
             .wrap(ratatui::widgets::Wrap { trim: false }),
         );
         if !plugin.summary.installed {
-            header.push(PluginDisclosureLine {
-                line: Line::from(vec![
-                    "Data shared with this app is subject to the app's ".into(),
-                    "terms of service".bold(),
-                    " and ".into(),
-                    "privacy policy".bold(),
-                    ". ".into(),
-                    "Learn more".cyan().underlined(),
-                    ".".into(),
-                ]),
-            });
+            if let Some(interface) = &plugin.summary.interface {
+                for (label, url) in [
+                    (
+                        "Terms of service",
+                        interface.terms_of_service_url.as_deref(),
+                    ),
+                    ("Privacy policy", interface.privacy_policy_url.as_deref()),
+                ] {
+                    if let Some(destination) = url.and_then(web_destination) {
+                        header.push(PluginDisclosureLine {
+                            line: Line::from(label.cyan().underlined()),
+                            destination,
+                        });
+                    }
+                }
+            }
         }
         if let Some(description) = plugin_detail_description(plugin) {
             header.push(

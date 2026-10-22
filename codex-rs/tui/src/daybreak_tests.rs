@@ -1,4 +1,5 @@
 use super::*;
+use crate::history_cell::HistoryCell;
 use codex_protocol::openai_models::ModelAccessPrograms;
 use pretty_assertions::assert_eq;
 
@@ -67,9 +68,9 @@ fn refusal_guidance_uses_the_model_catalog() {
         cyber: vec![CyberAccessProgram::Standard],
     });
     for (name, expected) in [
-        ("gpt-5.6-sol", Notice::Apply),
-        ("gpt-6-astra", Notice::Astra),
-        ("gpt-6-astra-wm", Notice::Astra),
+        ("gpt-5.6-sol", Notice::Unavailable),
+        ("gpt-6-astra", Notice::Unavailable),
+        ("gpt-6-astra-wm", Notice::Unavailable),
     ] {
         model.model = name.into();
         assert_eq!(
@@ -127,7 +128,7 @@ fn refusal_guidance_uses_the_model_catalog() {
             /*enabled*/ false,
             /*can_enable_daybreak*/ true
         ),
-        Notice::Apply
+        Notice::Unavailable
     );
     assert_eq!(
         notice_for_setting(
@@ -136,6 +137,76 @@ fn refusal_guidance_uses_the_model_catalog() {
             /*enabled*/ false,
             /*can_enable_daybreak*/ true
         ),
-        Notice::Apply
+        Notice::Undetermined
     );
+}
+
+#[test]
+fn provider_neutral_refusal_describes_standard_without_toggle_eligibility() {
+    let mut model = crate::test_support::TEST_MODEL_PRESETS[0].clone();
+    model.model = "provider-model".into();
+    model.available_access_programs = Some(ModelAccessPrograms {
+        cyber: vec![CyberAccessProgram::Standard],
+    });
+    for can_enable in [false, true] {
+        let notice = notice_for_setting(
+            std::slice::from_ref(&model),
+            &model.model,
+            false,
+            can_enable,
+        );
+        let cell = crate::history_cell::new_cyber_policy_error_event(notice);
+        let text = cell
+            .display_lines(120)
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            text.contains("does not advertise a Daybreak program"),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn provider_neutral_refusal_describes_advertised_program_without_toggle() {
+    let mut model = crate::test_support::TEST_MODEL_PRESETS[0].clone();
+    model.available_access_programs = Some(ModelAccessPrograms {
+        cyber: vec![CyberAccessProgram::DaybreakBlue],
+    });
+    let notice = notice_for_setting(std::slice::from_ref(&model), &model.model, false, false);
+    let cell = crate::history_cell::new_cyber_policy_error_event(notice);
+    let text = cell
+        .display_lines(120)
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(text.contains("advertises a Daybreak program"), "{text}");
+    assert!(!text.contains("turn it on"), "{text}");
+}
+
+#[test]
+fn provider_neutral_refusal_uses_metadata_for_every_model_name() {
+    let mut model = crate::test_support::TEST_MODEL_PRESETS[0].clone();
+    model.model = "provider-model".into();
+    model.available_access_programs = Some(ModelAccessPrograms {
+        cyber: vec![CyberAccessProgram::Standard],
+    });
+    for can_enable in [true, false] {
+        let expected = notice_for_setting(
+            std::slice::from_ref(&model),
+            &model.model,
+            false,
+            can_enable,
+        );
+        for name in ["gpt-6-astra", "gpt-6-astra-wm", "another-model"] {
+            model.model = name.into();
+            assert_eq!(
+                notice_for_setting(std::slice::from_ref(&model), name, false, can_enable),
+                expected
+            );
+        }
+    }
 }

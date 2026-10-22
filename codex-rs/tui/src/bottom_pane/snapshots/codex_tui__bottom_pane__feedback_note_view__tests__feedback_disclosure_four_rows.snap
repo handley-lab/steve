@@ -2,12 +2,12 @@
 source: tui/src/bottom_pane/feedback_note_view_tests.rs
 expression: "format!(\"{initial}\\n\\n{scrolled}\")"
 ---
-▌ Your data may be used to improve our models and products
+▌ Your feedback will be sent to the configured feedback destination.
 ▌
 ▌ A visible note.
 Press enter to submit or esc to cancel
 
-▌ sensitive personal information.
+▌ The listed logs and diagnostics will be included.
 ▌
 ▌ A visible note.
 Press enter to submit or esc to cancel

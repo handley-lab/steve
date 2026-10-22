@@ -1,7 +1,6 @@
 //! Account-scoped Daybreak eligibility and per-turn program selection.
 //! Pending or failed discovery never implies access.
 
-use codex_protocol::openai_models::ModelAccessPrograms;
 use codex_protocol::openai_models::ModelPreset;
 use codex_protocol::turn_input::CyberAccessProgram;
 
@@ -39,8 +38,9 @@ pub(crate) fn program_for_turn(
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Notice {
-    Apply,
-    Astra,
+    Undetermined,
+    Unavailable,
+    Advertised,
     Disabled,
     Enabled,
 }
@@ -54,24 +54,21 @@ pub(crate) fn notice_for_setting(
     if enabled {
         return Notice::Enabled;
     }
-    if can_enable_daybreak {
-        let programs = models
-            .iter()
-            .find(|entry| entry.model == model)
-            .and_then(|entry| entry.available_access_programs.as_ref());
-        if matches!(model, "gpt-6-astra" | "gpt-6-astra-wm")
-            && programs.is_some_and(|programs| {
-                programs.cyber.contains(&CyberAccessProgram::Standard)
-                    && programs.daybreak().is_none()
-            })
-        {
-            return Notice::Astra;
+    let programs = models
+        .iter()
+        .find(|entry| entry.model == model)
+        .and_then(|entry| entry.available_access_programs.as_ref());
+    match programs {
+        Some(programs) if programs.daybreak().is_some() => {
+            if can_enable_daybreak {
+                Notice::Disabled
+            } else {
+                Notice::Advertised
+            }
         }
-        if programs.and_then(ModelAccessPrograms::daybreak).is_some() {
-            return Notice::Disabled;
-        }
+        Some(programs) if programs.standard().is_some() => Notice::Unavailable,
+        _ => Notice::Undetermined,
     }
-    Notice::Apply
 }
 
 pub(crate) fn available(models: &[ModelPreset]) -> bool {

@@ -243,21 +243,9 @@ async fn safety_buffering_offers_one_retry_with_app_wording() {
     let popup = render_bottom_popup(&chat, /*width*/ 80);
     assert_chatwidget_snapshot!("safety_buffering_retry_prompt", popup);
 
-    chat.handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    chat.handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    let opened_url = loop {
-        match rx.try_recv() {
-            Ok(AppEvent::OpenUrlInBrowser { url }) => break url,
-            Ok(_) => continue,
-            Err(err) => panic!("expected learn-more URL event: {err}"),
-        }
-    };
-    assert_eq!(opened_url, "https://help.openai.com/en/articles/20001326");
-    assert!(render_bottom_popup(&chat, /*width*/ 80).contains(SAFETY_BUFFERING_HEADER_TEXT));
+    assert!(!popup.contains("Learn more"));
+    assert!(!popup.contains("https://"));
 
-    chat.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
-    chat.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
     open_safety_buffering_retry_confirmation(&mut chat, &mut rx);
     assert_chatwidget_snapshot!(
         "safety_buffering_retry_confirmation",
@@ -977,7 +965,6 @@ async fn live_app_server_turn_started_sets_feedback_turn_id() {
     chat.open_feedback_note(
         crate::app_event::FeedbackCategory::Bug,
         /*include_logs*/ false,
-        crate::bottom_pane::FeedbackAudience::External,
     );
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
@@ -1912,7 +1899,8 @@ async fn live_app_server_cyber_policy_error_renders_dedicated_notice() {
     assert_eq!(cells.len(), 1);
     let rendered = lines_to_single_string(&cells[0]);
     assert!(rendered.contains("This content can’t be shown"));
-    assert!(rendered.contains("We take extra care with some cybersecurity requests"));
+    assert!(rendered.contains("Daybreak availability could not be determined"));
+    assert!(!rendered.contains("https://"));
     assert!(!rendered.contains("server fallback message"));
     assert!(!chat.bottom_pane.is_task_running());
 }
@@ -1946,7 +1934,8 @@ async fn app_server_safety_access_errors_render_dedicated_notice() {
         assert_eq!(cells.len(), 1);
         let rendered = lines_to_single_string(&cells[0]);
         assert!(rendered.contains("This content can't be shown"));
-        assert!(rendered.contains("biological research"));
+        assert!(rendered.contains("This request was declined for safety reasons."));
+        assert!(!rendered.contains("https://"));
         rendered_cases.push((case, rendered));
     }
 

@@ -187,7 +187,6 @@ use slash_commands::ServiceTierCommand;
 mod feedback_note_view;
 mod feedback_view;
 mod hooks_browser_view;
-pub(crate) use feedback_view::FeedbackAudience;
 pub(crate) use feedback_view::feedback_classification;
 pub(crate) use feedback_view::feedback_disabled_params;
 pub(crate) use feedback_view::feedback_selection_params;

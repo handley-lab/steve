@@ -134,8 +134,8 @@ async fn app_server_cyber_policy_error_renders_dedicated_notice() {
     assert_eq!(cells.len(), 1);
     let rendered = lines_to_single_string(&cells[0]);
     assert!(rendered.contains("This content can’t be shown"));
-    assert!(rendered.contains("We take extra care with some cybersecurity requests"));
-    assert!(rendered.contains("Apply for Daybreak"));
+    assert!(rendered.contains("Daybreak availability could not be determined"));
+    assert!(!rendered.contains("https://"));
     assert!(!rendered.contains("server fallback message"));
 }
 

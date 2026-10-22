@@ -4,7 +4,9 @@ expression: rendered
 ---
 ▌ Tell us more (bug)
 ▌
-▌ Your feedback can be used to improve ChatGPT. Learn more.
+▌ Your feedback will be sent to the configured feedback
+▌ destination.
+▌ The listed logs and diagnostics will be included.
 ▌
 ▌ (optional) Write a short description to help us further
 

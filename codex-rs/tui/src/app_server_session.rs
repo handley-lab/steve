@@ -31,7 +31,6 @@ pub(crate) use startup_launch::StartupLaunchChoices;
 
 use crate::app_event::PermissionProfileSelection;
 use crate::app_event_sender::AppEventSender;
-use crate::bottom_pane::FeedbackAudience;
 use crate::dynamic_tools_mcp::DynamicToolMcpServer;
 use crate::dynamic_tools_mcp::ThreadToolTransport;
 use crate::legacy_core::config::Config;
@@ -315,7 +314,6 @@ pub(crate) struct AppServerBootstrap {
     /// should be fired.
     pub(crate) requires_openai_auth: bool,
     pub(crate) default_model: String,
-    pub(crate) feedback_audience: FeedbackAudience,
     pub(crate) has_chatgpt_account: bool,
     pub(crate) available_models: Vec<ModelPreset>,
     pub(crate) collaboration_modes: Vec<codex_protocol::config_types::CollaborationModeMask>,
@@ -763,7 +761,6 @@ impl AppServerSession {
             auth_mode,
             status_account_display,
             plan_type,
-            feedback_audience,
             has_chatgpt_account,
         ) = match account.account {
             Some(Account::ApiKey {}) => (
@@ -771,18 +768,9 @@ impl AppServerSession {
                 Some(TelemetryAuthMode::ApiKey),
                 Some(StatusAccountDisplay::ApiKey),
                 None,
-                FeedbackAudience::External,
                 false,
             ),
             Some(Account::Chatgpt { email, plan_type }) => {
-                let feedback_audience = if email
-                    .as_deref()
-                    .is_some_and(|email| email.ends_with("@openai.com"))
-                {
-                    FeedbackAudience::OpenAiEmployee
-                } else {
-                    FeedbackAudience::External
-                };
                 (
                     email.clone(),
                     Some(TelemetryAuthMode::Chatgpt),
@@ -791,14 +779,13 @@ impl AppServerSession {
                         plan: Some(plan_type_display_name(plan_type)),
                     }),
                     Some(plan_type),
-                    feedback_audience,
                     true,
                 )
             }
             Some(Account::AmazonBedrock { .. }) => {
-                (None, None, None, None, FeedbackAudience::External, false)
+                (None, None, None, None, false)
             }
-            None => (None, None, None, None, FeedbackAudience::External, false),
+            None => (None, None, None, None, false),
         };
         Ok(AppServerBootstrap {
             duration: started_at.elapsed(),
@@ -808,7 +795,6 @@ impl AppServerSession {
             plan_type,
             requires_openai_auth: account.requires_openai_auth,
             default_model,
-            feedback_audience,
             has_chatgpt_account,
             available_models,
             collaboration_modes,
@@ -2642,6 +2628,7 @@ mod tests {
     async fn build_config(temp_dir: &TempDir) -> Config {
         ConfigBuilder::default()
             .codex_home(temp_dir.path().to_path_buf())
+            .cli_overrides(vec![("model_provider".into(), "openai".into())])
             .build()
             .await
             .expect("config should build")
@@ -2650,6 +2637,10 @@ mod tests {
     #[tokio::test]
     async fn bootstrap_reuses_prefetched_account_without_another_account_read() -> Result<()> {
         let codex_home = tempfile::tempdir()?;
+        std::fs::write(
+            codex_home.path().join("config.toml"),
+            "model_provider = \"openai\"\n",
+        )?;
         let mut config = build_config(&codex_home).await;
         let mut catalog = codex_models_manager::bundled_models_response()?;
         for model in &mut catalog.models {
@@ -2660,6 +2651,7 @@ mod tests {
                 ],
             });
         }
+        config.model = Some(crate::test_support::TEST_MODEL_PRESETS[0].model.clone());
         config.model_catalog = Some(catalog);
         let mut app_server = crate::start_embedded_app_server_for_picker(&config).await?;
         let next_request_id = app_server.next_request_id;
@@ -2680,17 +2672,68 @@ mod tests {
                 bootstrap.account_email.as_deref(),
                 bootstrap.auth_mode,
                 bootstrap.plan_type,
-                bootstrap.feedback_audience,
                 bootstrap.has_chatgpt_account,
             ),
             (
                 Some("teammate@openai.com"),
                 Some(TelemetryAuthMode::Chatgpt),
                 Some(codex_protocol::account::PlanType::Plus),
-                FeedbackAudience::OpenAiEmployee,
                 true,
             )
         );
+
+        for (account, email, auth_mode, plan_type, has_account) in [
+            (
+                Some(Account::Chatgpt {
+                    email: Some("user@example.test".into()),
+                    plan_type: codex_protocol::account::PlanType::Plus,
+                }),
+                Some("user@example.test"),
+                Some(TelemetryAuthMode::Chatgpt),
+                Some(codex_protocol::account::PlanType::Plus),
+                true,
+            ),
+            (
+                Some(Account::ApiKey {}),
+                None,
+                Some(TelemetryAuthMode::ApiKey),
+                None,
+                false,
+            ),
+            (None, None, None, None, false),
+        ] {
+            let next_request_id = app_server.next_request_id;
+            let observed = app_server
+                .bootstrap_with_account(
+                    &config,
+                    GetAccountResponse {
+                        account,
+                        requires_openai_auth: true,
+                        workspace_routing: None,
+                    },
+                )
+                .await?;
+            assert_eq!(app_server.next_request_id, next_request_id + 2);
+            assert_eq!(
+                (
+                    observed.account_email.as_deref(),
+                    observed.auth_mode,
+                    observed.plan_type,
+                    observed.has_chatgpt_account
+                ),
+                (email, auth_mode, plan_type, has_account)
+            );
+            assert!(observed.requires_openai_auth);
+            match &observed.status_account_display {
+                Some(StatusAccountDisplay::ChatGpt {
+                    email: displayed, ..
+                }) => assert_eq!(displayed.as_deref(), email),
+                Some(StatusAccountDisplay::ApiKey) => {
+                    assert_eq!(auth_mode, Some(TelemetryAuthMode::ApiKey))
+                }
+                None => assert!(auth_mode.is_none()),
+            }
+        }
 
         // Account-specific catalog filtering at startup and before/after thread creation.
         let models = bootstrap.available_models;
@@ -2709,7 +2752,9 @@ mod tests {
         ] {
             std::fs::write(
                 codex_home.path().join("config.toml"),
-                format!("[features]\napi_key_cyber_access_programs = {server_enabled}\n"),
+                format!(
+                    "model_provider = \"openai\"\n[features]\napi_key_cyber_access_programs = {server_enabled}\n"
+                ),
             )?;
             let client_config = ConfigBuilder::default()
                 .codex_home(client_home.path().to_path_buf())
@@ -2717,6 +2762,13 @@ mod tests {
                     cli_override
                         .into_iter()
                         .map(|value| (key.into(), value.into()))
+                        .chain([
+                            ("model_provider".into(), "openai".into()),
+                            (
+                                "model".into(),
+                                config.model.clone().expect("test model").into(),
+                            ),
+                        ])
                         .collect(),
                 )
                 .build()

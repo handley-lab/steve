@@ -4,7 +4,6 @@ use crate::history_cell::PlainHistoryCell;
 use crate::history_cell::plain_lines;
 use crate::legacy_core::config::Config;
 use crate::line_truncation::line_width;
-use crate::style::accent_color;
 use crate::token_usage::TokenUsage;
 use crate::token_usage::TokenUsageInfo;
 use crate::version::CODEX_CLI_VERSION;
@@ -49,8 +48,6 @@ use crate::wrapping::RtOptions;
 use crate::wrapping::word_wrap_lines;
 use std::sync::Arc;
 use std::sync::RwLock;
-
-const CHATGPT_USAGE_URL: &str = "https://chatgpt.com/settings/usage";
 
 #[derive(Debug, Clone)]
 struct StatusContextWindowData {
@@ -132,7 +129,6 @@ struct StatusHistoryCell {
     collaboration_mode: Option<String>,
     model_provider: Option<String>,
     remote_connection: Option<RemoteConnectionStatus>,
-    show_chatgpt_usage_link: bool,
     account: Option<StatusAccountDisplay>,
     thread_name: Option<String>,
     session_id: Option<String>,
@@ -222,7 +218,7 @@ pub(crate) fn new_status_output_with_rate_limits(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn new_status_output_with_rate_limits_handle(
     config: &Config,
-    requires_openai_auth: bool,
+    _requires_openai_auth: bool,
     model_provider_id: Option<&str>,
     remote_connection: Option<&RemoteConnectionStatus>,
     account_display: Option<&StatusAccountDisplay>,
@@ -243,7 +239,6 @@ pub(crate) fn new_status_output_with_rate_limits_handle(
     let command = PlainHistoryCell::new(vec!["/status".magenta().into()]);
     let card = Arc::new(StatusHistoryCell::new(
         config,
-        requires_openai_auth,
         model_provider_id,
         remote_connection,
         account_display,
@@ -275,7 +270,6 @@ impl StatusHistoryCell {
     #[allow(clippy::too_many_arguments)]
     fn new(
         config: &Config,
-        requires_openai_auth: bool,
         model_provider_id: Option<&str>,
         remote_connection: Option<&RemoteConnectionStatus>,
         account_display: Option<&StatusAccountDisplay>,
@@ -349,7 +343,6 @@ impl StatusHistoryCell {
             &approval,
             workspace_root_suffix.as_deref(),
         );
-        let show_chatgpt_usage_link = requires_openai_auth;
         let account = compose_account_display(account_display);
         let session_id = session_id.as_ref().map(std::string::ToString::to_string);
         let forked_from = forked_from.map(|id| id.to_string());
@@ -390,7 +383,6 @@ impl StatusHistoryCell {
             collaboration_mode: collaboration_mode.map(ToString::to_string),
             model_provider,
             remote_connection: remote_connection.cloned(),
-            show_chatgpt_usage_link,
             account,
             thread_name,
             session_id,
@@ -881,27 +873,6 @@ impl StatusHistoryCell {
             RtOptions::new(available_width).subsequent_indent(indent.into()),
         );
         rendered.push(Line::default());
-        // Providers such as Bedrock manage limits and billing elsewhere.
-        if self.show_chatgpt_usage_link {
-            rendered.extend(word_wrap_lines(
-                [
-                    Line::from(vec![
-                        "Visit ".fg(accent_color()),
-                        CHATGPT_USAGE_URL.fg(accent_color()).underlined(),
-                        " for up-to-date".fg(accent_color()),
-                    ]),
-                    "information on rate limits and credits"
-                        .fg(accent_color())
-                        .into(),
-                ],
-                RtOptions::new(available_width)
-                    .initial_indent(indent.into())
-                    .subsequent_indent(indent.into())
-                    .word_separator(textwrap::WordSeparator::AsciiSpace)
-                    .word_splitter(textwrap::WordSplitter::NoHyphenation),
-            ));
-            rendered.push(Line::default());
-        }
         // Keep every value, including long paths and IDs, aligned beneath its first line.
         // At widths too small for the label column, use the outer indent instead.
         let continuation = if value_width > 0 {
@@ -940,33 +911,6 @@ impl HistoryCell for Arc<StatusHistoryCell> {
 
     fn raw_lines(&self) -> Vec<Line<'static>> {
         plain_lines(self.display_lines(u16::MAX))
-    }
-
-    fn display_hyperlink_lines(
-        &self,
-        width: u16,
-    ) -> Vec<crate::terminal_hyperlinks::HyperlinkLine> {
-        let mut lines =
-            crate::terminal_hyperlinks::plain_hyperlink_lines(self.display_lines(width));
-        // The usage URL has a known destination; wrapping preserves its underlined spans.
-        // Attach that destination to every fragment instead of searching for the full URL.
-        if self.show_chatgpt_usage_link {
-            for line in &mut lines {
-                let mut column = 0;
-                for span in &line.line.spans {
-                    let end = column + span.width();
-                    if span.style.add_modifier.contains(Modifier::UNDERLINED) {
-                        line.hyperlinks
-                            .push(crate::terminal_hyperlinks::TerminalHyperlink::web(
-                                column..end,
-                                CHATGPT_USAGE_URL.to_string(),
-                            ));
-                    }
-                    column = end;
-                }
-            }
-        }
-        lines
     }
 
     fn transcript_hyperlink_lines(

@@ -2337,7 +2337,7 @@ impl App {
                 category,
                 include_logs,
             } => {
-                self.chat_widget.open_feedback_note(category, include_logs, self.feedback_audience);
+                self.chat_widget.open_feedback_note(category, include_logs);
             }
             AppEvent::OpenFeedbackConsent { category } => {
                 self.chat_widget.open_feedback_consent(category);

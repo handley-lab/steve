@@ -146,22 +146,12 @@ pub(crate) fn new_server_version_warning(
 pub(crate) struct SafetyAccessBlockCell {
     title: &'static str,
     body: &'static str,
-    actions: &'static [(&'static str, &'static str)],
 }
-
-const SAFETY_ACCESS_BLOCK_LEARN_MORE_URL: &str = "https://help.openai.com/en/articles/20001326";
 
 pub(crate) fn new_safety_access_block_event() -> SafetyAccessBlockCell {
     SafetyAccessBlockCell {
         title: "This content can't be shown",
-        body: "We take extra caution with requests involving biological research and applications that could pose safety risks. Eligible researchers can apply for Trusted Access.",
-        actions: &[
-            (
-                "Trusted Access",
-                "https://chatgpt.com/r/b749fb02595e04c3007a54375f3f4374",
-            ),
-            ("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL),
-        ],
+        body: "This request was declined for safety reasons.",
     }
 }
 
@@ -169,34 +159,16 @@ pub(crate) fn new_cyber_policy_error_event(
     notice: crate::daybreak::Notice,
 ) -> SafetyAccessBlockCell {
     use crate::daybreak::Notice;
-    let (body, actions): (_, &'static [(&str, &str)]) = match notice {
-        Notice::Apply => (
-            "We take extra care with some cybersecurity requests. If you’re doing authorized security work, apply for Daybreak to get broader access.",
-            &[
-                ("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL),
-                (
-                    "Apply for Daybreak",
-                    "https://openai.com/form/enterprise-trusted-access-for-cyber/",
-                ),
-            ],
-        ),
-        Notice::Disabled => (
-            "Daybreak is currently off. If you’re doing authorized security work, turn it on and try your request again.",
-            &[("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL)],
-        ),
-        Notice::Astra => (
-            "Daybreak isn’t available for Astra. Some cybersecurity requests may still be limited.",
-            &[("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL)],
-        ),
-        Notice::Enabled => (
-            "Some cybersecurity requests are still limited, even when Daybreak is on.",
-            &[("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL)],
-        ),
+    let body = match notice {
+        Notice::Undetermined => "Daybreak availability could not be determined from the connected host's model catalog.",
+        Notice::Unavailable => "The selected model does not advertise a Daybreak program.",
+        Notice::Advertised => "The connected host's model catalog advertises a Daybreak program for this model.",
+        Notice::Disabled => "Daybreak is currently off. If you’re doing authorized security work, turn it on and try your request again.",
+        Notice::Enabled => "Some cybersecurity requests are still limited, even when Daybreak is on.",
     };
     SafetyAccessBlockCell {
         title: "This content can’t be shown",
         body,
-        actions,
     }
 }
 
@@ -219,36 +191,11 @@ impl HistoryCell for SafetyAccessBlockCell {
         push_owned_lines(&wrapped, &mut wrapped_body);
         lines.extend(plain_hyperlink_lines(wrapped_body));
 
-        for &(label, url) in self.actions {
-            let source = crate::terminal_hyperlinks::annotate_web_urls_in_line(
-                vec![
-                    format!("  {label}: ").dim(),
-                    url.fg(accent_color()).underlined(),
-                ]
-                .into(),
-            );
-            let wrapped = crate::wrapping::word_wrap_line(
-                &source.line,
-                RtOptions::new(wrap_width).subsequent_indent("  ".into()),
-            );
-            let mut wrapped_links = Vec::new();
-            push_owned_lines(&wrapped, &mut wrapped_links);
-            lines.extend(crate::terminal_hyperlinks::remap_wrapped_line(
-                &source,
-                wrapped_links,
-            ));
-        }
         lines
     }
 
     fn raw_lines(&self) -> Vec<Line<'static>> {
-        let mut lines = vec![Line::from(self.title), Line::from(self.body)];
-        lines.extend(
-            self.actions
-                .iter()
-                .map(|(label, target)| Line::from(format!("{label}: {target}"))),
-        );
-        lines
+        vec![Line::from(self.title), Line::from(self.body)]
     }
 
     fn transcript_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {

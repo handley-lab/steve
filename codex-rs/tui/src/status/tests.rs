@@ -136,6 +136,7 @@ async fn test_config(temp_home: &TempDir) -> Config {
     let mut config = ConfigBuilder::default()
         .codex_home(temp_home.path().to_path_buf())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+        .cli_overrides(vec![("model_provider".into(), "openai".into())])
         .build()
         .await
         .expect("load config");
@@ -750,7 +751,7 @@ async fn status_snapshot_shows_active_user_defined_profile() {
 }
 
 #[tokio::test]
-async fn status_uses_server_provider_id_and_auth_requirement() {
+async fn provider_neutral_status_uses_server_metadata_without_a_usage_destination() {
     let temp_home = TempDir::new().expect("temp home");
     let mut config = test_config(&temp_home).await;
     config.model = Some("gpt-5.6-sol".to_string());
@@ -844,16 +845,8 @@ async fn status_uses_server_provider_id_and_auth_requirement() {
                 destinations.push(link.destination);
             }
         }
-        assert_eq!(
-            fragments, "https://chatgpt.com/settings/usage",
-            "width {width}"
-        );
-        assert!(!destinations.is_empty());
-        assert!(
-            destinations
-                .iter()
-                .all(|destination| destination == "https://chatgpt.com/settings/usage")
-        );
+        assert!(fragments.is_empty(), "width {width}: {fragments}");
+        assert!(destinations.is_empty(), "width {width}: {destinations:?}");
     }
 }
 

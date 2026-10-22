@@ -24,20 +24,15 @@ use crate::app_event_sender::AppEventSender;
 use crate::key_hint;
 use crate::key_hint::has_ctrl_or_alt;
 use crate::render::renderable::Renderable;
-use crate::terminal_hyperlinks::mark_underlined_hyperlink;
 use crate::wrapping::RtOptions;
 use crate::wrapping::word_wrap_lines;
 
 use super::CancellationEvent;
 use super::bottom_pane_view::BottomPaneView;
-use super::feedback_view::FeedbackAudience;
 use super::paste_burst::PasteBurst;
 use super::popup_consts::accept_cancel_hint_line;
 use super::textarea::TextArea;
 use super::textarea::TextAreaState;
-
-const FEEDBACK_POLICY_URL: &str = "https://help.openai.com/en/articles/5722486-how-your-data-is-used-to-improve-model-performance";
-const EMPLOYEE_FEEDBACK_FAQ_URL: &str = "https://go/codex-employee-feedback-faq";
 
 enum IntroContent {
     Full,
@@ -51,7 +46,6 @@ pub(crate) struct FeedbackNoteView {
     turn_id: Option<String>,
     app_event_tx: AppEventSender,
     include_logs: bool,
-    feedback_audience: FeedbackAudience,
 
     // UI state
     textarea: TextArea,
@@ -68,14 +62,12 @@ impl FeedbackNoteView {
         turn_id: Option<String>,
         app_event_tx: AppEventSender,
         include_logs: bool,
-        feedback_audience: FeedbackAudience,
     ) -> Self {
         Self {
             category,
             turn_id,
             app_event_tx,
             include_logs,
-            feedback_audience,
             textarea: TextArea::new(),
             textarea_state: RefCell::new(TextAreaState::default()),
             paste_burst: PasteBurst::default(),
@@ -261,11 +253,6 @@ impl Renderable for FeedbackNoteView {
                 buf,
             );
         }
-        let disclosure_url = match self.feedback_audience {
-            FeedbackAudience::OpenAiEmployee => EMPLOYEE_FEEDBACK_FAQ_URL,
-            FeedbackAudience::External => FEEDBACK_POLICY_URL,
-        };
-        mark_underlined_hyperlink(buf, intro_area, disclosure_url);
 
         // Input line
         if input_area.width >= 2 {
@@ -379,25 +366,14 @@ impl FeedbackNoteView {
             IntroContent::Full => vec![title.bold().into(), "".into()],
             IntroContent::DisclosureOnly => Vec::new(),
         };
-        match self.feedback_audience {
-            FeedbackAudience::OpenAiEmployee => {
-                lines.push(
-                    "Your data may be used to improve our models and products"
-                        .bold()
-                        .into(),
-                );
-                lines.push(Line::from(vec![
-                    "By submitting feedback, you agree that OpenAI can use your feedback for safety purposes and internal model training, as explained in more detail ".dim(),
-                    "here".fg(crate::style::accent_color()).underlined(),
-                    ". Please avoid sharing tented information under NDA, or privileged, HR-related, or sensitive personal information.".dim(),
-                ]));
-            }
-            FeedbackAudience::External => lines.push(Line::from(vec![
-                "Your feedback can be used to improve ChatGPT. ".dim(),
-                "Learn more".fg(crate::style::accent_color()).underlined(),
-                ".".dim(),
-            ])),
-        }
+        lines.push(Line::from(
+            "Your feedback will be sent to the configured feedback destination.".dim(),
+        ));
+        lines.push(Line::from(if self.include_logs {
+            "The listed logs and diagnostics will be included.".dim()
+        } else {
+            "The note will be sent without log attachments.".dim()
+        }));
         word_wrap_lines(
             lines,
             RtOptions::new(usize::from(width.max(1)))
