@@ -65,6 +65,26 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
     use codex_protocol::turn_input::CyberAccessProgram;
 
     let (mut app, mut events, mut ops) = make_test_app_with_channels().await;
+    let mut catalog = codex_models_manager::bundled_models_response()?;
+    let mut model = catalog.models.remove(0);
+    model.slug = app.chat_widget.current_model().to_string();
+    app.config.model = Some(model.slug.clone());
+    model.available_access_programs = Some(ModelAccessPrograms {
+        cyber: vec![CyberAccessProgram::Standard, CyberAccessProgram::DaybreakBlue],
+    });
+    let mut standard_only = model.clone();
+    standard_only.slug = "standard-only".into();
+    standard_only.available_access_programs = Some(ModelAccessPrograms {
+        cyber: vec![CyberAccessProgram::Standard],
+    });
+    catalog.models = vec![model, standard_only];
+    let catalog_path = app.config.codex_home.join("daybreak-models.json");
+    std::fs::write(&catalog_path, serde_json::to_vec(&catalog)?)?;
+    std::fs::write(app.config.codex_home.join("config.toml"), format!(
+        "model_provider = {:?}\nmodel = {:?}\nmodel_catalog_json = {:?}\n",
+        app.config.model_provider_id, app.config.model.as_ref().unwrap(), catalog_path.display().to_string(),
+    ))?;
+    app.config.model_catalog = Some(catalog);
     let (mut server, requests, proxy) = start_recording_app_server(
         &app.config,
         /*blocked_thread_list*/ None,
@@ -101,10 +121,11 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
     );
     app.chat_widget.open_model_popup();
     let request_id = std::iter::from_fn(|| events.try_recv().ok())
-        .find_map(|event| match event {
+        .filter_map(|event| match event {
             AppEvent::FetchModels { request_id } => Some(request_id),
             _ => None,
         })
+        .last()
         .expect("model catalog request");
     let mut model = crate::test_support::TEST_MODEL_PRESETS[0].clone();
     model.model = app.chat_widget.current_model().to_string();
@@ -119,8 +140,8 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
     unsupported_model.available_access_programs = Some(ModelAccessPrograms {
         cyber: vec![CyberAccessProgram::Standard],
     });
-    app.chat_widget
-        .on_models_loaded(request_id, Ok(vec![model, unsupported_model]));
+    assert!(app.chat_widget
+        .on_models_loaded(request_id, Ok(vec![model, unsupported_model])));
     app.chat_widget
         .handle_key_event(KeyEvent::from(KeyCode::Esc));
 
@@ -132,9 +153,14 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
             .handle_key_event(KeyEvent::from(KeyCode::Esc));
         app.chat_widget
             .handle_key_event(KeyEvent::from(KeyCode::Enter));
-        let selection = std::iter::from_fn(|| events.try_recv().ok())
+        let queued = std::iter::from_fn(|| events.try_recv().ok()).collect::<Vec<_>>();
+        let diagnostic = queued.iter().map(|event| match event {
+            AppEvent::InsertHistoryCell(cell) => lines_to_single_string(&cell.display_lines(100)),
+            other => format!("{other:?}"),
+        }).collect::<Vec<_>>();
+        let selection = queued.into_iter()
             .find(|event| matches!(event, AppEvent::PersistDaybreakSelection { .. }))
-            .expect("Daybreak selection event");
+            .unwrap_or_else(|| panic!("Daybreak selection event: {diagnostic:?}\n{}", render_bottom_popup(&app.chat_widget, 80)));
         app.handle_event(&mut tui, &mut server, selection).await?;
         confirmations.push(next_history_message(&mut events));
         assert_eq!(
@@ -171,6 +197,12 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
     assert!(recorded_params(&requests, "turn/start").is_empty());
     assert!(next_history_message(&mut events).contains("Daybreak support for model standard-only"));
 
+    let displayed_models = app.chat_widget.model_catalog();
+    app.chat_widget.open_model_popup();
+    let refresh_id = std::iter::from_fn(|| events.try_recv().ok()).filter_map(|event| match event {
+        AppEvent::FetchModels { request_id } => Some(request_id), _ => None,
+    }).last().expect("pending model refresh");
+    app.chat_widget.on_models_loaded(refresh_id, Ok(Vec::new()));
     app.chat_widget
         .set_side_conversation_active(/*active*/ true);
     app.submit_thread_op(&mut server, thread_id, turn.clone())
@@ -186,6 +218,11 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
     );
     app.submit_thread_op(&mut server, background_thread_id, turn.clone())
         .await?;
+    app.chat_widget.open_model_popup();
+    let refresh_id = std::iter::from_fn(|| events.try_recv().ok()).filter_map(|event| match event {
+        AppEvent::FetchModels { request_id } => Some(request_id), _ => None,
+    }).last().expect("restore model refresh");
+    app.chat_widget.on_models_loaded(refresh_id, Ok(displayed_models.models.clone()));
     let turns = recorded_params(&requests, "turn/start");
     assert_eq!(turns.len(), 3);
     assert_eq!(turns[0]["cyberAccessProgram"], "standard");
@@ -212,7 +249,7 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
         /*has_chatgpt_account*/ false,
         /*has_codex_backend_auth*/ false,
     );
-    assert!(!app.chat_widget.daybreak_enabled);
+    assert!(app.chat_widget.daybreak_enabled);
     let request_id = std::iter::from_fn(|| events.try_recv().ok())
         .filter_map(|event| match event {
             AppEvent::FetchModels { request_id } => Some(request_id),
@@ -220,7 +257,7 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
         })
         .last()
         .expect("account model refresh");
-    assert!(app.chat_widget.on_models_loaded(request_id, Ok(models)));
+    app.chat_widget.on_models_loaded(request_id, Ok(models));
     for (cli_daybreak, api_key_cyber_access_programs, enabled) in [
         (false, false, true),
         (false, true, true),
@@ -244,7 +281,7 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
             .iter()
             .map(|turn| turn["cyberAccessProgram"].as_str())
             .collect::<Vec<_>>(),
-        vec![None, None, None, Some("daybreakBlue"), Some("standard")]
+        vec![None, None, Some("daybreakBlue"), Some("daybreakBlue"), Some("standard")]
     );
     while events.try_recv().is_ok() {}
 
@@ -2022,13 +2059,15 @@ async fn check_dynamic_tool_requests(
                 cyber: vec![codex_protocol::turn_input::CyberAccessProgram::DaybreakBlue],
             });
     }
+    app.config.model = Some(catalog.models[0].slug.clone());
     let catalog_path = codex_home.path().join("models.json");
     std::fs::write(&catalog_path, serde_json::to_vec(&catalog)?)?;
     // The server's target-thread config may differ from the launching TUI's defaults.
     std::fs::write(
         codex_home.path().join("config.toml"),
         format!(
-            "daybreak = true\nmodel_catalog_json = {:?}\nchatgpt_base_url = {backend_url:?}\ncli_auth_credentials_store = \"file\"\nopenai_base_url = {api_url:?}\nfeatures.cli_daybreak = {rollout_enabled}\nfeatures.api_key_cyber_access_programs = {api_key_cyber_access_programs}\n",
+            "model_provider = \"openai\"\nmodel = {:?}\ndaybreak = true\nmodel_catalog_json = {:?}\nchatgpt_base_url = {backend_url:?}\ncli_auth_credentials_store = \"file\"\nopenai_base_url = {api_url:?}\nfeatures.cli_daybreak = {rollout_enabled}\nfeatures.api_key_cyber_access_programs = {api_key_cyber_access_programs}\n",
+            app.config.model.as_ref().unwrap(),
             catalog_path.display().to_string()
         ),
     )?;
@@ -2325,6 +2364,16 @@ async fn check_dynamic_tool_requests(
     else {
         panic!("expected a background task completion event")
     };
+    if rollout_enabled && !api_key_cyber_access_programs
+        && history_capabilities == HistoryCapabilities::Current
+    {
+        assert!(!response.success, "{response:?}");
+        assert!(format!("{response:?}").contains("Cyber access programs are disabled for this session."));
+        assert!(recorded_params(&requests, "turn/start").is_empty());
+        app_server.shutdown().await?;
+        proxy.await??;
+        return Ok(());
+    }
     assert!(response.success, "{response:?}");
     assert_eq!(
         recorded_params(&requests, "thread/start")

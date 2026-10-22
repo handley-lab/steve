@@ -178,7 +178,7 @@ impl CatalogRequestProcessor {
         &self,
         params: ModelListParams,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        let (config, scoped_catalog) = match params.thread_id.as_deref() {
+        let (config, scoped_catalog, cyber_access_programs_enabled) = match params.thread_id.as_deref() {
             Some(thread_id) => {
                 let thread_id = ThreadId::from_string(thread_id)
                     .map_err(|err| invalid_request(format!("invalid thread id: {err}")))?;
@@ -193,9 +193,9 @@ impl CatalogRequestProcessor {
                     config.clone(),
                     thread.models_manager(),
                 );
-                (config, Some(catalog))
+                (config, Some(catalog), Some(thread.enabled(Feature::ApiKeyCyberAccessPrograms)))
             }
-            None => (self.config.clone(), None),
+            None => (self.config.clone(), None, None),
         };
         // Gate the same provider used by the catalog, including when its model cache is warm.
         // Resolving credentials may refresh them, but explicit host policy prevents browser login.
@@ -239,6 +239,7 @@ impl CatalogRequestProcessor {
         self.list_models(
             params,
             scoped_catalog.as_ref().unwrap_or(&self.model_catalog),
+            cyber_access_programs_enabled,
         )
             .await
             .map(|response| Some(response.into()))
@@ -309,6 +310,7 @@ impl CatalogRequestProcessor {
         &self,
         params: ModelListParams,
         catalog: &ModelCatalog,
+        cyber_access_programs_enabled: Option<bool>,
     ) -> Result<ModelListResponse, JSONRPCErrorError> {
         let ModelListParams {
             thread_id: _,
@@ -327,6 +329,7 @@ impl CatalogRequestProcessor {
             return Ok(ModelListResponse {
                 data: Vec::new(),
                 next_cursor: None,
+                cyber_access_programs_enabled,
             });
         }
 
@@ -355,6 +358,7 @@ impl CatalogRequestProcessor {
         Ok(ModelListResponse {
             data: items,
             next_cursor,
+            cyber_access_programs_enabled,
         })
     }
 

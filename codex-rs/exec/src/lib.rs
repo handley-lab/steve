@@ -870,19 +870,6 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
         cyber_access_program,
     } = args;
 
-    if config.features.enabled(Feature::CliDaybreak)
-        && config.daybreak_enabled
-        && !matches!(&command, Some(ExecCommand::Review(_)))
-    {
-        anyhow::ensure!(
-            !oss || matches!(
-                &command,
-                Some(ExecCommand::Resume(_) | ExecCommand::Fork(_))
-            ),
-            "Daybreak requires the OpenAI model provider"
-        );
-    }
-
     let mut event_processor: Box<dyn EventProcessor> = match json_mode {
         true => Box::new(EventProcessorWithJsonOutput::new(last_message_file.clone())),
         _ => Box::new(EventProcessorWithHumanOutput::create_with_ansi(
@@ -1210,12 +1197,10 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                 Some(program) => Some(program),
                 None if config.features.enabled(Feature::CliDaybreak) => {
                     daybreak::program_for_turn(
-                        &config.features,
                         &client,
                         &mut request_ids,
                         &primary_thread_id_for_span,
                         &session_configured.model,
-                        &session_configured.model_provider_id,
                         daybreak_enabled,
                     )
                     .await?

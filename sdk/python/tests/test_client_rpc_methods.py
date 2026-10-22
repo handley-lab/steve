@@ -21,6 +21,7 @@ from steve_sdk.generated.v2_all import (
     CommandGuardianApprovalReviewAction,
     GetAccountResponse,
     ModelListParams,
+    ModelListResponse,
     PlanType,
     ReasoningEffort,
     ReasoningEffortOption,
@@ -714,3 +715,17 @@ def test_model_list_passes_optional_thread_scope(monkeypatch, thread_id) -> None
     typed = ModelListParams.model_validate(expected)
     assert typed.thread_id == thread_id
     assert typed.model_dump(mode="json", by_alias=True, exclude_none=True) == expected
+
+
+@pytest.mark.parametrize("enabled", [None, False, True])
+def test_model_list_retains_optional_forwarding_snapshot(enabled) -> None:
+    payload = {"data": [], "nextCursor": None}
+    if enabled is not None:
+        payload["cyberAccessProgramsEnabled"] = enabled
+    response = ModelListResponse.model_validate(payload)
+    assert response.cyber_access_programs_enabled is enabled
+    serialized = response.model_dump(mode="json", by_alias=True, exclude_none=True)
+    if enabled is None:
+        assert "cyberAccessProgramsEnabled" not in serialized
+    else:
+        assert serialized["cyberAccessProgramsEnabled"] is enabled

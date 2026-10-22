@@ -8872,6 +8872,13 @@ class ModelListResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
+    cyber_access_programs_enabled: Annotated[
+        bool | None,
+        Field(
+            alias="cyberAccessProgramsEnabled",
+            description="Retained cyber-program forwarding setting of the requested live thread. Omitted for an unscoped listing or an older server.",
+        ),
+    ] = None
     data: list[Model]
     next_cursor: Annotated[
         str | None,

@@ -3,7 +3,6 @@
 //! This module owns the typed JSON-RPC calls needed by the TUI and keeps
 //! request/response plumbing out of `App` and `ChatWidget`.
 
-mod daybreak_api_key_compat;
 mod external_agent_config;
 pub(crate) mod fs;
 mod history;
@@ -334,7 +333,6 @@ pub(crate) struct AppServerSession {
     thread_settings_update_supported: bool,
     default_model: Option<String>,
     available_models: Vec<ModelPreset>,
-    daybreak_api_key_compat: Arc<tokio::sync::Semaphore>,
     managed_new_thread_defaults: Option<NewThreadModelDefaults>,
     external_agent_config_import_id: Mutex<Option<String>>,
     dynamic_tool_mcp: Option<Arc<DynamicToolMcpServer>>,
@@ -441,7 +439,6 @@ impl AppServerSession {
             thread_settings_update_supported: true,
             default_model: None,
             available_models: Vec::new(),
-            daybreak_api_key_compat: Arc::new(tokio::sync::Semaphore::new(/*permits*/ 1)),
             managed_new_thread_defaults: None,
             external_agent_config_import_id: Mutex::default(),
             dynamic_tool_mcp: None,
@@ -729,16 +726,6 @@ impl AppServerSession {
             &mut available_models,
             &requirements,
         );
-        if matches!(account.account, Some(Account::ApiKey {})) {
-            available_models = self
-                .constrain_api_key_models(
-                    config,
-                    /*thread_id*/ None,
-                    requirements.requirements.as_ref(),
-                    available_models,
-                )
-                .await;
-        }
         self.managed_new_thread_defaults = requirements
             .requirements
             .and_then(|requirements| requirements.models)
@@ -2657,6 +2644,8 @@ mod tests {
             });
         }
         config.model = Some(crate::test_support::TEST_MODEL_PRESETS[0].model.clone());
+        let catalog_path = codex_home.path().join("program-models.json");
+        std::fs::write(&catalog_path, serde_json::to_vec(&catalog)?)?;
         config.model_catalog = Some(catalog);
         let mut app_server = crate::start_embedded_app_server_for_picker(&config).await?;
         let next_request_id = app_server.next_request_id;
@@ -2740,7 +2729,7 @@ mod tests {
             }
         }
 
-        // Account-specific catalog filtering at startup and before/after thread creation.
+        // Catalog programs survive every account shape and forwarding setting.
         let models = bootstrap.available_models;
         assert!(
             models
@@ -2758,7 +2747,7 @@ mod tests {
             std::fs::write(
                 codex_home.path().join("config.toml"),
                 format!(
-                    "model_provider = \"openai\"\n[features]\napi_key_cyber_access_programs = {server_enabled}\n"
+                    "model_provider = \"openai\"\nmodel_catalog_json = {catalog_path:?}\n[features]\napi_key_cyber_access_programs = {server_enabled}\n"
                 ),
             )?;
             let client_config = ConfigBuilder::default()
@@ -2788,23 +2777,19 @@ mod tests {
                     },
                 )
                 .await?;
-            let mut expected = models.clone();
-            if !forwarding_enabled {
-                for model in &mut expected {
-                    model.available_access_programs = None;
-                }
-            }
-            assert_eq!(api_key.available_models, expected);
+            assert_eq!(api_key.available_models, models);
             let thread = app_server.start_thread(&client_config).await?;
-            let refreshed = app_server
-                .constrain_api_key_models(
-                    &client_config,
-                    Some(thread.session.thread_id),
-                    /*requirements*/ None,
-                    models.clone(),
-                )
-                .await;
-            assert_eq!(refreshed, expected);
+            let refreshed: ModelListResponse = app_server.request_handle()
+                .request_typed(ClientRequest::ModelList {
+                    request_id: app_server.next_request_id(),
+                    params: ModelListParams {
+                        thread_id: Some(thread.session.thread_id.to_string()),
+                        include_hidden: Some(true),
+                        ..ModelListParams::default()
+                    },
+                }).await?;
+            assert_eq!(refreshed.cyber_access_programs_enabled, Some(forwarding_enabled));
+            assert!(refreshed.data.iter().all(|model| model.available_access_programs.is_some()));
         }
         app_server.shutdown().await?;
         Ok(())

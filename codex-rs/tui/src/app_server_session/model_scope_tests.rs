@@ -48,6 +48,15 @@ async fn recorded_request<T: DeserializeOwned + Serialize>(
 
 #[tokio::test]
 async fn model_scope_rpc_uses_the_thread_catalog_and_gateway() -> Result<()> {
+    model_scope_fixture(true).await
+}
+
+#[tokio::test]
+async fn daybreak_model_scope_preserves_enabled_thread_under_disabled_process() -> Result<()> {
+    model_scope_fixture(false).await
+}
+
+async fn model_scope_fixture(process_forwarding: bool) -> Result<()> {
     let a = MockServer::start().await;
     let b = MockServer::start().await;
     let oauth = MockServer::start().await;
@@ -104,6 +113,7 @@ async fn model_scope_rpc_uses_the_thread_catalog_and_gateway() -> Result<()> {
 model = "scope-model"
 [features]
 api_key_model_discovery = true
+api_key_cyber_access_programs = {process_forwarding}
 guardian_approval = false
 shell_snapshot = false
 [model_providers.scope]
@@ -163,6 +173,19 @@ experimental_bearer_token = "credential-a"
     )
     .await?;
     assert_eq!(process.data[0].display_name, "Catalog A");
+    let process_raw: Value = recorded_request(
+        &session.client, &mut next_id, "model/list", list.clone(), &mut trace,
+    ).await?;
+    if process_raw.get("cyberAccessProgramsEnabled").is_some() {
+        failures.push("process listing claimed a thread forwarding snapshot".into());
+    }
+    let config_path = home.path().join("config.toml");
+    let original_config = std::fs::read_to_string(&config_path)?;
+    // The new thread takes the opposite setting to the running process.
+    std::fs::write(&config_path, original_config.replace(
+        &format!("api_key_cyber_access_programs = {process_forwarding}"),
+        &format!("api_key_cyber_access_programs = {}", !process_forwarding),
+    ))?;
     let provider_b = json!({
         "name": "Scope provider", "base_url": format!("{}/v1", b.uri()),
         "model_catalog_url": format!("{}/models", b.uri()),
@@ -194,6 +217,28 @@ experimental_bearer_token = "credential-a"
             json!({"model": "scope-model", "modelProvider": provider, "cwd": home.path(), "config": settings}),
             &mut trace,
         ).await?;
+        // A later file edit must not change the thread's retained forwarding bit.
+        std::fs::write(&config_path, &original_config)?;
+        let snapshot: Value = recorded_request(
+            &session.client, &mut next_id, "model/list",
+            json!({"threadId": started.thread.id, "includeHidden": true}), &mut trace,
+        ).await?;
+        let expected_snapshot = if expected == "Catalog B" { !process_forwarding } else { process_forwarding };
+        if snapshot.get("cyberAccessProgramsEnabled").and_then(Value::as_bool)
+            != Some(expected_snapshot)
+        {
+            failures.push(format!("{label}: expected retained forwarding {expected_snapshot}, received {snapshot}"));
+        }
+        let configured: Value = recorded_request(
+            &session.client, &mut next_id, "experimentalFeature/list",
+            json!({"threadId": started.thread.id}), &mut trace,
+        ).await?;
+        let configured_forwarding = configured["data"].as_array().and_then(|rows| {
+            rows.iter().find(|row| row["name"] == "api_key_cyber_access_programs")
+        }).and_then(|row| row["enabled"].as_bool());
+        if configured_forwarding != Some(process_forwarding) {
+            failures.push(format!("{label}: configured readback did not follow the edited file"));
+        }
         let a_before = a.received_requests().await.unwrap().len();
         let response: ModelListResponse = recorded_request(
             &session.client,
@@ -257,11 +302,55 @@ experimental_bearer_token = "credential-a"
             .map(|model| model.display_name.as_str())
             != Some(expected)
             || response.next_cursor.as_deref() != next_cursor
+            || response.cyber_access_programs_enabled != Some(!process_forwarding)
         {
             failures.push(format!(
                 "scoped page: expected {expected}/{next_cursor:?}, received {response:?}"
             ));
         }
+    }
+    let before_warm = b.received_requests().await.unwrap().len();
+    let mut selector_features = codex_features::Features::with_defaults();
+    selector_features.set_enabled(codex_features::Feature::CliDaybreak, true);
+    for _ in 0..2 {
+        let selected = crate::daybreak::program_for_thread(
+            &selector_features, &session.request_handle(), &selected_b, "scope-model", true,
+        ).await;
+        if process_forwarding {
+            if !selected.as_ref().is_err_and(|error| error.contains("disabled for this session")) {
+                failures.push(format!("disabled scoped preflight: {selected:?}"));
+            }
+        } else if selected != Ok(Some(CyberAccessProgram::DaybreakRed)) {
+            failures.push(format!("enabled scoped program: {selected:?}"));
+        }
+        trace.push(json!({"selector_thread": selected_b, "preference": true, "result": format!("{selected:?}")}));
+    }
+    if b.received_requests().await.unwrap().len() != before_warm {
+        failures.push("warm automatic selection refetched provider models".into());
+    }
+    selector_features.set_enabled(codex_features::Feature::CliDaybreak, false);
+    if crate::daybreak::program_for_thread(
+        &selector_features, &session.request_handle(), "not-a-thread", "scope-model", true,
+    ).await != Ok(None) {
+        failures.push("disabled selector queried an invalid thread".into());
+    }
+    let empty_path = home.path().join("empty-models.json");
+    let mut hidden_catalog = catalog("Hidden only", CyberAccessProgram::Standard);
+    for model in &mut hidden_catalog.models {
+        model.visibility = ModelVisibility::Hide;
+    }
+    std::fs::write(&empty_path, serde_json::to_vec(&hidden_catalog)?)?;
+    let empty_thread: ThreadStartResponse = recorded_request(
+        &session.client, &mut next_id, "thread/start",
+        json!({"model": "scope-model", "modelProvider": "scope", "cwd": home.path(),
+            "config": {"model_catalog_json": empty_path}}), &mut trace,
+    ).await?;
+    let empty: ModelListResponse = recorded_request(
+        &session.client, &mut next_id, "model/list",
+        json!({"threadId": empty_thread.thread.id}), &mut trace,
+    ).await?;
+    if !empty.data.is_empty() || empty.cyber_access_programs_enabled != Some(process_forwarding) {
+        failures.push(format!("empty scoped catalog lost its snapshot: {empty:?}"));
     }
     for id in ["not-a-thread".to_string(), ThreadId::new().to_string()] {
         if recorded_request::<ModelListResponse>(
@@ -382,12 +471,12 @@ experimental_bearer_token = "credential-a"
                 }));
             }
         }
-        std::fs::write(
-            destination,
-            serde_json::to_vec_pretty(
-                &json!({"rpc": trace, "http": captures, "failures": failures}),
-            )?,
+        let capture = serde_json::to_vec_pretty(
+            &json!({"process_forwarding": process_forwarding, "rpc": trace, "http": captures, "failures": failures}),
         )?;
+        let destination = std::path::PathBuf::from(destination);
+        std::fs::write(destination.with_extension(format!("{process_forwarding}.json")), &capture)?;
+        std::fs::write(destination, capture)?;
     }
     session.shutdown().await?;
     assert!(failures.is_empty(), "{failures:#?}");

@@ -2235,23 +2235,7 @@ impl App {
                     );
                 }
             }
-            AppEvent::ModelsLoaded { request_id, result: Ok(models) }
-                if self.chat_widget.model_popup_request_is_current(request_id)
-                    && self.chat_widget.status_account_display() == Some(&StatusAccountDisplay::ApiKey) =>
-            {
-                let checked = app_server.constrain_api_key_models(
-                    self.chat_widget.config_ref(),
-                    self.chat_widget.thread_id(),
-                    /*requirements*/ None,
-                    models,
-                );
-                let tx = self.app_event_tx.clone();
-                tokio::spawn(async move {
-                    tx.send(AppEvent::ApiKeyCompatModelsLoaded { request_id, result: Ok(checked.await) });
-                });
-            }
-            AppEvent::ModelsLoaded { request_id, result }
-            | AppEvent::ApiKeyCompatModelsLoaded { request_id, result } => {
+            AppEvent::ModelsLoaded { request_id, result } => {
                 if self.chat_widget.on_models_loaded(request_id, result) {
                     self.model_catalog = self.chat_widget.model_catalog();
                     if self.chat_widget.thread_id().is_none() {

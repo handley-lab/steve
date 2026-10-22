@@ -147,6 +147,7 @@ requires_openai_auth = true
         ModelListResponse {
             data: expected.iter().map(model_from_preset).collect(),
             next_cursor: None,
+            cyber_access_programs_enabled: None,
         }
     );
     // Only startup opt-outs prevent fetches before the app sends its enablement.
@@ -236,6 +237,7 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
     let ModelListResponse {
         data: items,
         next_cursor,
+        ..
     } = mcp
         .request(|request_id| ClientRequest::ModelList {
             request_id,
@@ -267,6 +269,7 @@ async fn list_models_includes_hidden_models() -> Result<()> {
     let ModelListResponse {
         data: items,
         next_cursor,
+        ..
     } = mcp
         .request(|request_id| ClientRequest::ModelList {
             request_id,
@@ -428,6 +431,7 @@ model_catalog_url = "{server_uri}/v1/models"
     let ModelListResponse {
         data: items,
         next_cursor,
+        ..
     } = serde_json::from_value(response.result)?;
     let mut expected_presets: Vec<ModelPreset> =
         remote_models.into_iter().map(Into::into).collect();
@@ -474,6 +478,7 @@ async fn list_models_pagination_works() -> Result<()> {
         let ModelListResponse {
             data: page_items,
             next_cursor,
+            ..
         } = mcp
             .request(|request_id| ClientRequest::ModelList {
                 request_id,

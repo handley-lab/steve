@@ -15642,6 +15642,13 @@
       "ModelListResponse": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "properties": {
+          "cyberAccessProgramsEnabled": {
+            "description": "Retained cyber-program forwarding setting of the requested live thread. Omitted for an unscoped listing or an older server.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "data": {
             "items": {
               "$ref": "#/definitions/v2/Model"

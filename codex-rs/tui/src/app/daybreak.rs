@@ -19,11 +19,11 @@ impl App {
             return;
         }
         if enabled
-            && (!self.chat_widget.daybreak_account_eligible()
+            && (!self.chat_widget.daybreak_feature_enabled()
                 || !crate::daybreak::available(&self.chat_widget.model_catalog().models))
         {
             self.chat_widget.add_error_message(
-                "Daybreak availability could not be confirmed for this account.".into(),
+                "Daybreak availability could not be confirmed by the connected server.".into(),
             );
             return;
         }
