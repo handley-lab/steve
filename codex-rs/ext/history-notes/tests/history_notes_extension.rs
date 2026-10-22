@@ -409,6 +409,10 @@ async fn history_notes_use_explicitly_enabled_configured_providers() -> TestResu
                 .await;
         }
         let codex_home = TempDir::new()?;
+        std::fs::write(
+            codex_home.path().join("config.toml"),
+            "model_provider = 'notes-test'\n[model_providers.notes-test]\nname = 'Configured notes'\nrequires_openai_auth = true\n",
+        )?;
         let mut config = ConfigBuilder::default()
             .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
             .codex_home(codex_home.path().to_path_buf())

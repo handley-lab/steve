@@ -307,17 +307,23 @@ async fn token_budget_guidance_precedes_standalone_context_window(
     Ok(())
 }
 
-#[test_case("OpenAI", "/backend-api/codex", None, true, true; "codex_backend")]
-#[test_case("OpenAI", "/backend-api/codex", None, false, false; "unsupported_model")]
-#[test_case("Custom", "/backend-api/codex", None, true, false; "custom_provider")]
-#[test_case("OpenAI", "/v1", None, true, false; "non_codex_endpoint")]
-#[test_case("OpenAI", "/backend-api/codex", Some("test-provider-token"), true, false; "provider_credentials")]
+#[test_case("OpenAI", "/backend-api/codex", None, (true, Some("plus")), true, true, true; "paid_backend")]
+#[test_case("OpenAI", "/backend-api/codex", None, (true, Some("free")), true, true, true; "free_backend")]
+#[test_case("OpenAI", "/backend-api/codex", None, (true, None), true, true, true; "missing_plan")]
+#[test_case("Custom", "/backend-api/codex", None, (true, Some("plus")), true, true, true; "custom_name")]
+#[test_case("OpenAI", "/v1", None, (true, Some("plus")), true, true, true; "backend_token_api_path")]
+#[test_case("Custom", "/v1", None, (false, None), true, true, true; "api_key")]
+#[test_case("Custom", "/v1", Some("test-provider-token"), (false, None), true, true, true; "provider_credentials")]
+#[test_case("OpenAI", "/backend-api/codex", None, (true, Some("plus")), false, true, false; "unsupported_model")]
+#[test_case("OpenAI", "/backend-api/codex", None, (true, Some("plus")), true, false, false; "feature_off")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn experimental_context_requires_capable_model_and_codex_backend(
+async fn experimental_context_follows_activation_and_model_support(
     provider_name: &'static str,
     base_path: &'static str,
     bearer_token: Option<&'static str>,
+    auth_config: (bool, Option<&'static str>),
     supports_context: bool,
+    enabled: bool,
     expected_enabled: bool,
 ) -> Result<()> {
     skip_if_no_network!(Ok(()));
@@ -325,23 +331,34 @@ async fn experimental_context_requires_capable_model_and_codex_backend(
     let server = start_mock_server().await;
     let response = mount_sse_once(&server, sse_completed("resp-1")).await;
     let base_url = format!("{}{base_path}", server.uri());
+    let (backend_auth, plan) = auth_config;
+    let auth = if backend_auth {
+        CodexAuth::from_external_chatgpt_tokens("header.e30.signature", "account-123", plan)?
+    } else {
+        CodexAuth::from_api_key("test-api-key")
+    };
+    let expected_token = match bearer_token {
+        Some(token) => token.to_owned(),
+        None => auth.get_token()?,
+    };
     let test = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("explicit test provider");
+        })
         .with_model_info_override("gpt-5.2", move |model| {
             model.supports_experimental_context = supports_context;
         })
-        .with_auth(CodexAuth::from_external_chatgpt_tokens(
-            "header.e30.signature",
-            "account-123",
-            Some("plus"),
-        )?)
+        .with_auth(auth)
         .with_config(move |config| {
             config.model_provider.name = provider_name.to_string();
             config.model_provider.base_url = Some(base_url);
             config.model_provider.experimental_bearer_token = bearer_token.map(Into::into);
+            config.model_provider.requires_openai_auth = bearer_token.is_none();
             config.model_context_window = Some(CONFIGURED_CONTEXT_WINDOW);
             config
                 .features
-                .enable(Feature::ContextManagement)
+                .set_enabled(Feature::ContextManagement, enabled)
                 .expect("test config should allow experimental context");
         })
         .build_with_auto_env(&server)
@@ -352,6 +369,10 @@ async fn experimental_context_requires_capable_model_and_codex_backend(
 
     let request = response.single_request();
     assert_eq!(
+        request.header("authorization"),
+        Some(format!("Bearer {expected_token}"))
+    );
+    assert_eq!(
         tool_names(&request)
             .iter()
             .any(|name| name == "new_context"),
@@ -360,6 +381,14 @@ async fn experimental_context_requires_capable_model_and_codex_backend(
     assert_eq!(
         !token_budget_contexts(&request).is_empty(),
         expected_enabled
+    );
+    let body = request.body_json();
+    let metadata: Value = serde_json::from_str(
+        body["client_metadata"]["x-codex-turn-metadata"].as_str().expect("turn metadata"),
+    )?;
+    assert_eq!(
+        metadata["history_ingest_requested"].as_bool(),
+        expected_enabled.then_some(true)
     );
 
     Ok(())
@@ -395,7 +424,7 @@ async fn token_budget_history_notes_can_be_enabled_without_experimental_context(
                     "[features.context_management]\nexperimental_mode = false\n[features.token_budget]\nenabled = true\nuse_history_notes_extension = {use_history_notes}\n"
                 )
             };
-            std::fs::write(home.join("config.toml"), config)
+            std::fs::write(home.join("config.toml"), format!("model_provider = 'openai'\n{config}"))
                 .expect("write token-budget configuration");
         })
         .with_model_info_override("gpt-5.2", move |model_info| {
@@ -516,7 +545,7 @@ async fn token_budget_explicit_default_template_overrides_model_defaults() -> Re
             std::fs::write(
                 home.join("config.toml"),
                 format!(
-                    "[features.token_budget]\nenabled = true\nreminder_message_template = {default_template:?}\n"
+                    "model_provider = 'openai'\n[features.token_budget]\nenabled = true\nreminder_message_template = {default_template:?}\n"
                 ),
             )
             .expect("write explicit default token-budget configuration");
@@ -563,6 +592,10 @@ async fn token_budget_defaults_follow_the_active_model(activation: Feature) -> R
     .await;
     let backend_url = format!("{}/backend-api/codex", server.uri());
     let test = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("explicit test provider");
+        })
         .with_auth(CodexAuth::from_external_chatgpt_tokens(
             "header.e30.signature",
             "account-123",
