@@ -283,31 +283,6 @@ fn codex_backend_routes_require_codex_base_url() {
 }
 
 #[test]
-fn test_uses_openai_actor_authorization() {
-    let mut provider = ModelProviderInfo {
-        http_headers: Some(maplit::hashmap! {
-            "X-OpenAI-Actor-Authorization".to_string() => "actor-token".into(),
-        }),
-        ..ModelProviderInfo::default()
-    };
-    assert!(provider.uses_openai_actor_authorization());
-
-    provider.http_headers = None;
-    assert!(!provider.uses_openai_actor_authorization());
-
-    provider.http_headers = Some(maplit::hashmap! {
-        OPENAI_ACTOR_AUTHORIZATION_HEADER.to_string() => "  ".into(),
-    });
-    assert!(!provider.uses_openai_actor_authorization());
-
-    provider.http_headers = Some(maplit::hashmap! {
-        OPENAI_ACTOR_AUTHORIZATION_HEADER.to_string() => "actor-token".into(),
-    });
-    provider.requires_openai_auth = true;
-    assert!(!provider.uses_openai_actor_authorization());
-}
-
-#[test]
 fn test_deserialize_provider_auth_config_defaults() {
     let base_dir = tempdir().unwrap();
     let provider_toml = r#"

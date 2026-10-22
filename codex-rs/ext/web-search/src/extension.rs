@@ -53,8 +53,7 @@ impl From<&Config> for WebSearchExtensionConfig {
 }
 
 fn standalone_web_search_available(provider: &ModelProviderInfo, mode: WebSearchMode) -> bool {
-    (provider.uses_openai_actor_authorization() || provider.supports_standalone_web_search)
-        && mode != WebSearchMode::Disabled
+    provider.supports_standalone_web_search && mode != WebSearchMode::Disabled
 }
 
 fn search_settings(config: &Config, web_search_mode: WebSearchMode) -> SearchSettings {
@@ -259,13 +258,21 @@ mod tests {
             "X-OpenAI-Actor-Authorization".to_string(),
             "actor-token".into(),
         )]));
-        assert!(standalone_web_search_available(
+        assert!(!standalone_web_search_available(
             &provider,
             WebSearchMode::Live
         ));
-        assert!(!standalone_web_search_available(
-            &provider,
-            WebSearchMode::Disabled
-        ));
+        provider.supports_standalone_web_search = true;
+        for name in ["OpenAI", "Cambridge"] {
+            provider.name = name.to_string();
+            assert!(standalone_web_search_available(
+                &provider,
+                WebSearchMode::Live
+            ));
+            assert!(!standalone_web_search_available(
+                &provider,
+                WebSearchMode::Disabled
+            ));
+        }
     }
 }

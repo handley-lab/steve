@@ -75,7 +75,6 @@ const MAX_STREAM_MAX_RETRIES: u64 = 100;
 const MAX_REQUEST_MAX_RETRIES: u64 = 100;
 
 const OPENAI_PROVIDER_NAME: &str = "OpenAI";
-const OPENAI_ACTOR_AUTHORIZATION_HEADER: &str = "x-openai-actor-authorization";
 pub const OPENAI_PROVIDER_ID: &str = "openai";
 pub const CHATGPT_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const AMAZON_BEDROCK_PROVIDER_NAME: &str = "Amazon Bedrock";
@@ -609,16 +608,6 @@ other non-default provider fields are not supported"
                 .trim_end_matches('/')
                 .ends_with("/backend-api/codex")
         })
-    }
-
-    pub fn uses_openai_actor_authorization(&self) -> bool {
-        !self.requires_openai_auth
-            && self.http_headers.as_ref().is_some_and(|headers| {
-                headers.iter().any(|(name, value)| {
-                    name.eq_ignore_ascii_case(OPENAI_ACTOR_AUTHORIZATION_HEADER)
-                        && !value.trim().is_empty()
-                })
-            })
     }
 
     pub fn is_amazon_bedrock(&self) -> bool {

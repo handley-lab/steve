@@ -4055,10 +4055,22 @@ async fn status_line_model_with_reasoning_includes_fast_for_fast_capable_models(
     chat.refresh_status_line();
     let test_cwd = test_path_display("/tmp/project");
 
-    assert_eq!(
-        status_line_text(&chat),
-        Some(format!("gpt-5.4 xhigh fast · Context 0% used · {test_cwd}"))
-    );
+    for account in [
+        Some(StatusAccountDisplay::ChatGpt {
+            email: None,
+            plan: None,
+        }),
+        Some(StatusAccountDisplay::ApiKey),
+        None,
+    ] {
+        chat.has_chatgpt_account = matches!(account, Some(StatusAccountDisplay::ChatGpt { .. }));
+        chat.status_account_display = account;
+        chat.refresh_status_line();
+        assert_eq!(
+            status_line_text(&chat),
+            Some(format!("gpt-5.4 xhigh fast · Context 0% used · {test_cwd}"))
+        );
+    }
 
     chat.set_model("gpt-5.2");
     chat.refresh_status_line();
