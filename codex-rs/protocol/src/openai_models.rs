@@ -1019,16 +1019,6 @@ impl ModelInfo {
 }
 
 impl ModelPreset {
-    /// Filter models based on authentication mode.
-    ///
-    /// In ChatGPT mode, all models are visible. Otherwise, only API-supported models are shown.
-    pub fn filter_by_auth(models: Vec<ModelPreset>, chatgpt_mode: bool) -> Vec<ModelPreset> {
-        models
-            .into_iter()
-            .filter(|model| chatgpt_mode || model.supported_in_api)
-            .collect()
-    }
-
     /// Recompute the single default preset using picker visibility.
     ///
     /// The first picker-visible model wins; if none are picker-visible, the first model wins.

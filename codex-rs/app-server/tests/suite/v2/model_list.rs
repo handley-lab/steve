@@ -104,10 +104,7 @@ requires_openai_auth = true
         .await?;
     let mut bundled = codex_models_manager::bundled_models_response()?.models;
     bundled.sort_by_key(|model| model.priority);
-    let mut bundled = ModelPreset::filter_by_auth(
-        bundled.into_iter().map(Into::into).collect(),
-        /*chatgpt_mode*/ false,
-    );
+    let mut bundled: Vec<ModelPreset> = bundled.into_iter().map(Into::into).collect();
     ModelPreset::mark_default_by_picker_visibility(&mut bundled);
     let mut remote = vec![ModelPreset::from(remote_model)];
     ModelPreset::mark_default_by_picker_visibility(&mut remote);
@@ -214,13 +211,9 @@ fn model_from_preset(preset: &ModelPreset) -> Model {
 }
 
 fn expected_visible_models() -> Vec<Model> {
-    // Filter by supported_in_api to support testing with both ChatGPT and non-ChatGPT auth modes.
-    let mut presets = ModelPreset::filter_by_auth(
-        codex_core::test_support::all_model_presets().clone(),
-        /*chatgpt_mode*/ false,
-    );
+    let mut presets = codex_core::test_support::all_model_presets().clone();
 
-    // Mirror `ModelsManager::build_available_models()` default selection after auth filtering.
+    // Mirror `ModelsManager::build_available_models()` default selection.
     ModelPreset::mark_default_by_picker_visibility(&mut presets);
 
     presets

@@ -1637,48 +1637,78 @@ fn build_available_models_picks_default_after_hiding_hidden_models() {
 }
 
 #[tokio::test]
-async fn static_manager_reads_latest_auth_mode() {
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
-    let chatgpt_only_model = {
-        let mut model = remote_model("chatgpt-only", "ChatGPT Only", /*priority*/ 0);
-        model.supported_in_api = false;
-        model
-    };
-    let api_model = remote_model("api-model", "API Model", /*priority*/ 1);
+async fn static_catalog_visibility_with_backend_auth() {
+    assert_static_catalog_visibility(Some(CodexAuth::create_dummy_chatgpt_auth_for_testing())).await;
+}
+
+#[tokio::test]
+async fn static_catalog_visibility_with_api_key() {
+    assert_static_catalog_visibility(Some(CodexAuth::from_api_key("test-key"))).await;
+}
+
+#[tokio::test]
+async fn static_catalog_visibility_without_cached_auth() {
+    assert_static_catalog_visibility(None).await;
+}
+
+async fn assert_static_catalog_visibility(auth: Option<CodexAuth>) {
+    let empty_home = tempdir().expect("empty credential store");
+    let auth_manager = Some(match auth {
+        Some(auth) => AuthManager::from_auth_for_testing(auth),
+        None => {
+            let manager = AuthManager::shared(
+                empty_home.path().to_path_buf(),
+                false,
+                AuthCredentialsStoreMode::File,
+                None,
+                None,
+                AuthKeyringBackendKind::default(),
+                codex_login::AuthRouteConfig::from_http_client_factory(DEFAULT_HTTP_CLIENT_FACTORY),
+            )
+            .await;
+            assert!(manager.auth_cached().is_none());
+            manager
+        }
+    });
+    let mut hidden = remote_model_with_visibility("hidden", "Hidden", 0, "hide");
+    hidden.supported_in_api = false;
+    let mut visible = remote_model("visible", "Visible", 1);
+    visible.supported_in_api = false;
+    let api_model = remote_model("api-model", "API Model", 2);
+    let mut expected_visible = ModelPreset::from(visible.clone());
+    expected_visible.is_default = true;
+    let expected = vec![
+        ModelPreset::from(hidden.clone()),
+        expected_visible,
+        ModelPreset::from(api_model.clone()),
+    ];
     let manager = StaticModelsManager::new(
-        Some(Arc::clone(&auth_manager)),
+        auth_manager.clone(),
         ModelsResponse {
-            models: vec![chatgpt_only_model, api_model],
+            models: vec![api_model, visible, hidden],
         },
     );
-
-    let chatgpt_models = manager
-        .list_models(RefreshStrategy::Online, DEFAULT_HTTP_CLIENT_FACTORY)
-        .await;
     assert_eq!(
-        chatgpt_models
-            .iter()
-            .map(|model| model.model.as_str())
-            .collect::<Vec<_>>(),
-        vec!["chatgpt-only", "api-model"]
+        manager
+            .list_models(RefreshStrategy::Online, DEFAULT_HTTP_CLIENT_FACTORY)
+            .await,
+        expected
     );
+    assert_eq!(manager.try_list_models().unwrap(), expected);
 
-    auth_manager
-        .set_external_auth(Arc::new(TestExternalApiKeyAuth))
-        .await
-        .expect("external API key auth should resolve");
-    let api_models = manager
-        .list_models(RefreshStrategy::Online, DEFAULT_HTTP_CLIENT_FACTORY)
-        .await;
-
-    assert_eq!(
-        api_models
-            .iter()
-            .map(|model| model.model.as_str())
-            .collect::<Vec<_>>(),
-        vec!["api-model"]
-    );
+    if let Some(auth_manager) = auth_manager {
+        auth_manager
+            .set_external_auth(Arc::new(TestExternalApiKeyAuth))
+            .await
+            .expect("external API key auth should resolve");
+        assert_eq!(
+            manager
+                .list_models(RefreshStrategy::Offline, DEFAULT_HTTP_CLIENT_FACTORY)
+                .await,
+            expected
+        );
+        assert_eq!(manager.try_list_models().unwrap(), expected);
+    }
 }
 
 #[test]

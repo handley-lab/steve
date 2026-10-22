@@ -120,7 +120,7 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
 
     /// List all available models, refreshing according to the specified strategy.
     ///
-    /// Returns model presets sorted by priority and filtered by auth mode and visibility.
+    /// Returns model presets sorted by priority with catalog visibility.
     fn list_models(
         &self,
         refresh_strategy: RefreshStrategy,
@@ -164,7 +164,7 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
     /// Returns an error if the internal lock cannot be acquired.
     fn try_get_remote_models(&self) -> Result<Vec<ModelInfo>, TryLockError>;
 
-    /// Return the auth manager used for picker filtering.
+    /// Return the associated auth manager.
     fn auth_manager(&self) -> Option<&AuthManager>;
 
     /// Build picker-ready presets from the active catalog snapshot.
@@ -172,11 +172,6 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
         remote_models.sort_by_key(|model| model.priority);
 
         let mut presets: Vec<ModelPreset> = remote_models.into_iter().map(Into::into).collect();
-        let uses_codex_backend = self
-            .auth_manager()
-            .is_some_and(AuthManager::current_auth_uses_codex_backend);
-        presets = ModelPreset::filter_by_auth(presets, uses_codex_backend);
-
         ModelPreset::mark_default_by_picker_visibility(&mut presets);
 
         presets

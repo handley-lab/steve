@@ -785,7 +785,7 @@ mod tests {
             let server = MockServer::start().await;
             let mut model = model_info_from_slug("provider-model");
             model.visibility = ModelVisibility::List;
-            model.supported_in_api = true;
+            model.supported_in_api = false;
             model.used_fallback_model_metadata = false;
             let expected = ModelsResponse {
                 models: vec![model],
@@ -850,6 +850,18 @@ mod tests {
                     expected
                 );
             }
+            let presets = manager
+                .list_models(
+                    RefreshStrategy::Offline,
+                    HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+                )
+                .await;
+            assert_eq!(presets.len(), 1);
+            assert_eq!(presets[0].model, "provider-model");
+            assert!(!presets[0].supported_in_api);
+            assert!(presets[0].show_in_picker);
+            assert!(presets[0].is_default);
+            assert_eq!(server.received_requests().await.unwrap().len(), 1);
         }
     }
 
