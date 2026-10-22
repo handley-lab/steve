@@ -77,6 +77,63 @@ class ContainerEndpointsTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.commands(), [])
 
+    def container(self, *arguments):
+        return subprocess.run(
+            ["/bin/bash", str(SCRIPTS / "run_in_container.sh"), *arguments],
+            env={**self.env, "OPENAI_ALLOWED_DOMAINS": "gateway.example"},
+            capture_output=True,
+        )
+
+    def test_container_does_not_forward_ambient_openai_key(self):
+        self.env["OPENAI_API_KEY"] = "unselected-key"
+        result = self.container("echo hello")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        run = next(command for command in self.commands() if command[:2] == ["docker", "run"])
+        self.assertNotIn("-e", run)
+        self.assertNotIn("--env", run)
+        self.assertNotIn("OPENAI_API_KEY", run)
+
+    def test_container_forwards_only_named_credentials(self):
+        self.env["OPENAI_API_KEY"] = "openai-key"
+        self.env["CAMBRIDGE_LLM_API_KEY"] = "cambridge-key"
+        for name in ("CAMBRIDGE_LLM_API_KEY", "OPENAI_API_KEY"):
+            with self.subTest(name=name):
+                self.log.unlink(missing_ok=True)
+                result = self.container("--env", name, "echo hello")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                run = next(command for command in self.commands() if command[:2] == ["docker", "run"])
+                self.assertNotIn("-e", run)
+                self.assertIn("--env", run)
+                self.assertEqual(run[run.index("--env") + 1], name)
+                self.assertEqual(run.count("--env"), 1)
+
+    def test_container_preserves_env_values_work_dir_and_command(self):
+        work_dir = self.root / "workspace with spaces"
+        work_dir.mkdir()
+        result = self.container(
+            "--env", "CAMBRIDGE_LLM_API_KEY", "--work_dir", str(work_dir),
+            "--env", "CUSTOM_TOKEN=opaque value", "--", "--model", "chosen-model", "read file",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        run = next(command for command in self.commands() if command[:2] == ["docker", "run"])
+        self.assertEqual(
+            [run[index + 1] for index, value in enumerate(run) if value == "--env"],
+            ["CAMBRIDGE_LLM_API_KEY", "CUSTOM_TOKEN=opaque value"],
+        )
+        self.assertIn(f"{work_dir}:/app{work_dir}", run)
+        command = next(command for command in self.commands() if command[:3] == ["docker", "exec", "-it"])
+        self.assertIn(f'cd "/app{work_dir}"', command[-1])
+        self.assertIn("--model chosen-model read\\ file", command[-1])
+
+    def test_missing_container_option_value_does_not_touch_docker(self):
+        for option in ("--env", "--work_dir"):
+            for remainder in ([], ["--"]):
+                with self.subTest(option=option, remainder=remainder):
+                    self.log.unlink(missing_ok=True)
+                    result = self.container(option, *remainder)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(self.commands(), [])
+
 
 if __name__ == "__main__":
     unittest.main()
