@@ -2767,6 +2767,13 @@ class ModelListParams(BaseModel):
         int | None,
         Field(description="Optional page size; defaults to a reasonable server-side value.", ge=0),
     ] = None
+    thread_id: Annotated[
+        str | None,
+        Field(
+            alias="threadId",
+            description="When supplied, list models from this live thread's configured catalog.",
+        ),
+    ] = None
 
 
 class ModelProviderCapabilitiesReadParams(BaseModel):

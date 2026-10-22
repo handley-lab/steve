@@ -18,10 +18,12 @@ def test_async_client_allows_concurrent_transport_calls() -> None:
         client = AsyncCodexClient()
         active = 0
         max_active = 0
+        scopes = []
 
-        def fake_model_list(include_hidden: bool = False) -> bool:
+        def fake_model_list(include_hidden: bool = False, thread_id: str | None = None) -> bool:
             """Simulate a blocking sync transport call."""
             nonlocal active, max_active
+            scopes.append(thread_id)
             active += 1
             max_active = max(max_active, active)
             time.sleep(0.05)
@@ -29,7 +31,8 @@ def test_async_client_allows_concurrent_transport_calls() -> None:
             return include_hidden
 
         client._sync.model_list = fake_model_list  # type: ignore[method-assign]
-        await asyncio.gather(client.model_list(), client.model_list())
+        await asyncio.gather(client.model_list(), client.model_list(thread_id="selected-thread"))
+        assert scopes == [None, "selected-thread"]
         return max_active
 
     assert asyncio.run(scenario()) == 2

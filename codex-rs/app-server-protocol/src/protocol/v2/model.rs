@@ -52,6 +52,9 @@ pub struct ModelProviderCapabilitiesReadResponse {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct ModelListParams {
+    /// When supplied, list models from this live thread's configured catalog.
+    #[ts(optional = nullable)]
+    pub thread_id: Option<String>,
     /// Opaque pagination cursor returned by a previous call.
     #[ts(optional = nullable)]
     pub cursor: Option<String>,

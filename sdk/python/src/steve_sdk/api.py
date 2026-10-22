@@ -278,13 +278,15 @@ class Steve:
 
     # END GENERATED: Steve.flat_methods
 
-    def models(self, *, include_hidden: bool = False) -> ModelListResponse:
-        """List available models reported by Steve.
+    def models(
+        self, *, include_hidden: bool = False, thread_id: str | None = None
+    ) -> ModelListResponse:
+        """List models for a live thread, or the server defaults when omitted.
 
         The deprecated ``Model.supports_personality`` field is always ``False``
         on the current app-server.
         """
-        return self._client.model_list(include_hidden=include_hidden)
+        return self._client.model_list(include_hidden=include_hidden, thread_id=thread_id)
 
 
 class AsyncSteve:
@@ -532,14 +534,16 @@ class AsyncSteve:
 
     # END GENERATED: AsyncSteve.flat_methods
 
-    async def models(self, *, include_hidden: bool = False) -> ModelListResponse:
-        """List available models reported by Steve.
+    async def models(
+        self, *, include_hidden: bool = False, thread_id: str | None = None
+    ) -> ModelListResponse:
+        """List models for a live thread, or the server defaults when omitted.
 
         The deprecated ``Model.supports_personality`` field is always ``False``
         on the current app-server.
         """
         await self._ensure_initialized()
-        return await self._client.model_list(include_hidden=include_hidden)
+        return await self._client.model_list(include_hidden=include_hidden, thread_id=thread_id)
 
 
 @dataclass(slots=True)

@@ -1604,6 +1604,7 @@ impl App {
                 self.chat_widget.handle_thread_session(session);
             }
         }
+        self.model_catalog = self.chat_widget.model_catalog();
         let should_buffer_initial_replay = !turns.is_empty();
         let replayed_final_items = realtime_delivery::completed_agent_items_from_turns(&turns);
         let replayed_voice_texts = realtime_delivery::replayed_voice_texts_from_turns(&turns);
@@ -1890,6 +1891,7 @@ impl App {
                 self.chat_widget.handle_thread_session(session);
             }
         }
+        self.model_catalog = self.chat_widget.model_catalog();
         let retained_assistant_captions =
             self.prepare_realtime_transcript_replay(replayed_voice_texts);
         for turn_id in &snapshot.delegated_turns {

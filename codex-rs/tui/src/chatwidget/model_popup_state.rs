@@ -43,9 +43,7 @@ impl ChatWidget {
         let Ok(presets) = result else {
             return false;
         };
-        if presets.is_empty()
-            || self.model_catalog.try_list_models().ok().as_ref() == Some(&presets)
-        {
+        if self.model_catalog.try_list_models().ok().as_ref() == Some(&presets) {
             return false;
         }
         Arc::make_mut(&mut self.model_catalog).models = presets;

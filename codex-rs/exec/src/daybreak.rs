@@ -17,6 +17,7 @@ pub(crate) async fn program_for_turn(
     features: &Features,
     client: &InProcessAppServerClient,
     request_ids: &mut RequestIdSequencer,
+    thread_id: &str,
     model: &str,
     provider: &str,
     enabled: bool,
@@ -42,6 +43,7 @@ pub(crate) async fn program_for_turn(
             .request_typed::<ModelListResponse>(ClientRequest::ModelList {
                 request_id: request_ids.next(),
                 params: ModelListParams {
+                    thread_id: Some(thread_id.to_string()),
                     cursor,
                     limit: None,
                     include_hidden: Some(true),

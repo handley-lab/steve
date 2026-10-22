@@ -1213,6 +1213,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                         &config.features,
                         &client,
                         &mut request_ids,
+                        &primary_thread_id_for_span,
                         &session_configured.model,
                         &session_configured.model_provider_id,
                         daybreak_enabled,

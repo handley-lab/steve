@@ -93,12 +93,17 @@ impl ChatWidget {
         self.bottom_pane
             .set_queue_submissions(/*queue_submissions*/ false);
         if previous_thread_id != self.thread_id {
-            if (previous_thread_id.is_some()
-                || (self.remote_connection.is_some() && self.config.cwd != session.cwd))
-                && self.status_account_display == Some(StatusAccountDisplay::ApiKey)
-            {
-                self.refresh_account_scoped_models();
+            Arc::make_mut(&mut self.model_catalog).models.clear();
+            for view_id in [
+                model_popups::MODEL_SELECTION_VIEW_ID,
+                model_popups::ALL_MODELS_SELECTION_VIEW_ID,
+                model_popups::MODEL_REASONING_VIEW_ID,
+                model_popups::MODEL_ADVANCED_REASONING_VIEW_ID,
+                model_popups::MODEL_PLAN_REASONING_VIEW_ID,
+            ] {
+                self.bottom_pane.dismiss_view_by_id(view_id);
             }
+            self.refresh_account_scoped_models();
             self.backend_banner_notice_model = None;
             self.automatic_model_switch_state =
                 backend_banners::AutomaticModelSwitchState::default();

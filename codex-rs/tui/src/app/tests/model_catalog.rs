@@ -701,3 +701,44 @@ async fn model_migration_prompt_shows_for_hidden_model() {
         model_migration_copy_to_plain_text(&copy)
     );
 }
+
+
+#[tokio::test]
+async fn model_scope_attach_invalidates_the_app_projection() -> Result<()> {
+    for replay in [false, true] {
+        let (mut app, _events, _ops) = make_test_app_with_channels().await;
+        let modes = app.chat_widget.model_catalog().collaboration_modes.clone();
+        assert!(!app.model_catalog.models.is_empty());
+        // Clearing the widget alone does not clear the separately retained app catalog.
+        app.chat_widget.handle_thread_session(test_thread_session(
+            ThreadId::new(),
+            app.config.cwd.to_path_buf(),
+        ));
+        assert!(app.chat_widget.model_catalog().models.is_empty());
+        assert!(!app.model_catalog.models.is_empty());
+        let session = test_thread_session(ThreadId::new(), app.config.cwd.to_path_buf());
+        if replay {
+            app.replay_thread_snapshot(
+                ThreadEventSnapshot {
+                    delegated_turns: Vec::new(),
+                    session: Some(session),
+                    turns: Vec::new(),
+                    events: Vec::new(),
+                    active_reasoning_item: None,
+                    input_state: None,
+                },
+                false,
+            );
+        } else {
+            app.enqueue_primary_thread_session(session, Vec::new())
+                .await?;
+        }
+        assert!(app.model_catalog.models.is_empty(), "replay={replay}");
+        assert!(Arc::ptr_eq(
+            &app.model_catalog,
+            &app.chat_widget.model_catalog()
+        ));
+        assert_eq!(app.model_catalog.collaboration_modes, modes);
+    }
+    Ok(())
+}

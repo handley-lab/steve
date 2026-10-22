@@ -8,6 +8,9 @@ use crate::model_catalog::LUNA_RESERVE_MODEL;
 
 const ULTRA_REASONING_CONCURRENCY_WARNING_THRESHOLD: usize = 8;
 pub(super) const MODEL_SELECTION_VIEW_ID: &str = "model-selection";
+pub(super) const MODEL_REASONING_VIEW_ID: &str = "model-reasoning";
+pub(super) const MODEL_ADVANCED_REASONING_VIEW_ID: &str = "model-advanced-reasoning";
+pub(super) const MODEL_PLAN_REASONING_VIEW_ID: &str = "model-plan-reasoning";
 pub(super) const ALL_MODELS_SELECTION_VIEW_ID: &str = "all-models-selection";
 
 impl ChatWidget {
@@ -416,6 +419,7 @@ impl ChatWidget {
         })];
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
+            view_id: Some(MODEL_PLAN_REASONING_VIEW_ID),
             title: Some(PLAN_MODE_REASONING_SCOPE_TITLE.to_string()),
             subtitle: Some(subtitle),
             items: vec![
@@ -609,6 +613,7 @@ impl ChatWidget {
         .wrap(Wrap { trim: false });
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
+            view_id: Some(MODEL_REASONING_VIEW_ID),
             header: Box::new(header),
             items,
             initial_selected_idx,
@@ -676,6 +681,7 @@ impl ChatWidget {
         ])
         .wrap(Wrap { trim: false });
         self.bottom_pane.show_selection_view(SelectionViewParams {
+            view_id: Some(MODEL_ADVANCED_REASONING_VIEW_ID),
             header: Box::new(header),
             items,
             ..SelectionViewParams::picker()

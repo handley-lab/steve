@@ -334,9 +334,11 @@ class AsyncCodexClient:
             input_items,
         )
 
-    async def model_list(self, include_hidden: bool = False) -> ModelListResponse:
+    async def model_list(
+        self, include_hidden: bool = False, thread_id: str | None = None
+    ) -> ModelListResponse:
         """List models using the wrapped sync client."""
-        return await self._call_sync(self._sync.model_list, include_hidden)
+        return await self._call_sync(self._sync.model_list, include_hidden, thread_id)
 
     async def request_with_retry_on_overload(
         self,

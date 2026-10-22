@@ -699,10 +699,15 @@ class CodexClient:
             response_model=TurnSteerResponse,
         )
 
-    def model_list(self, include_hidden: bool = False) -> ModelListResponse:
+    def model_list(
+        self, include_hidden: bool = False, thread_id: str | None = None
+    ) -> ModelListResponse:
         return self.request(
             "model/list",
-            {"includeHidden": include_hidden},
+            {
+                "includeHidden": include_hidden,
+                **({"threadId": thread_id} if thread_id is not None else {}),
+            },
             response_model=ModelListResponse,
         )
 

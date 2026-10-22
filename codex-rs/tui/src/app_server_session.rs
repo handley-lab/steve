@@ -691,6 +691,7 @@ impl AppServerSession {
                     .request_typed::<ModelListResponse>(ClientRequest::ModelList {
                         request_id: model_request_id,
                         params: ModelListParams {
+                            thread_id: None,
                             cursor: None,
                             limit: None,
                             include_hidden: Some(true),
@@ -2583,6 +2584,10 @@ pub(crate) fn app_server_rate_limit_snapshots(
 #[cfg(test)]
 #[path = "app_server_session/reasoning_defaults_tests.rs"]
 mod reasoning_defaults_tests;
+
+#[cfg(test)]
+#[path = "app_server_session/model_scope_tests.rs"]
+mod model_scope_tests;
 
 #[cfg(test)]
 #[path = "app_server_session/workspace_roots_tests.rs"]

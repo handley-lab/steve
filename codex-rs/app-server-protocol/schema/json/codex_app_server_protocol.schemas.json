@@ -15627,6 +15627,13 @@
               "integer",
               "null"
             ]
+          },
+          "threadId": {
+            "description": "When supplied, list models from this live thread's configured catalog.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "title": "ModelListParams",
