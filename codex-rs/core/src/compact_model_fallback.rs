@@ -24,11 +24,7 @@ pub(crate) fn should_retry_with_current_model(
         return false;
     }
 
-    current
-        .auth_manager
-        .as_deref()
-        .and_then(codex_login::AuthManager::auth_cached)
-        .is_some_and(|auth| auth.uses_codex_backend() || auth.is_api_key_auth())
+    true
 }
 
 pub(crate) fn record_model_fallback(
