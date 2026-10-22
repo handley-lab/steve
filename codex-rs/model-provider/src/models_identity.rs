@@ -14,6 +14,11 @@ pub(crate) fn identity(
     provider_info: &ModelProviderInfo,
     auth: Option<&CodexAuth>,
 ) -> CoreResult<String> {
+    let explicit_bearer =
+        provider_info.api_key()?.is_some() || provider_info.experimental_bearer_token.is_some();
+    let auth = auth.filter(|_| {
+        !explicit_bearer && (provider_info.requires_openai_auth || provider_info.has_command_auth())
+    });
     let mut catalog_provider = provider_info.clone();
     if let Some(catalog_url) = &provider_info.model_catalog_url {
         catalog_provider.base_url = Some(catalog_url.to_string());
@@ -68,8 +73,6 @@ pub(crate) fn identity(
         ) && auth.get_account_id().is_some()
             && (auth.get_chatgpt_user_id().is_some() || auth.get_account_email().is_some())
     });
-    let explicit_bearer =
-        provider_info.api_key()?.is_some() || provider_info.experimental_bearer_token.is_some();
     // Command auth also returns opaque API keys. A changed key may belong to a
     // different account, so only credentials with stable owner metadata can be reused.
     if !has_stable_account || explicit_bearer {
