@@ -3209,6 +3209,46 @@ async fn hosted_web_search_and_standalone_image_generation_follow_runtime_gates(
     .await;
     image_generation.assert_visible_contains(&["image_gen"]);
 
+    for (provider_id, provider_name) in [("openai", "OpenAI"), ("cambridge", "Cambridge")] {
+        for plan in [Some("free"), Some("pro"), None] {
+            let plan_probe = Box::pin(probe_with(
+                |turn| {
+                    turn.auth_manager = plan.map(|plan| {
+                        AuthManager::from_auth_for_testing(
+                            CodexAuth::from_external_chatgpt_tokens(
+                                "e30.eyJzdWIiOiJ0ZXN0LXVzZXIifQ.sig",
+                                "test-account",
+                                Some(plan),
+                            )
+                            .expect("supplied test account"),
+                        )
+                    });
+                    update_config(turn, |config| {
+                        config.model_provider_id = provider_id.to_string();
+                        config.model_provider.name = provider_name.to_string();
+                        config.model_provider.requires_openai_auth = true;
+                        config.model_provider.experimental_bearer_token =
+                            Some("provider-key".into());
+                    });
+                    turn.provider = create_model_provider(
+                        turn.config.model_provider.clone(),
+                        turn.auth_manager.clone(),
+                    );
+                    update_turn_settings_for_test(turn, |settings| {
+                        Arc::make_mut(&mut settings.model_info).input_modalities =
+                            vec![InputModality::Image];
+                    });
+                },
+                ToolPlanInputs {
+                    extension_tool_executors: vec![image_generation_tool.clone()],
+                    ..Default::default()
+                },
+            ))
+            .await;
+            plan_probe.assert_visible_contains(&["image_gen"]);
+        }
+    }
+
     let extension_disabled = probe_with(
         |turn| {
             use_chatgpt_auth(turn);

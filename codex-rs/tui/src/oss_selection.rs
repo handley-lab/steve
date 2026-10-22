@@ -398,11 +398,10 @@ mod tests {
 
         #[allow(deprecated)]
         let client = HttpClientBuilder::new().build_direct_with_custom_ca_fallback();
-        assert!(
-            check_port_status(&client, server.address().port())
-                .await
-                .expect("localhost provider probe should complete")
-        );
+        assert!(matches!(
+            check_provider_status(&client, Some(&server.uri())).await,
+            ProviderStatus::Running
+        ));
     }
 }
 

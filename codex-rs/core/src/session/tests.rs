@@ -4987,6 +4987,7 @@ async fn build_test_config(codex_home: &Path) -> Config {
         .codex_home(codex_home.to_path_buf())
         .harness_overrides(ConfigOverrides {
             model: Some("gpt-5.5".to_string()),
+            model_provider: Some("openai".to_string()),
             ..Default::default()
         })
         .build()
