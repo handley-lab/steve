@@ -1066,10 +1066,10 @@ impl App {
                     &self.harness_overrides,
                 );
                 // Embedded thread/start sends a provider ID alongside the selected model.
-                if use_server_provider {
-                    config.model_provider_id = defaults
-                        .model_provider
-                        .unwrap_or_else(|| "openai".to_string());
+                if use_server_provider
+                    && let Some(provider) = defaults.model_provider
+                {
+                    config.model_provider_id = provider;
                 }
             }
             Ok(None) => {}

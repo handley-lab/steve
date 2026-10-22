@@ -56,11 +56,6 @@ impl AppServerSession {
             std::path::Path::new(&cwd),
         )
         .await?
-        .map(|config| {
-            config
-                .config
-                .model_provider
-                .unwrap_or_else(|| "openai".to_string())
-        }))
+        .and_then(|config| config.config.model_provider))
     }
 }

@@ -362,7 +362,7 @@ async fn same_thread_retry_keeps_subscription_and_restores_draft() -> Result<()>
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum HistoryCapabilities {
+pub(in crate::app) enum HistoryCapabilities {
     Current,
     LegacyOnly,
     LegacyOnlyUnsupportedVariant,
@@ -379,6 +379,7 @@ pub(super) enum HistoryCapabilities {
     ConfigReadFails,
     SuperBindingsUnsupported,
     ConfigReadUnknownVoice,
+    ConfigReadWithoutProvider,
     VoiceCatalogCustom,
     VoiceCatalogUnavailable,
 }
@@ -430,7 +431,7 @@ pub(super) async fn start_recording_remote_app_server(
 }
 
 /// Proxies a real app server while optionally rejecting modern pagination like an older server.
-pub(super) async fn start_recording_app_server_with_history(
+pub(in crate::app) async fn start_recording_app_server_with_history(
     config: &Config,
     history_capabilities: HistoryCapabilities,
     blocked_thread_list: Option<(ThreadId, oneshot::Sender<()>, oneshot::Receiver<()>)>,
@@ -810,6 +811,9 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
                             let unknown_voice = history_capabilities
                                 == HistoryCapabilities::ConfigReadUnknownVoice
                                 && matches!(&request, ClientRequest::ConfigRead { .. });
+                            let omit_provider = history_capabilities
+                                == HistoryCapabilities::ConfigReadWithoutProvider
+                                && matches!(&request, ClientRequest::ConfigRead { .. });
                             let custom_voice_catalog = history_capabilities
                                 == HistoryCapabilities::VoiceCatalogCustom
                                 && matches!(
@@ -817,6 +821,13 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
                                     ClientRequest::ThreadRealtimeListVoices { .. }
                                 );
                             let mut result = embedded.request(request).await?;
+                            if omit_provider && let Ok(value) = &mut result {
+                                assert!(value["config"]
+                                    .as_object_mut()
+                                    .expect("config object")
+                                    .remove("model_provider")
+                                    .is_some());
+                            }
                             if unknown_voice && let Ok(value) = &mut result {
                                 value["config"]["realtime"]["voice"] =
                                     serde_json::json!("future_voice");
