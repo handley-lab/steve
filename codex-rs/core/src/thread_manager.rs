@@ -425,6 +425,9 @@ pub(crate) struct ThreadManagerState {
     agent_control_factory: Option<AgentControlFactory>,
     auth_manager: Arc<AuthManager>,
     models_manager: SharedModelsManager,
+    models_manager_provider: ModelProviderInfo,
+    models_manager_catalog: Option<codex_protocol::openai_models::ModelsResponse>,
+    models_manager_api_key_discovery: bool,
     git_root_discovery: Arc<GitRootDiscovery>,
     environment_manager: Arc<EnvironmentManager>,
     starting_mcp_runtimes: std::sync::Mutex<Vec<std::sync::Weak<AtomicBool>>>,
@@ -590,6 +593,11 @@ impl ThreadManager {
                 thread_id_generator: default_thread_id_generator(),
                 agent_control_factory: None,
                 models_manager,
+                models_manager_provider: config.model_provider.clone(),
+                models_manager_catalog: config.model_catalog.clone(),
+                models_manager_api_key_discovery: config
+                    .features
+                    .enabled(Feature::ApiKeyModelDiscovery),
                 git_root_discovery: Arc::default(),
                 environment_manager,
                 starting_mcp_runtimes: std::sync::Mutex::new(Vec::new()),
@@ -777,8 +785,11 @@ impl ThreadManager {
                 thread_created_tx,
                 thread_id_generator: default_thread_id_generator(),
                 agent_control_factory: None,
-                models_manager: create_model_provider(provider, Some(auth_manager.clone()))
+                models_manager: create_model_provider(provider.clone(), Some(auth_manager.clone()))
                     .models_manager(codex_home, /*config_model_catalog*/ None),
+                models_manager_provider: provider,
+                models_manager_catalog: None,
+                models_manager_api_key_discovery: false,
                 git_root_discovery: Arc::default(),
                 environment_manager,
                 starting_mcp_runtimes: std::sync::Mutex::new(Vec::new()),
@@ -2323,6 +2334,14 @@ impl ThreadManagerState {
         };
         let attachment_source =
             forked_from_thread_id.filter(|_| matches!(&initial_history, InitialHistory::Forked(_)));
+        if thread_extension_init.get::<SharedModelsManager>().is_none()
+            && (config.model_provider != self.models_manager_provider
+                || config.model_catalog != self.models_manager_catalog
+                || config.features.enabled(Feature::ApiKeyModelDiscovery)
+                    != self.models_manager_api_key_discovery)
+        {
+            thread_extension_init.insert(build_models_manager(&config, Arc::clone(&auth_manager)));
+        }
         let spawn_result = Session::spawn(SessionSpawnArgs {
             startup,
             config,
