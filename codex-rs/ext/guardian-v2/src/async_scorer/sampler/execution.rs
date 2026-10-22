@@ -265,28 +265,11 @@ impl SamplingExecution {
                     return Err(error);
                 }
             };
-            // Omitted programs need no auth lookup, which can refresh credentials.
-            self.request.access_programs = match (
+            self.request.access_programs = cyber_access_program::for_request(
                 self.cyber_access_program,
                 self.config.api_key_cyber_access_programs,
-            ) {
-                (None, _)
-                | (_, cyber_access_program::ApiKeyCyberAccessPrograms::UnsupportedProvider) => None,
-                (Some(program), _) => {
-                    let auth = tokio::select! {
-                        biased;
-                        _ = &mut owner_changed => return Err(account_changed_error()),
-                        _ = mode.superseded() => return Err(LunaSamplerError::Superseded),
-                        auth = self.config.provider.auth() => auth,
-                    };
-                    cyber_access_program::for_auth(
-                        auth.as_ref(),
-                        Some(program),
-                        self.config.api_key_cyber_access_programs,
-                    )
-                    .map_err(LunaSamplerError::Provider)?
-                }
-            };
+            )
+            .map_err(LunaSamplerError::Provider)?;
             ensure_account_owner()?;
             self.request.service_tier = if lease.request_kind == RequestMode::GuardianClassifier {
                 None

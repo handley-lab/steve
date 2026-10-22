@@ -97,7 +97,7 @@ pub enum Feature {
     AnalyticsPlanHistory,
     /// Discover model catalogs for OpenAI API-key authentication.
     ApiKeyModelDiscovery,
-    /// Forward explicit programs with builtin OpenAI API keys.
+    /// Forward explicit access programs on compatible provider requests.
     ApiKeyCyberAccessPrograms,
     /// Enable Daybreak controls and automatic access-program selection in CLI clients.
     CliDaybreak,

@@ -109,12 +109,21 @@ async fn model_switch_program_pair(
     let models = ModelsResponse {
         models: vec![old, new, discarded],
     };
-    let provider = if local {
+    let mut provider = if local {
         local_compaction_provider(&server)
     } else {
         openai_model_provider(&server)
     };
+    provider.requires_openai_auth = true;
+    if !local {
+        provider.capabilities.get_or_insert_default().remote_compaction =
+            Some(codex_model_provider_info::RemoteCompactionSupport::V2);
+    }
     let mut builder = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("explicit test provider");
+        })
         .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
         .with_model(previous_model)
         .with_config(move |config| {
@@ -270,7 +279,7 @@ async fn model_switch_program_pair(
         assert!(
             error
                 .to_string()
-                .contains("Cyber access programs are disabled for this API-key session.")
+                .contains("Cyber access programs are disabled for this session.")
         );
         thread.shutdown_and_wait().await?;
         assert_eq!(
@@ -320,14 +329,7 @@ async fn model_switch_program_pair(
             );
         }
     }
-    let (old_program, new_program) = if matches!(history, History::ApiKeyCustomProviderResume) {
-        for request in &requests {
-            assert_eq!(request.body_json().get("access_programs"), None);
-        }
-        (Value::Null, Value::Null)
-    } else {
-        (expected_program, json!({"cyber": "daybreak_red"}))
-    };
+    let (old_program, new_program) = (expected_program, json!({"cyber": "daybreak_red"}));
     let actual = requests
         .iter()
         .map(|request| {
@@ -404,7 +406,14 @@ async fn api_key_resume_compaction_retries_current_program(
     };
     let mut provider = openai_model_provider(&server);
     provider.stream_max_retries = Some(0);
+    provider.requires_openai_auth = true;
+    provider.capabilities.get_or_insert_default().remote_compaction =
+        Some(codex_model_provider_info::RemoteCompactionSupport::V2);
     let mut builder = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("explicit test provider");
+        })
         .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
         .with_model(previous_model)
         .with_config(move |config| {

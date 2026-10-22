@@ -13,7 +13,6 @@ use crate::compact_remote_v2::run_inline_remote_auto_compact_task as run_inline_
 use crate::connectors;
 use crate::context::ContextualUserFragment;
 use crate::context::UserVerificationNotice;
-use crate::cyber_access_program;
 use crate::environment_selection::TurnEnvironmentSnapshot;
 use crate::feedback_tags;
 use crate::hook_runtime::drain_async_hook_results;
@@ -1447,10 +1446,7 @@ async fn maybe_run_previous_model_inline_compact(
     // turn's program so compaction uses the same model/cyber_access_program pair as that turn.
     // Combining the previous model with the current turn's program can produce a pair
     // that the server rejects.
-    previous_model_turn_context.cyber_access_program = cyber_access_program::for_provider(
-        &previous_model_turn_context.config.model_provider_id,
-        previous_turn_settings.cyber_access_program,
-    );
+    previous_model_turn_context.cyber_access_program = previous_turn_settings.cyber_access_program;
     let previous_model_turn_context = Arc::new(previous_model_turn_context);
 
     let reason = if should_compact_for_comp_hash_change {

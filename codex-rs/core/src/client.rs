@@ -272,7 +272,7 @@ pub struct ModelClient {
     request_contributors: Vec<Arc<dyn codex_extension_api::ModelRequestContributor>>,
     executed_tool_calls: Option<ExecutedToolCalls>,
     // Resolved once when the session is created, like other session feature flags.
-    api_key_cyber_access_programs: cyber_access_program::ApiKeyCyberAccessPrograms,
+    api_key_cyber_access_programs: bool,
 }
 
 /// A turn-scoped streaming session created from a [`ModelClient`].
@@ -601,8 +601,7 @@ impl ModelClient {
             restored_history: false,
             request_contributors,
             executed_tool_calls: None,
-            api_key_cyber_access_programs:
-                cyber_access_program::ApiKeyCyberAccessPrograms::UnsupportedProvider,
+            api_key_cyber_access_programs: false,
         }
     }
 
@@ -626,7 +625,7 @@ impl ModelClient {
         prompt_cache_key_override: Option<String>,
         event_sender: Sender<ProtocolEvent>,
         codex_responses_headers: Option<Arc<CodexResponsesHeaders>>,
-        api_key_cyber_access_programs: cyber_access_program::ApiKeyCyberAccessPrograms,
+        api_key_cyber_access_programs: bool,
     ) -> Self {
         self.prompt_cache_key_override = prompt_cache_key_override;
         self.event_sender = Some(event_sender);
@@ -1837,8 +1836,7 @@ impl ResponsesHttpExecutor<'_> {
                     .extra_headers
                     .insert(X_CODEX_ROUTING_HINT_HEADER, header_value);
             }
-            request.access_programs = cyber_access_program::for_auth(
-                client_setup.auth.as_ref(),
+            request.access_programs = cyber_access_program::for_request(
                 prompt.cyber_access_program,
                 self.client.api_key_cyber_access_programs,
             )?;
@@ -1999,8 +1997,7 @@ impl ModelClientSession {
             if is_guardian_reviewer(&responses_headers) {
                 request.service_tier = None;
             }
-            request.access_programs = cyber_access_program::for_auth(
-                client_setup.auth.as_ref(),
+            request.access_programs = cyber_access_program::for_request(
                 prompt.cyber_access_program,
                 self.client.api_key_cyber_access_programs,
             )?;

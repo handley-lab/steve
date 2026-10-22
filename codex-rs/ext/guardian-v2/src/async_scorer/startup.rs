@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use codex_core::ThreadManager;
 use codex_core::config::Config;
-use codex_core::cyber_access_program::ApiKeyCyberAccessPrograms;
 use codex_extension_api::ThreadOriginator;
 use codex_extension_api::ThreadStartInput;
+use codex_features::Feature;
 use codex_login::AuthManager;
 use codex_model_provider::create_model_provider;
 
@@ -109,7 +109,7 @@ pub(super) async fn sampler_config(
     let luna_compaction_hash = luna_model.and_then(|model| model.comp_hash);
     Ok(LunaSamplerConfig {
         model: model.to_owned(),
-        api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::from_config(&config),
+        api_key_cyber_access_programs: config.features.enabled(Feature::ApiKeyCyberAccessPrograms),
         workspace_routing: input
             .thread_store
             .get_or_init(|| input.config.workspace_routing_context())

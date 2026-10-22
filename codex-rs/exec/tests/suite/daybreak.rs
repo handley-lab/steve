@@ -64,7 +64,7 @@ async fn exec_resolves_daybreak_for_api_keys_and_allows_an_off_override() -> any
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "Cyber access programs are disabled for this API-key session.",
+            "Cyber access programs are disabled for this session.",
         ));
     assert!(response.requests().is_empty());
     Ok(())

@@ -1,7 +1,6 @@
 use anyhow::Result;
 use codex_api::ApiError;
 use codex_context_fragments::RenderedFragment;
-use codex_core::cyber_access_program::ApiKeyCyberAccessPrograms;
 use codex_extension_api::ContextualUserFragment;
 use codex_extension_api::ExtensionMetrics;
 use codex_guardian_context::PreviousReviews;
@@ -208,7 +207,7 @@ pub(in crate::async_scorer) async fn proxy_websocket_servers_with_http(
 pub(in crate::async_scorer) fn sampler_config(base_url: String) -> LunaSamplerConfig {
     LunaSamplerConfig {
         model: MODEL.to_owned(),
-        api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::Disabled,
+        api_key_cyber_access_programs: false,
         workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
             "https://chatgpt.com/backend-api".into(),
         ),
@@ -289,54 +288,73 @@ pub(in crate::async_scorer) fn sample_request(parent_turn_id: &str) -> LunaSampl
 #[tokio::test]
 async fn classifier_preserves_api_key_cyber_program_policy() -> Result<()> {
     skip_if_no_network!(Ok(()));
-    for policy in [
-        ApiKeyCyberAccessPrograms::Enabled,
-        ApiKeyCyberAccessPrograms::Disabled,
-        ApiKeyCyberAccessPrograms::UnsupportedProvider,
-    ] {
-        let server = responses::start_mock_server().await;
-        let response = responses::mount_sse_once(
-            &server,
-            responses::sse(vec![
-                ev_assistant_message("score", "low"),
-                ev_completed("score"),
-            ]),
-        )
-        .await;
-        let mut config = sampler_config(server.uri());
-        config.api_key_cyber_access_programs = policy;
-        let sampler = LunaSampler::new(config);
-        let mut request = sample_request("parent");
-        request.cyber_access_program = Some(CyberAccessProgram::DaybreakRed);
-        let result = sampler.sample(request).await;
-        match policy {
-            ApiKeyCyberAccessPrograms::Disabled => {
-                assert!(
-                    result
-                        .unwrap_err()
-                        .to_string()
-                        .contains("Cyber access programs are disabled for this API-key session.")
-                );
-                assert!(response.requests().is_empty());
-            }
-            ApiKeyCyberAccessPrograms::Enabled | ApiKeyCyberAccessPrograms::UnsupportedProvider => {
-                assert_eq!(result?, "low");
-                let expected = match policy {
-                    ApiKeyCyberAccessPrograms::Enabled => Some(json!({"cyber": "daybreak_blue"})),
-                    ApiKeyCyberAccessPrograms::UnsupportedProvider => None,
-                    ApiKeyCyberAccessPrograms::Disabled => unreachable!(),
-                };
-                assert_eq!(
-                    response
-                        .single_request()
-                        .body_json()
-                        .get("access_programs")
-                        .cloned(),
-                    expected,
-                );
+    let mut failures = Vec::new();
+    for backend_auth in [true, false] {
+        for name in ["OpenAI", "Cambridge"] {
+            for enabled in [true, false] {
+                for program in [Some(CyberAccessProgram::DaybreakRed), None] {
+                    let server = responses::start_mock_server().await;
+                    let response = responses::mount_sse_once(
+                        &server,
+                        responses::sse(vec![
+                            ev_assistant_message("score", "low"),
+                            ev_completed("score"),
+                        ]),
+                    )
+                    .await;
+                    let mut config = sampler_config(server.uri());
+                    config.api_key_cyber_access_programs = enabled;
+                    let mut provider =
+                        ModelProviderInfo::create_openai_provider(Some(server.uri()));
+                    provider.name = name.to_string();
+                    provider.requires_openai_auth = backend_auth;
+                    provider.experimental_bearer_token =
+                        (!backend_auth).then(|| "classifier-key".into());
+                    config.provider = create_model_provider(
+                        provider,
+                        Some(AuthManager::from_auth_for_testing(if backend_auth {
+                            CodexAuth::create_dummy_chatgpt_auth_for_testing()
+                        } else {
+                            CodexAuth::from_api_key("unused-global-key")
+                        })),
+                    );
+                    let sampler = LunaSampler::new(config);
+                    let mut request = sample_request("parent");
+                    request.cyber_access_program = program;
+                    let result = sampler.sample(request).await;
+                    let captured = response.requests();
+                    let valid = if !enabled && program.is_some() {
+                        result.as_ref().is_err_and(|error| {
+                            error
+                                .to_string()
+                                .contains("Cyber access programs are disabled")
+                        }) && captured.is_empty()
+                    } else {
+                        result.as_ref().is_ok_and(|score| score == "low")
+                            && captured.len() == 1
+                            && captured[0].body_json().get("access_programs").cloned()
+                                == program.map(|_| json!({"cyber": "daybreak_blue"}))
+                            && captured[0].header("authorization").as_deref()
+                                == Some(if backend_auth {
+                                    "Bearer Access Token"
+                                } else {
+                                    "Bearer classifier-key"
+                                })
+                    };
+                    eprintln!(
+                        "classifier backend_auth={backend_auth} name={name} enabled={enabled} program={program:?} valid={valid}"
+                    );
+                    if !valid {
+                        failures.push((backend_auth, name, enabled, program));
+                    }
+                }
             }
         }
     }
+    assert!(
+        failures.is_empty(),
+        "classifier forwarding failures: {failures:?}"
+    );
     Ok(())
 }
 
@@ -581,7 +599,7 @@ async fn preconnected_sampler_reuses_authenticated_websocket_for_classifications
 
     let sampler = connect_sampler(LunaSamplerConfig {
         model: MODEL.to_owned(),
-        api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::Disabled,
+        api_key_cyber_access_programs: false,
         workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
             "https://chatgpt.com/backend-api".into(),
         ),
@@ -848,7 +866,7 @@ async fn sampler_returns_classification_token_before_terminal_response_events() 
     );
     let sampler = connect_sampler(LunaSamplerConfig {
         model: MODEL.to_owned(),
-        api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::Disabled,
+        api_key_cyber_access_programs: false,
         workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
             "https://chatgpt.com/backend-api".into(),
         ),

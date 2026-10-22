@@ -37,7 +37,13 @@ async fn recover_turn_restores_cyber_access_program_without_making_it_sticky() -
             body: responses::sse(vec![responses::ev_completed("resp-initial")]),
         }]])
         .await;
-    let mut builder = test_codex().with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let mut builder = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("explicit test provider");
+        })
+        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_config(|config| config.model_provider.requires_openai_auth = true);
     let initial = builder.build_with_streaming_server(&initial_server).await?;
     let TurnInputSubmission::Started { turn_id, .. } = initial
         .codex
@@ -162,32 +168,79 @@ async fn recover_turn_restores_cyber_access_program_without_making_it_sticky() -
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cyber_access_program_omits_spoofed_custom_providers() -> Result<()> {
+async fn explicit_cyber_program_follows_feature_without_provider_or_auth_gate() -> Result<()> {
     core_test_support::skip_if_no_network!(Ok(()));
-    for auth in [
-        CodexAuth::from_api_key("test-key"),
-        CodexAuth::create_dummy_chatgpt_auth_for_testing(),
-    ] {
-        let server = responses::start_mock_server().await;
-        let request = responses::mount_sse_once(
-            &server,
-            responses::sse(vec![responses::ev_completed("resp-1")]),
-        )
-        .await;
-        let test = test_codex()
-            .with_auth(auth)
-            .with_config(|config| {
-                // Keep the display name "OpenAI": provider identity must not use it.
-                config.model_provider_id = "custom".to_owned();
-            })
-            .build_with_auto_env(&server)
-            .await?;
-        submit(&test, Some(CyberAccessProgram::DaybreakRed)).await?;
-        assert_eq!(
-            request.single_request().body_json().get("access_programs"),
-            None
-        );
+    let mut failures = Vec::new();
+    for backend_auth in [true, false] {
+        for (provider_id, provider_name) in [("openai", "OpenAI"), ("cambridge", "Cambridge")] {
+            for enabled in [true, false] {
+                for program in [Some(CyberAccessProgram::DaybreakRed), None] {
+                    let server = responses::start_mock_server().await;
+                    let request = responses::mount_sse_once(
+                        &server,
+                        responses::sse(vec![responses::ev_completed("resp-1")]),
+                    )
+                    .await;
+                    let test = test_codex()
+                        .with_pre_build_hook(|home| {
+                            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                                .expect("explicit test provider");
+                        })
+                        .with_auth(if backend_auth {
+                            CodexAuth::create_dummy_chatgpt_auth_for_testing()
+                        } else {
+                            CodexAuth::from_api_key("unused-global-key")
+                        })
+                        .with_config(move |config| {
+                            config.model_provider_id = provider_id.to_string();
+                            config.model_provider.name = provider_name.to_string();
+                            config.model_provider.requires_openai_auth = backend_auth;
+                            config.model_provider.experimental_bearer_token =
+                                (!backend_auth).then(|| "selected-provider-key".into());
+                            config
+                                .model_providers
+                                .insert(provider_id.to_string(), config.model_provider.clone());
+                            if enabled {
+                                config.features.enable(Feature::ApiKeyCyberAccessPrograms)
+                            } else {
+                                config.features.disable(Feature::ApiKeyCyberAccessPrograms)
+                            }
+                            .expect("set forwarding feature");
+                        })
+                        .build_with_auto_env(&server)
+                        .await?;
+                    let result = submit(&test, program).await;
+                    let captured = request.requests();
+                    let valid = if !enabled && program.is_some() {
+                        result.as_ref().is_err_and(|error| {
+                            error
+                                .to_string()
+                                .contains("Cyber access programs are disabled")
+                        }) && captured.is_empty()
+                    } else {
+                        result.is_ok()
+                            && captured.len() == 1
+                            && captured[0].body_json().get("access_programs").cloned()
+                                == program.map(|_| json!({"cyber": "daybreak_red"}))
+                            && captured[0].header("authorization").as_deref()
+                                == Some(if backend_auth {
+                                    "Bearer Access Token"
+                                } else {
+                                    "Bearer selected-provider-key"
+                                })
+                    };
+                    eprintln!(
+                        "HTTP backend_auth={backend_auth} provider={provider_id} enabled={enabled} program={program:?} valid={valid}"
+                    );
+                    if !valid {
+                        failures.push((backend_auth, provider_id, enabled, program));
+                    }
+                    test.codex.shutdown_and_wait().await?;
+                }
+            }
+        }
     }
+    assert!(failures.is_empty(), "forwarding failures: {failures:?}");
     Ok(())
 }
 
@@ -223,8 +276,15 @@ async fn cyber_access_program_survives_mid_turn_remote_compaction_v2(
     )
     .await;
     let test = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("explicit test provider");
+        })
         .with_auth(auth)
         .with_config(|config| {
+            config.model_provider.requires_openai_auth = true;
+            config.model_provider.capabilities.get_or_insert_default().remote_compaction =
+                Some(codex_model_provider_info::RemoteCompactionSupport::V2);
             config.model_auto_compact_token_limit = Some(200);
             config
                 .features
@@ -302,9 +362,14 @@ async fn cyber_access_program_is_inherited_by_child_turns() -> Result<()> {
         )
         .await;
         let test = test_codex()
+            .with_pre_build_hook(|home| {
+                std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                    .expect("explicit test provider");
+            })
             .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
             .with_model(if is_v2 { "gpt-5.6-sol" } else { "gpt-5.1" })
             .with_config(move |config| {
+                config.model_provider.requires_openai_auth = true;
                 config
                     .features
                     .enable(Feature::Collab)
@@ -408,11 +473,14 @@ async fn cyber_access_program_is_inherited_by_child_turns() -> Result<()> {
     Ok(())
 }
 
-#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(); "chatgpt")]
-#[test_case(CodexAuth::from_api_key("test-api-key"); "api_key")]
+#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(), "openai"; "chatgpt_openai")]
+#[test_case(CodexAuth::from_api_key("test-api-key"), "openai"; "api_key_openai")]
+#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(), "cambridge"; "chatgpt_custom")]
+#[test_case(CodexAuth::from_api_key("test-api-key"), "cambridge"; "api_key_custom")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cyber_access_program_changes_on_one_websocket_with_response_reuse(
     auth: CodexAuth,
+    provider_id: &str,
 ) -> Result<()> {
     core_test_support::skip_if_no_network!(Ok(()));
     let response_ids = [
@@ -425,9 +493,23 @@ async fn cyber_access_program_changes_on_one_websocket_with_response_reuse(
             .collect(),
     ])
     .await;
+    let backend_auth = auth.is_chatgpt_auth();
+    let provider_id = provider_id.to_string();
     let test = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("explicit test provider");
+        })
         .with_auth(auth)
-        .with_config(|config| {
+        .with_config(move |config| {
+            config.model_provider_id = provider_id.clone();
+            config.model_provider.name = provider_id.clone();
+            config.model_provider.requires_openai_auth = backend_auth;
+            config.model_provider.experimental_bearer_token =
+                (!backend_auth).then(|| "selected-provider-key".into());
+            config
+                .model_providers
+                .insert(provider_id, config.model_provider.clone());
             config
                 .features
                 .enable(Feature::ApiKeyModelDiscovery)
@@ -450,6 +532,14 @@ async fn cyber_access_program_changes_on_one_websocket_with_response_reuse(
         submit(&test, program).await?;
     }
 
+    assert_eq!(
+        server.single_handshake().header("authorization").as_deref(),
+        Some(if backend_auth {
+            "Bearer Access Token"
+        } else {
+            "Bearer selected-provider-key"
+        })
+    );
     let requests = server.single_connection();
     assert_eq!(
         requests
@@ -480,6 +570,70 @@ async fn cyber_access_program_changes_on_one_websocket_with_response_reuse(
     );
     test.codex.shutdown_and_wait().await?;
     server.shutdown().await;
+    Ok(())
+}
+
+#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(); "backend")]
+#[test_case(CodexAuth::from_api_key("unused-global-key"); "provider_key")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explicit_cyber_program_disabled_on_websocket(auth: CodexAuth) -> Result<()> {
+    core_test_support::skip_if_no_network!(Ok(()));
+    for program in [Some(CyberAccessProgram::DaybreakRed), None] {
+        let server = responses::start_websocket_server(vec![vec![
+            vec![responses::ev_completed("warmup")],
+            vec![responses::ev_completed("omitted")],
+        ]])
+        .await;
+        let backend_auth = auth.is_chatgpt_auth();
+        let test = test_codex()
+            .with_pre_build_hook(|home| {
+                std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                    .expect("explicit test provider");
+            })
+            .with_auth(auth.clone())
+            .with_config(move |config| {
+                config.model_provider.requires_openai_auth = backend_auth;
+                config.model_provider.experimental_bearer_token =
+                    (!backend_auth).then(|| "selected-provider-key".into());
+                config
+                    .features
+                    .disable(Feature::ApiKeyCyberAccessPrograms)
+                    .expect("disable forwarding");
+            })
+            .build_with_websocket_server(&server)
+            .await?;
+        let result = submit(&test, program).await;
+        let inference = server
+            .connections()
+            .into_iter()
+            .flatten()
+            .filter(|request| request.body_json().get("generate") != Some(&json!(false)))
+            .collect::<Vec<_>>();
+        if program.is_some() {
+            assert!(result.is_err_and(|error| {
+                error
+                    .to_string()
+                    .contains("Cyber access programs are disabled")
+            }));
+            assert!(inference.is_empty());
+        } else {
+            result?;
+            assert_eq!(inference.len(), 1);
+            assert!(inference[0].body_json().get("access_programs").is_none());
+        }
+        for handshake in server.handshakes() {
+            assert_eq!(
+                handshake.header("authorization").as_deref(),
+                Some(if backend_auth {
+                    "Bearer Access Token"
+                } else {
+                    "Bearer selected-provider-key"
+                })
+            );
+        }
+        test.codex.shutdown_and_wait().await?;
+        server.shutdown().await;
+    }
     Ok(())
 }
 

@@ -3831,8 +3831,11 @@ async fn classifier_uses_configured_provider_model_and_catalog() -> Result<()> {
         let test = test_codex()
             .with_pre_build_hook(move |home| {
                 std::fs::write(home.join("config.toml"), format!(
-                    "[features.guardianv2]\nenabled = true\nmodel_provider = '{provider_id}'\nmodel = 'local-risk'\n"
+                    "model_provider = 'openai'\n[features.guardianv2]\nenabled = true\nmodel_provider = '{provider_id}'\nmodel = 'local-risk'\n"
                 )).unwrap();
+            })
+            .with_model_info_override("gpt-5.5", |model| {
+                model.node_repl_auto_review_required = true;
             })
             .with_config(move |config| {
                 config.model_providers.insert("classifier".to_owned(), provider);
@@ -3973,7 +3976,7 @@ async fn classifier_uses_configured_provider_model_and_catalog() -> Result<()> {
                 );
                 let body: serde_json::Value = serde_json::from_slice(&request.body)?;
                 assert_eq!(body["model"], "local-risk");
-                assert!(body["access_programs"].is_null());
+                assert_eq!(body["access_programs"], json!({"cyber": "daybreak_blue"}));
                 assert_eq!(
                     request.headers.get("authorization").unwrap().to_str()?,
                     "Bearer risk-key"

@@ -219,7 +219,8 @@ async fn idle_classifier_retains_the_owning_threads_workspace_binding() -> Resul
         auth.clone(),
         /*manager*/ None,
     )
-    .await;
+    .await
+    .expect("classifier config");
     classifier
         .provider
         .responses_api_provider(&owning_context)
