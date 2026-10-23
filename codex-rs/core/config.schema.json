@@ -1995,7 +1995,7 @@
           "type": "string"
         },
         "comparison_model": {
-          "description": "Decisions comparison model override. Omission retains its built-in model name.",
+          "description": "Decisions comparison model. Required when comparison is enabled.",
           "type": "string"
         },
         "comparison_model_provider": {
@@ -2033,7 +2033,7 @@
           "type": "integer"
         },
         "model": {
-          "description": "Classifier model override. Omission retains the built-in classifier model.",
+          "description": "Classifier model. Required when asynchronous classification is enabled.",
           "type": "string"
         },
         "model_provider": {

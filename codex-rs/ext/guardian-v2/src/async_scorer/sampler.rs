@@ -26,8 +26,8 @@ use codex_model_provider::SharedModelProvider;
 use codex_model_provider::WorkspaceRoutingContext;
 use codex_protocol::ResponseItemId;
 use codex_protocol::error::CodexErr;
-use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::turn_input::CyberAccessProgram;
 use thiserror::Error;
@@ -48,6 +48,8 @@ pub struct LunaSamplerConfig {
     pub provider: SharedModelProvider,
     /// Explicit access-program forwarding shared with ordinary model requests.
     pub api_key_cyber_access_programs: bool,
+    /// Whether content classifications and attribution are enabled for this thread.
+    pub content_item_kinds: bool,
     /// Routing scope and retained configuration layers for the owning thread.
     pub workspace_routing: WorkspaceRoutingContext,
     /// Effective proxy, custom-CA, and cookie configuration.
@@ -60,8 +62,8 @@ pub struct LunaSamplerConfig {
     pub originator: Option<String>,
     /// Optional inference service tier.
     pub service_tier: Option<String>,
-    /// Luna model's host-resolved encrypted-compaction compatibility hash.
-    pub luna_compaction_hash: Option<String>,
+    /// Classifier-scoped metadata, including encrypted-compaction compatibility.
+    pub model_info: Option<ModelInfo>,
     /// Complete input allowance resolved for the classifier model.
     pub max_input_tokens: usize,
     /// Host-provided metrics capability with the owning session's attribution.
@@ -140,7 +142,12 @@ impl LunaSampler {
     /// A checkpoint is reusable only when both models declare the same nonempty hash.
     pub(super) fn supports_parent_compaction(&self, parent_hash: Option<&str>) -> bool {
         parent_hash
-            .zip(self.config.luna_compaction_hash.as_deref())
+            .zip(
+                self.config
+                    .model_info
+                    .as_ref()
+                    .and_then(|model| model.comp_hash.as_deref()),
+            )
             .is_some_and(|(parent_hash, luna_hash)| {
                 !parent_hash.is_empty() && parent_hash == luna_hash
             })
@@ -176,7 +183,7 @@ impl LunaSampler {
     pub(super) fn prepare_input(
         request: &LunaSamplingRequest,
         history: Option<Vec<ResponseItemEnvelope>>,
-        mut evidence: Vec<ResponseItemEnvelope>,
+        evidence: Vec<ResponseItemEnvelope>,
     ) -> (Vec<ResponseItemEnvelope>, usize) {
         let mut input = history.unwrap_or_else(|| {
             let mut input = vec![
@@ -195,16 +202,6 @@ impl LunaSampler {
             );
             input
         });
-        // Normalize only new evidence; never rewrite the committed prefix.
-        for item in &mut evidence {
-            if let ResponseItem::Message { content, .. } = &mut item.item {
-                for content in content {
-                    if let ContentItem::InputImage { detail, .. } = content {
-                        *detail = None;
-                    }
-                }
-            }
-        }
         input.extend(evidence);
         // Assign IDs once so retries reuse the same input item identities.
         for item in &mut input {

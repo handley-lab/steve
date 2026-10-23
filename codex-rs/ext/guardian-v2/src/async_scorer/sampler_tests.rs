@@ -19,6 +19,7 @@ use codex_protocol::ThreadId;
 use codex_protocol::TranscriptFormat;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::turn_input::CyberAccessProgram;
 use core_test_support::responses;
@@ -56,6 +57,8 @@ mod request;
 mod retained;
 #[path = "sampler_routing_tests.rs"]
 mod routing;
+#[path = "sampler_protocol_tests.rs"]
+mod protocol;
 
 impl LunaSampler {
     /// Waits for warm sockets to enter the client pool, beyond the server handshake.
@@ -204,16 +207,31 @@ pub(in crate::async_scorer) async fn proxy_websocket_servers_with_http(
     Ok(format!("http://{address}/v1"))
 }
 
+fn sampler_model_info() -> ModelInfo {
+    let mut model = codex_models_manager::bundled_models_response()
+        .unwrap()
+        .models
+        .remove(0);
+    model.slug = MODEL.to_owned();
+    model.use_responses_lite = true;
+    model.comp_hash = None;
+    model
+}
+
 pub(in crate::async_scorer) fn sampler_config(base_url: String) -> LunaSamplerConfig {
     LunaSamplerConfig {
         model: MODEL.to_owned(),
         api_key_cyber_access_programs: false,
+        content_item_kinds: true,
         workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
             "https://chatgpt.com/backend-api".into(),
         ),
         provider: create_model_provider(
             ModelProviderInfo {
                 requires_openai_auth: true,
+                supports_websockets: true,
+                accepts_response_continuation: true,
+                include_internal_metadata: true,
                 ..ModelProviderInfo::create_openai_provider(Some(base_url))
             },
             Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
@@ -226,7 +244,7 @@ pub(in crate::async_scorer) fn sampler_config(base_url: String) -> LunaSamplerCo
         originator: Some("guardian-v2-test".to_owned()),
 
         service_tier: None,
-        luna_compaction_hash: None,
+        model_info: Some(sampler_model_info()),
         max_input_tokens: codex_guardian_context::DEFAULT_MAX_INPUT_TOKENS,
         metrics: None,
     }
@@ -684,6 +702,9 @@ async fn preconnected_sampler_reuses_authenticated_websocket_for_classifications
     let provider = create_model_provider(
         ModelProviderInfo {
             requires_openai_auth: true,
+            supports_websockets: true,
+            accepts_response_continuation: true,
+            include_internal_metadata: true,
             ..ModelProviderInfo::create_openai_provider(Some(base_url))
         },
         Some(manager.clone()),
@@ -692,6 +713,7 @@ async fn preconnected_sampler_reuses_authenticated_websocket_for_classifications
     let sampler = connect_sampler(LunaSamplerConfig {
         model: MODEL.to_owned(),
         api_key_cyber_access_programs: false,
+        content_item_kinds: true,
         workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
             "https://chatgpt.com/backend-api".into(),
         ),
@@ -702,7 +724,7 @@ async fn preconnected_sampler_reuses_authenticated_websocket_for_classifications
         originator: Some("guardian-v2-test".to_owned()),
 
         service_tier: None,
-        luna_compaction_hash: None,
+        model_info: Some(sampler_model_info()),
         max_input_tokens: codex_guardian_context::DEFAULT_MAX_INPUT_TOKENS,
         metrics: None,
     })
@@ -873,7 +895,7 @@ async fn sampler_reuses_parent_compaction_only_for_matching_model_hashes() -> Re
             "http://{}/v1",
             server.uri().trim_start_matches("ws://")
         ));
-        config.luna_compaction_hash = luna_hash.map(str::to_owned);
+        config.model_info.as_mut().unwrap().comp_hash = luna_hash.map(str::to_owned);
         let sampler = connect_sampler(config).await?;
         let parent_compaction = ResponseItem::Compaction {
             id: Some(ResponseItemId::from_server("cmp_parent".to_owned())),
@@ -951,7 +973,10 @@ async fn sampler_returns_classification_token_before_terminal_response_events() 
     let server = responses::start_websocket_server_with_headers(vec![config]).await;
     let base_url = proxy_websocket_servers(&[&idle_server, &server]).await?;
     let provider = create_model_provider(
-        ModelProviderInfo::create_openai_provider(Some(base_url)),
+        ModelProviderInfo {
+            supports_websockets: true,
+            ..ModelProviderInfo::create_openai_provider(Some(base_url))
+        },
         Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
             "test-api-key",
         ))),
@@ -959,6 +984,7 @@ async fn sampler_returns_classification_token_before_terminal_response_events() 
     let sampler = connect_sampler(LunaSamplerConfig {
         model: MODEL.to_owned(),
         api_key_cyber_access_programs: false,
+        content_item_kinds: true,
         workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
             "https://chatgpt.com/backend-api".into(),
         ),
@@ -969,7 +995,7 @@ async fn sampler_returns_classification_token_before_terminal_response_events() 
         originator: None,
 
         service_tier: None,
-        luna_compaction_hash: None,
+        model_info: Some(sampler_model_info()),
         max_input_tokens: codex_guardian_context::DEFAULT_MAX_INPUT_TOKENS,
         metrics: None,
     })
@@ -1446,6 +1472,7 @@ async fn parent_response_id_survives_classifier_transport_retry() -> Result<()> 
             config.provider = create_model_provider(
                 ModelProviderInfo {
                     requires_openai_auth: true,
+                    supports_websockets: true,
                     ..ModelProviderInfo::create_openai_provider(Some(format!(
                         "{}/backend-api/codex",
                         base_url.trim_end_matches("/v1")

@@ -203,6 +203,7 @@ async fn cold_pool_uses_http_during_open_timeout_then_recovers_after_cooldown() 
         config.provider = create_model_provider(
             ModelProviderInfo {
                 requires_openai_auth: true,
+                supports_websockets: true,
                 ..ModelProviderInfo::create_openai_provider(Some(base_url))
             },
             Some(AuthManager::from_auth_for_testing(if uses_codex_backend {
@@ -505,6 +506,7 @@ async fn http_cache_preserves_no_constraint_redirect_policy_and_configured_heade
     config.provider = create_model_provider(
         ModelProviderInfo {
             requires_openai_auth: true,
+            supports_websockets: true,
             ..ModelProviderInfo::create_openai_provider(Some(base_url))
         },
         Some(auth),

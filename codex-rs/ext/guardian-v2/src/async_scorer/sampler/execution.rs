@@ -289,8 +289,15 @@ impl SamplingExecution {
                 ("x-openai-subagent".to_owned(), "guardian".to_owned()),
                 // Classifier requests do not advance their own context window.
                 ("x-codex-window-id".to_owned(), format!("{thread_id}:0")),
-                (RESPONSES_LITE_METADATA_KEY.to_owned(), "true".to_owned()),
             ]);
+            if self
+                .config
+                .model_info
+                .as_ref()
+                .is_some_and(|model| model.use_responses_lite)
+            {
+                client_metadata.insert(RESPONSES_LITE_METADATA_KEY.to_owned(), "true".to_owned());
+            }
             if let Some(root_turn_id) = &self.root_turn_id {
                 client_metadata.insert("root_turn_id".to_owned(), root_turn_id.clone());
                 turn_metadata["root_turn_id"] = json!(root_turn_id);

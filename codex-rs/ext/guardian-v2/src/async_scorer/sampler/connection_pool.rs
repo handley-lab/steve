@@ -33,6 +33,10 @@ use codex_model_provider::ACCOUNT_ROUTING_HEADER;
 use codex_model_provider::ResolvedResponsesProvider;
 use codex_model_provider::ResponsesConnectionKey;
 use codex_protocol::ThreadId;
+use codex_protocol::models::ContentItem;
+use codex_protocol::models::DEFAULT_IMAGE_DETAIL;
+use codex_protocol::models::ImageDetail;
+use codex_protocol::models::ResponseItem;
 use codex_websocket_client::WebSocketConnector;
 use http::HeaderMap;
 use http::HeaderValue;
@@ -137,6 +141,9 @@ impl ConnectionPool {
     }
 
     fn start_refill(self: &Arc<Self>, guard: OwnedMutexGuard<()>) -> Option<JoinHandle<()>> {
+        if !self.config.provider.info().supports_websockets {
+            return None;
+        }
         let mut retry_after = self
             .retry_after
             .lock()
@@ -390,10 +397,17 @@ impl ConnectionPool {
                 )))
             })?,
         );
-        headers.insert(
-            "x-openai-internal-codex-responses-lite",
-            HeaderValue::from_static("true"),
-        );
+        if self
+            .config
+            .model_info
+            .as_ref()
+            .is_some_and(|model| model.use_responses_lite)
+        {
+            headers.insert(
+                "x-openai-internal-codex-responses-lite",
+                HeaderValue::from_static("true"),
+            );
+        }
         if let Some(originator) = self.config.originator.as_deref() {
             add_originator_header(&mut headers, originator);
         }
@@ -490,12 +504,69 @@ impl ConnectionLease {
         &self,
         request: &ResponsesApiRequest,
     ) -> Result<ResponseStream, ApiError> {
+        // Project onto the wire copy; retained items remain paired with their delivery proof.
+        let mut request = request.clone();
+        let model = self.pool.config.model_info.as_ref();
+        let lite = model.is_some_and(|model| model.use_responses_lite);
+        if !lite {
+            if matches!(request.input.first(), Some(ResponseItem::AdditionalTools { tools, .. }) if tools.is_empty()) {
+                request.input.remove(0);
+            }
+            if let Some(reasoning) = &mut request.reasoning {
+                reasoning.context = None;
+            }
+        }
+        let provider = self.pool.config.provider.info();
+        for item in &mut request.input {
+            if let Some(model) = model.filter(|model| !model.used_fallback_model_metadata)
+                && let ResponseItem::Message { content, .. } = item
+            {
+                for content in content {
+                    if let ContentItem::InputImage { detail, .. } = content {
+                        if model.use_responses_lite {
+                            *detail = None;
+                        } else if *detail == Some(ImageDetail::Original)
+                            && !model.supports_image_detail_original
+                        {
+                            *detail = Some(DEFAULT_IMAGE_DETAIL);
+                        }
+                    }
+                }
+            }
+            if !lite {
+                item.clear_content_item_metadata();
+            }
+            if !provider.accepts_response_continuation {
+                item.clear_internal_chat_message_metadata_passthrough();
+                if !matches!(
+                    item,
+                    ResponseItem::Reasoning { .. }
+                        | ResponseItem::Compaction { .. }
+                        | ResponseItem::ContextCompaction { .. }
+                ) {
+                    item.clear_encrypted_content();
+                }
+                if let ResponseItem::FunctionCall {
+                    encrypted_function_args,
+                    ..
+                } = item
+                {
+                    *encrypted_function_args = None;
+                }
+            }
+            if !provider.include_internal_metadata {
+                item.clear_tool_result_metadata();
+            }
+            if !self.pool.config.content_item_kinds {
+                item.clear_content_item_kinds();
+            }
+        }
         match &self.connection {
             Connection::Websocket(connection) => {
                 connection
                     .connection
                     .stream_request(
-                        ResponsesWsRequest::ResponseCreate(request.into()),
+                        ResponsesWsRequest::ResponseCreate((&request).into()),
                         /*connection_reused*/ true,
                         /*turn_state*/ None,
                     )
@@ -506,7 +577,7 @@ impl ConnectionLease {
                 tokio::time::timeout(
                     self.pool.config.provider.info().stream_idle_timeout(),
                     client.stream_request(
-                        request.clone(),
+                        request,
                         ResponsesOptions {
                             session_id: Some(self.pool.config.session_id.clone()),
                             thread_id: Some(self.thread_id.clone()),

@@ -152,13 +152,13 @@ pub struct GuardianV2ConfigToml {
     /// Named provider for asynchronous classification. Omission uses the action's provider.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_provider: Option<String>,
-    /// Classifier model override. Omission retains the built-in classifier model.
+    /// Classifier model. Required when asynchronous classification is enabled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// Named provider for the optional Decisions comparison. No provider is selected by default.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comparison_model_provider: Option<String>,
-    /// Decisions comparison model override. Omission retains its built-in model name.
+    /// Decisions comparison model. Required when comparison is enabled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comparison_model: Option<String>,
     /// Transcript encoding for synchronous Guardian review and asynchronous scoring. Defaults to line.

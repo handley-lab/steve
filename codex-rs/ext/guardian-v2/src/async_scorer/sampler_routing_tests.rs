@@ -50,6 +50,7 @@ async fn failed_routing_blocks_a_prewarmed_classifier_connection() -> Result<()>
     config.provider = create_model_provider(
         ModelProviderInfo {
             requires_openai_auth: true,
+            supports_websockets: true,
             ..ModelProviderInfo::create_openai_provider(Some(base_url))
         },
         Some(auth.clone()),
@@ -204,6 +205,7 @@ async fn idle_classifier_retains_the_owning_threads_workspace_binding() -> Resul
     let mut config = test.config.clone();
     config.model_provider = ModelProviderInfo {
         requires_openai_auth: true,
+        supports_websockets: true,
         ..ModelProviderInfo::create_openai_provider(Some(
             "https://provider.invalid/backend-api/codex".into(),
         ))

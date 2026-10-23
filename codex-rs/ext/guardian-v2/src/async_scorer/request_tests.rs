@@ -117,7 +117,7 @@ fn preparation_preserves_committed_prefix_and_selects_only_new_entries_and_image
     history
         .items
         .push(responses::user_message_item("Inspect LICENSE next."));
-    // Source detail can differ from the normalized image already in classifier history.
+    // Current source detail can differ from the image already in classifier history.
     if let ContentItem::InputImage { detail, .. } = &mut images[0] {
         *detail = Some(ImageDetail::High);
     }
@@ -161,7 +161,10 @@ fn preparation_preserves_committed_prefix_and_selects_only_new_entries_and_image
     let rebuilt = config
         .prepare_retained(&evidence, &mut ConversationState::default(), INPUT_BUDGET)
         .unwrap();
-    assert_eq!(input_images(&rebuilt.input), input_images(&second.input));
+    assert_eq!(
+        input_images(&rebuilt.input),
+        vec![images[1].clone(), images[0].clone(), images[2].clone()]
+    );
 }
 
 #[test]

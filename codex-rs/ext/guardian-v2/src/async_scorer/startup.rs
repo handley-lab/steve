@@ -89,7 +89,11 @@ pub(super) async fn sampler_config(
             .await;
         Some(models_manager)
     } else {
-        manager.map(|manager| manager.get_models_manager())
+        input
+            .thread_store
+            .get::<codex_models_manager::manager::SharedModelsManager>()
+            .map(|manager| manager.as_ref().clone())
+            .or_else(|| manager.map(|manager| manager.get_models_manager()))
     };
     let luna_model = if let Some(models_manager) = models_manager {
         let mut model_config = config.to_models_manager_config();
@@ -106,10 +110,10 @@ pub(super) async fn sampler_config(
                     model, /*configured_window*/ None,
                 )
             });
-    let luna_compaction_hash = luna_model.and_then(|model| model.comp_hash);
     Ok(LunaSamplerConfig {
         model: model.to_owned(),
         api_key_cyber_access_programs: config.features.enabled(Feature::ApiKeyCyberAccessPrograms),
+        content_item_kinds: config.features.enabled(Feature::ContentItemKinds),
         workspace_routing: if independent_provider {
             config.workspace_routing_context()
         } else {
@@ -128,7 +132,7 @@ pub(super) async fn sampler_config(
             .get::<ThreadOriginator>()
             .map(|originator| originator.0.clone()),
         service_tier: input.config.service_tier.clone(),
-        luna_compaction_hash,
+        model_info: luna_model,
         max_input_tokens,
         metrics: input.extension_metrics.clone(),
     })
