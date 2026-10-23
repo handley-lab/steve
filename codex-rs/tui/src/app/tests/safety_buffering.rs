@@ -532,6 +532,21 @@ async fn run_safety_retry(
         .filter(|model| matches!(model.slug.as_str(), CURRENT_MODEL | FASTER_MODEL))
     {
         model.tool_mode = Some(ToolMode::Direct);
+        if scenario == SafetyRetryScenario::Once {
+            model.service_tiers = ["priority", "ultrafast"]
+                .into_iter()
+                .map(|id| codex_protocol::openai_models::ModelServiceTier {
+                    id: id.into(),
+                    name: id.into(),
+                    description: id.into(),
+                })
+                .collect();
+            model.default_service_tier = Some(if model.slug == CURRENT_MODEL {
+                "priority".into()
+            } else {
+                "ultrafast".into()
+            });
+        }
         if scenario == SafetyRetryScenario::ForwardingDisabled && model.slug == FASTER_MODEL {
             model.available_access_programs = Some(ModelAccessPrograms {
                 cyber: vec![CyberAccessProgram::Standard, CyberAccessProgram::DaybreakBlue],
@@ -557,6 +572,11 @@ async fn run_safety_retry(
     } else {
         ""
     };
+    let tier_config = if scenario == SafetyRetryScenario::Once {
+        "fast_mode = true\nultrafast_mode = true"
+    } else {
+        ""
+    };
     std::fs::write(
         codex_home.path().join("config.toml"),
         format!(
@@ -576,6 +596,7 @@ stream_max_retries = 0
 goals = true
 {instant_interrupt_config}
 {forwarding_config}
+{tier_config}
 "#,
             server.uri()
         ),
@@ -606,6 +627,11 @@ goals = true
         .features
         .enable(Feature::Goals)
         .expect("test config should allow goals");
+
+    if scenario == SafetyRetryScenario::Once {
+        app.config.features.enable(Feature::FastMode)?;
+        app.config.features.enable(Feature::UltrafastMode)?;
+    }
 
     if scenario == SafetyRetryScenario::PendingPermissions {
         app.config
@@ -695,6 +721,11 @@ goals = true
 
     submit_prompt(&mut app, RETRY_PROMPT);
     let mut active_turn = next_user_turn_event(&mut app_event_rx);
+    if scenario == SafetyRetryScenario::Once
+        && let AppCommand::UserTurn { service_tier, .. } = &mut active_turn
+    {
+        *service_tier = Some(Some("priority".to_string()));
+    }
     app.submit_thread_op(&mut app_server, source_thread_id, active_turn.clone())
         .await?;
     let active_turn_id = next_turn_started(&mut app, &mut app_server, source_thread_id).await;
@@ -925,6 +956,9 @@ goals = true
         .await;
     }
 
+    if scenario == SafetyRetryScenario::Once {
+        app.chat_widget.set_service_tier(None);
+    }
     Box::pin(app.retry_safety_buffered_turn(
         &mut tui,
         &mut app_server,
@@ -1234,6 +1268,17 @@ goals = true
             .any(|text| text.contains(RETRY_GOAL)),
         "inherited goal continuation should resume after the explicit retry"
     );
+
+    if scenario == SafetyRetryScenario::Once {
+        assert_eq!(retry_request["service_tier"], serde_json::json!("priority"));
+        assert_eq!(
+            request_bodies[goal_continuation_request_index]["service_tier"],
+            serde_json::json!("priority")
+        );
+        if let Some(path) = std::env::var_os("STEVE_TEST_TIER_SAFETY_CAPTURE") {
+            std::fs::write(path, serde_json::to_vec_pretty(&request_bodies)?)?;
+        }
+    }
 
     if let Some(release_active_response) = release_active_response.take() {
         let _ = release_active_response.send(());

@@ -839,9 +839,8 @@ impl AppServerSession {
         selected_profile: Option<&PermissionProfileSelection>,
     ) -> Result<AppServerStartedThread> {
         let request_id = self.next_request_id();
-        let session_config = self.session_config_with_effective_service_tier(config);
         let mut params = thread_start_params_from_config(
-            &session_config,
+            config,
             self.thread_params_mode(),
             remote_cwd_override.or(self.remote_cwd_override.as_deref()),
             session_start_source,
@@ -895,6 +894,8 @@ impl AppServerSession {
         if task_tools_available {
             self.remember_task_tool_thread(started.session.thread_id);
         }
+        self.apply_default_service_tier(config, &started.session)
+            .await?;
         Ok(started)
     }
 
@@ -1018,19 +1019,13 @@ impl AppServerSession {
                 .is_some_and(|thread| thread.history_mode == ThreadHistoryMode::Paginated)
                 || presentation == ForkPresentation::SideConversation);
         let request_id = self.next_request_id();
-        let session_config = if config.model.is_none() {
-            // Avoid inferring a tier from the stale client default model.
-            config.clone()
-        } else {
-            self.session_config_with_effective_service_tier(&config)
-        };
         let mut params = ThreadForkParams {
             last_turn_id,
             before_turn_id,
             defer_goal_continuation: goal_continuation == ForkGoalContinuation::DeferUntilNextTurn,
             exclude_turns,
             ..thread_fork_params_from_config(
-                session_config,
+                config.clone(),
                 thread_id,
                 self.thread_params_mode(),
                 self.remote_cwd_override.as_deref(),
@@ -1141,6 +1136,10 @@ impl AppServerSession {
             started.task_tools_available = true;
             self.remember_task_tool_thread(started.session.thread_id);
         }
+        if config.model.is_some() {
+            self.apply_default_service_tier(&config, &started.session)
+                .await?;
+        }
         Ok(started)
     }
 
@@ -1148,32 +1147,68 @@ impl AppServerSession {
         self.thread_params_mode
     }
 
-    fn session_config_with_effective_service_tier(&self, config: &Config) -> Config {
-        let Some(model) = config.model.as_deref().or(self.default_model.as_deref()) else {
-            return config.clone();
-        };
-        let local_settings = LocalSettings::from(config);
-        let mut session_config = config.clone();
-        match service_tier_resolution::service_tier_update_for_core(
-            config,
-            &local_settings.notices,
-            model,
-            &self.available_models,
-        ) {
-            Some(Some(service_tier)) => {
-                session_config.service_tier = Some(service_tier);
-                session_config.notices.fast_default_opt_out = None;
-            }
-            Some(None) => {
-                session_config.service_tier = Some(SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string());
-                session_config.notices.fast_default_opt_out = None;
-            }
-            None => {
-                session_config.service_tier = None;
-                session_config.notices.fast_default_opt_out = None;
-            }
+    async fn apply_default_service_tier(
+        &mut self,
+        config: &Config,
+        session: &ThreadSessionState,
+    ) -> Result<()> {
+        let notices = LocalSettings::from(config).notices;
+        if config.service_tier.is_some()
+            || notices.fast_default_opt_out == Some(true)
+            || session.service_tier.is_some()
+            || (!config.features.enabled(codex_features::Feature::FastMode)
+                && !config
+                    .features
+                    .enabled(codex_features::Feature::UltrafastMode))
+        {
+            return Ok(());
         }
-        session_config
+        let result: Result<()> = async {
+            let request_id = self.next_request_id();
+            let response: ModelListResponse = self
+                .client
+                .request_typed(ClientRequest::ModelList {
+                    request_id,
+                    params: ModelListParams {
+                        thread_id: Some(session.thread_id.to_string()),
+                        cursor: None,
+                        limit: None,
+                        include_hidden: Some(true),
+                    },
+                })
+                .await?;
+            let models = response
+                .data
+                .into_iter()
+                .map(model_preset_from_api_model)
+                .collect::<Vec<_>>();
+            let Some(service_tier) = service_tier_resolution::service_tier_update_for_core(
+                config,
+                &notices,
+                &session.model,
+                &models,
+            ) else {
+                return Ok(());
+            };
+            if !self
+                .thread_settings_update(ThreadSettingsUpdateParams {
+                    thread_id: session.thread_id.to_string(),
+                    service_tier: Some(service_tier),
+                    ..Default::default()
+                })
+                .await?
+            {
+                color_eyre::eyre::bail!("server does not support thread/settings/update");
+            }
+            Ok(())
+        }
+        .await;
+        result.wrap_err_with(|| {
+            format!(
+                "Thread {} was created, but its automatic service tier could not be set",
+                session.thread_id,
+            )
+        })
     }
 
     async fn fork_parent_title_from_app_server(
@@ -3763,6 +3798,10 @@ mod tests {
     async fn connected_thread_start_preserves_flex_without_catalog_support() -> Result<()> {
         for fast_mode_enabled in [false, true] {
             let codex_home = tempfile::tempdir()?;
+            std::fs::write(
+                codex_home.path().join("config.toml"),
+                "model_provider = \"openai\"\nmodel = \"gpt-5.5\"\n",
+            )?;
             let server_config = build_config(&codex_home).await;
             let mut config = server_config.clone();
             config.model = Some("gpt-5.5".to_string());
@@ -3796,6 +3835,10 @@ mod tests {
     #[tokio::test]
     async fn persisted_resume_does_not_forward_implicit_service_tier() -> Result<()> {
         let codex_home = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            codex_home.path().join("config.toml"),
+            "model_provider = \"openai\"\nmodel = \"gpt-5.5\"\n",
+        )?;
         let mut config = build_config(&codex_home).await;
         config.model = Some("gpt-5.5".to_string());
         config.service_tier = None;
@@ -3846,6 +3889,10 @@ mod tests {
     async fn side_fork_skips_parent_title_lookup_but_normal_ephemeral_fork_keeps_it() -> Result<()>
     {
         let codex_home = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            codex_home.path().join("config.toml"),
+            "model_provider = \"openai\"\nmodel = \"gpt-5.5\"\n",
+        )?;
         let config = build_config(&codex_home).await;
         let source_thread_id = ThreadId::from_string(
             &create_fake_rollout(
@@ -3901,6 +3948,10 @@ mod tests {
     #[tokio::test]
     async fn ephemeral_paginated_fork_skips_unsupported_history_hydration() -> Result<()> {
         let codex_home = tempfile::tempdir()?;
+        std::fs::write(
+            codex_home.path().join("config.toml"),
+            "model_provider = \"openai\"\nmodel = \"gpt-5.5\"\n",
+        )?;
         let config = build_config(&codex_home).await;
         let source_thread_id = ThreadId::from_string(
             &create_fake_paginated_rollout(
@@ -3936,7 +3987,12 @@ mod tests {
     #[tokio::test]
     async fn side_fork_uses_one_request_for_long_paginated_history() -> Result<()> {
         let codex_home = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            codex_home.path().join("config.toml"),
+            "model_provider = \"openai\"\nmodel = \"gpt-5.5\"\n",
+        )?;
         let mut config = build_config(&codex_home).await;
+        config.model = None;
         config.terminal_resize_reflow.max_rows =
             crate::legacy_core::config::TerminalResizeReflowMaxRows::Limit(100);
         let filename_ts = "2025-01-05T12-00-00";
@@ -4068,6 +4124,10 @@ mod tests {
     #[tokio::test]
     async fn side_fork_excludes_turns_without_clearing_regular_ephemeral_fork() -> Result<()> {
         let codex_home = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            codex_home.path().join("config.toml"),
+            "model_provider = \"openai\"\nmodel = \"gpt-5.5\"\n",
+        )?;
         let mut config = build_config(&codex_home).await;
         config.ephemeral = true;
         let thread_id = ThreadId::from_string(

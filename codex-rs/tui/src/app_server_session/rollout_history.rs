@@ -156,16 +156,8 @@ impl AppServerSession {
         permission_overrides: crate::resume_permissions::ResumePermissions,
     ) -> Result<AppServerStartedThread> {
         self.thread_tool_transport().validate_config(&config)?;
-        let session_config = if matches!(
-            model_settings,
-            ResumeModelSettings::RestoreFromThread | ResumeModelSettings::PreserveExistingThread
-        ) {
-            config.clone()
-        } else {
-            self.session_config_with_effective_service_tier(&config)
-        };
         let mut params = thread_resume_params_from_config(
-            session_config,
+            config.clone(),
             thread_id,
             self.thread_params_mode(),
             self.remote_cwd_override.as_deref(),

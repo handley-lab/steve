@@ -401,6 +401,9 @@ async fn same_thread_retry_keeps_subscription_and_restores_draft() -> Result<()>
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::app) enum HistoryCapabilities {
     Current,
+    CurrentWithNotifications,
+    ScopedModelsFail,
+    ThreadSettingsUnsupported,
     LegacyOnly,
     LegacyOnlyUnsupportedVariant,
     LegacyDynamicToolsAndHistory,
@@ -555,7 +558,8 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
                 event = embedded.next_event() => {
                     let Some(event) = event else { break };
                     if let codex_app_server_client::InProcessServerEvent::ServerNotification(notification) = event
-                        && matches!(*notification, ServerNotification::ThreadSettingsUpdated(_))
+                        && (history_capabilities == HistoryCapabilities::CurrentWithNotifications
+                            || matches!(*notification, ServerNotification::ThreadSettingsUpdated(_)))
                     {
                         let result = websocket.send(Message::Text(serde_json::to_string(&notification)?.into())).await;
                         if result.as_ref().is_err_and(is_recording_client_disconnect) {
@@ -646,6 +650,24 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
                         JSONRPCMessage::Response(JSONRPCResponse {
                             id: request_id,
                             result: serde_json::json!({}),
+                        })
+                    } else if (history_capabilities == HistoryCapabilities::ScopedModelsFail
+                        && request.method == "model/list"
+                        && params.is_some_and(|params| params["threadId"].is_string()))
+                        || (history_capabilities == HistoryCapabilities::ThreadSettingsUnsupported
+                            && request.method == "thread/settings/update")
+                    {
+                        JSONRPCMessage::Error(JSONRPCError {
+                            id: request_id,
+                            error: JSONRPCErrorError {
+                                code: if request.method == "thread/settings/update" {
+                                    -32601
+                                } else {
+                                    -32603
+                                },
+                                message: format!("{} unavailable", request.method),
+                                data: None,
+                            },
                         })
                     } else if (matches!(
                         history_capabilities,
@@ -890,9 +912,26 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
                             }
                         }
                     };
-                    let result = websocket
-                        .send(Message::Text(serde_json::to_string(&response)?.into()))
-                        .await;
+                    let wire = serde_json::to_string(&response)?;
+                    if matches!(
+                        history_capabilities,
+                        HistoryCapabilities::CurrentWithNotifications
+                            | HistoryCapabilities::ScopedModelsFail
+                            | HistoryCapabilities::ThreadSettingsUnsupported
+                    ) {
+                        let id = match &response {
+                            JSONRPCMessage::Response(response) => response.id.clone(),
+                            JSONRPCMessage::Error(error) => error.id.clone(),
+                            _ => unreachable!("request response"),
+                        };
+                        request_sink.lock().expect("request recorder lock").push(JSONRPCRequest {
+                            id,
+                            method: "observed/response".to_string(),
+                            params: Some(serde_json::Value::String(wire.clone())),
+                            trace: None,
+                        });
+                    }
+                    let result = websocket.send(Message::Text(wire.into())).await;
                     if result.as_ref().is_err_and(is_recording_client_disconnect) {
                         break;
                     }
