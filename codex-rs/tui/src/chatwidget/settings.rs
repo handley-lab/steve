@@ -11,36 +11,14 @@ impl ChatWidget {
             .set_daybreak_command_description(self.daybreak_command_description());
     }
 
-    fn daybreak_feature_enabled(&self) -> bool {
-        // Preserve a resumed preference while account state is still unknown. Once an API-key
-        // account is known, both flags must be enabled before using that preference.
+    pub(crate) fn daybreak_feature_enabled(&self) -> bool {
         self.config.features.enabled(Feature::CliDaybreak)
-            && (self.has_chatgpt_account
-                || !matches!(
-                    self.status_account_display,
-                    Some(StatusAccountDisplay::ApiKey)
-                )
-                || self
-                    .config
-                    .features
-                    .enabled(Feature::ApiKeyCyberAccessPrograms))
-    }
-
-    /// UI and turn-selection eligibility; the catalog and server still determine program access.
-    pub(crate) fn daybreak_account_eligible(&self) -> bool {
-        self.daybreak_feature_enabled()
-            && self.config.model_provider_id == "openai"
-            && (self.has_chatgpt_account
-                || matches!(
-                    self.status_account_display,
-                    Some(StatusAccountDisplay::ApiKey)
-                ))
     }
 
     pub(super) fn daybreak_command_description(&self) -> Option<&'static str> {
         if self.daybreak_enabled {
             Some("Disable broader access for cybersecurity work")
-        } else if !self.daybreak_account_eligible() {
+        } else if !self.daybreak_feature_enabled() {
             None
         } else {
             match crate::daybreak::availability(&self.model_catalog.models) {

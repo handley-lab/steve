@@ -51,6 +51,19 @@ async fn misalignment_continuation_requires_current_review_and_submits_once() ->
         (false, true, true, true, false),
     ] {
         let (mut app, mut rx, _) = make_test_app_with_channels().await;
+        let mut catalog = codex_models_manager::bundled_models_response()?;
+        for model in &mut catalog.models {
+            model.available_access_programs = Some(ModelAccessPrograms {
+                cyber: vec![CyberAccessProgram::Standard, CyberAccessProgram::DaybreakBlue],
+            });
+        }
+        let catalog_path = app.config.codex_home.join("misalignment-models.json");
+        std::fs::write(&catalog_path, serde_json::to_vec(&catalog)?)?;
+        std::fs::write(app.config.codex_home.join("config.toml"), format!(
+            "model_provider = {:?}\nmodel_catalog_json = {:?}\n",
+            app.config.model_provider_id, catalog_path.display().to_string(),
+        ))?;
+        app.config.model_catalog = Some(catalog);
         app.chat_widget
             .set_feature_enabled(Feature::CliDaybreak, rollout_enabled);
         app.chat_widget
@@ -185,7 +198,8 @@ async fn misalignment_continuation_requires_current_review_and_submits_once() ->
                     _ => None,
                 })
                 .collect::<Vec<_>>()
-                .join("\n");
+                .join("\n")
+                .replace(&thread_id.to_string(), "<thread>");
             insta::assert_snapshot!(
                 "misalignment_continue_failed",
                 format!(

@@ -66,15 +66,12 @@ pub(super) fn exclusion(
     cli: &Cli,
     cli_kv_overrides: &[(String, toml::Value)],
     loader_overrides: &LoaderOverrides,
-    workload_identity_selected: bool,
     exec_server_url: Option<&std::ffi::OsStr>,
 ) -> Option<&'static str> {
     if cli.no_daemon {
         Some("--no-daemon")
     } else if cli.oss {
         Some("--oss")
-    } else if workload_identity_selected {
-        Some("workload identity")
     } else if exec_server_url.is_some() {
         Some("executor selection (STEVE_EXEC_SERVER_URL)")
     } else if cli.agents_overview {

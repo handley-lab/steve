@@ -6,9 +6,11 @@ use crate::PluginLoadOutcome;
 use crate::ToolSuggestDiscoverablePlugin;
 use crate::ToolSuggestPluginDiscoveryInput;
 use crate::installed_marketplaces::marketplace_install_root;
+use crate::loader::configured_curated_plugin_ids_from_codex_home;
 use crate::loader::load_plugin_skill_inventory;
 use crate::loader::load_plugins_from_layer_stack;
 use crate::loader::plugin_capability_summary_from_root;
+use crate::loader::refresh_curated_plugin_cache;
 use crate::loader::refresh_non_curated_plugin_cache;
 use crate::loader::refresh_non_curated_plugin_cache_force_reinstall;
 use crate::marketplace::MarketplacePluginInstallPolicy;
@@ -131,6 +133,7 @@ fn plugins_config_input_with_requirements(
         String::new(),
         test_http_client_factory(),
         /*product_sku*/ None,
+        /*file_upload_origins*/ Vec::new(),
     )
 }
 
@@ -161,30 +164,32 @@ async fn plugins_manager_reads_auth_mode_from_auth_manager() {
 }
 
 #[test]
-fn curated_repo_sync_stays_deferred_for_remote_chatgpt_catalog() {
-    CURATED_REPO_SYNC_STARTED.store(false, std::sync::atomic::Ordering::SeqCst);
+fn remote_catalog_requires_a_configured_backend() {
     let tmp = TempDir::new().unwrap();
-    let config = PluginsConfigInput::new(
-        unrestricted_config_layer_stack(),
-        Default::default(),
-        "openai".to_string(),
-        /*plugins_enabled*/ true,
-        /*remote_plugin_enabled*/ true,
-        "https://chatgpt.com".to_string(),
-        test_http_client_factory(),
-        /*product_sku*/ None,
-    );
-    let manager = Arc::new(test_plugins_manager_with_options(
+    let manager = test_plugins_manager_with_options(
         tmp.path().to_path_buf(),
         Some(Product::Codex),
-        Some(AuthMode::Chatgpt),
-    ));
-
-    manager.maybe_start_curated_repo_sync_for_config(
-        &config, /*on_effective_plugins_changed*/ None,
+        Some(AuthMode::ChatgptAuthTokens),
     );
-
-    assert!(!CURATED_REPO_SYNC_STARTED.load(std::sync::atomic::Ordering::SeqCst));
+    for (base_url, active) in [
+        ("", false),
+        (" \t ", false),
+        ("https://backend.example/local", true),
+        ("https://chatgpt.com/backend-api", true),
+    ] {
+        let config = PluginsConfigInput::new(
+            unrestricted_config_layer_stack(),
+            Default::default(),
+            "configured-provider".to_string(),
+            /*plugins_enabled*/ true,
+            /*remote_plugin_enabled*/ true,
+            base_url.to_string(),
+            test_http_client_factory(),
+            /*product_sku*/ None,
+            /*file_upload_origins*/ Vec::new(),
+        );
+        assert_eq!(manager.remote_global_catalog_active(&config), active);
+    }
 }
 
 #[test]
@@ -3002,6 +3007,7 @@ async fn plugin_cache_reuses_effective_configurations() {
             "https://chatgpt.com".to_string(),
             test_http_client_factory(),
             /*product_sku*/ None,
+            /*file_upload_origins*/ Vec::new(),
         )
     };
     let manager = test_plugins_manager(codex_home.path().to_path_buf());
@@ -3377,6 +3383,7 @@ async fn plugins_for_config_discards_in_flight_load_after_account_change() {
         String::new(),
         test_http_client_factory(),
         /*product_sku*/ None,
+        /*file_upload_origins*/ Vec::new(),
     );
     let auth_manager = test_auth_manager(Some(AuthMode::ChatgptAuthTokens));
     let manager = Arc::new(test_plugins_manager_with_auth_manager(

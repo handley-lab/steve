@@ -104,10 +104,7 @@ requires_openai_auth = true
         .await?;
     let mut bundled = codex_models_manager::bundled_models_response()?.models;
     bundled.sort_by_key(|model| model.priority);
-    let mut bundled = ModelPreset::filter_by_auth(
-        bundled.into_iter().map(Into::into).collect(),
-        /*chatgpt_mode*/ false,
-    );
+    let mut bundled: Vec<ModelPreset> = bundled.into_iter().map(Into::into).collect();
     ModelPreset::mark_default_by_picker_visibility(&mut bundled);
     let mut remote = vec![ModelPreset::from(remote_model)];
     ModelPreset::mark_default_by_picker_visibility(&mut remote);
@@ -128,6 +125,7 @@ requires_openai_auth = true
         .request(|request_id| ClientRequest::ModelList {
             request_id,
             params: ModelListParams {
+                thread_id: None,
                 limit: Some(100),
                 include_hidden: Some(true),
                 cursor: None,
@@ -149,6 +147,7 @@ requires_openai_auth = true
         ModelListResponse {
             data: expected.iter().map(model_from_preset).collect(),
             next_cursor: None,
+            cyber_access_programs_enabled: None,
         }
     );
     // Only startup opt-outs prevent fetches before the app sends its enablement.
@@ -214,13 +213,9 @@ fn model_from_preset(preset: &ModelPreset) -> Model {
 }
 
 fn expected_visible_models() -> Vec<Model> {
-    // Filter by supported_in_api to support testing with both ChatGPT and non-ChatGPT auth modes.
-    let mut presets = ModelPreset::filter_by_auth(
-        codex_core::test_support::all_model_presets().clone(),
-        /*chatgpt_mode*/ false,
-    );
+    let mut presets = codex_core::test_support::all_model_presets().clone();
 
-    // Mirror `ModelsManager::build_available_models()` default selection after auth filtering.
+    // Mirror `ModelsManager::build_available_models()` default selection.
     ModelPreset::mark_default_by_picker_visibility(&mut presets);
 
     presets
@@ -242,10 +237,12 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
     let ModelListResponse {
         data: items,
         next_cursor,
+        ..
     } = mcp
         .request(|request_id| ClientRequest::ModelList {
             request_id,
             params: ModelListParams {
+                thread_id: None,
                 limit: Some(100),
                 cursor: None,
                 include_hidden: None,
@@ -272,10 +269,12 @@ async fn list_models_includes_hidden_models() -> Result<()> {
     let ModelListResponse {
         data: items,
         next_cursor,
+        ..
     } = mcp
         .request(|request_id| ClientRequest::ModelList {
             request_id,
             params: ModelListParams {
+                thread_id: None,
                 limit: Some(100),
                 cursor: None,
                 include_hidden: Some(true),
@@ -398,6 +397,7 @@ model_catalog_url = "{server_uri}/v1/models"
         .await?;
     let request_id = mcp
         .send_list_models_request(ModelListParams {
+            thread_id: None,
             limit: Some(100),
             cursor: None,
             include_hidden: None,
@@ -431,6 +431,7 @@ model_catalog_url = "{server_uri}/v1/models"
     let ModelListResponse {
         data: items,
         next_cursor,
+        ..
     } = serde_json::from_value(response.result)?;
     let mut expected_presets: Vec<ModelPreset> =
         remote_models.into_iter().map(Into::into).collect();
@@ -477,10 +478,12 @@ async fn list_models_pagination_works() -> Result<()> {
         let ModelListResponse {
             data: page_items,
             next_cursor,
+            ..
         } = mcp
             .request(|request_id| ClientRequest::ModelList {
                 request_id,
                 params: ModelListParams {
+                    thread_id: None,
                     limit: Some(1),
                     cursor: cursor.clone(),
                     include_hidden: None,
@@ -517,6 +520,7 @@ async fn list_models_rejects_invalid_cursor() -> Result<()> {
 
     let request_id = mcp
         .send_list_models_request(ModelListParams {
+            thread_id: None,
             limit: None,
             cursor: Some("invalid".to_string()),
             include_hidden: None,

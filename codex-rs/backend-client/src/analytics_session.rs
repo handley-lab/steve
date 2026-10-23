@@ -36,13 +36,13 @@ impl AnalyticsSession {
             AuthManager::shared_from_config(config, /*enable_codex_api_key_env*/ false)
                 .await
                 .map_err(|_| {
-                    "Couldn't load local sign-in. Sign in with ChatGPT and retry.".to_string()
+                    "Couldn't load supplied account credentials. Check the credential configuration and retry.".to_string()
                 })?;
         let auth = auth_manager
             .auth()
             .await
             .filter(CodexAuth::is_chatgpt_auth)
-            .ok_or("Sign in locally with ChatGPT to view Analytics.")?;
+            .ok_or("Supply account credentials to view Analytics.")?;
         let (Some(id), Some(_)) = (auth.get_account_id(), auth.get_chatgpt_user_id()) else {
             return Err("Analytics requires a ChatGPT account and user identity.".into());
         };
@@ -52,6 +52,7 @@ impl AnalyticsSession {
             plan_type: None,
         };
         let client = Client::new_without_redirects(config.chatgpt_base_url(), http_client_factory)
+            .with_account_path_style(config.account_path_style())
             .with_auth_provider(codex_model_provider::auth_provider_from_auth_manager(
                 Arc::clone(&auth_manager),
                 &auth,
@@ -69,7 +70,7 @@ impl AnalyticsSession {
         session.ensure_identity().await?;
         let accounts = accounts.map_err(|error| {
             if error.is_unauthorized() {
-                "Sign in again to load Analytics."
+                "Replace the supplied account credentials to load Analytics."
             } else {
                 "Couldn't load account plan. Press R to retry Analytics."
             }
@@ -113,7 +114,7 @@ impl AnalyticsSession {
                 .await
                 .map_err(|error| RequestError::Other(anyhow::anyhow!(error)))?;
             let result = request(self.client.clone()).await;
-            // Keep the original 401 when recovery fails so callers retain sign-in guidance.
+            // Keep the original 401 when recovery fails so callers retain credential guidance.
             if result.as_ref().is_err_and(RequestError::is_unauthorized)
                 && recovery.has_next()
                 && recovery.next().await.is_ok()

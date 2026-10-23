@@ -58,8 +58,6 @@ pub const CODEX_APP_DIRECTORY_CACHE_ATTACHMENT_FILENAME: &str = "codex-app-direc
 /// Filename used for the Windows sandbox log feedback attachment.
 pub const WINDOWS_SANDBOX_LOG_ATTACHMENT_FILENAME: &str = "windows-sandbox.log";
 const DEFAULT_MAX_BYTES: usize = 4 * 1024 * 1024; // 4 MiB
-const SENTRY_DSN: &str =
-    "https://ae32ed50620d7a7792c1ce5df38b3e3e@o33249.ingest.us.sentry.io/4510195390611458";
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(/*secs*/ 300);
 // Raw collection budgets used by the report API, not the interactive upload.
 pub const MAX_ATTACHMENT_BYTES: usize = 64 * 1024 * 1024;
@@ -614,11 +612,12 @@ impl FeedbackSnapshot {
         &self,
         options: FeedbackUploadOptions<'_>,
         http_client_factory: &HttpClientFactory,
+        dsn: &str,
     ) -> Result<()> {
         self.upload_feedback_with_dsn(
             options,
             http_client_factory,
-            SENTRY_DSN,
+            dsn,
             Instant::now() + UPLOAD_TIMEOUT,
         )
         .await

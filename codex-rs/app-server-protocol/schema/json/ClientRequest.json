@@ -1591,7 +1591,7 @@
     "GetAccountParams": {
       "properties": {
         "refreshToken": {
-          "description": "When `true`, requests a proactive token refresh before returning.\n\nIn managed auth mode this triggers the normal refresh-token flow. In external auth mode this flag is ignored. Clients should refresh tokens themselves and call `account/login/start` with `chatgptAuthTokens`.",
+          "description": "When `true`, reloads credentials and asks the configured external credential owner to refresh them before returning. Built-in account renewal is unavailable.\n\nFor client-supplied `chatgptAuthTokens`, this flag is ignored. Clients should supply replacement tokens through `account/login/start` instead.",
           "type": "boolean"
         }
       },
@@ -1865,55 +1865,6 @@
           "type": "object"
         },
         {
-          "properties": {
-            "appBrand": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/LoginAppBrand"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null
-            },
-            "codexStreamlinedLogin": {
-              "type": "boolean"
-            },
-            "type": {
-              "enum": [
-                "chatgpt"
-              ],
-              "title": "ChatgptLoginAccountParamsType",
-              "type": "string"
-            },
-            "useHostedLoginSuccessPage": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "title": "ChatgptLoginAccountParams",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "type": {
-              "enum": [
-                "chatgptDeviceCode"
-              ],
-              "title": "ChatgptDeviceCodeLoginAccountParamsType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "title": "ChatgptDeviceCodeLoginAccountParams",
-          "type": "object"
-        },
-        {
           "description": "[UNSTABLE] FOR OPENAI INTERNAL USE ONLY - DO NOT USE. The access token must contain the same scopes that Codex-managed ChatGPT auth tokens have.",
           "properties": {
             "accessToken": {
@@ -2008,13 +1959,6 @@
           "type": "object"
         }
       ]
-    },
-    "LoginAppBrand": {
-      "enum": [
-        "codex",
-        "chatgpt"
-      ],
-      "type": "string"
     },
     "MarketplaceAddParams": {
       "properties": {
@@ -2342,6 +2286,13 @@
           "minimum": 0.0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "threadId": {
+          "description": "When supplied, list models from this live thread's configured catalog.",
+          "type": [
+            "string",
             "null"
           ]
         }

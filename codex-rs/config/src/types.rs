@@ -67,6 +67,15 @@ const fn default_enabled() -> bool {
     true
 }
 
+/// Account-backend path dialect selected beside `chatgpt_base_url`.
+#[derive(Serialize, Deserialize, Debug, Default, Copy, Clone, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountPathStyle {
+    #[default]
+    CodexApi,
+    ChatgptApi,
+}
+
 /// Last selected grouping in Agent Command Center.
 #[derive(Serialize, Deserialize, Debug, Default, Copy, Clone, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
@@ -256,6 +265,8 @@ pub struct AnalyticsConfigToml {
 pub struct FeedbackConfigToml {
     /// When `false`, disables the feedback flow across Codex product surfaces.
     pub enabled: Option<bool>,
+    /// Explicit Sentry-compatible destination for feedback uploads. No default.
+    pub dsn: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, JsonSchema)]
@@ -599,7 +610,6 @@ pub struct OtelTlsConfig {
 #[serde(rename_all = "kebab-case")]
 pub enum OtelExporterKind {
     None,
-    Statsig,
     OtlpHttp {
         endpoint: String,
         #[serde(default)]
@@ -642,7 +652,7 @@ pub struct OtelConfigToml {
     /// Optional trace exporter
     pub trace_exporter: Option<OtelExporterKind>,
 
-    /// Metrics exporter. Defaults to `statsig`, which follows `analytics.enabled`.
+    /// Metrics exporter. Defaults to `none`; exporting requires an explicit OTLP destination.
     /// Custom OTLP exporters are independent of `analytics.enabled`; `none` disables metrics export.
     pub metrics_exporter: Option<OtelExporterKind>,
 
@@ -678,7 +688,7 @@ impl Default for OtelConfig {
             environment: DEFAULT_OTEL_ENVIRONMENT.to_owned(),
             exporter: OtelExporterKind::None,
             trace_exporter: OtelExporterKind::None,
-            metrics_exporter: OtelExporterKind::Statsig,
+            metrics_exporter: OtelExporterKind::None,
             span_attributes: BTreeMap::new(),
             tracestate: BTreeMap::new(),
         }
@@ -952,6 +962,9 @@ pub struct Tui {
     #[serde(default)]
     pub pet: Option<String>,
 
+    /// Base URL for downloading built-in pet assets when they are not cached.
+    pub pet_asset_base_url: Option<String>,
+
     /// Where the terminal pet should anchor vertically.
     ///
     /// Defaults to `composer`, which follows the current TUI composer viewport.
@@ -1054,6 +1067,10 @@ pub struct PluginsDefaultConfig {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct PluginsConfigToml {
+    /// Additional HTTP(S) origins permitted for plugin archive downloads.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub archive_origins: Vec<String>,
+
     /// Defaults for installed plugin activation. Omission preserves source enablement.
     /// Explicit plugin enablement settings override this default, but cannot enable
     /// an installation disabled by its source.

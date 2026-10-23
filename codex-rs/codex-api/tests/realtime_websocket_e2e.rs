@@ -151,6 +151,7 @@ async fn realtime_ws_e2e_session_create_and_event_flow() {
     let connection = client
         .connect(
             RealtimeSessionConfig {
+                transcription_model: Some("fixture-transcription".into()),
                 instructions: "backend prompt".to_string(),
                 initial_items: Vec::new(),
                 delegation_ack_filler: None,
@@ -257,6 +258,7 @@ async fn realtime_ws_connect_webrtc_sideband_retries_join_until_server_is_availa
     let connection = client
         .connect_webrtc_sideband(
             RealtimeSessionConfig {
+                transcription_model: Some("fixture-transcription".into()),
                 instructions: "backend prompt".to_string(),
                 initial_items: Vec::new(),
                 delegation_ack_filler: None,
@@ -338,6 +340,7 @@ async fn realtime_ws_existing_call_retries_activation_404_with_a_bounded_budget(
             let result = client
                 .connect_existing_call_sideband(
                     RealtimeSessionConfig {
+                        transcription_model: Some("fixture-transcription".into()),
                         instructions: "unused existing-call prompt".to_string(),
                         initial_items: Vec::new(),
                         delegation_ack_filler: None,
@@ -412,6 +415,7 @@ async fn realtime_ws_e2e_send_while_next_event_waits() {
     let connection = client
         .connect(
             RealtimeSessionConfig {
+                transcription_model: Some("fixture-transcription".into()),
                 instructions: "backend prompt".to_string(),
                 initial_items: Vec::new(),
                 delegation_ack_filler: None,
@@ -482,6 +486,7 @@ async fn realtime_ws_e2e_disconnected_emitted_once() {
     let connection = client
         .connect(
             RealtimeSessionConfig {
+                transcription_model: Some("fixture-transcription".into()),
                 instructions: "backend prompt".to_string(),
                 initial_items: Vec::new(),
                 delegation_ack_filler: None,
@@ -548,6 +553,7 @@ async fn realtime_ws_e2e_ignores_unknown_text_events() {
     let connection = client
         .connect(
             RealtimeSessionConfig {
+                transcription_model: Some("fixture-transcription".into()),
                 instructions: "backend prompt".to_string(),
                 initial_items: Vec::new(),
                 delegation_ack_filler: None,
@@ -657,6 +663,7 @@ async fn realtime_ws_e2e_realtime_v2_parser_emits_handoff_requested() {
     let connection = client
         .connect(
             RealtimeSessionConfig {
+                transcription_model: Some("fixture-transcription".into()),
                 instructions: "backend prompt".to_string(),
                 initial_items: Vec::new(),
                 delegation_ack_filler: None,

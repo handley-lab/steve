@@ -249,7 +249,8 @@ impl AccountRequestProcessor {
         &self,
         params: GetAccountParams,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        self.refresh_token_if_requested(params.refresh_token).await;
+        self.refresh_token_if_requested(params.refresh_token)
+            .await?;
         let read = self
             .read_account(/*request*/ None)
             .await
@@ -329,7 +330,8 @@ impl AccountRequestProcessor {
             let mut workspace_routing = if let Some((auth, account_id)) = auth
                 .as_ref()
                 .filter(|auth| {
-                    auth.is_chatgpt_auth()
+                    !config.chatgpt_base_url.trim().is_empty()
+                        && auth.is_chatgpt_auth()
                         && (request.is_some()
                             || matches!(
                                 account_state.account,
@@ -393,7 +395,8 @@ impl AccountRequestProcessor {
                             &config.chatgpt_base_url,
                             &discovery_auth,
                             config.http_client_factory(),
-                        );
+                        )
+                        .with_account_path_style(config.chatgpt_path_style);
                         match client.get_accounts_check().await {
                             Ok(response) => break response,
                             Err(error) => {
@@ -475,7 +478,9 @@ impl AccountRequestProcessor {
                 *self.workspace_routing.lock().await = None;
                 None
             };
-            if let Some(request) = request.filter(|_| workspace_routing.is_some()) {
+            if let Some(request) =
+                request.filter(|request| workspace_routing.is_some() || request.previously_routed)
+            {
                 let origin = Url::parse(&request.provider_base_url)
                     .map_err(|_| WorkspaceRoutingError::InvalidProviderUrl)?
                     .origin();
@@ -489,7 +494,6 @@ impl AccountRequestProcessor {
                     .as_ref()
                     .is_some_and(|routing| routing.backend_origin == origin.ascii_serialization());
                 let workspace_bound = request.previously_routed
-                    || request.provider_base_url == codex_model_provider::CHATGPT_CODEX_BASE_URL
                     || origin == session_bootstrap_origin
                     || (session_bootstrap_origin == bootstrap_origin && selected_backend);
                 if !workspace_bound {

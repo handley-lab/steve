@@ -96,7 +96,7 @@ impl AppLinkViewParams {
             return None;
         };
         if server_name == MCP_CODEX_APPS_SERVER_NAME {
-            let url = validate_external_url(url, /*require_chatgpt_host*/ true)?;
+            let url = validate_external_url(url)?;
             return Self::from_codex_apps_auth_url_parts(
                 thread_id,
                 server_name,
@@ -108,7 +108,7 @@ impl AppLinkViewParams {
             );
         }
 
-        let url = validate_external_url(url, /*require_chatgpt_host*/ false)?;
+        let url = validate_external_url(url)?;
         Some(Self::from_generic_url_parts(
             thread_id,
             server_name,
@@ -203,7 +203,7 @@ impl AppLinkViewParams {
     }
 }
 
-pub(super) fn validate_external_url(url: &str, require_chatgpt_host: bool) -> Option<Url> {
+pub(super) fn validate_external_url(url: &str) -> Option<Url> {
     let parsed = Url::parse(url).ok()?;
     if parsed.scheme() != "https" || parsed.host_str().is_none() {
         return None;
@@ -211,18 +211,7 @@ pub(super) fn validate_external_url(url: &str, require_chatgpt_host: bool) -> Op
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return None;
     }
-    if require_chatgpt_host && !is_allowed_chatgpt_auth_host(parsed.host_str()?) {
-        return None;
-    }
     Some(parsed)
-}
-
-fn is_allowed_chatgpt_auth_host(host: &str) -> bool {
-    let host = host.to_ascii_lowercase();
-    host == "chatgpt.com"
-        || host == "chatgpt-staging.com"
-        || host.ends_with(".chatgpt.com")
-        || host.ends_with(".chatgpt-staging.com")
 }
 
 pub(crate) struct AppLinkView {
@@ -307,7 +296,7 @@ impl AppLinkView {
             AppLinkScreen::Link => {
                 if self.is_installed {
                     vec![
-                        "Manage on ChatGPT",
+                        "Manage app",
                         if self.is_enabled {
                             "Disable app"
                         } else {
@@ -316,7 +305,7 @@ impl AppLinkView {
                         "Back",
                     ]
                 } else {
-                    vec!["Install on ChatGPT", "Back"]
+                    vec!["Install app", "Back"]
                 }
             }
             AppLinkScreen::InstallConfirmation => vec!["I already Installed it", "Back"],
@@ -579,7 +568,7 @@ impl AppLinkView {
         if is_auth_suggestion {
             for line in wrap(
                 if is_codex_apps_auth {
-                    "Sign in to the app on ChatGPT in the browser window that just opened."
+                    "Sign in to the app in the browser window that just opened."
                 } else {
                     "Complete authentication in the browser window that just opened."
                 },
@@ -605,7 +594,7 @@ impl AppLinkView {
             }
         } else {
             for line in wrap(
-                "Complete app setup on ChatGPT in the browser window that just opened.",
+                "Complete app setup in the browser window that just opened.",
                 usable_width,
             ) {
                 lines.push(Line::from(line.into_owned()));
@@ -995,8 +984,6 @@ mod tests {
         for url in [
             "http://chatgpt.com/apps/google-calendar/connector_calendar",
             "https://user:pass@chatgpt.com/apps/google-calendar/connector_calendar",
-            "https://chatgpt.com.evil.example/apps/google-calendar/connector_calendar",
-            "https://evilchatgpt.com/apps/google-calendar/connector_calendar",
         ] {
             let request = auth_url_request(url);
             let params = AppLinkViewParams::from_url_app_server_request(
@@ -1079,7 +1066,7 @@ mod tests {
 
         assert_eq!(
             view.action_labels(),
-            vec!["Manage on ChatGPT", "Disable app", "Back"]
+            vec!["Manage app", "Disable app", "Back"]
         );
     }
 
@@ -1230,7 +1217,7 @@ mod tests {
 
         assert_eq!(
             view.action_labels(),
-            vec!["Manage on ChatGPT", "Enable app", "Back"]
+            vec!["Manage app", "Enable app", "Back"]
         );
     }
 
@@ -1328,6 +1315,44 @@ mod tests {
             1,
             "expected full URL-like token in one rendered line, got: {rendered:?}"
         );
+
+        for (suggestion, server_name, expected) in [
+            (
+                None,
+                None,
+                "Complete app setup in the browser window that just opened.",
+            ),
+            (
+                Some(AppLinkSuggestionType::Auth),
+                Some(MCP_CODEX_APPS_SERVER_NAME),
+                "Sign in to the app in the browser window that just opened.",
+            ),
+            (
+                Some(AppLinkSuggestionType::Auth),
+                Some("configured-server"),
+                "Complete authentication in the browser window that just opened.",
+            ),
+            (
+                Some(AppLinkSuggestionType::ExternalAction),
+                Some("configured-server"),
+                "Complete the requested action in the browser window that just opened.",
+            ),
+        ] {
+            view.suggestion_type = suggestion;
+            view.elicitation_target = server_name.map(|server_name| AppLinkElicitationTarget {
+                thread_id: ThreadId::new(),
+                server_name: server_name.into(),
+                request_id: AppServerRequestId::Integer(1),
+            });
+            let text = view
+                .install_confirmation_lines(120)
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert!(text.contains(expected), "{text}");
+            assert!(text.contains(url_like), "{text}");
+        }
     }
 
     #[test]

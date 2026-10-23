@@ -33,28 +33,8 @@ collected items, and token usage.
 
 ## Authentication
 
-Existing Steve authentication is reused automatically. To start ChatGPT
-browser login explicitly:
-
-```python
-from steve_sdk import Steve
-
-with Steve() as codex:
-    login = codex.login_chatgpt()
-    print(login.auth_url)
-    print(login.wait().success)
-```
-
-For device-code login:
-
-```python
-with Steve() as codex:
-    login = codex.login_chatgpt_device_code()
-    print(login.verification_url, login.user_code)
-    login.wait()
-```
-
-For API-key login:
+Configure the provider endpoint and supply credentials. Existing supplied
+credentials are reused automatically. To store an API key:
 
 ```python
 with Steve() as codex:

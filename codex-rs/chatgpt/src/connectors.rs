@@ -68,7 +68,10 @@ pub async fn list_connectors(config: &Config) -> anyhow::Result<Vec<AppInfo>> {
     Ok(
         AppToolPolicyEvaluator::new(&config.config_layer_stack).apply_app_enabled_state(
             merge_connectors_with_accessible(
-                connectors, accessible, /*all_connectors_loaded*/ true,
+                &config.chatgpt_base_url,
+                connectors,
+                accessible,
+                /*all_connectors_loaded*/ true,
             ),
         ),
     )
@@ -90,6 +93,7 @@ pub async fn list_cached_all_connectors(
     let cache_context = connector_directory_cache_context(config, &auth);
     let connectors = codex_connectors::cached_directory_connectors(&cache_context)?;
     Some(merge_directory_and_plugin_connectors(
+        &config.chatgpt_base_url,
         connectors,
         plugin_apps,
     ))
@@ -120,6 +124,7 @@ pub async fn list_all_connectors_with_options(
     )
     .await?;
     Ok(merge_directory_and_plugin_connectors(
+        &config.chatgpt_base_url,
         connectors,
         plugin_apps,
     ))
@@ -148,7 +153,7 @@ pub async fn read_connector_metadata(
     );
     anyhow::ensure!(
         auth.get_account_id().is_some(),
-        "ChatGPT account ID not available, please re-run codex login"
+        "ChatGPT account ID not available; supply credentials with an account ID"
     );
 
     let store = ConnectorMetadataStore::new(
@@ -316,10 +321,12 @@ fn connector_directory_cache_context(
 }
 
 fn merge_directory_and_plugin_connectors(
+    chatgpt_base_url: &str,
     connectors: Vec<AppInfo>,
     plugin_apps: &[AppConnectorId],
 ) -> Vec<AppInfo> {
     merge_plugin_connectors(
+        chatgpt_base_url,
         connectors,
         plugin_apps
             .iter()
@@ -328,10 +335,12 @@ fn merge_directory_and_plugin_connectors(
 }
 
 pub fn connectors_for_plugin_apps(
+    chatgpt_base_url: &str,
     connectors: Vec<AppInfo>,
     plugin_apps: &[AppConnectorId],
 ) -> Vec<AppInfo> {
     let connectors = merge_plugin_connectors(
+        chatgpt_base_url,
         connectors,
         plugin_apps
             .iter()
@@ -349,6 +358,7 @@ pub fn connectors_for_plugin_apps(
 }
 
 pub fn merge_connectors_with_accessible(
+    chatgpt_base_url: &str,
     connectors: Vec<AppInfo>,
     accessible_connectors: Vec<AppInfo>,
     all_connectors_loaded: bool,
@@ -365,7 +375,7 @@ pub fn merge_connectors_with_accessible(
     } else {
         accessible_connectors
     };
-    merge_connectors(connectors, accessible_connectors)
+    merge_connectors(chatgpt_base_url, connectors, accessible_connectors)
 }
 
 #[cfg(test)]
@@ -445,7 +455,7 @@ mod tests {
             branding: None,
             app_metadata: None,
             labels: None,
-            install_url: Some(connector_install_url(id, id)),
+            install_url: connector_install_url("https://chatgpt.example", id, id),
             is_accessible,
             is_enabled: true,
             plugin_display_names: Vec::new(),
@@ -455,6 +465,7 @@ mod tests {
     #[test]
     fn excludes_accessible_connectors_not_in_all_when_all_loaded() {
         let merged = merge_connectors_with_accessible(
+            "https://chatgpt.example",
             vec![app("alpha")],
             vec![app("alpha"), app("beta")],
             /*all_connectors_loaded*/ true,
@@ -465,6 +476,7 @@ mod tests {
     #[test]
     fn keeps_accessible_connectors_not_in_all_while_all_loading() {
         let merged = merge_connectors_with_accessible(
+            "https://chatgpt.example",
             vec![app("alpha")],
             vec![app("alpha"), app("beta")],
             /*all_connectors_loaded*/ false,
@@ -481,6 +493,7 @@ mod tests {
     #[test]
     fn connectors_for_plugin_apps_returns_only_requested_plugin_apps() {
         let connectors = connectors_for_plugin_apps(
+            "https://chatgpt.example",
             vec![app("alpha"), app("beta")],
             &[
                 AppConnectorId("gmail".to_string()),
@@ -497,8 +510,11 @@ mod tests {
     #[test]
     fn connectors_for_plugin_apps_preserves_formerly_disallowed_plugin_apps() {
         let connector_id = "asdk_app_6938a94a61d881918ef32cb999ff937c";
-        let connectors =
-            connectors_for_plugin_apps(Vec::new(), &[AppConnectorId(connector_id.to_string())]);
+        let connectors = connectors_for_plugin_apps(
+            "https://chatgpt.example",
+            Vec::new(),
+            &[AppConnectorId(connector_id.to_string())],
+        );
         assert_eq!(
             connectors,
             vec![merged_app(connector_id, /*is_accessible*/ false)]

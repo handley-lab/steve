@@ -15,8 +15,6 @@ use codex_cli::read_api_key_from_stdin;
 use codex_cli::run_login_status;
 use codex_cli::run_login_with_access_token;
 use codex_cli::run_login_with_api_key;
-use codex_cli::run_login_with_chatgpt;
-use codex_cli::run_login_with_device_code;
 use codex_cli::run_logout;
 use codex_cloud_tasks::Cli as CloudTasksCli;
 use codex_exec::Cli as ExecCli;
@@ -103,7 +101,6 @@ use codex_features::Stage;
 use codex_features::is_known_feature_key;
 use codex_home::CodexHomeUserInstructionsProvider;
 use codex_login::AuthManager;
-use codex_login::is_workload_identity_selected;
 use codex_memories_write::clear_memory_roots_contents;
 use codex_models_manager::bundled_models_response;
 use codex_models_manager::manager::RefreshStrategy;
@@ -539,18 +536,6 @@ struct LoginCommand {
         hide = true
     )]
     api_key: Option<String>,
-
-    #[arg(long = "device-auth")]
-    use_device_code: bool,
-
-    /// EXPERIMENTAL: Use custom OAuth issuer base URL (advanced)
-    /// Override the OAuth issuer base URL (advanced)
-    #[arg(long = "experimental_issuer", value_name = "URL", hide = true)]
-    issuer_base_url: Option<String>,
-
-    /// EXPERIMENTAL: Use custom OAuth client ID (advanced)
-    #[arg(long = "experimental_client-id", value_name = "CLIENT_ID", hide = true)]
-    client_id: Option<String>,
 
     #[command(subcommand)]
     action: Option<LoginSubcommand>,
@@ -1123,11 +1108,6 @@ async fn cli_main(
                         "`steve agents` cannot apply local provider or additional-directory overrides to a remote server"
                     );
                 }
-                if is_workload_identity_selected() {
-                    anyhow::bail!(
-                        "`steve agents` is unavailable while workload identity is active"
-                    );
-                }
                 if root_remote.is_none() {
                     resolve_remote_endpoint(
                         /*remote*/ None,
@@ -1629,13 +1609,6 @@ async fn cli_main(
                             "Choose one login credential source: --with-api-key or --with-access-token."
                         );
                         std::process::exit(1);
-                    } else if login_cli.use_device_code {
-                        run_login_with_device_code(
-                            login_cli.config_overrides,
-                            login_cli.issuer_base_url,
-                            login_cli.client_id,
-                        )
-                        .await;
                     } else if login_cli.api_key.is_some() {
                         eprintln!(
                             "The --api-key flag is no longer supported. Pipe the key instead, e.g. `printenv OPENAI_API_KEY | steve login --with-api-key`."
@@ -1648,7 +1621,8 @@ async fn cli_main(
                         let access_token = read_access_token_from_stdin();
                         run_login_with_access_token(login_cli.config_overrides, access_token).await;
                     } else {
-                        run_login_with_chatgpt(login_cli.config_overrides).await;
+                        eprintln!("Supply credentials with --with-api-key or --with-access-token.");
+                        std::process::exit(1);
                     }
                 }
             }
@@ -2103,6 +2077,7 @@ async fn run_debug_prompt_input_command(
         &mut extensions,
         auth_manager,
         config.chatgpt_base_url.clone(),
+        config.chatgpt_path_style,
         config.http_client_factory(),
     );
     codex_skills_extension::install(&mut extensions, |config: &Config| {
@@ -2910,8 +2885,9 @@ enabled = true
     }
 
     #[test]
-    fn exec_server_remote_api_key_auth_accepts_https_openai_domains() {
+    fn exec_server_remote_api_key_auth_accepts_configured_https_domains() {
         for base_url in [
+            "https://private.example.test/api",
             "https://openai.com/api",
             "https://service.openai.com/api",
             "https://openai.org/api",
@@ -2943,20 +2919,9 @@ enabled = true
 
             assert_eq!(
                 error.to_string(),
-                "remote exec-server API-key authentication is restricted to HTTPS openai.com and openai.org hosts and subdomains or loopback hosts"
+                "remote exec-server API-key authentication requires HTTPS or an HTTP loopback URL"
             );
         }
-    }
-
-    #[test]
-    fn exec_server_remote_api_key_auth_rejects_suffix_spoof() {
-        let error = validate_api_key_remote_host("https://service.openai.org.evil.example/api")
-            .expect_err("reject suffix spoof");
-
-        assert_eq!(
-            error.to_string(),
-            "remote exec-server API-key authentication is restricted to HTTPS openai.com and openai.org hosts and subdomains or loopback hosts"
-        );
     }
 
     fn finalize_resume_from_args(args: &[&str]) -> TuiCli {

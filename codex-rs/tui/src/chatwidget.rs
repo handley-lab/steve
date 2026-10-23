@@ -170,7 +170,7 @@ use tracing::debug;
 use tracing::warn;
 
 const DEFAULT_MODEL_DISPLAY_NAME: &str = "loading";
-const TRUSTED_ACCESS_FOR_CYBER_VERIFICATION_WARNING: &str = "Your conversations have multiple flags for possible cybersecurity risk. Responses may take longer because extra safety checks are on. To get authorized for security work, join the Trusted Access for Cyber program: https://chatgpt.com/cyber";
+const TRUSTED_ACCESS_FOR_CYBER_VERIFICATION_WARNING: &str = "The configured service reports additional cybersecurity review. Responses may take longer because extra safety checks are on.";
 const MEMORIES_ENABLE_NOTICE: &str = "Memories will be enabled in the next session.";
 const MEMORIES_DOC_URL: &str = "https://developers.openai.com/codex/memories";
 const PLAN_MODE_REASONING_SCOPE_TITLE: &str = "Apply reasoning change";
@@ -462,7 +462,6 @@ const USER_SHELL_COMMAND_HELP_HINT: &str = "Example: !ls";
 const ASK_FOR_APPROVAL_LABEL: &str = "Ask for approval";
 const APPROVE_FOR_ME_LABEL: &str = "Approve for me";
 const AUTO_REVIEW_DESCRIPTION: &str = "Only ask for actions detected as potentially unsafe";
-const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-dir", "thread-name"];
 
 /// Common initialization parameters shared by all `ChatWidget` constructors.
@@ -983,14 +982,12 @@ impl ChatWidget {
         &mut self,
         category: crate::app_event::FeedbackCategory,
         include_logs: bool,
-        feedback_audience: crate::bottom_pane::FeedbackAudience,
     ) {
         let view = crate::bottom_pane::FeedbackNoteView::new(
             category,
             self.turn_lifecycle.last_turn_id.clone(),
             self.app_event_tx.clone(),
             include_logs,
-            feedback_audience,
         );
         self.bottom_pane.show_view(Box::new(view));
         self.request_redraw();

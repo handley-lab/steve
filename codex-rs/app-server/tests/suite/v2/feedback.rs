@@ -12,10 +12,33 @@ use tokio::net::TcpListener;
 use tokio::time::timeout;
 
 #[tokio::test]
+async fn feedback_upload_requires_an_explicit_destination() -> Result<()> {
+    for args in [vec![], vec!["-c", "feedback.dsn=\" \""]] {
+        let mut app_server = TestAppServer::builder()
+            .with_args(&args)
+            .build_initialized()
+            .await?;
+        let request_id = app_server
+            .send_raw_request(
+                "feedback/upload",
+                Some(json!({ "classification": "bug", "includeLogs": true })),
+            )
+            .await?;
+        let error = app_server
+            .read_stream_until_error_message(RequestId::Integer(request_id))
+            .await?;
+        assert_eq!(error.error.code, -32600);
+        assert!(error.error.message.contains("feedback.dsn"));
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn feedback_upload_limits_concurrency_and_releases_failed_uploads() -> Result<()> {
     let proxy = TcpListener::bind("127.0.0.1:0").await?;
     let proxy_uri = format!("http://{}", proxy.local_addr()?);
     let mut app_server = TestAppServer::builder()
+        .with_args(&["-c", "feedback.dsn=\"https://public@feedback.invalid/42\""])
         .with_env_overrides(&[
             ("HTTPS_PROXY", Some(proxy_uri.as_str())),
             ("https_proxy", Some(proxy_uri.as_str())),
@@ -41,7 +64,7 @@ async fn feedback_upload_limits_concurrency_and_releases_failed_uploads() -> Res
             stream.read_line(&mut request),
         )
         .await??;
-        assert!(request.starts_with("CONNECT "));
+        assert!(request.starts_with("CONNECT feedback.invalid:443 "));
         pending.push((request_id, stream.into_inner()));
     }
 
@@ -124,7 +147,7 @@ async fn feedback_upload_recovers_persisted_evidence_and_reports_sqlite_failures
         daemon_logs.join("daemon-updater.stderr.log"),
         "current updater diagnostic",
     )?;
-    let cert = rcgen::generate_simple_self_signed(vec!["o33249.ingest.us.sentry.io".to_string()])?;
+    let cert = rcgen::generate_simple_self_signed(vec!["feedback.invalid".to_string()])?;
     let cert_path = home.path().join("feedback-ca.pem");
     std::fs::write(&cert_path, cert.cert.pem())?;
     let tls = rustls::ServerConfig::builder_with_provider(Arc::new(
@@ -231,6 +254,7 @@ async fn feedback_upload_recovers_persisted_evidence_and_reports_sqlite_failures
     // This new process can recover review context only from SQLite.
     let mut app_server = TestAppServer::builder()
         .with_codex_home(home.path())
+        .with_args(&["-c", "feedback.dsn=\"https://public@feedback.invalid/42\""])
         .with_env_overrides(&[
             ("HTTPS_PROXY", Some(proxy_uri.as_str())),
             ("https_proxy", Some(proxy_uri.as_str())),

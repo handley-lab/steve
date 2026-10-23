@@ -139,14 +139,12 @@ trust_level = "trusted"
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invalid_custom_ca_falls_back_to_system_roots() -> Result<()> {
     let server = MockServer::start().await;
-    for (request_method, request_path) in [("HEAD", "/v1/responses"), ("GET", "/v1/models")] {
-        Mock::given(method(request_method))
-            .and(path(request_path))
-            .respond_with(ResponseTemplate::new(200))
-            .expect(2)
-            .mount(&server)
-            .await;
-    }
+    Mock::given(method("HEAD"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(2)
+        .mount(&server)
+        .await;
 
     let codex_home = TempDir::new()?;
     let certificate = codex_home.path().join("invalid-ca.pem");
@@ -190,6 +188,10 @@ async fn invalid_custom_ca_falls_back_to_system_roots() -> Result<()> {
                 .is_some_and(|detail| detail.ends_with("reachable (HTTP 200)"))
         );
     }
+    let requests = server.received_requests().await.unwrap();
+    assert!(requests.iter().all(|request| {
+        request.method != "GET" || request.url.path() != "/v1/models"
+    }));
     server.verify().await;
 
     Ok(())

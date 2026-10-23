@@ -147,11 +147,10 @@ pub enum PathStyle {
 }
 
 impl PathStyle {
-    pub fn from_base_url(base_url: &str) -> Self {
-        if base_url.contains("/backend-api") {
-            PathStyle::ChatGptApi
-        } else {
-            PathStyle::CodexApi
+    pub fn from_account_style(style: codex_config::AccountPathStyle) -> Self {
+        match style {
+            codex_config::AccountPathStyle::CodexApi => PathStyle::CodexApi,
+            codex_config::AccountPathStyle::ChatgptApi => PathStyle::ChatGptApi,
         }
     }
 }
@@ -184,12 +183,9 @@ impl fmt::Debug for Client {
 }
 
 impl Client {
+    /// Uses the configured backend without following redirects.
     pub fn new(base_url: impl Into<String>, http_client_factory: HttpClientFactory) -> Self {
-        let http = RouteAwareClientPool::with_chatgpt_cloudflare_cookies_without_request_logging(
-            http_client_factory,
-            ClientRouteClass::Api,
-        );
-        Self::with_http(base_url.into(), http)
+        Self::new_without_redirects(base_url, http_client_factory)
     }
 
     /// Creates a client that never forwards its credentials to a redirect destination.
@@ -198,7 +194,7 @@ impl Client {
         http_client_factory: HttpClientFactory,
     ) -> Self {
         let http =
-            RouteAwareClientPool::with_chatgpt_cloudflare_cookies_without_redirects_or_request_logging(
+            RouteAwareClientPool::new_without_redirects_or_request_logging(
                 http_client_factory,
                 ClientRouteClass::Api,
             );
@@ -206,18 +202,10 @@ impl Client {
     }
 
     fn with_http(mut base_url: String, http: RouteAwareClientPool) -> Self {
-        // Normalize common ChatGPT hostnames to include /backend-api so we hit the WHAM paths.
-        // Also trim trailing slashes for consistent URL building.
         while base_url.ends_with('/') {
             base_url.pop();
         }
-        if (base_url.starts_with("https://chatgpt.com")
-            || base_url.starts_with("https://chat.openai.com"))
-            && !base_url.contains("/backend-api")
-        {
-            base_url = format!("{base_url}/backend-api");
-        }
-        let path_style = PathStyle::from_base_url(&base_url);
+        let path_style = PathStyle::CodexApi;
         Self {
             base_url,
             http,
@@ -264,6 +252,14 @@ impl Client {
     pub fn with_path_style(mut self, style: PathStyle) -> Self {
         self.path_style = style;
         self
+    }
+
+    pub fn with_account_path_style(self, style: codex_config::AccountPathStyle) -> Self {
+        self.with_path_style(PathStyle::from_account_style(style))
+    }
+
+    pub fn path_style(&self) -> PathStyle {
+        self.path_style
     }
 
     fn headers(&self) -> HeaderMap {
@@ -544,10 +540,14 @@ impl Client {
         }
     }
 
+    pub fn curated_plugins_export_url(&self) -> String {
+        format!("{}/plugins/export/curated", self.base_url)
+    }
+
     /// Fetch authenticated Codex user settings from the active backend route.
     ///
-    /// Uses `GET /api/codex/settings/user` for Codex API hosts and
-    /// `GET /wham/settings/user` for ChatGPT `backend-api` hosts.
+    /// Uses `GET /api/codex/settings/user` for `PathStyle::CodexApi` and
+    /// `GET /wham/settings/user` for `PathStyle::ChatGptApi`.
     pub async fn get_user_settings(
         &self,
     ) -> std::result::Result<CodexUserSettingsResponse, RequestError> {
@@ -1213,6 +1213,7 @@ mod tests {
             format!("{}/backend-api", server.uri()),
             HttpClientFactory::new(codex_http_client::OutboundProxyPolicy::ReqwestDefault),
         )
+        .with_path_style(PathStyle::ChatGptApi)
         .get_user_settings()
         .await
         .unwrap();
@@ -1266,6 +1267,51 @@ mod tests {
             ],
             [Some("Bearer e30.e30.c2ln"), Some("workspace-123")]
         );
+    }
+
+    #[test]
+    fn config_bundle_url_follows_the_account_path_style() {
+        let factory = HttpClientFactory::new(codex_http_client::OutboundProxyPolicy::ReqwestDefault);
+        let backend_api = "https://example.test/backend-api";
+        let already_prefixed = "https://example.test/api/codex";
+        assert_eq!(
+            Client::new(backend_api, factory.clone()).config_bundle_url(),
+            "https://example.test/backend-api/api/codex/config/bundle"
+        );
+        assert_eq!(
+            Client::new(already_prefixed, factory.clone()).config_bundle_url(),
+            "https://example.test/api/codex/api/codex/config/bundle"
+        );
+        assert_eq!(
+            Client::new(backend_api, factory)
+                .with_path_style(PathStyle::ChatGptApi)
+                .config_bundle_url(),
+            "https://example.test/backend-api/wham/config/bundle"
+        );
+    }
+
+    #[test]
+    fn curated_export_uses_the_configured_backend() {
+        for (base, expected) in [
+            (
+                "http://127.0.0.1:43123/local/",
+                "http://127.0.0.1:43123/local/plugins/export/curated",
+            ),
+            (
+                "https://chatgpt.com",
+                "https://chatgpt.com/plugins/export/curated",
+            ),
+            (
+                "https://backend.example/backend-api/",
+                "https://backend.example/backend-api/plugins/export/curated",
+            ),
+        ] {
+            let client = Client::new(
+                base,
+                HttpClientFactory::new(codex_http_client::OutboundProxyPolicy::ReqwestDefault),
+            );
+            assert_eq!(client.curated_plugins_export_url(), expected);
+        }
     }
 
     fn test_client(base_url: &str, path_style: PathStyle) -> Client {

@@ -6,6 +6,14 @@
       "description": "A path that is guaranteed to be absolute and normalized (though it is not guaranteed to be canonicalized or exist on the filesystem).\n\nIMPORTANT: When deserializing an `AbsolutePathBuf`, a base path must be set using [AbsolutePathBufGuard::new]. If no base path is set, the deserialization will fail unless the path being deserialized is already absolute.",
       "type": "string"
     },
+    "AccountPathStyle": {
+      "description": "Account-backend path dialect selected beside `chatgpt_base_url`.",
+      "enum": [
+        "codex_api",
+        "chatgpt_api"
+      ],
+      "type": "string"
+    },
     "AgentRoleToml": {
       "additionalProperties": false,
       "properties": {
@@ -374,7 +382,7 @@
       "description": "Determine where Codex should store CLI auth credentials.",
       "oneOf": [
         {
-          "description": "Persist credentials in CODEX_HOME/auth.json.",
+          "description": "Persist credentials in STEVE_HOME/auth.json.",
           "enum": [
             "file"
           ],
@@ -388,7 +396,7 @@
           "type": "string"
         },
         {
-          "description": "Use keyring when available; otherwise, fall back to a file in CODEX_HOME.",
+          "description": "Use keyring when available; otherwise, fall back to a file in STEVE_HOME.",
           "enum": [
             "auto"
           ],
@@ -448,6 +456,14 @@
         },
         "extra_policy": {
           "description": "Additional policy text inserted into the Guardian template's `{{ extra_policy }}` slot.",
+          "type": "string"
+        },
+        "model": {
+          "description": "Explicit model for synchronous automatic review.",
+          "type": "string"
+        },
+        "model_provider": {
+          "description": "Named provider for synchronous automatic review. Omission uses the action's provider.",
           "type": "string"
         },
         "policy": {
@@ -729,6 +745,9 @@
         },
         "chatgpt_base_url": {
           "type": "string"
+        },
+        "chatgpt_path_style": {
+          "$ref": "#/definitions/AccountPathStyle"
         },
         "experimental_compact_prompt_file": {
           "$ref": "#/definitions/AbsolutePathBuf"
@@ -1273,9 +1292,6 @@
             "unified_image_budget": {
               "type": "boolean"
             },
-            "use_agent_identity": {
-              "type": "boolean"
-            },
             "use_legacy_landlock": {
               "type": "boolean"
             },
@@ -1314,6 +1330,12 @@
             }
           },
           "type": "object"
+        },
+        "file_upload_origins": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "include_apps_instructions": {
           "type": "boolean"
@@ -1727,6 +1749,10 @@
     "FeedbackConfigToml": {
       "additionalProperties": false,
       "properties": {
+        "dsn": {
+          "description": "Explicit Sentry-compatible destination for feedback uploads. No default.",
+          "type": "string"
+        },
         "enabled": {
           "description": "When `false`, disables the feedback flow across Codex product surfaces.",
           "type": "boolean"
@@ -1968,6 +1994,14 @@
         "classifier_instructions": {
           "type": "string"
         },
+        "comparison_model": {
+          "description": "Decisions comparison model. Required when comparison is enabled.",
+          "type": "string"
+        },
+        "comparison_model_provider": {
+          "description": "Named provider for the optional Decisions comparison. No provider is selected by default.",
+          "type": "string"
+        },
         "enabled": {
           "type": "boolean"
         },
@@ -1997,6 +2031,14 @@
           "format": "uint",
           "minimum": 0.0,
           "type": "integer"
+        },
+        "model": {
+          "description": "Classifier model. Required when asynchronous classification is enabled.",
+          "type": "string"
+        },
+        "model_provider": {
+          "description": "Named provider for asynchronous classification. Omission uses the action's provider.",
+          "type": "string"
         },
         "persist_scores": {
           "description": "Persist reviewed actions and risk scores to rollout files for debugging.",
@@ -2107,7 +2149,7 @@
     },
     "History": {
       "additionalProperties": false,
-      "description": "Settings that govern if and what will be written to `~/.codex/history.jsonl`.",
+      "description": "Settings that govern if and what will be written to `~/.steve/history.jsonl`.",
       "properties": {
         "max_bytes": {
           "default": null,
@@ -2808,6 +2850,11 @@
       "additionalProperties": false,
       "description": "Serializable representation of a provider definition.",
       "properties": {
+        "accepts_response_continuation": {
+          "default": false,
+          "description": "Whether stored continuation items are sent to this provider.\n\nWhen false, the request drops the internal chat-message passthrough container, encrypted function arguments, and encrypted content on items other than reasoning and compaction. Tool-result metadata lives inside that container, so this field removes it as well. MCP attribution is controlled separately by `include_internal_metadata`.",
+          "type": "boolean"
+        },
         "auth": {
           "allOf": [
             {
@@ -2870,8 +2917,13 @@
           "description": "Additional HTTP headers to include in requests to this provider where the (key, value) pairs are the header name and value.",
           "type": "object"
         },
+        "include_internal_metadata": {
+          "default": false,
+          "description": "Consent to send nested tool-result metadata and MCP attribution.\n\nNested tool-result metadata is sent only when the passthrough container is still present. MCP attribution is attached separately.",
+          "type": "boolean"
+        },
         "model_catalog_url": {
-          "description": "Optional full URL for a Codex-native model catalog. When unset, OpenAI discovery uses the Codex backend unless `base_url` overrides the inference endpoint.",
+          "description": "Optional full URL for a Codex-native model catalog.",
           "type": "string"
         },
         "name": {
@@ -2894,7 +2946,7 @@
         },
         "requires_openai_auth": {
           "default": false,
-          "description": "Does this provider require an OpenAI API key or ChatGPT login token? If true, the user is presented with a login screen on first run, and credentials are stored using the backend selected by `cli_auth_credentials_store`. If false (the default), the login screen is skipped, and the API key (if needed) comes from the environment variable specified by `env_key`.",
+          "description": "Does this provider require a stored API key or supplied account token? If true, the user is presented with a login screen on first run, and credentials are stored using the backend selected by `cli_auth_credentials_store`. If false (the default), the login screen is skipped, and the API key (if needed) comes from the environment variable specified by `env_key`.",
           "type": "boolean"
         },
         "stream_idle_timeout_ms": {
@@ -3419,7 +3471,7 @@
           "type": "string"
         },
         {
-          "description": "CODEX_HOME/.credentials.json This file will be readable to Codex and other applications running as the same user.",
+          "description": "STEVE_HOME/.credentials.json This file will be readable to Codex and other applications running as the same user.",
           "enum": [
             "file"
           ],
@@ -3486,7 +3538,7 @@
               "$ref": "#/definitions/OtelExporterKind"
             }
           ],
-          "description": "Metrics exporter. Defaults to `statsig`, which follows `analytics.enabled`. Custom OTLP exporters are independent of `analytics.enabled`; `none` disables metrics export."
+          "description": "Metrics exporter. Defaults to `none`; exporting requires an explicit OTLP destination. Custom OTLP exporters are independent of `analytics.enabled`; `none` disables metrics export."
         },
         "span_attributes": {
           "additionalProperties": {
@@ -3532,8 +3584,7 @@
       "oneOf": [
         {
           "enum": [
-            "none",
-            "statsig"
+            "none"
           ],
           "type": "string"
         },
@@ -3752,6 +3803,13 @@
             }
           ],
           "description": "Defaults for installed plugin activation. Omission preserves source enablement. Explicit plugin enablement settings override this default, but cannot enable an installation disabled by its source."
+        },
+        "archive_origins": {
+          "description": "Additional HTTP(S) origins permitted for plugin archive downloads.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "type": "object"
@@ -4951,7 +5009,7 @@
         },
         "pet": {
           "default": null,
-          "description": "Pet id to preselect in the terminal pet picker.\n\nCustom pet ids resolve against CODEX_HOME/pets/<pet-id>/pet.json.",
+          "description": "Pet id to preselect in the terminal pet picker.\n\nCustom pet ids resolve against STEVE_HOME/pets/<pet-id>/pet.json.",
           "type": "string"
         },
         "pet_anchor": {
@@ -4962,6 +5020,10 @@
           ],
           "default": "composer",
           "description": "Where the terminal pet should anchor vertically.\n\nDefaults to `composer`, which follows the current TUI composer viewport."
+        },
+        "pet_asset_base_url": {
+          "description": "Base URL for downloading built-in pet assets when they are not cached.",
+          "type": "string"
         },
         "question_esc_back": {
           "default": true,
@@ -5058,7 +5120,7 @@
         },
         "theme": {
           "default": null,
-          "description": "Syntax highlighting theme name (kebab-case).\n\nWhen set, overrides automatic light/dark theme detection. Use `/theme` in the TUI or see `$CODEX_HOME/themes` for custom themes.",
+          "description": "Syntax highlighting theme name (kebab-case).\n\nWhen set, overrides automatic light/dark theme detection. Use `/theme` in the TUI or see `$STEVE_HOME/themes` for custom themes.",
           "type": "string"
         },
         "vim_mode_default": {
@@ -6892,7 +6954,7 @@
       "type": "object"
     }
   },
-  "description": "Base config deserialized from ~/.codex/config.toml.",
+  "description": "Base config deserialized from ~/.steve/config.toml.",
   "properties": {
     "agents": {
       "allOf": [
@@ -6907,7 +6969,7 @@
       "type": "boolean"
     },
     "allow_symlinked_codex_home": {
-      "description": "Allow macOS sandbox writable roots at or beneath CODEX_HOME to traverse symlinks. Read only from the host's user config at startup; defaults to false. This grants no write access by itself, but trusts symlink targets even if they change between commands or lie outside CODEX_HOME. This setting has no effect on Linux or Windows.",
+      "description": "Allow macOS sandbox writable roots at or beneath STEVE_HOME to traverse symlinks. Read only from the host's user config at startup; defaults to false. This grants no write access by itself, but trusts symlink targets even if they change between commands or lie outside STEVE_HOME. This setting has no effect on Linux or Windows.",
       "type": "boolean"
     },
     "analytics": {
@@ -6978,6 +7040,14 @@
       "description": "Base URL for requests to ChatGPT (as opposed to the OpenAI API).",
       "type": "string"
     },
+    "chatgpt_path_style": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/AccountPathStyle"
+        }
+      ],
+      "description": "Path dialect for the account backend. Omission selects `codex_api`."
+    },
     "check_for_update_on_startup": {
       "description": "When `true`, checks for Codex updates on startup and surfaces update prompts. Set to `false` only if your Codex updates are centrally managed. Defaults to `true`.",
       "type": "boolean"
@@ -7020,6 +7090,10 @@
       "description": "Opaque desktop settings stored alongside the rest of config.toml.",
       "type": "object"
     },
+    "desktop_update_url": {
+      "description": "Explicit desktop update feed URL. Unset or blank disables its network probe. Existing desktop bootstrap settings control appcast query parameters.",
+      "type": "string"
+    },
     "developer_instructions": {
       "default": null,
       "description": "Developer instructions inserted as a `developer` role message.",
@@ -7034,6 +7108,10 @@
     },
     "experimental_realtime_start_instructions": {
       "description": "Experimental / do not use. Replaces the built-in realtime start instructions inserted into developer messages when realtime becomes active.",
+      "type": "string"
+    },
+    "experimental_realtime_transcription_model": {
+      "description": "Explicit model for realtime input transcription; omission disables transcription.",
       "type": "string"
     },
     "experimental_realtime_webrtc_call_base_url": {
@@ -7066,6 +7144,10 @@
     },
     "experimental_use_unified_exec_tool": {
       "type": "boolean"
+    },
+    "fallback_model": {
+      "description": "Model selected for automatic usage-limit recovery. Omission disables automatic switching.",
+      "type": "string"
     },
     "features": {
       "additionalProperties": false,
@@ -7604,9 +7686,6 @@
         "unified_image_budget": {
           "type": "boolean"
         },
-        "use_agent_identity": {
-          "type": "boolean"
-        },
         "use_legacy_landlock": {
           "type": "boolean"
         },
@@ -7662,6 +7741,13 @@
       ],
       "description": "Optional URI-based file opener. If set, citations to files in the model output will be hyperlinked using the specified URI scheme."
     },
+    "file_upload_origins": {
+      "description": "Additional HTTP(S) origins permitted to receive file uploads from the backend. The configured backend's own origin is already permitted.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
     "forced_chatgpt_workspace_id": {
       "allOf": [
         {
@@ -7712,7 +7798,7 @@
         "max_bytes": null,
         "persistence": "save-all"
       },
-      "description": "Settings that govern if and what will be written to `~/.codex/history.jsonl`."
+      "description": "Settings that govern if and what will be written to `~/.steve/history.jsonl`."
     },
     "hooks": {
       "allOf": [
@@ -7721,6 +7807,10 @@
         }
       ],
       "description": "Lifecycle hooks configured inline in TOML plus user-level overrides."
+    },
+    "image_generation_model": {
+      "description": "Model used by the standalone image-generation tool.",
+      "type": "string"
     },
     "include_apps_instructions": {
       "description": "Whether to inject the `<apps_instructions>` developer block.",
@@ -7752,7 +7842,7 @@
           "$ref": "#/definitions/AbsolutePathBuf"
         }
       ],
-      "description": "Directory where Codex writes log files. Setting this value explicitly also enables the TUI text log in this directory. Defaults to `$CODEX_HOME/log`."
+      "description": "Directory where Codex writes log files. Setting this value explicitly also enables the TUI text log in this directory. Defaults to `$STEVE_HOME/log`."
     },
     "marketplaces": {
       "additionalProperties": {
@@ -7981,7 +8071,7 @@
     },
     "project_root_markers": {
       "default": null,
-      "description": "Markers used to detect the project root when searching parent directories for `.codex` folders. Defaults to [\".git\"] when unset.",
+      "description": "Markers used to detect the project root when searching parent directories for `.steve` folders. Defaults to [\".git\"] when unset.",
       "items": {
         "type": "string"
       },
@@ -8067,7 +8157,7 @@
           "$ref": "#/definitions/AbsolutePathBuf"
         }
       ],
-      "description": "Directory where Codex stores the SQLite state DB. Defaults to `$CODEX_SQLITE_HOME` when set. Otherwise uses `$CODEX_HOME`."
+      "description": "Directory where Codex stores the SQLite state DB. Defaults to `$STEVE_SQLITE_HOME` when set. Otherwise uses `$STEVE_HOME`."
     },
     "suppress_unstable_features_warning": {
       "description": "Suppress warnings about unstable (under development) features.",

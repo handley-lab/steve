@@ -554,6 +554,7 @@ pub async fn run_main_with_transport_options(
     config_manager.replace_cloud_config_bundle_loader(
         bootstrap_auth,
         bootstrap_config.chatgpt_base_url.clone(),
+        bootstrap_config.chatgpt_path_style,
         bootstrap_config.http_client_factory(),
     );
     let mut config_warnings = Vec::new();
@@ -585,11 +586,15 @@ pub async fn run_main_with_transport_options(
         AuthManager::shared_from_config(&config, /*enable_codex_api_key_env*/ false)
             .await
             .map_err(std::io::Error::other)?;
-    config_manager.replace_cloud_config_bundle_loader(
-        auth_manager.clone(),
-        config.chatgpt_base_url.clone(),
-        config.http_client_factory(),
-    );
+    // Keep the configured policy loader when startup falls back after a load error.
+    if matches!(plugin_startup_config, PluginStartupConfig::Current) {
+        config_manager.replace_cloud_config_bundle_loader(
+            auth_manager.clone(),
+            config.chatgpt_base_url.clone(),
+            config.chatgpt_path_style,
+            config.http_client_factory(),
+        );
+    }
     config_manager
         .sync_default_client_residency_requirement()
         .await;

@@ -521,3 +521,46 @@ fn realtime_headers_keep_realtime_and_voice_session_ids_distinct() {
         Some("voice_session_1")
     );
 }
+
+#[test]
+fn realtime_api_key_uses_provider_credentials_and_ignores_ambient_openai_key() {
+    let previous = std::env::var_os("OPENAI_API_KEY");
+    unsafe {
+        std::env::set_var("OPENAI_API_KEY", "ambient-openai-key");
+    }
+    let auth = codex_login::CodexAuth::from_api_key("auth-key");
+    for name in ["Cambridge", "OpenAI"] {
+        let mut provider = codex_model_provider_info::ModelProviderInfo {
+            name: name.to_string(),
+            env_key: Some("PATH".to_string()),
+            ..Default::default()
+        };
+        let from_env = super::realtime_api_key(Some(&auth), &provider).expect("env key");
+        assert_eq!(from_env, std::env::var("PATH").unwrap(), "{name}");
+        provider.env_key = None;
+        provider.experimental_bearer_token = Some("bearer-b".into());
+        assert_eq!(
+            super::realtime_api_key(Some(&auth), &provider).expect("bearer"),
+            "bearer-b",
+            "{name}"
+        );
+        provider.experimental_bearer_token = None;
+        assert_eq!(
+            super::realtime_api_key(Some(&auth), &provider).expect("auth key"),
+            "auth-key",
+            "{name}"
+        );
+        let missing = super::realtime_api_key(None, &provider).expect_err("missing key");
+        assert_eq!(
+            missing.to_string(),
+            "realtime conversation requires API key auth",
+            "{name}"
+        );
+    }
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("OPENAI_API_KEY", value),
+            None => std::env::remove_var("OPENAI_API_KEY"),
+        }
+    }
+}

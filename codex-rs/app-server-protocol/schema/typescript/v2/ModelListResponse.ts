@@ -8,4 +8,9 @@ export type ModelListResponse = { data: Array<Model>,
  * Opaque cursor to pass to the next call to continue after the last item.
  * If None, there are no more items to return.
  */
-nextCursor: string | null, };
+nextCursor: string | null,
+/**
+ * Retained cyber-program forwarding setting of the requested live thread.
+ * Omitted for an unscoped listing or an older server.
+ */
+cyberAccessProgramsEnabled?: boolean | null, };

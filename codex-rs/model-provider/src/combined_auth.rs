@@ -62,7 +62,10 @@ pub(crate) async fn compose_auth(
     Ok(resolved)
 }
 
-fn gateway_header(config: &GatewayOAuthConfig, token: &str) -> Result<(HeaderName, HeaderValue)> {
+pub(crate) fn gateway_header(
+    config: &GatewayOAuthConfig,
+    token: &str,
+) -> Result<(HeaderName, HeaderValue)> {
     if token.is_empty() {
         return Err(CodexErr::InvalidRequest(
             "gateway OAuth returned an empty token".into(),

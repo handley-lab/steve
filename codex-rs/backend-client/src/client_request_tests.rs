@@ -65,6 +65,71 @@ fn list_tasks_url_omits_empty_query_and_encodes_all_parameters() {
 }
 
 #[tokio::test]
+async fn configured_backend_does_not_follow_redirects() {
+    let configured = MockServer::start().await;
+    let destination = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+        .mount(&destination)
+        .await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "task": {"id": "configured-task"}
+        })))
+        .mount(&destination)
+        .await;
+    let direct = Client::from_auth(
+        destination.uri(),
+        &CodexAuth::from_api_key("synthetic-key"),
+        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+    );
+    direct
+        .get_accounts_check()
+        .await
+        .expect("configured account service");
+    direct
+        .get_config_bundle()
+        .await
+        .expect("configured config service");
+    direct
+        .create_task(serde_json::json!({"prompt": "synthetic task"}))
+        .await
+        .expect("configured task service");
+    assert_eq!(destination.received_requests().await.unwrap().len(), 3);
+
+    for (verb, status) in [("GET", 302), ("POST", 307)] {
+        Mock::given(method(verb))
+            .respond_with(ResponseTemplate::new(status).insert_header(
+                "Location",
+                format!("{}/redirect-destination", destination.uri()),
+            ))
+            .mount(&configured)
+            .await;
+    }
+    let client = Client::from_auth(
+        configured.uri(),
+        &CodexAuth::from_api_key("synthetic-key"),
+        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+    );
+    let accounts = client.get_accounts_check().await;
+    let bundle = client.get_config_bundle().await;
+    let task = client
+        .create_task(serde_json::json!({"prompt": "synthetic task"}))
+        .await;
+    let destination_requests = destination.received_requests().await.unwrap();
+    eprintln!("destination requests: {destination_requests:#?}");
+    assert_eq!(configured.received_requests().await.unwrap().len(), 3);
+    assert_eq!(
+        destination_requests.len(),
+        3,
+        "redirects must not create requests"
+    );
+    assert!(accounts.is_err());
+    assert!(bundle.is_err());
+    assert!(task.is_err());
+}
+
+#[tokio::test]
 async fn migrated_requests_preserve_query_auth_and_json_body() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("HTTP listener should bind");
     let address = listener
@@ -187,11 +252,12 @@ fn run_without_environment_proxies(test_name: &str) -> bool {
     true
 }
 
-fn fallback_client(base_url: &str) -> Client {
+fn fallback_client(base_url: &str, path_style: PathStyle) -> Client {
     Client::new(
         base_url,
         HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault).with_system_proxy_fallback(),
     )
+    .with_path_style(path_style)
     .with_auth_provider(Arc::new(codex_model_provider::BearerAuthProvider::new(
         "bootstrap-token".to_string(),
     )))
@@ -206,11 +272,14 @@ async fn bootstrap_gets_resolve_each_fallback_destination_and_preserve_headers()
     ) {
         return;
     }
-    for (base_suffix, api_prefix) in [("", "/api/codex"), ("/backend-api", "/wham")] {
+    for (base_suffix, path_style, api_prefix) in [
+        ("", PathStyle::CodexApi, "/api/codex"),
+        ("/backend-api", PathStyle::ChatGptApi, "/wham"),
+    ] {
         let bundle_proxy = MockServer::start().await;
         let accounts_proxy = MockServer::start().await;
         let base_url = format!("{BLOCKED_ORIGIN}{base_suffix}");
-        let client = fallback_client(&base_url);
+        let client = fallback_client(&base_url, path_style);
         for (endpoint, proxy) in [
             ("config/bundle", &bundle_proxy),
             ("accounts/check", &accounts_proxy),
@@ -258,7 +327,7 @@ async fn bootstrap_gets_keep_default_responses_without_proxy_retry() {
             .expect(2)
             .mount(&issuer)
             .await;
-        let client = fallback_client(&issuer.uri());
+        let client = fallback_client(&issuer.uri(), PathStyle::CodexApi);
         let bundle = client.get_config_bundle().await;
         let accounts = client.get_accounts_check().await;
         if status == 200 {
@@ -373,7 +442,7 @@ async fn bootstrap_gets_retry_post_connect_failure_with_system_proxy() {
             .expect(1)
             .mount(&proxy)
             .await;
-        let client = fallback_client(&issuer_url);
+        let client = fallback_client(&issuer_url, PathStyle::CodexApi);
         let result = client
             .exec_bootstrap_get(&format!("{issuer_url}{endpoint_path}"))
             .await;
@@ -427,7 +496,7 @@ async fn bootstrap_get_recovers_from_stalled_body_before_cloud_startup_timeout()
         .await;
     let result = tokio::time::timeout(
         Duration::from_secs(15),
-        fallback_client(&issuer_url).get_config_bundle(),
+        fallback_client(&issuer_url, PathStyle::CodexApi).get_config_bundle(),
     )
     .await;
     finish.send(()).expect("release stalled issuer");

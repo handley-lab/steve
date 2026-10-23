@@ -43,6 +43,71 @@ fn remote_plugin_json(remote_plugin_id: &str, plugin_name: &str, scope: &str) ->
 }
 
 #[tokio::test]
+async fn configured_plugin_service_does_not_follow_another_origin() {
+    let source = MockServer::start().await;
+    let target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "plugins": [],
+            "pagination": {"next_page_token": null},
+        })))
+        .mount(&target)
+        .await;
+    Mock::given(method("GET"))
+        .respond_with(
+            ResponseTemplate::new(307)
+                .insert_header("location", format!("{}/redirected", target.uri())),
+        )
+        .mount(&source)
+        .await;
+    let factory = codex_http_client::HttpClientFactory::new(
+        codex_http_client::OutboundProxyPolicy::ReqwestDefault,
+    );
+    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
+    let search = RemotePluginSearchRequest {
+        query: "synthetic private search",
+        scope: None,
+        limit: 16,
+        page_token: Some("synthetic private page"),
+    };
+    let direct = RemotePluginServiceConfig::new(target.uri(), factory.clone(), None);
+    search_remote_plugins(&direct, Some(&auth), search)
+        .await
+        .expect("explicit target service should work");
+    let config = RemotePluginServiceConfig::new(source.uri(), factory, None);
+    let home = tempfile::tempdir().unwrap();
+    let mut input = crate::test_support::load_plugins_config(home.path(), home.path()).await;
+    input.chatgpt_base_url = source.uri();
+    let configs = [
+        config,
+        input.remote_plugin_service_config(),
+        input.clone().remote_plugin_service_config(),
+    ];
+    let mut results = Vec::new();
+    for config in configs {
+        results.push(search_remote_plugins(&config, Some(&auth), search).await);
+    }
+    let source_requests = source.received_requests().await.unwrap();
+    let target_requests = target.received_requests().await.unwrap();
+    eprintln!(
+        "source requests={source_requests:?}\ntarget requests={target_requests:?}\nresults={results:?}"
+    );
+    assert_eq!(source_requests.len(), 3);
+    assert_eq!(
+        target_requests.len(),
+        1,
+        "only the direct control may reach target"
+    );
+    for result in results {
+        assert!(matches!(
+            result,
+            Err(RemotePluginCatalogError::UnexpectedStatus { status, .. })
+                if status == StatusCode::TEMPORARY_REDIRECT
+        ));
+    }
+}
+
+#[tokio::test]
 async fn search_remote_plugins_forwards_parameters_and_converts_results() {
     let server = MockServer::start().await;
     let remote_plugin = json!({

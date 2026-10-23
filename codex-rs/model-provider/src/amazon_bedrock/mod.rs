@@ -17,10 +17,6 @@ use codex_api::SharedAuthProvider;
 use codex_api::TransportError;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
-use codex_model_provider_info::AMAZON_BEDROCK_GPT_5_6_LUNA_MODEL_ID;
-use codex_model_provider_info::AMAZON_BEDROCK_GPT_5_6_TERRA_MODEL_ID;
-use codex_model_provider_info::AMAZON_BEDROCK_RUNTIME_GLOBAL_GPT_5_6_LUNA_MODEL_ID;
-use codex_model_provider_info::AMAZON_BEDROCK_RUNTIME_GLOBAL_GPT_5_6_TERRA_MODEL_ID;
 use codex_model_provider_info::ModelProviderAwsAuthInfo;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_models_manager::manager::SharedModelsManager;
@@ -47,11 +43,9 @@ use catalog::normalize_bedrock_catalog;
 use catalog::static_gov_model_catalog;
 pub(crate) use catalog::static_model_catalog;
 pub(crate) use credential_export::AwsCredentialExport;
-use mantle::bedrock_mantle_runtime_base_url;
 pub use mantle::is_amazon_bedrock_gov_cloud_region;
 pub use mantle::is_supported_amazon_bedrock_region;
 pub use region::resolve_amazon_bedrock_region;
-use runtime::bedrock_runtime_base_url;
 use runtime_catalog::static_runtime_model_catalog;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -182,44 +176,13 @@ impl AmazonBedrockModelProvider {
     }
 
     async fn api_provider(&self) -> Result<Provider> {
-        let mut api_provider_info = self.info.clone();
-        api_provider_info.base_url = self.runtime_base_url().await?;
-        api_provider_info.to_api_provider(/*auth_mode*/ None)
+        self.info.to_api_provider(/*auth_mode*/ None)
     }
 
     async fn runtime_base_url(&self) -> Result<Option<String>> {
-        if let Some(base_url) = self.info.base_url.clone() {
-            return Ok(Some(base_url));
-        }
-        let http_client_factory = self.http_client_factory.clone().with_network_policy(
-            self.http_client_factory
-                .network_policy()
-                .clone()
-                .for_current_account(),
-        );
-        let auth_source = self.auth_source();
-        let managed_auth = self.managed_auth();
-        let base_url = match self.endpoint {
-            BedrockEndpoint::Mantle => {
-                bedrock_mantle_runtime_base_url(
-                    auth_source,
-                    managed_auth.as_ref(),
-                    &self.aws,
-                    &http_client_factory,
-                )
-                .await?
-            }
-            BedrockEndpoint::Runtime => {
-                bedrock_runtime_base_url(
-                    auth_source,
-                    managed_auth.as_ref(),
-                    &self.aws,
-                    &http_client_factory,
-                )
-                .await?
-            }
-        };
-        Ok(Some(base_url))
+        self.api_provider()
+            .await
+            .map(|provider| Some(provider.base_url))
     }
 
     async fn api_auth(&self) -> Result<SharedAuthProvider> {
@@ -283,27 +246,6 @@ impl ModelProvider for AmazonBedrockModelProvider {
             web_search: self.endpoint == BedrockEndpoint::Mantle,
             external_web_access: false,
             remote_compaction: RemoteCompactionSupport::V2,
-        }
-    }
-
-    fn approval_review_preferred_model(&self) -> &'static str {
-        match self.endpoint {
-            BedrockEndpoint::Mantle => AMAZON_BEDROCK_GPT_5_6_LUNA_MODEL_ID,
-            BedrockEndpoint::Runtime => AMAZON_BEDROCK_RUNTIME_GLOBAL_GPT_5_6_LUNA_MODEL_ID,
-        }
-    }
-
-    fn memory_extraction_preferred_model(&self) -> &'static str {
-        match self.endpoint {
-            BedrockEndpoint::Mantle => AMAZON_BEDROCK_GPT_5_6_LUNA_MODEL_ID,
-            BedrockEndpoint::Runtime => AMAZON_BEDROCK_RUNTIME_GLOBAL_GPT_5_6_LUNA_MODEL_ID,
-        }
-    }
-
-    fn memory_consolidation_preferred_model(&self) -> &'static str {
-        match self.endpoint {
-            BedrockEndpoint::Mantle => AMAZON_BEDROCK_GPT_5_6_TERRA_MODEL_ID,
-            BedrockEndpoint::Runtime => AMAZON_BEDROCK_RUNTIME_GLOBAL_GPT_5_6_TERRA_MODEL_ID,
         }
     }
 
@@ -486,7 +428,8 @@ mod tests {
         let region = "eu-central-1";
         let mut api_provider_info =
             ModelProviderInfo::create_amazon_bedrock_provider(/*aws*/ None);
-        api_provider_info.base_url = Some(mantle::base_url(region).expect("supported region"));
+        api_provider_info.base_url =
+            Some(format!("https://bedrock-mantle.{region}.api.aws/openai/v1"));
         let api_provider = api_provider_info
             .to_api_provider(/*auth_mode*/ None)
             .expect("api provider should build");
@@ -498,7 +441,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn command_auth_resolves_configured_and_regional_base_urls() {
+    async fn command_auth_requires_a_configured_base_url() {
         let mut provider_info = command_auth_provider(Some("https://proxy.example.com/v1"));
         provider_info.aws = Some(ModelProviderAwsAuthInfo {
             profile: Some("aws-profile-that-should-not-be-loaded".to_string()),
@@ -545,13 +488,7 @@ mod tests {
         let regional_provider =
             AmazonBedrockModelProvider::new(regional_provider_info, /*auth_manager*/ None);
 
-        assert_eq!(
-            regional_provider
-                .runtime_base_url()
-                .await
-                .expect("configured AWS region should resolve for command auth"),
-            Some("https://bedrock-mantle.us-west-2.api.aws/openai/v1".to_string())
-        );
+        assert!(regional_provider.runtime_base_url().await.is_err());
     }
 
     #[tokio::test]
@@ -596,13 +533,7 @@ mod tests {
                 requires_openai_auth: false,
             })
         );
-        assert_eq!(
-            provider
-                .runtime_base_url()
-                .await
-                .expect("managed Bedrock region should resolve"),
-            Some("https://bedrock-mantle.us-east-1.api.aws/openai/v1".to_string())
-        );
+        assert!(provider.runtime_base_url().await.is_err());
         assert_eq!(
             provider
                 .api_auth()
@@ -642,12 +573,11 @@ mod tests {
                     requires_openai_auth: false,
                 })
             );
-            assert_eq!(
+            assert!(
                 configured_profile_provider
                     .runtime_base_url()
                     .await
-                    .expect("configured AWS profile region should resolve"),
-                Some("https://bedrock-mantle.us-west-2.api.aws/openai/v1".to_string())
+                    .is_err()
             );
             assert!(
                 configured_profile_provider
@@ -721,7 +651,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn runtime_managed_auth_resolves_runtime_endpoint() {
+    async fn runtime_managed_auth_does_not_invent_an_endpoint() {
         let managed_auth = BedrockApiKeyAuth {
             api_key: "managed-bedrock-api-key".to_string(),
             region: "eu-west-1".to_string(),
@@ -733,49 +663,8 @@ mod tests {
             Some(auth_manager),
         );
 
-        assert_eq!(
-            provider
-                .runtime_base_url()
-                .await
-                .expect("managed Bedrock Runtime region should resolve"),
-            Some("https://bedrock-runtime.eu-west-1.amazonaws.com/openai/v1".to_string())
-        );
+        assert!(provider.runtime_base_url().await.is_err());
     }
 
-    #[test]
-    fn preferred_background_models_match_bedrock_endpoint() {
-        let mantle_provider = AmazonBedrockModelProvider::new(
-            ModelProviderInfo::create_amazon_bedrock_provider(/*aws*/ None),
-            /*auth_manager*/ None,
-        );
-        let runtime_provider = AmazonBedrockModelProvider::new(
-            ModelProviderInfo::create_amazon_bedrock_runtime_provider(/*aws*/ None),
-            /*auth_manager*/ None,
-        );
 
-        assert_eq!(
-            (
-                mantle_provider.approval_review_preferred_model(),
-                mantle_provider.memory_extraction_preferred_model(),
-                mantle_provider.memory_consolidation_preferred_model(),
-            ),
-            (
-                AMAZON_BEDROCK_GPT_5_6_LUNA_MODEL_ID,
-                AMAZON_BEDROCK_GPT_5_6_LUNA_MODEL_ID,
-                AMAZON_BEDROCK_GPT_5_6_TERRA_MODEL_ID,
-            )
-        );
-        assert_eq!(
-            (
-                runtime_provider.approval_review_preferred_model(),
-                runtime_provider.memory_extraction_preferred_model(),
-                runtime_provider.memory_consolidation_preferred_model(),
-            ),
-            (
-                AMAZON_BEDROCK_RUNTIME_GLOBAL_GPT_5_6_LUNA_MODEL_ID,
-                AMAZON_BEDROCK_RUNTIME_GLOBAL_GPT_5_6_LUNA_MODEL_ID,
-                AMAZON_BEDROCK_RUNTIME_GLOBAL_GPT_5_6_TERRA_MODEL_ID,
-            )
-        );
-    }
 }

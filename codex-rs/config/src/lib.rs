@@ -48,6 +48,7 @@ mod tui_keymap;
 mod tui_mouse_scroll;
 mod tui_rendering;
 pub mod types;
+pub use types::AccountPathStyle;
 
 pub const CONFIG_TOML_FILE: &str = "config.toml";
 

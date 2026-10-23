@@ -136,11 +136,8 @@ use crate::responses_metadata::subagent_header_value;
 use crate::util::emit_feedback_auth_recovery_tags;
 use codex_feedback::FeedbackRequestTags;
 use codex_feedback::emit_feedback_request_tags_with_auth_env;
-use codex_login::auth::AgentIdentityAuthPolicy;
 use codex_login::auth_env_telemetry::AuthEnvTelemetry;
 use codex_login::auth_env_telemetry::collect_auth_env_telemetry;
-use codex_model_provider::AgentIdentitySessionFallback;
-use codex_model_provider::ProviderAuthScope;
 use codex_model_provider::ProviderUnauthorizedRecovery;
 use codex_model_provider::ResponsesConnectionKey;
 use codex_model_provider::SharedModelProvider;
@@ -214,10 +211,8 @@ struct ModelClientState {
     beta_features_header: Option<String>,
     concurrent_reasoning_summaries_enabled: bool,
     output_token_replay_enabled: bool,
-    include_attestation: bool,
     attestation_provider: Option<Arc<dyn AttestationProvider>>,
     disable_websockets: AtomicBool,
-    agent_identity_session_fallback: AgentIdentitySessionFallback,
     cached_websocket_session: StdMutex<WebsocketSession>,
     /// Last full tool list used for sampling, retained across turns and connection resets.
     last_inference_tools: StdMutex<Option<Arc<[ToolSpec]>>>,
@@ -226,6 +221,7 @@ struct ModelClientState {
 enum ClientRouting {
     Workspace,
     ConfiguredProvider,
+    ExplicitProvider(ApiProvider),
 }
 
 /// Resolved API client setup for a single request attempt.
@@ -267,7 +263,6 @@ impl RequestRouteTelemetry {
 #[derive(Debug, Clone)]
 pub struct ModelClient {
     state: Arc<ModelClientState>,
-    agent_identity_policy: AgentIdentityAuthPolicy,
     prompt_cache_key_override: Option<String>,
     codex_responses_headers: Option<Arc<CodexResponsesHeaders>>,
     event_sender: Option<Sender<ProtocolEvent>>,
@@ -276,7 +271,7 @@ pub struct ModelClient {
     request_contributors: Vec<Arc<dyn codex_extension_api::ModelRequestContributor>>,
     executed_tool_calls: Option<ExecutedToolCalls>,
     // Resolved once when the session is created, like other session feature flags.
-    api_key_cyber_access_programs: cyber_access_program::ApiKeyCyberAccessPrograms,
+    api_key_cyber_access_programs: bool,
 }
 
 /// A turn-scoped streaming session created from a [`ModelClient`].
@@ -541,7 +536,6 @@ impl ModelClient {
     /// observes the resolved outbound proxy policy.
     pub fn new(
         auth_manager: Option<Arc<AuthManager>>,
-        agent_identity_policy: AgentIdentityAuthPolicy,
         thread_id: ThreadId,
         provider_info: ModelProviderInfo,
         session_source: SessionSource,
@@ -566,7 +560,6 @@ impl ModelClient {
             .is_some_and(|manager| manager.codex_api_key_env_enabled());
         let auth_env_telemetry =
             collect_auth_env_telemetry(model_provider.info(), codex_api_key_env_enabled);
-        let include_attestation = model_provider.supports_attestation();
         // Fixed-effort workers use request-level effort even when managed requirements
         // pin the feature on. Share this decision with update injection and pinning.
         let memory_consolidation = matches!(
@@ -593,14 +586,11 @@ impl ModelClient {
                 beta_features_header,
                 concurrent_reasoning_summaries_enabled,
                 output_token_replay_enabled,
-                include_attestation,
                 attestation_provider,
                 disable_websockets: AtomicBool::new(false),
-                agent_identity_session_fallback: AgentIdentitySessionFallback::default(),
                 cached_websocket_session: StdMutex::new(WebsocketSession::default()),
                 last_inference_tools: StdMutex::new(None),
             }),
-            agent_identity_policy,
             prompt_cache_key_override: None,
             codex_responses_headers: None,
             event_sender: None,
@@ -608,8 +598,7 @@ impl ModelClient {
             restored_history: false,
             request_contributors,
             executed_tool_calls: None,
-            api_key_cyber_access_programs:
-                cyber_access_program::ApiKeyCyberAccessPrograms::UnsupportedProvider,
+            api_key_cyber_access_programs: false,
         }
     }
 
@@ -620,7 +609,6 @@ impl ModelClient {
 
     pub(crate) fn reasoning_effort_override_enabled(&self, model_info: &ModelInfo) -> bool {
         self.state.reasoning_effort_override_enabled
-            && self.state.provider.info().is_openai()
             && model_info.supports_reasoning_effort_updates
     }
 
@@ -634,7 +622,7 @@ impl ModelClient {
         prompt_cache_key_override: Option<String>,
         event_sender: Sender<ProtocolEvent>,
         codex_responses_headers: Option<Arc<CodexResponsesHeaders>>,
-        api_key_cyber_access_programs: cyber_access_program::ApiKeyCyberAccessPrograms,
+        api_key_cyber_access_programs: bool,
     ) -> Self {
         self.prompt_cache_key_override = prompt_cache_key_override;
         self.event_sender = Some(event_sender);
@@ -746,9 +734,11 @@ impl ModelClient {
     ) -> Result<RealtimeWebrtcCallStart> {
         // Create the media call over HTTP first, then retain matching auth so realtime can attach
         // the server-side control WebSocket to the call id from that HTTP response.
-        let client_setup = self
-            .current_client_setup(ClientRouting::ConfiguredProvider)
-            .await?;
+        let routing = match api_provider_override {
+            Some(provider) => ClientRouting::ExplicitProvider(provider),
+            None => ClientRouting::ConfiguredProvider,
+        };
+        let client_setup = self.current_client_setup(routing).await?;
         if let Some(header_value) = self.generate_attestation_header_for().await {
             extra_headers.insert(X_OAI_ATTESTATION_HEADER, header_value);
         }
@@ -756,7 +746,7 @@ impl ModelClient {
         sideband_headers.extend(sideband_websocket_auth_headers(
             client_setup.api_auth.as_ref(),
         ));
-        let api_provider = api_provider_override.unwrap_or(client_setup.api_provider);
+        let api_provider = client_setup.api_provider;
         let transport = self.build_api_transport(
             &api_provider,
             REALTIME_CALLS_ENDPOINT,
@@ -776,9 +766,10 @@ impl ModelClient {
     pub(crate) async fn realtime_sideband_headers(
         &self,
         mut extra_headers: ApiHeaderMap,
+        api_provider: ApiProvider,
     ) -> Result<ApiHeaderMap> {
         let client_setup = self
-            .current_client_setup(ClientRouting::ConfiguredProvider)
+            .current_client_setup(ClientRouting::ExplicitProvider(api_provider))
             .await?;
         if let Some(header_value) = self.generate_attestation_header_for().await {
             extra_headers.insert(X_OAI_ATTESTATION_HEADER, header_value);
@@ -901,10 +892,6 @@ impl ModelClient {
     }
 
     async fn generate_attestation_header_for(&self) -> Option<HeaderValue> {
-        if !self.state.include_attestation {
-            return None;
-        }
-
         self.state
             .attestation_provider
             .as_ref()?
@@ -969,7 +956,8 @@ impl ModelClient {
             // Filter only the request copy; persisted history remains unchanged.
             input.retain(|item| !matches!(item, ResponseItem::ConfigurationUpdate { .. }));
         }
-        let is_openai = self.state.provider.info().is_openai();
+        let accepts_response_continuation =
+            self.state.provider.info().accepts_response_continuation;
         // These prompt-only items are rebuilt on every request. Hash their visible payloads
         // within the thread so retries and resumed sessions preserve their identity.
         let prefix_namespace = Uuid::new_v5(
@@ -1010,7 +998,7 @@ impl ModelClient {
                 item.clear_content_item_metadata();
             }
         }
-        if !is_openai {
+        if !accepts_response_continuation {
             for item in &mut input {
                 item.clear_internal_chat_message_metadata_passthrough();
                 if !matches!(
@@ -1032,13 +1020,12 @@ impl ModelClient {
         }
         let reasoning = self.build_reasoning(model_info, effort, summary);
         let stream_options = (self.state.concurrent_reasoning_summaries_enabled
-            && is_openai
             && reasoning.summary.is_some())
         .then_some(StreamOptions {
             reasoning_summary_delivery: codex_api::ReasoningSummaryDelivery::SequentialCutoff,
         });
         let mut include = vec!["reasoning.encrypted_content".to_string()];
-        if self.state.output_token_replay_enabled && is_openai {
+        if self.state.output_token_replay_enabled {
             include.push("output.encrypted_content".to_string());
         }
         let verbosity = if model_info.support_verbosity {
@@ -1058,17 +1045,7 @@ impl ModelClient {
             prompt.output_schema_strict,
         );
         let prompt_cache_key = Some(self.prompt_cache_key(responses_metadata));
-        let service_tier = model_info
-            .service_tier_for_request(service_tier)
-            .filter(|tier| {
-                // Bedrock requires an advertised tier, including for flex, which the
-                // generic OpenAI resolver permits without catalog support.
-                !self.state.provider.info().is_amazon_bedrock()
-                    || model_info
-                        .service_tiers
-                        .iter()
-                        .any(|supported| supported.id == *tier)
-            });
+        let service_tier = self.service_tier_for_request(model_info, service_tier);
         if !include_internal {
             for item in &mut input {
                 item.clear_tool_result_metadata();
@@ -1135,7 +1112,7 @@ impl ModelClient {
         loop {
             let revision = auth_changes.as_ref().map(|changes| *changes.borrow());
             let auth = self.state.provider.auth().await;
-            let (api_provider, redirect_policy) = match routing {
+            let (api_provider, redirect_policy) = match &routing {
                 ClientRouting::Workspace => {
                     let resolved = self
                         .state
@@ -1146,21 +1123,13 @@ impl ModelClient {
                 }
                 ClientRouting::ConfiguredProvider => (
                     self.state.provider.api_provider().await?,
-                    ClientRedirectPolicy::Default,
+                    ClientRedirectPolicy::Reject,
                 ),
+                ClientRouting::ExplicitProvider(provider) => {
+                    (provider.clone(), ClientRedirectPolicy::Reject)
+                }
             };
-            let resolved_auth = self
-                .state
-                .provider
-                .api_auth_for_scope(ProviderAuthScope {
-                    agent_identity_policy: self.agent_identity_policy,
-                    session_source: self.state.session_source.clone(),
-                    agent_identity_session_fallback: self
-                        .state
-                        .agent_identity_session_fallback
-                        .clone(),
-                })
-                .await?;
+            let resolved_auth = self.state.provider.api_auth_for_scope().await?;
             // Command-backed bearer refreshes cannot change workspace routing. Keep the captured
             // revisions so a refresh during setup still invalidates cached WebSocket state.
             if self.state.provider.info().auth.is_none() {
@@ -1187,14 +1156,28 @@ impl ModelClient {
         }
     }
 
-    fn responses_headers(&self, auth: Option<&CodexAuth>, model: &str) -> ApiHeaderMap {
+    fn service_tier_for_request(
+        &self,
+        model_info: &ModelInfo,
+        service_tier: Option<String>,
+    ) -> Option<String> {
+        model_info
+            .service_tier_for_request(service_tier)
+            .filter(|tier| {
+                // Bedrock requires an advertised tier, including for flex, which the
+                // generic OpenAI resolver permits without catalog support.
+                !self.state.provider.info().is_amazon_bedrock()
+                    || model_info
+                        .service_tiers
+                        .iter()
+                        .any(|supported| supported.id == *tier)
+            })
+    }
+
+    fn responses_headers(&self, model: &str) -> ApiHeaderMap {
         self.codex_responses_headers
             .as_ref()
-            .filter(|config| {
-                config.model == model
-                    && self.uses_codex_backend(auth)
-                    && self.state.provider.info().supports_codex_backend_routes()
-            })
+            .filter(|config| config.model == model)
             .map(|config| config.headers.clone())
             .unwrap_or_default()
     }
@@ -1202,7 +1185,6 @@ impl ModelClient {
     fn uses_codex_backend(&self, auth: Option<&CodexAuth>) -> bool {
         let provider = self.state.provider.info();
         auth.is_some_and(CodexAuth::uses_codex_backend)
-            && provider.is_openai()
             && provider.requires_openai_auth
             && provider.env_key.is_none()
             && provider.experimental_bearer_token.is_none()
@@ -1245,12 +1227,11 @@ impl ModelClient {
 
     fn build_routing_hint_header(
         &self,
-        auth: Option<&CodexAuth>,
         responses_headers: &ApiHeaderMap,
         model: &str,
         service_tier: Option<&str>,
     ) -> Option<HeaderValue> {
-        if !self.uses_codex_backend(auth) || is_guardian_reviewer(responses_headers) {
+        if is_guardian_reviewer(responses_headers) {
             return None;
         }
 
@@ -1593,14 +1574,13 @@ impl ModelClientSession {
             );
             let responses_headers = self
                 .client
-                .responses_headers(client_setup.auth.as_ref(), &model_info.slug);
+                .responses_headers(&model_info.slug);
             let mut websocket_metadata = responses_metadata.clone();
             websocket_metadata.routing_hint = self.client.build_routing_hint_header(
-                client_setup.auth.as_ref(),
                 &responses_headers,
                 &model_info.slug,
-                model_info
-                    .service_tier_for_request(service_tier.clone())
+                self.client
+                    .service_tier_for_request(model_info, service_tier.clone())
                     .as_deref(),
             );
             match self
@@ -1731,11 +1711,8 @@ impl ModelClientSession {
 }
 
 impl ResponsesHttpExecutor<'_> {
-    fn responses_request_compression(&self, auth: Option<&CodexAuth>) -> Compression {
-        if self.client.state.enable_request_compression
-            && auth.is_some_and(CodexAuth::uses_codex_backend)
-            && self.client.state.provider.info().is_openai()
-        {
+    fn responses_request_compression(&self) -> Compression {
+        if self.client.state.enable_request_compression {
             Compression::Zstd
         } else {
             Compression::None
@@ -1797,7 +1774,7 @@ impl ResponsesHttpExecutor<'_> {
                 .include_internal_metadata(&client_setup.api_provider);
             let responses_headers = self
                 .client
-                .responses_headers(client_setup.auth.as_ref(), &model_info.slug);
+                .responses_headers(&model_info.slug);
             tracing::Span::current().record("api.path", "/responses");
             let transport = self.client.build_api_transport(
                 &client_setup.api_provider,
@@ -1816,7 +1793,7 @@ impl ResponsesHttpExecutor<'_> {
                 RequestRouteTelemetry::for_endpoint("/responses"),
                 self.client.state.auth_env_telemetry.clone(),
             );
-            let compression = self.responses_request_compression(client_setup.auth.as_ref());
+            let compression = self.responses_request_compression();
             let mut options = self
                 .build_responses_options(
                     turn_state,
@@ -1841,11 +1818,7 @@ impl ResponsesHttpExecutor<'_> {
                 client_setup.auth.as_ref(),
                 &responses_headers,
             );
-            if is_guardian_reviewer(&responses_headers) {
-                request.service_tier = None;
-            }
             if let Some(header_value) = self.client.build_routing_hint_header(
-                client_setup.auth.as_ref(),
                 &responses_headers,
                 &request.model,
                 request.service_tier.as_deref(),
@@ -1854,8 +1827,7 @@ impl ResponsesHttpExecutor<'_> {
                     .extra_headers
                     .insert(X_CODEX_ROUTING_HINT_HEADER, header_value);
             }
-            request.access_programs = cyber_access_program::for_auth(
-                client_setup.auth.as_ref(),
+            request.access_programs = cyber_access_program::for_request(
                 prompt.cyber_access_program,
                 self.client.api_key_cyber_access_programs,
             )?;
@@ -1996,7 +1968,7 @@ impl ModelClientSession {
                 .include_internal_metadata(&client_setup.api_provider);
             let responses_headers = self
                 .client
-                .responses_headers(client_setup.auth.as_ref(), &model_info.slug);
+                .responses_headers(&model_info.slug);
             tracing::Span::current().record("api.path", "/responses");
             let request_auth_context = AuthRequestTelemetryContext::new(
                 client_setup.auth.as_ref().map(CodexAuth::auth_mode),
@@ -2013,17 +1985,12 @@ impl ModelClientSession {
                 responses_metadata,
                 include_internal,
             )?;
-            if is_guardian_reviewer(&responses_headers) {
-                request.service_tier = None;
-            }
-            request.access_programs = cyber_access_program::for_auth(
-                client_setup.auth.as_ref(),
+            request.access_programs = cyber_access_program::for_request(
                 prompt.cyber_access_program,
                 self.client.api_key_cyber_access_programs,
             )?;
             let mut websocket_metadata = responses_metadata.clone();
             websocket_metadata.routing_hint = self.client.build_routing_hint_header(
-                client_setup.auth.as_ref(),
                 &responses_headers,
                 &request.model,
                 request.service_tier.as_deref(),
@@ -2851,7 +2818,10 @@ async fn handle_unauthorized(
                 );
                 Ok(UnauthorizedRecoveryExecution { mode, phase })
             }
-            Err(RefreshTokenError::Policy(error)) => Err(CodexErr::Fatal(error.to_string())),
+            Err(
+                error @ (RefreshTokenError::Policy(_)
+                | RefreshTokenError::AccountRenewalUnavailable),
+            ) => Err(CodexErr::Fatal(error.to_string())),
             Err(RefreshTokenError::Permanent(failed)) => {
                 session_telemetry.record_auth_recovery(
                     mode,

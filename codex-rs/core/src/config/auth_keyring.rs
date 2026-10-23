@@ -78,6 +78,16 @@ pub fn bootstrap_auth_config(
     Ok(auth_config)
 }
 
+/// Account-backend path dialect from the same pre-cloud config as [`bootstrap_auth_config`].
+pub fn bootstrap_account_path_style(
+    bootstrap_config: &ConfigTomlLoadResult,
+) -> codex_config::AccountPathStyle {
+    bootstrap_config
+        .config_toml
+        .chatgpt_path_style
+        .unwrap_or_default()
+}
+
 /// Resolve the auth keyring backend from a partially loaded bootstrap config.
 ///
 /// This is intended for startup paths that must read auth before managed cloud

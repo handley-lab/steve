@@ -33,10 +33,10 @@ def main() -> None:
     schema_root = args.schema_root or repository_schema_root
 
     env = os.environ.copy()
-    env["CODEX_APP_SERVER_SCHEMA_ROOT"] = str(schema_root)
-    env["CODEX_APP_SERVER_SCHEMA_EXPERIMENTAL"] = "1" if args.experimental else "0"
+    env["STEVE_APP_SERVER_SCHEMA_ROOT"] = str(schema_root)
+    env["STEVE_APP_SERVER_SCHEMA_EXPERIMENTAL"] = "1" if args.experimental else "0"
     if args.prettier:
-        env["CODEX_APP_SERVER_SCHEMA_PRETTIER"] = str(args.prettier)
+        env["STEVE_APP_SERVER_SCHEMA_PRETTIER"] = str(args.prettier)
 
     subprocess.run(
         [

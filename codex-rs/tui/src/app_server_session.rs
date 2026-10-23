@@ -3,7 +3,6 @@
 //! This module owns the typed JSON-RPC calls needed by the TUI and keeps
 //! request/response plumbing out of `App` and `ChatWidget`.
 
-mod daybreak_api_key_compat;
 mod external_agent_config;
 pub(crate) mod fs;
 mod history;
@@ -31,7 +30,6 @@ pub(crate) use startup_launch::StartupLaunchChoices;
 
 use crate::app_event::PermissionProfileSelection;
 use crate::app_event_sender::AppEventSender;
-use crate::bottom_pane::FeedbackAudience;
 use crate::dynamic_tools_mcp::DynamicToolMcpServer;
 use crate::dynamic_tools_mcp::ThreadToolTransport;
 use crate::legacy_core::config::Config;
@@ -315,7 +313,6 @@ pub(crate) struct AppServerBootstrap {
     /// should be fired.
     pub(crate) requires_openai_auth: bool,
     pub(crate) default_model: String,
-    pub(crate) feedback_audience: FeedbackAudience,
     pub(crate) has_chatgpt_account: bool,
     pub(crate) available_models: Vec<ModelPreset>,
     pub(crate) collaboration_modes: Vec<codex_protocol::config_types::CollaborationModeMask>,
@@ -336,7 +333,6 @@ pub(crate) struct AppServerSession {
     thread_settings_update_supported: bool,
     default_model: Option<String>,
     available_models: Vec<ModelPreset>,
-    daybreak_api_key_compat: Arc<tokio::sync::Semaphore>,
     managed_new_thread_defaults: Option<NewThreadModelDefaults>,
     external_agent_config_import_id: Mutex<Option<String>>,
     dynamic_tool_mcp: Option<Arc<DynamicToolMcpServer>>,
@@ -443,7 +439,6 @@ impl AppServerSession {
             thread_settings_update_supported: true,
             default_model: None,
             available_models: Vec::new(),
-            daybreak_api_key_compat: Arc::new(tokio::sync::Semaphore::new(/*permits*/ 1)),
             managed_new_thread_defaults: None,
             external_agent_config_import_id: Mutex::default(),
             dynamic_tool_mcp: None,
@@ -693,6 +688,7 @@ impl AppServerSession {
                     .request_typed::<ModelListResponse>(ClientRequest::ModelList {
                         request_id: model_request_id,
                         params: ModelListParams {
+                            thread_id: None,
                             cursor: None,
                             limit: None,
                             include_hidden: Some(true),
@@ -730,16 +726,6 @@ impl AppServerSession {
             &mut available_models,
             &requirements,
         );
-        if matches!(account.account, Some(Account::ApiKey {})) {
-            available_models = self
-                .constrain_api_key_models(
-                    config,
-                    /*thread_id*/ None,
-                    requirements.requirements.as_ref(),
-                    available_models,
-                )
-                .await;
-        }
         self.managed_new_thread_defaults = requirements
             .requirements
             .and_then(|requirements| requirements.models)
@@ -747,13 +733,6 @@ impl AppServerSession {
         let default_model = config
             .model
             .clone()
-            .or_else(|| {
-                available_models
-                    .iter()
-                    .find(|model| model.is_default)
-                    .map(|model| model.model.clone())
-            })
-            .or_else(|| available_models.first().map(|model| model.model.clone()))
             .or_else(|| match fallback {
                 EmptyCatalogFallback::Error => None,
                 EmptyCatalogFallback::ManagedNewThread => self
@@ -761,7 +740,7 @@ impl AppServerSession {
                     .as_ref()
                     .and_then(|defaults| defaults.model.clone()),
             })
-            .wrap_err("No models are available. Set `model` explicitly or check your model catalog configuration.")?;
+            .wrap_err("Set `model` explicitly before starting a session.")?;
         self.default_model = Some(default_model.clone());
         self.available_models = available_models.clone();
 
@@ -770,7 +749,6 @@ impl AppServerSession {
             auth_mode,
             status_account_display,
             plan_type,
-            feedback_audience,
             has_chatgpt_account,
         ) = match account.account {
             Some(Account::ApiKey {}) => (
@@ -778,18 +756,9 @@ impl AppServerSession {
                 Some(TelemetryAuthMode::ApiKey),
                 Some(StatusAccountDisplay::ApiKey),
                 None,
-                FeedbackAudience::External,
                 false,
             ),
             Some(Account::Chatgpt { email, plan_type }) => {
-                let feedback_audience = if email
-                    .as_deref()
-                    .is_some_and(|email| email.ends_with("@openai.com"))
-                {
-                    FeedbackAudience::OpenAiEmployee
-                } else {
-                    FeedbackAudience::External
-                };
                 (
                     email.clone(),
                     Some(TelemetryAuthMode::Chatgpt),
@@ -798,14 +767,13 @@ impl AppServerSession {
                         plan: Some(plan_type_display_name(plan_type)),
                     }),
                     Some(plan_type),
-                    feedback_audience,
                     true,
                 )
             }
             Some(Account::AmazonBedrock { .. }) => {
-                (None, None, None, None, FeedbackAudience::External, false)
+                (None, None, None, None, false)
             }
-            None => (None, None, None, None, FeedbackAudience::External, false),
+            None => (None, None, None, None, false),
         };
         Ok(AppServerBootstrap {
             duration: started_at.elapsed(),
@@ -815,7 +783,6 @@ impl AppServerSession {
             plan_type,
             requires_openai_auth: account.requires_openai_auth,
             default_model,
-            feedback_audience,
             has_chatgpt_account,
             available_models,
             collaboration_modes,
@@ -872,9 +839,8 @@ impl AppServerSession {
         selected_profile: Option<&PermissionProfileSelection>,
     ) -> Result<AppServerStartedThread> {
         let request_id = self.next_request_id();
-        let session_config = self.session_config_with_effective_service_tier(config);
         let mut params = thread_start_params_from_config(
-            &session_config,
+            config,
             self.thread_params_mode(),
             remote_cwd_override.or(self.remote_cwd_override.as_deref()),
             session_start_source,
@@ -928,6 +894,8 @@ impl AppServerSession {
         if task_tools_available {
             self.remember_task_tool_thread(started.session.thread_id);
         }
+        self.apply_default_service_tier(config, &started.session)
+            .await?;
         Ok(started)
     }
 
@@ -1051,19 +1019,13 @@ impl AppServerSession {
                 .is_some_and(|thread| thread.history_mode == ThreadHistoryMode::Paginated)
                 || presentation == ForkPresentation::SideConversation);
         let request_id = self.next_request_id();
-        let session_config = if config.model.is_none() {
-            // Avoid inferring a tier from the stale client default model.
-            config.clone()
-        } else {
-            self.session_config_with_effective_service_tier(&config)
-        };
         let mut params = ThreadForkParams {
             last_turn_id,
             before_turn_id,
             defer_goal_continuation: goal_continuation == ForkGoalContinuation::DeferUntilNextTurn,
             exclude_turns,
             ..thread_fork_params_from_config(
-                session_config,
+                config.clone(),
                 thread_id,
                 self.thread_params_mode(),
                 self.remote_cwd_override.as_deref(),
@@ -1174,6 +1136,10 @@ impl AppServerSession {
             started.task_tools_available = true;
             self.remember_task_tool_thread(started.session.thread_id);
         }
+        if config.model.is_some() {
+            self.apply_default_service_tier(&config, &started.session)
+                .await?;
+        }
         Ok(started)
     }
 
@@ -1181,32 +1147,68 @@ impl AppServerSession {
         self.thread_params_mode
     }
 
-    fn session_config_with_effective_service_tier(&self, config: &Config) -> Config {
-        let Some(model) = config.model.as_deref().or(self.default_model.as_deref()) else {
-            return config.clone();
-        };
-        let local_settings = LocalSettings::from(config);
-        let mut session_config = config.clone();
-        match service_tier_resolution::service_tier_update_for_core(
-            config,
-            &local_settings.notices,
-            model,
-            &self.available_models,
-        ) {
-            Some(Some(service_tier)) => {
-                session_config.service_tier = Some(service_tier);
-                session_config.notices.fast_default_opt_out = None;
-            }
-            Some(None) => {
-                session_config.service_tier = Some(SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string());
-                session_config.notices.fast_default_opt_out = None;
-            }
-            None => {
-                session_config.service_tier = None;
-                session_config.notices.fast_default_opt_out = None;
-            }
+    async fn apply_default_service_tier(
+        &mut self,
+        config: &Config,
+        session: &ThreadSessionState,
+    ) -> Result<()> {
+        let notices = LocalSettings::from(config).notices;
+        if config.service_tier.is_some()
+            || notices.fast_default_opt_out == Some(true)
+            || session.service_tier.is_some()
+            || (!config.features.enabled(codex_features::Feature::FastMode)
+                && !config
+                    .features
+                    .enabled(codex_features::Feature::UltrafastMode))
+        {
+            return Ok(());
         }
-        session_config
+        let result: Result<()> = async {
+            let request_id = self.next_request_id();
+            let response: ModelListResponse = self
+                .client
+                .request_typed(ClientRequest::ModelList {
+                    request_id,
+                    params: ModelListParams {
+                        thread_id: Some(session.thread_id.to_string()),
+                        cursor: None,
+                        limit: None,
+                        include_hidden: Some(true),
+                    },
+                })
+                .await?;
+            let models = response
+                .data
+                .into_iter()
+                .map(model_preset_from_api_model)
+                .collect::<Vec<_>>();
+            let Some(service_tier) = service_tier_resolution::service_tier_update_for_core(
+                config,
+                &notices,
+                &session.model,
+                &models,
+            ) else {
+                return Ok(());
+            };
+            if !self
+                .thread_settings_update(ThreadSettingsUpdateParams {
+                    thread_id: session.thread_id.to_string(),
+                    service_tier: Some(service_tier),
+                    ..Default::default()
+                })
+                .await?
+            {
+                color_eyre::eyre::bail!("server does not support thread/settings/update");
+            }
+            Ok(())
+        }
+        .await;
+        result.wrap_err_with(|| {
+            format!(
+                "Thread {} was created, but its automatic service tier could not be set",
+                session.thread_id,
+            )
+        })
     }
 
     async fn fork_parent_title_from_app_server(
@@ -2606,6 +2608,10 @@ pub(crate) fn app_server_rate_limit_snapshots(
 mod reasoning_defaults_tests;
 
 #[cfg(test)]
+#[path = "app_server_session/model_scope_tests.rs"]
+mod model_scope_tests;
+
+#[cfg(test)]
 #[path = "app_server_session/workspace_roots_tests.rs"]
 mod workspace_roots_tests;
 
@@ -2649,6 +2655,7 @@ mod tests {
     async fn build_config(temp_dir: &TempDir) -> Config {
         ConfigBuilder::default()
             .codex_home(temp_dir.path().to_path_buf())
+            .cli_overrides(vec![("model_provider".into(), "openai".into())])
             .build()
             .await
             .expect("config should build")
@@ -2657,6 +2664,10 @@ mod tests {
     #[tokio::test]
     async fn bootstrap_reuses_prefetched_account_without_another_account_read() -> Result<()> {
         let codex_home = tempfile::tempdir()?;
+        std::fs::write(
+            codex_home.path().join("config.toml"),
+            "model_provider = \"openai\"\n",
+        )?;
         let mut config = build_config(&codex_home).await;
         let mut catalog = codex_models_manager::bundled_models_response()?;
         for model in &mut catalog.models {
@@ -2667,6 +2678,9 @@ mod tests {
                 ],
             });
         }
+        config.model = Some(crate::test_support::TEST_MODEL_PRESETS[0].model.clone());
+        let catalog_path = codex_home.path().join("program-models.json");
+        std::fs::write(&catalog_path, serde_json::to_vec(&catalog)?)?;
         config.model_catalog = Some(catalog);
         let mut app_server = crate::start_embedded_app_server_for_picker(&config).await?;
         let next_request_id = app_server.next_request_id;
@@ -2687,19 +2701,70 @@ mod tests {
                 bootstrap.account_email.as_deref(),
                 bootstrap.auth_mode,
                 bootstrap.plan_type,
-                bootstrap.feedback_audience,
                 bootstrap.has_chatgpt_account,
             ),
             (
                 Some("teammate@openai.com"),
                 Some(TelemetryAuthMode::Chatgpt),
                 Some(codex_protocol::account::PlanType::Plus),
-                FeedbackAudience::OpenAiEmployee,
                 true,
             )
         );
 
-        // Account-specific catalog filtering at startup and before/after thread creation.
+        for (account, email, auth_mode, plan_type, has_account) in [
+            (
+                Some(Account::Chatgpt {
+                    email: Some("user@example.test".into()),
+                    plan_type: codex_protocol::account::PlanType::Plus,
+                }),
+                Some("user@example.test"),
+                Some(TelemetryAuthMode::Chatgpt),
+                Some(codex_protocol::account::PlanType::Plus),
+                true,
+            ),
+            (
+                Some(Account::ApiKey {}),
+                None,
+                Some(TelemetryAuthMode::ApiKey),
+                None,
+                false,
+            ),
+            (None, None, None, None, false),
+        ] {
+            let next_request_id = app_server.next_request_id;
+            let observed = app_server
+                .bootstrap_with_account(
+                    &config,
+                    GetAccountResponse {
+                        account,
+                        requires_openai_auth: true,
+                        workspace_routing: None,
+                    },
+                )
+                .await?;
+            assert_eq!(app_server.next_request_id, next_request_id + 2);
+            assert_eq!(
+                (
+                    observed.account_email.as_deref(),
+                    observed.auth_mode,
+                    observed.plan_type,
+                    observed.has_chatgpt_account
+                ),
+                (email, auth_mode, plan_type, has_account)
+            );
+            assert!(observed.requires_openai_auth);
+            match &observed.status_account_display {
+                Some(StatusAccountDisplay::ChatGpt {
+                    email: displayed, ..
+                }) => assert_eq!(displayed.as_deref(), email),
+                Some(StatusAccountDisplay::ApiKey) => {
+                    assert_eq!(auth_mode, Some(TelemetryAuthMode::ApiKey))
+                }
+                None => assert!(auth_mode.is_none()),
+            }
+        }
+
+        // Catalog programs survive every account shape and forwarding setting.
         let models = bootstrap.available_models;
         assert!(
             models
@@ -2716,7 +2781,9 @@ mod tests {
         ] {
             std::fs::write(
                 codex_home.path().join("config.toml"),
-                format!("[features]\napi_key_cyber_access_programs = {server_enabled}\n"),
+                format!(
+                    "model_provider = \"openai\"\nmodel_catalog_json = {catalog_path:?}\n[features]\napi_key_cyber_access_programs = {server_enabled}\n"
+                ),
             )?;
             let client_config = ConfigBuilder::default()
                 .codex_home(client_home.path().to_path_buf())
@@ -2724,6 +2791,13 @@ mod tests {
                     cli_override
                         .into_iter()
                         .map(|value| (key.into(), value.into()))
+                        .chain([
+                            ("model_provider".into(), "openai".into()),
+                            (
+                                "model".into(),
+                                config.model.clone().expect("test model").into(),
+                            ),
+                        ])
                         .collect(),
                 )
                 .build()
@@ -2738,23 +2812,19 @@ mod tests {
                     },
                 )
                 .await?;
-            let mut expected = models.clone();
-            if !forwarding_enabled {
-                for model in &mut expected {
-                    model.available_access_programs = None;
-                }
-            }
-            assert_eq!(api_key.available_models, expected);
+            assert_eq!(api_key.available_models, models);
             let thread = app_server.start_thread(&client_config).await?;
-            let refreshed = app_server
-                .constrain_api_key_models(
-                    &client_config,
-                    Some(thread.session.thread_id),
-                    /*requirements*/ None,
-                    models.clone(),
-                )
-                .await;
-            assert_eq!(refreshed, expected);
+            let refreshed: ModelListResponse = app_server.request_handle()
+                .request_typed(ClientRequest::ModelList {
+                    request_id: app_server.next_request_id(),
+                    params: ModelListParams {
+                        thread_id: Some(thread.session.thread_id.to_string()),
+                        include_hidden: Some(true),
+                        ..ModelListParams::default()
+                    },
+                }).await?;
+            assert_eq!(refreshed.cyber_access_programs_enabled, Some(forwarding_enabled));
+            assert!(refreshed.data.iter().all(|model| model.available_access_programs.is_some()));
         }
         app_server.shutdown().await?;
         Ok(())
@@ -3728,6 +3798,10 @@ mod tests {
     async fn connected_thread_start_preserves_flex_without_catalog_support() -> Result<()> {
         for fast_mode_enabled in [false, true] {
             let codex_home = tempfile::tempdir()?;
+            std::fs::write(
+                codex_home.path().join("config.toml"),
+                "model_provider = \"openai\"\nmodel = \"gpt-5.5\"\n",
+            )?;
             let server_config = build_config(&codex_home).await;
             let mut config = server_config.clone();
             config.model = Some("gpt-5.5".to_string());
@@ -3761,6 +3835,10 @@ mod tests {
     #[tokio::test]
     async fn persisted_resume_does_not_forward_implicit_service_tier() -> Result<()> {
         let codex_home = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            codex_home.path().join("config.toml"),
+            "model_provider = \"openai\"\nmodel = \"gpt-5.5\"\n",
+        )?;
         let mut config = build_config(&codex_home).await;
         config.model = Some("gpt-5.5".to_string());
         config.service_tier = None;
@@ -3811,6 +3889,10 @@ mod tests {
     async fn side_fork_skips_parent_title_lookup_but_normal_ephemeral_fork_keeps_it() -> Result<()>
     {
         let codex_home = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            codex_home.path().join("config.toml"),
+            "model_provider = \"openai\"\nmodel = \"gpt-5.5\"\n",
+        )?;
         let config = build_config(&codex_home).await;
         let source_thread_id = ThreadId::from_string(
             &create_fake_rollout(
@@ -3866,6 +3948,10 @@ mod tests {
     #[tokio::test]
     async fn ephemeral_paginated_fork_skips_unsupported_history_hydration() -> Result<()> {
         let codex_home = tempfile::tempdir()?;
+        std::fs::write(
+            codex_home.path().join("config.toml"),
+            "model_provider = \"openai\"\nmodel = \"gpt-5.5\"\n",
+        )?;
         let config = build_config(&codex_home).await;
         let source_thread_id = ThreadId::from_string(
             &create_fake_paginated_rollout(
@@ -3901,7 +3987,12 @@ mod tests {
     #[tokio::test]
     async fn side_fork_uses_one_request_for_long_paginated_history() -> Result<()> {
         let codex_home = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            codex_home.path().join("config.toml"),
+            "model_provider = \"openai\"\nmodel = \"gpt-5.5\"\n",
+        )?;
         let mut config = build_config(&codex_home).await;
+        config.model = None;
         config.terminal_resize_reflow.max_rows =
             crate::legacy_core::config::TerminalResizeReflowMaxRows::Limit(100);
         let filename_ts = "2025-01-05T12-00-00";
@@ -4033,6 +4124,10 @@ mod tests {
     #[tokio::test]
     async fn side_fork_excludes_turns_without_clearing_regular_ephemeral_fork() -> Result<()> {
         let codex_home = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            codex_home.path().join("config.toml"),
+            "model_provider = \"openai\"\nmodel = \"gpt-5.5\"\n",
+        )?;
         let mut config = build_config(&codex_home).await;
         config.ephemeral = true;
         let thread_id = ThreadId::from_string(

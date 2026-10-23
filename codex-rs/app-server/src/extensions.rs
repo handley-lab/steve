@@ -41,6 +41,7 @@ pub(crate) struct ThreadExtensionDependencies {
     pub(crate) environment_manager: Arc<EnvironmentManager>,
     pub(crate) executor_skill_provider: Arc<dyn codex_skills_extension::SkillProvider>,
     pub(crate) git_attribution_base_url: String,
+    pub(crate) git_attribution_path_style: codex_config::AccountPathStyle,
     pub(crate) http_client_factory: HttpClientFactory,
     /// Process-scoped queue shared by idle dispatch and app-server requests.
     pub(crate) queue_service: Option<Arc<QueuedItemService>>,
@@ -60,6 +61,7 @@ pub(crate) fn thread_extensions(
         environment_manager,
         executor_skill_provider,
         git_attribution_base_url,
+        git_attribution_path_style,
         http_client_factory,
         queue_service,
         turn_start_admission,
@@ -91,6 +93,7 @@ pub(crate) fn thread_extensions(
         &mut builder,
         auth_manager.clone(),
         git_attribution_base_url,
+        git_attribution_path_style,
         http_client_factory,
     );
     codex_guardian_v2::install(&mut builder, auth_manager.clone(), thread_manager);

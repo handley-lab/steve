@@ -16,7 +16,7 @@ use codex_install_context::InstallContext;
 use codex_install_context::InstallMethod;
 use http::Method;
 use serde::Deserialize;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 use url::Url;
 
 use super::CheckStatus;
@@ -33,17 +33,9 @@ use super::network;
 const MAX_VERSION_RESPONSE_BYTES: usize = 1024 * 1024;
 
 const VERSION_FILE_NAME: &str = "version.json";
-const GITHUB_LATEST_RELEASE_URL: &str = "https://api.github.com/repos/openai/codex/releases/latest";
-const HOMEBREW_CASK_API_URL: &str = "https://formulae.brew.sh/api/cask/codex.json";
-#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-const DESKTOP_UPDATE_URL: &str = "https://persistent.oaistatic.com/codex-app-prod/appcast-x64.xml";
-#[cfg(all(target_os = "macos", not(target_arch = "x86_64")))]
-const DESKTOP_UPDATE_URL: &str = "https://persistent.oaistatic.com/codex-app-prod/appcast.xml";
-#[cfg(target_os = "macos")]
-const BACKEND_DESKTOP_UPDATE_URL: &str = "https://chatgpt.com/backend-api/wham/app/appcast";
-#[cfg(target_os = "windows")]
-const DESKTOP_UPDATE_URL: &str =
-    "https://persistent.oaistatic.com/codex-app-prod/windows-store-update.json";
+const GITHUB_LATEST_RELEASE_URL: &str =
+    "https://api.github.com/repos/handley-lab/steve/releases/latest";
+const HOMEBREW_CASK_API_URL: &str = "https://formulae.brew.sh/api/cask/steve.json";
 
 /// Builds the update-health row for the current installation.
 ///
@@ -122,6 +114,18 @@ pub(super) async fn append_desktop_update(
     let Some(config) = config else {
         return;
     };
+    let Some(configured_update_url) = config
+        .desktop_update_url
+        .as_deref()
+        .filter(|url| !url.trim().is_empty())
+    else {
+        if let Some(update) = checks.iter_mut().find(|check| check.id == "updates.status") {
+            update
+                .details
+                .push("desktop update endpoint: not configured".into());
+        }
+        return;
+    };
     let Some(reachability_index) = checks
         .iter()
         .position(|check| check.id == "network.provider_reachability")
@@ -132,17 +136,33 @@ pub(super) async fn append_desktop_update(
     let desktop_update_url = std::env::var_os("HOME")
         .map(PathBuf::from)
         .map(|home| {
-            macos_desktop_update_url(&home, application, &os_info::get().version().to_string())
+            macos_desktop_update_url(
+                &home,
+                application.identity,
+                &application.version,
+                &os_info::get().version().to_string(),
+                configured_update_url,
+            )
         })
-        .unwrap_or_else(|| DESKTOP_UPDATE_URL.to_string());
+        .unwrap_or_else(|| Ok(configured_update_url.to_string()));
     #[cfg(target_os = "windows")]
-    let desktop_update_url = DESKTOP_UPDATE_URL;
-    #[cfg(target_os = "macos")]
+    let desktop_update_url: Result<String, url::ParseError> = Ok(configured_update_url.to_string());
+    let desktop_update_url = match desktop_update_url {
+        Ok(url) => url,
+        Err(error) => {
+            let reachability = &mut checks[reachability_index];
+            reachability.status = reachability.status.max(CheckStatus::Warning);
+            reachability
+                .details
+                .push(format!("desktop update endpoint: {error}"));
+            return;
+        }
+    };
     let desktop_update_url = desktop_update_url.as_str();
     let desktop_update_display_url = desktop_update_url
         .split_once('?')
         .map_or(desktop_update_url, |(endpoint, _)| endpoint);
-    let client = RouteAwareClientPool::new_without_request_logging(
+    let client = RouteAwareClientPool::new_without_redirects_or_request_logging(
         config.http_client_factory(),
         ClientRouteClass::Other,
     );
@@ -155,15 +175,13 @@ pub(super) async fn append_desktop_update(
         Ok(response) => {
             let status = response.status().as_u16();
             #[cfg(target_os = "windows")]
-            if status == 404 && response.url().scheme() == "https" {
+            if status == 404 {
                 checks[reachability_index].details.push(format!(
                     "desktop assets CDN: {desktop_update_display_url} reachable (HTTP 404; no update available)"
                 ));
                 return;
             }
-            if cfg!(target_os = "windows") && response.url().scheme() != "https" {
-                Err("update manifest redirected to a non-HTTPS URL".to_string())
-            } else if status == 407 {
+            if status == 407 {
                 Err("proxy authentication required (HTTP 407)".to_string())
             } else if !(200..=299).contains(&status) {
                 Err(format!("HTTP {status}"))
@@ -217,21 +235,21 @@ pub(super) async fn append_desktop_update(
                 "desktop update and runtime CDN is unreachable",
             )
             .measured(format!("{desktop_update_display_url} {error}"))
-            .expected("desktop update and runtime CDN reachable over HTTPS")
-            .remedy(
-                if desktop_update_display_url.starts_with("https://chatgpt.com/") {
-                    "check proxy, firewall, DNS, and certificate access to chatgpt.com"
-                } else {
-                    "check proxy, firewall, DNS, and certificate access to persistent.oaistatic.com"
-                },
-            )
+            .expected("configured desktop update endpoint reachable")
+            .remedy("check proxy, firewall, DNS, and certificate access to the configured desktop update endpoint")
             .field("desktop assets CDN"),
         );
     }
 }
 
-#[cfg(target_os = "macos")]
-fn macos_desktop_update_url(home: &Path, application: &InstalledApp, os_version: &str) -> String {
+#[cfg(any(target_os = "macos", test))]
+fn macos_desktop_update_url(
+    home: &Path,
+    identity: &str,
+    version: &str,
+    os_version: &str,
+    configured_update_url: &str,
+) -> Result<String, url::ParseError> {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct ProductionAppcastState {
@@ -242,25 +260,23 @@ fn macos_desktop_update_url(home: &Path, application: &InstalledApp, os_version:
 
     let state_path = home
         .join("Library/Application Support")
-        .join(application.identity)
+        .join(identity)
         .join("production-appcast-bootstrap.json");
     let Some(state) = std::fs::read(state_path)
         .ok()
         .and_then(|contents| serde_json::from_slice::<ProductionAppcastState>(&contents).ok())
     else {
-        return DESKTOP_UPDATE_URL.to_string();
+        return Ok(configured_update_url.to_string());
     };
     let Some(installation_id) = state
         .backend_appcast_enabled
         .then_some(state.installation_id)
         .flatten()
     else {
-        return DESKTOP_UPDATE_URL.to_string();
+        return Ok(configured_update_url.to_string());
     };
 
-    let Ok(mut url) = Url::parse(BACKEND_DESKTOP_UPDATE_URL) else {
-        return DESKTOP_UPDATE_URL.to_string();
-    };
+    let mut url = Url::parse(configured_update_url)?;
     url.query_pairs_mut().extend_pairs([
         ("installation_id", installation_id.as_str()),
         (
@@ -271,12 +287,12 @@ fn macos_desktop_update_url(home: &Path, application: &InstalledApp, os_version:
                 "arm64"
             },
         ),
-        ("app_version", application.version.as_str()),
+        ("app_version", version),
         ("beta", "false"),
         ("os-version", os_version),
         ("plan_type", "unknown"),
     ]);
-    url.to_string()
+    Ok(url.to_string())
 }
 
 #[cfg(any(target_os = "windows", test))]
@@ -389,10 +405,10 @@ fn push_cached_version_details(details: &mut Vec<String>, version_file: &Path) {
 
 fn update_action_label(context: &InstallContext) -> &'static str {
     match &context.method {
-        InstallMethod::Npm => "npm install -g @openai/codex",
-        InstallMethod::Bun => "bun install -g @openai/codex",
-        InstallMethod::VitePlus => "vp install -g @openai/codex",
-        InstallMethod::Pnpm => "pnpm add -g @openai/codex",
+        InstallMethod::Npm => "npm install -g @handley-lab/steve",
+        InstallMethod::Bun => "bun install -g @handley-lab/steve",
+        InstallMethod::VitePlus => "vp install -g @handley-lab/steve",
+        InstallMethod::Pnpm => "pnpm add -g @handley-lab/steve",
         InstallMethod::Brew => "brew upgrade --cask steve",
         InstallMethod::Standalone { .. } => "standalone installer",
         InstallMethod::Other => "manual or unknown",
@@ -566,19 +582,20 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
-    fn macos_update_probe_uses_the_persisted_production_appcast_feed() {
+    fn macos_update_probe_uses_only_the_configured_feed() {
         let home = tempfile::tempdir().expect("temporary home should be created");
-        let application = InstalledApp {
-            identity: "com.openai.codex",
-            version: "26.623.10000".to_string(),
-            bundle: PathBuf::new(),
-            build: 6139,
-        };
+        let endpoint = "http://127.0.0.1:43123/local/appcast";
         assert_eq!(
-            macos_desktop_update_url(home.path(), &application, "26.6.0"),
-            DESKTOP_UPDATE_URL
+            macos_desktop_update_url(
+                home.path(),
+                "com.openai.codex",
+                "26.623.10000",
+                "26.6.0",
+                endpoint,
+            )
+            .unwrap(),
+            endpoint
         );
 
         let state_directory = home
@@ -598,11 +615,107 @@ mod tests {
             "arm64"
         };
         assert_eq!(
-            macos_desktop_update_url(home.path(), &application, "26.6.0"),
+            macos_desktop_update_url(
+                home.path(),
+                "com.openai.codex",
+                "26.623.10000",
+                "26.6.0",
+                endpoint,
+            )
+            .unwrap(),
             format!(
-                "{BACKEND_DESKTOP_UPDATE_URL}?installation_id=028e90f8-5f2a-47db-a05c-6a48f548d728&arch={arch}&app_version=26.623.10000&beta=false&os-version=26.6.0&plan_type=unknown"
+                "{endpoint}?installation_id=028e90f8-5f2a-47db-a05c-6a48f548d728&arch={arch}&app_version=26.623.10000&beta=false&os-version=26.6.0&plan_type=unknown"
             )
         );
+        assert!(
+            macos_desktop_update_url(
+                home.path(),
+                "com.openai.codex",
+                "26.623.10000",
+                "26.6.0",
+                "not a URL",
+            )
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn desktop_appcast_metadata_stays_at_the_configured_endpoint() {
+        use codex_http_client::HttpClientFactory;
+        use codex_http_client::OutboundProxyPolicy;
+        use wiremock::Mock;
+        use wiremock::MockServer;
+        use wiremock::ResponseTemplate;
+        use wiremock::matchers::method;
+        use wiremock::matchers::path;
+
+        let source = MockServer::start().await;
+        let other = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&other)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/direct"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&source)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/redirect"))
+            .respond_with(ResponseTemplate::new(307).insert_header("Location", other.uri()))
+            .mount(&source)
+            .await;
+        let home = tempfile::tempdir().unwrap();
+        let state = home
+            .path()
+            .join("Library/Application Support/com.openai.codex");
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::write(
+            state.join("production-appcast-bootstrap.json"),
+            r#"{"backendAppcastEnabled":true,"installationId":"synthetic-installation"}"#,
+        )
+        .unwrap();
+        let client = RouteAwareClientPool::new_without_redirects_or_request_logging(
+            HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+            ClientRouteClass::Other,
+        );
+        assert_eq!(
+            client
+                .get(other.uri())
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16(),
+            200
+        );
+        for (endpoint, expected_status) in [("direct", 200), ("redirect", 307)] {
+            let url = macos_desktop_update_url(
+                home.path(),
+                "com.openai.codex",
+                "1.2.3",
+                "26.6.0",
+                &format!("{}/{endpoint}", source.uri()),
+            )
+            .unwrap();
+            assert_eq!(
+                client.get(url).send().await.unwrap().status().as_u16(),
+                expected_status
+            );
+        }
+        let requests = source.received_requests().await.unwrap();
+        let other_requests = other.received_requests().await.unwrap();
+        eprintln!(
+            "appcast source requests={requests:?}; target control requests={other_requests:?}"
+        );
+        assert_eq!(requests.len(), 2);
+        for request in requests {
+            assert!(request.url.query_pairs().any(|(key, value)| {
+                key == "installation_id" && value == "synthetic-installation"
+            }));
+        }
+        assert_eq!(other_requests.len(), 1);
+        assert!(other_requests[0].url.query().is_none());
     }
 
     #[cfg(target_os = "macos")]
@@ -691,14 +804,36 @@ mod tests {
                 method: InstallMethod::Npm,
                 package_layout: None,
             }),
-            "npm install -g @openai/codex"
+            "npm install -g @handley-lab/steve"
+        );
+        assert_eq!(
+            update_action_label(&InstallContext {
+                method: InstallMethod::Bun,
+                package_layout: None,
+            }),
+            "bun install -g @handley-lab/steve"
+        );
+        assert_eq!(
+            update_action_label(&InstallContext {
+                method: InstallMethod::VitePlus,
+                package_layout: None,
+            }),
+            "vp install -g @handley-lab/steve"
         );
         assert_eq!(
             update_action_label(&InstallContext {
                 method: InstallMethod::Pnpm,
                 package_layout: None,
             }),
-            "pnpm add -g @openai/codex"
+            "pnpm add -g @handley-lab/steve"
+        );
+        assert_eq!(
+            GITHUB_LATEST_RELEASE_URL,
+            "https://api.github.com/repos/handley-lab/steve/releases/latest"
+        );
+        assert_eq!(
+            HOMEBREW_CASK_API_URL,
+            "https://formulae.brew.sh/api/cask/steve.json"
         );
         assert_eq!(
             update_action_label(&InstallContext {

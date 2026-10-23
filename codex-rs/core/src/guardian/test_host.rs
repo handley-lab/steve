@@ -21,7 +21,10 @@ use crate::session::session::Session;
 mod reviewer_config;
 pub(super) use reviewer_config::build_reviewer_config;
 
-pub(crate) fn install(session: &Session, config: &Config) {
+pub(crate) fn install(
+    session: &Session,
+    config: &Config,
+) -> Arc<tokio::sync::Mutex<Option<std::sync::Weak<crate::CodexThread>>>> {
     session.services.thread_extension_data.insert(
         codex_guardian_reviewer::ReviewerConfig::<Config>(build_reviewer_config),
     );
@@ -48,6 +51,8 @@ pub(crate) fn install(session: &Session, config: &Config) {
         .services
         .thread_extension_data
         .get_or_init(codex_guardian_reviewer::ReviewerTasks::default);
+    let reviewer_thread = Arc::new(tokio::sync::Mutex::new(None));
+    let observed_thread = Arc::clone(&reviewer_thread);
     session
         .services
         .thread_extension_data
@@ -55,6 +60,7 @@ pub(crate) fn install(session: &Session, config: &Config) {
             Arc::clone(&runtime),
             move |context, key, kind, snapshot, cancel| {
                 let manager = Arc::clone(&manager);
+                let observed_thread = Arc::clone(&observed_thread);
                 let runtime = Arc::clone(&runtime);
                 Box::pin(async move {
                     let history_reset = context.history_reset.clone();
@@ -85,10 +91,12 @@ pub(crate) fn install(session: &Session, config: &Config) {
                     let spawned = manager
                         .start_thread_until(options, until, &runtime.tasks)
                         .await?;
+                    *observed_thread.lock().await = Some(Arc::downgrade(&spawned.thread));
                     Ok(context
                         .bind_thread(&spawned.thread, key, state, session_cancel)
                         .await)
                 })
             },
         ));
+    reviewer_thread
 }

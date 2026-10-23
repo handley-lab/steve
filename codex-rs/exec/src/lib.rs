@@ -70,6 +70,7 @@ use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
 use codex_core::config::ConfigTomlLoadResult;
+use codex_core::config::bootstrap_account_path_style;
 use codex_core::config::bootstrap_auth_config;
 use codex_core::config::find_codex_home;
 use codex_core::config::load_config_toml_with_layer_stack;
@@ -87,7 +88,6 @@ use codex_history::RolloutLine;
 use codex_login::default_client::set_default_client_residency_requirement;
 use codex_login::default_client::set_default_originator;
 use codex_login::enforce_login_restrictions;
-use codex_login::is_workload_identity_selected;
 use codex_model_provider_info::LMSTUDIO_OSS_PROVIDER_ID;
 use codex_model_provider_info::OLLAMA_OSS_PROVIDER_ID;
 use codex_otel::set_parent_from_context;
@@ -108,7 +108,6 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_absolute_path::canonicalize_existing_preserving_symlinks;
 use codex_utils_cli::SharedCliOptions;
 use codex_utils_oss::ensure_oss_provider_ready;
-use codex_utils_oss::get_default_model_for_oss_provider;
 use codex_worktree::CreateWorktree;
 use codex_worktree::WorktreeManager;
 use codex_worktree::WorktreeSettings;
@@ -403,9 +402,13 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
             CloudConfigBundleLoader::default(),
         )
         .await;
+        let gate_path_style = bootstrap_account_path_style(&gate_bootstrap);
         let gate_cloud_config = cloud_config_bundle_loader_for_storage(
-            embedded_network_policy
-                .bind_bootstrap_auth(bootstrap_auth_config(&codex_home, &gate_bootstrap)?),
+            embedded_network_policy.bind_bootstrap_auth(
+                bootstrap_auth_config(&codex_home, &gate_bootstrap)?,
+                gate_path_style,
+            ),
+            gate_path_style,
             /*enable_codex_api_key_env*/ false,
         )
         .await?;
@@ -503,13 +506,17 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
     )
     .await;
     let bootstrap_config_toml = &bootstrap_config.config_toml;
-    let bootstrap_auth_config = embedded_network_policy
-        .bind_bootstrap_auth(bootstrap_auth_config(&codex_home, &bootstrap_config)?);
+    let path_style = bootstrap_account_path_style(&bootstrap_config);
+    let bootstrap_auth_config = embedded_network_policy.bind_bootstrap_auth(
+        bootstrap_auth_config(&codex_home, &bootstrap_config)?,
+        path_style,
+    );
     // API keys cannot fetch workspace-managed configuration. Preserve the
     // existing ChatGPT bootstrap identity even when model requests allow
     // STEVE_API_KEY.
     let cloud_config_bundle = cloud_config_bundle_loader_for_storage(
         bootstrap_auth_config,
+        path_style,
         /*enable_codex_api_key_env*/ false,
     )
     .await?;
@@ -571,17 +578,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         None // No OSS mode enabled
     };
 
-    // When using `--oss`, let the bootstrapper pick the model based on selected provider
-    let model = if let Some(model) = model_cli_arg {
-        Some(model)
-    } else if oss {
-        model_provider
-            .as_ref()
-            .and_then(|provider_id| get_default_model_for_oss_provider(provider_id))
-            .map(std::borrow::ToOwned::to_owned)
-    } else {
-        None // No model specified, will use the default.
-    };
+    let model = model_cli_arg;
 
     let overrides = ConfigOverrides {
         model,
@@ -653,9 +650,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
 
     set_default_client_residency_requirement(config.enforce_residency.value());
 
-    if !is_workload_identity_selected()
-        && let Err(err) = enforce_login_restrictions(&config.auth_config()).await
-    {
+    if let Err(err) = enforce_login_restrictions(&config.auth_config()).await {
         eprintln!("{err}");
         std::process::exit(1);
     }
@@ -874,19 +869,6 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
         thread_source,
         cyber_access_program,
     } = args;
-
-    if config.features.enabled(Feature::CliDaybreak)
-        && config.daybreak_enabled
-        && !matches!(&command, Some(ExecCommand::Review(_)))
-    {
-        anyhow::ensure!(
-            !oss || matches!(
-                &command,
-                Some(ExecCommand::Resume(_) | ExecCommand::Fork(_))
-            ),
-            "Daybreak requires the OpenAI model provider"
-        );
-    }
 
     let mut event_processor: Box<dyn EventProcessor> = match json_mode {
         true => Box::new(EventProcessorWithJsonOutput::new(last_message_file.clone())),
@@ -1215,11 +1197,10 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                 Some(program) => Some(program),
                 None if config.features.enabled(Feature::CliDaybreak) => {
                     daybreak::program_for_turn(
-                        &config.features,
                         &client,
                         &mut request_ids,
+                        &primary_thread_id_for_span,
                         &session_configured.model,
-                        &session_configured.model_provider_id,
                         daybreak_enabled,
                     )
                     .await?

@@ -107,7 +107,7 @@ impl AccountRequestProcessor {
             && self.auth_manager.auth_cached().is_none()
         {
             return Err(invalid_request(
-                "Sign in to your primary account before signing in to the gateway",
+                "Supply a primary provider token before signing in to the gateway",
             ));
         }
         let (url_tx, url_rx) = tokio::sync::oneshot::channel();

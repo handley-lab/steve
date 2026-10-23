@@ -25,17 +25,18 @@ use codex_api::SharedAuthProvider;
 use codex_api::TransportError;
 use codex_api::build_session_headers;
 use codex_http_client::ClientRouteClass;
-use codex_login::CodexAuth;
 use codex_login::default_client::ClientRedirectPolicy;
 use codex_login::default_client::add_originator_header;
 use codex_login::default_client::create_client_for_route_async;
 use codex_login::default_client::default_headers;
 use codex_model_provider::ACCOUNT_ROUTING_HEADER;
-use codex_model_provider::AgentIdentitySessionFallback;
-use codex_model_provider::ProviderAuthScope;
 use codex_model_provider::ResolvedResponsesProvider;
 use codex_model_provider::ResponsesConnectionKey;
 use codex_protocol::ThreadId;
+use codex_protocol::models::ContentItem;
+use codex_protocol::models::DEFAULT_IMAGE_DETAIL;
+use codex_protocol::models::ImageDetail;
+use codex_protocol::models::ResponseItem;
 use codex_websocket_client::WebSocketConnector;
 use http::HeaderMap;
 use http::HeaderValue;
@@ -55,12 +56,6 @@ const MAX_WEBSOCKET_AGE: Duration = Duration::from_secs(55 * 60);
 const MAX_CONCURRENT_OPENS: usize = 4;
 const REFILL_LOW_WATERMARK: usize = INITIAL_WEBSOCKET_CONNECTIONS / 2;
 const RESPONSES_WEBSOCKETS_BETA: &str = "responses_websockets=2026-02-06";
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum RequestMode {
-    Regular,
-    GuardianClassifier,
-}
 
 pub(super) struct ConnectionPool {
     config: Arc<LunaSamplerConfig>,
@@ -82,7 +77,6 @@ struct HttpTransport {
 
 pub(super) struct PooledConnection {
     connection: ResponsesWebsocketConnection,
-    request_kind: RequestMode,
     // The bridge routes by thread ID, so each socket needs its own identity.
     pub(super) thread_id: String,
     pub(super) expires_at: Instant,
@@ -106,7 +100,6 @@ enum Connection {
 
 pub(super) struct ConnectionLease {
     pub(super) thread_id: String,
-    pub(super) request_kind: RequestMode,
     connection: Connection,
     pool: Arc<ConnectionPool>,
     _permit: OwnedSemaphorePermit,
@@ -148,6 +141,9 @@ impl ConnectionPool {
     }
 
     fn start_refill(self: &Arc<Self>, guard: OwnedMutexGuard<()>) -> Option<JoinHandle<()>> {
+        if !self.config.provider.info().supports_websockets {
+            return None;
+        }
         let mut retry_after = self
             .retry_after
             .lock()
@@ -245,7 +241,7 @@ impl ConnectionPool {
                 None => break None,
             }
         };
-        let (connection, thread_id, request_kind) = match connection {
+        let (connection, thread_id) = match connection {
             Some(connection) => {
                 if self
                     .idle_connections
@@ -257,14 +253,12 @@ impl ConnectionPool {
                     self.replenish();
                 }
                 let thread_id = connection.thread_id.clone();
-                let request_kind = connection.request_kind;
-                (Connection::Websocket(connection), thread_id, request_kind)
+                (Connection::Websocket(connection), thread_id)
             }
             None => {
                 self.replenish();
                 // Sampling owns the retry budget across both transports.
                 provider.retry.max_attempts = 0;
-                let request_kind = self.responses_request_kind().await;
                 let url = provider.url_for_path("/responses");
                 let redirect_policy = if provider.headers.contains_key(ACCOUNT_ROUTING_HEADER) {
                     ClientRedirectPolicy::Reject
@@ -311,11 +305,7 @@ impl ConnectionPool {
                     .await?
                     .clone();
                 let client = ResponsesClient::new(transport, provider, auth);
-                (
-                    Connection::Http(client),
-                    ThreadId::new().to_string(),
-                    request_kind,
-                )
+                (Connection::Http(client), ThreadId::new().to_string())
             }
         };
         if auth_changes
@@ -345,7 +335,6 @@ impl ConnectionPool {
         }
         Ok(ConnectionLease {
             thread_id,
-            request_kind,
             connection,
             pool: Arc::clone(self),
             _permit: permit,
@@ -371,11 +360,7 @@ impl ConnectionPool {
         let auth = self
             .config
             .provider
-            .api_auth_for_scope(ProviderAuthScope {
-                agent_identity_policy: self.config.agent_identity_policy,
-                session_source: self.config.session_source.clone(),
-                agent_identity_session_fallback: AgentIdentitySessionFallback::default(),
-            })
+            .api_auth_for_scope()
             .await
             .map_err(LunaSamplerError::Provider)?
             .auth;
@@ -397,18 +382,12 @@ impl ConnectionPool {
         })
     }
 
-    fn headers(
-        &self,
-        thread_id: &str,
-        request_kind: RequestMode,
-    ) -> Result<HeaderMap, LunaSamplerError> {
+    fn headers(&self, thread_id: &str) -> Result<HeaderMap, LunaSamplerError> {
         let mut headers = build_session_headers(
             Some(self.config.session_id.clone()),
             Some(thread_id.to_owned()),
         );
-        if request_kind == RequestMode::GuardianClassifier {
-            headers.insert("x-codex-guardian", HeaderValue::from_static("classifier"));
-        }
+        headers.insert("x-codex-guardian", HeaderValue::from_static("classifier"));
         headers.insert("x-openai-subagent", HeaderValue::from_static("guardian"));
         headers.insert(
             "x-codex-window-id",
@@ -418,10 +397,17 @@ impl ConnectionPool {
                 )))
             })?,
         );
-        headers.insert(
-            "x-openai-internal-codex-responses-lite",
-            HeaderValue::from_static("true"),
-        );
+        if self
+            .config
+            .model_info
+            .as_ref()
+            .is_some_and(|model| model.use_responses_lite)
+        {
+            headers.insert(
+                "x-openai-internal-codex-responses-lite",
+                HeaderValue::from_static("true"),
+            );
+        }
         if let Some(originator) = self.config.originator.as_deref() {
             add_originator_header(&mut headers, originator);
         }
@@ -430,28 +416,6 @@ impl ConnectionPool {
         }
         Ok(headers)
     }
-    async fn responses_request_kind(&self) -> RequestMode {
-        let provider = self.config.provider.info();
-        if self
-            .config
-            .provider
-            .auth()
-            .await
-            .as_ref()
-            .is_some_and(CodexAuth::uses_codex_backend)
-            && provider.supports_codex_backend_routes()
-            && provider.requires_openai_auth
-            && provider.env_key.is_none()
-            && provider.experimental_bearer_token.is_none()
-            && provider.auth.is_none()
-            && provider.aws.is_none()
-        {
-            RequestMode::GuardianClassifier
-        } else {
-            RequestMode::Regular
-        }
-    }
-
     async fn open_connection(
         &self,
         permit: OwnedSemaphorePermit,
@@ -464,8 +428,7 @@ impl ConnectionPool {
             auth_changes,
         } = self.client_setup().await?;
         let thread_id = ThreadId::new().to_string();
-        let request_kind = self.responses_request_kind().await;
-        let mut headers = self.headers(&thread_id, request_kind)?;
+        let mut headers = self.headers(&thread_id)?;
         headers.insert(
             "openai-beta",
             HeaderValue::from_static(RESPONSES_WEBSOCKETS_BETA),
@@ -527,7 +490,6 @@ impl ConnectionPool {
 
         Ok(PooledConnection {
             connection,
-            request_kind,
             thread_id,
             expires_at: Instant::now() + MAX_WEBSOCKET_AGE,
             auth_changes,
@@ -542,12 +504,69 @@ impl ConnectionLease {
         &self,
         request: &ResponsesApiRequest,
     ) -> Result<ResponseStream, ApiError> {
+        // Project onto the wire copy; retained items remain paired with their delivery proof.
+        let mut request = request.clone();
+        let model = self.pool.config.model_info.as_ref();
+        let lite = model.is_some_and(|model| model.use_responses_lite);
+        if !lite {
+            if matches!(request.input.first(), Some(ResponseItem::AdditionalTools { tools, .. }) if tools.is_empty()) {
+                request.input.remove(0);
+            }
+            if let Some(reasoning) = &mut request.reasoning {
+                reasoning.context = None;
+            }
+        }
+        let provider = self.pool.config.provider.info();
+        for item in &mut request.input {
+            if let Some(model) = model.filter(|model| !model.used_fallback_model_metadata)
+                && let ResponseItem::Message { content, .. } = item
+            {
+                for content in content {
+                    if let ContentItem::InputImage { detail, .. } = content {
+                        if model.use_responses_lite {
+                            *detail = None;
+                        } else if *detail == Some(ImageDetail::Original)
+                            && !model.supports_image_detail_original
+                        {
+                            *detail = Some(DEFAULT_IMAGE_DETAIL);
+                        }
+                    }
+                }
+            }
+            if !lite {
+                item.clear_content_item_metadata();
+            }
+            if !provider.accepts_response_continuation {
+                item.clear_internal_chat_message_metadata_passthrough();
+                if !matches!(
+                    item,
+                    ResponseItem::Reasoning { .. }
+                        | ResponseItem::Compaction { .. }
+                        | ResponseItem::ContextCompaction { .. }
+                ) {
+                    item.clear_encrypted_content();
+                }
+                if let ResponseItem::FunctionCall {
+                    encrypted_function_args,
+                    ..
+                } = item
+                {
+                    *encrypted_function_args = None;
+                }
+            }
+            if !provider.include_internal_metadata {
+                item.clear_tool_result_metadata();
+            }
+            if !self.pool.config.content_item_kinds {
+                item.clear_content_item_kinds();
+            }
+        }
         match &self.connection {
             Connection::Websocket(connection) => {
                 connection
                     .connection
                     .stream_request(
-                        ResponsesWsRequest::ResponseCreate(request.into()),
+                        ResponsesWsRequest::ResponseCreate((&request).into()),
                         /*connection_reused*/ true,
                         /*turn_state*/ None,
                     )
@@ -558,13 +577,13 @@ impl ConnectionLease {
                 tokio::time::timeout(
                     self.pool.config.provider.info().stream_idle_timeout(),
                     client.stream_request(
-                        request.clone(),
+                        request,
                         ResponsesOptions {
                             session_id: Some(self.pool.config.session_id.clone()),
                             thread_id: Some(self.thread_id.clone()),
                             extra_headers: self
                                 .pool
-                                .headers(&self.thread_id, self.request_kind)
+                                .headers(&self.thread_id)
                                 .map_err(|error| ApiError::Stream(error.to_string()))?,
                             ..Default::default()
                         },

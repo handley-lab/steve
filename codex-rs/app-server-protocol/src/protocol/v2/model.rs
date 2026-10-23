@@ -52,6 +52,9 @@ pub struct ModelProviderCapabilitiesReadResponse {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct ModelListParams {
+    /// When supplied, list models from this live thread's configured catalog.
+    #[ts(optional = nullable)]
+    pub thread_id: Option<String>,
     /// Opaque pagination cursor returned by a previous call.
     #[ts(optional = nullable)]
     pub cursor: Option<String>,
@@ -179,6 +182,11 @@ pub struct ModelListResponse {
     /// Opaque cursor to pass to the next call to continue after the last item.
     /// If None, there are no more items to return.
     pub next_cursor: Option<String>,
+    /// Retained cyber-program forwarding setting of the requested live thread.
+    /// Omitted for an unscoped listing or an older server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub cyber_access_programs_enabled: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
@@ -221,4 +229,30 @@ pub struct ModelSafetyBufferingUpdatedNotification {
     pub reasons: Vec<String>,
     pub show_buffering_ui: bool,
     pub faster_model: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn model_list_forwarding_snapshot_is_optional_and_preserves_false() {
+        let legacy = json!({"data": [], "nextCursor": null});
+        let response: ModelListResponse = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(response.cyber_access_programs_enabled, None);
+        assert_eq!(serde_json::to_value(&response).unwrap(), legacy);
+        for enabled in [false, true] {
+            let response = ModelListResponse {
+                cyber_access_programs_enabled: Some(enabled),
+                ..response.clone()
+            };
+            let value = serde_json::to_value(&response).unwrap();
+            assert_eq!(value["cyberAccessProgramsEnabled"], enabled);
+            assert_eq!(
+                serde_json::from_value::<ModelListResponse>(value).unwrap(),
+                response
+            );
+        }
+    }
 }

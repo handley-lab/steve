@@ -61,7 +61,10 @@ pub(crate) fn app_info_to_api(app: AppInfo) -> ApiAppInfo {
 ///
 /// Keeping this separate from app_info_to_api makes it impossible for app/read to accidentally
 /// expose full runtime tool state from the broader app/list path.
-pub(crate) fn connector_metadata_to_api(metadata: ConnectorMetadata) -> ApiConnectorMetadata {
+pub(crate) fn connector_metadata_to_api(
+    chatgpt_base_url: &str,
+    metadata: ConnectorMetadata,
+) -> ApiConnectorMetadata {
     let ConnectorMetadata {
         id,
         name,
@@ -71,7 +74,7 @@ pub(crate) fn connector_metadata_to_api(metadata: ConnectorMetadata) -> ApiConne
         distribution_channel,
         tool_summaries,
     } = metadata;
-    let install_url = Some(connector_install_url(&name, &id));
+    let install_url = connector_install_url(chatgpt_base_url, &name, &id);
     ApiConnectorMetadata {
         id,
         name,

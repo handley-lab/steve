@@ -40,10 +40,8 @@ const CLOUD_CONFIG_BUNDLE_CACHE_REFRESH_INTERVAL: Duration = Duration::from_secs
 const CLOUD_CONFIG_BUNDLE_TIMEOUT_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 const CLOUD_CONFIG_BUNDLE_LOAD_FAILED_MESSAGE: &str =
     "Failed to load cloud config bundle (workspace-managed policies).";
-const CLOUD_CONFIG_BUNDLE_AUTH_RECOVERY_FAILED_MESSAGE: &str = concat!(
-    "Your authentication session could not be refreshed automatically. ",
-    "Please log out and sign in again."
-);
+const CLOUD_CONFIG_BUNDLE_AUTH_RECOVERY_FAILED_MESSAGE: &str =
+    "The configured service rejected the supplied credentials. Supply updated credentials.";
 
 fn auth_identity(auth: &CodexAuth) -> (Option<String>, Option<String>) {
     (auth.get_chatgpt_user_id(), auth.get_account_id())
@@ -444,7 +442,10 @@ where
                     *auth = refreshed_auth;
                     return Ok(UnauthorizedRecoveryAction::RetrySameAttempt);
                 }
-                Err(RefreshTokenError::Policy(error)) => {
+                Err(
+                    error @ (RefreshTokenError::Policy(_)
+                    | RefreshTokenError::AccountRenewalUnavailable),
+                ) => {
                     return Err(CloudConfigBundleLoadError::new(
                         CloudConfigBundleLoadErrorCode::Auth,
                         status_code,

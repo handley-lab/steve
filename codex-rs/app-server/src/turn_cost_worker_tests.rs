@@ -1,6 +1,7 @@
 use super::*;
 use codex_backend_client::ApiKeyResponseCost;
 use codex_core::config::ConfigBuilder;
+use codex_core::config::ConfigOverrides;
 use codex_login::AuthCredentialsStoreMode;
 use codex_login::AuthKeyringBackendKind;
 use codex_login::CodexAuth;
@@ -25,6 +26,44 @@ const TURN_COST_PATH: &str = "/v1/analytics/codex/turn-costs";
 
 #[path = "turn_cost_worker_chatgpt_tests.rs"]
 mod chatgpt;
+
+#[test_case(None; "absent inference endpoint")]
+#[test_case(Some(" \t"); "blank inference endpoint")]
+#[test_case(Some("http://127.0.0.1:1/unused-inference"); "independent inference endpoint")]
+#[tokio::test]
+async fn configured_cost_backend_is_independent_of_inference_endpoint(inference_base: Option<&str>) {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(TURN_COST_PATH))
+        .and(header("authorization", "Bearer synthetic-cost-key"))
+        .and(header("openai-project", "cost-fixture"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "turns": []
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let auth_manager =
+        AuthManager::from_auth_for_testing(CodexAuth::from_api_key("synthetic-cost-key"));
+    let mut runtime = test_runtime(&server, auth_manager).await;
+    let mut config = runtime.config.as_ref().clone();
+    config.model_provider.base_url = inference_base.map(str::to_string);
+    config.model_provider.http_headers = Some(HashMap::from([(
+        "openai-project".to_string(),
+        "cost-fixture".into(),
+    )]));
+    runtime.config = Arc::new(config);
+
+    assert!(
+        runtime
+            .query_turn_costs(&["fixture-turn".to_string()])
+            .await
+            .expect("configured cost backend")
+            .expect("cost result")
+            .is_empty()
+    );
+    server.verify().await;
+}
 
 #[tokio::test]
 async fn worker_starts_with_otlp_metrics_exporter_without_log_exporter() {
@@ -491,4 +530,138 @@ async fn turn_cost_failures_do_not_log_response_bodies(status: u16) {
     assert!(logs.contains("failed to query turn costs"));
     assert!(!logs.contains("private-workspace-response-marker"));
     server.verify().await;
+}
+
+fn otel_metrics(endpoint: String) -> OtelExporterKind {
+    OtelExporterKind::OtlpGrpc {
+        endpoint,
+        headers: HashMap::new(),
+        tls: None,
+    }
+}
+
+#[tokio::test]
+async fn account_cost_backend_waits_for_auth_then_uses_the_account_url() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(TURN_COST_PATH))
+        .and(header("authorization", "Bearer sk-arrived"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "turns": []
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let auth_home = TempDir::new().expect("temporary auth home");
+    let auth_manager = auth_manager_at(auth_home.path()).await;
+    let codex_home = TempDir::new().expect("temporary Codex home");
+    let mut config = ConfigBuilder::default()
+        .codex_home(codex_home.path().to_path_buf())
+        .harness_overrides(ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
+        .build()
+        .await
+        .expect("test config");
+    config.chatgpt_base_url = server.uri();
+    config.model_provider = ModelProviderInfo {
+        name: "Cambridge".to_string(),
+        base_url: Some("https://model.example/v1".to_string()),
+        requires_openai_auth: true,
+        ..Default::default()
+    };
+    config.otel.exporter = OtelExporterKind::None;
+    config.otel.metrics_exporter = otel_metrics(server.uri());
+    let worker = TurnCostWorker::spawn(Arc::new(config), Arc::clone(&auth_manager))
+        .expect("account backend should start");
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(
+        server
+            .received_requests()
+            .await
+            .expect("requests")
+            .is_empty()
+    );
+    login_with_api_key(
+        auth_home.path(),
+        "sk-arrived",
+        AuthCredentialsStoreMode::File,
+        AuthKeyringBackendKind::default(),
+    )
+    .expect("write API-key auth");
+    assert!(auth_manager.reload().await);
+    wait_for_request_count(&server, 1).await;
+    worker.shutdown();
+    server.verify().await;
+}
+
+#[tokio::test]
+async fn env_key_cost_query_uses_the_model_url() {
+    let model = MockServer::start().await;
+    let account = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/analytics/codex/turn-costs"))
+        .and(header("authorization", "Bearer cost-key-b"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "turns": []
+        })))
+        .expect(2)
+        .mount(&model)
+        .await;
+    let previous = std::env::var_os("STEVE_PROVIDER_AUTONOMY_COST_FIXTURE");
+    unsafe {
+        std::env::set_var("STEVE_PROVIDER_AUTONOMY_COST_FIXTURE", "cost-key-b");
+    }
+    let auth_manager =
+        AuthManager::from_auth_for_testing(CodexAuth::from_api_key("global-key-a"));
+    let mut workers = Vec::new();
+    let mut homes = Vec::new();
+    for name in ["OpenAI", "Cambridge"] {
+        let codex_home = TempDir::new().expect("temporary Codex home");
+        let mut config = ConfigBuilder::default()
+            .codex_home(codex_home.path().to_path_buf())
+            .harness_overrides(ConfigOverrides {
+                model_provider: Some("openai".to_string()),
+                ..Default::default()
+            })
+            .build()
+            .await
+            .expect("test config");
+        config.chatgpt_base_url = account.uri();
+        config.model_provider = ModelProviderInfo {
+            name: name.to_string(),
+            base_url: Some(format!("{}/v1", model.uri())),
+            env_key: Some("STEVE_PROVIDER_AUTONOMY_COST_FIXTURE".to_string()),
+            requires_openai_auth: true,
+            ..Default::default()
+        };
+        config.otel.exporter = OtelExporterKind::None;
+        config.otel.metrics_exporter = otel_metrics(model.uri());
+        workers.push(
+            TurnCostWorker::spawn(Arc::new(config), Arc::clone(&auth_manager))
+                .expect("model-provider cost backend"),
+        );
+        homes.push(codex_home);
+    }
+    wait_for_request_count(&model, 2).await;
+    assert!(
+        account
+            .received_requests()
+            .await
+            .expect("account requests")
+            .is_empty()
+    );
+    for worker in workers {
+        worker.shutdown();
+    }
+    drop(homes);
+    model.verify().await;
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("STEVE_PROVIDER_AUTONOMY_COST_FIXTURE", value),
+            None => std::env::remove_var("STEVE_PROVIDER_AUTONOMY_COST_FIXTURE"),
+        }
+    }
 }

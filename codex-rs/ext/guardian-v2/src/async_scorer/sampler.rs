@@ -19,25 +19,21 @@ use codex_api::Reasoning;
 use codex_api::ReasoningContext;
 use codex_api::ResponsesApiRequest;
 use codex_context_fragments::RenderedFragment;
-use codex_core::cyber_access_program::ApiKeyCyberAccessPrograms;
 use codex_extension_api::ExtensionMetrics;
 use codex_history::ResponseItemEnvelope;
 use codex_http_client::HttpClientFactory;
-use codex_login::AgentIdentityAuthPolicy;
 use codex_model_provider::SharedModelProvider;
 use codex_model_provider::WorkspaceRoutingContext;
 use codex_protocol::ResponseItemId;
 use codex_protocol::error::CodexErr;
-use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort;
-use codex_protocol::protocol::SessionSource;
 use codex_protocol::turn_input::CyberAccessProgram;
 use thiserror::Error;
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
-pub(crate) const MODEL: &str = "gpt-5.6-luna";
 pub(crate) const CLASSIFICATION_TOKEN_USAGE_METRIC: &str =
     "codex.guardian_v2.classification.token_usage";
 const MAX_OUTPUT_BYTES: usize = 8 * 1024;
@@ -46,18 +42,18 @@ const MAX_CONCURRENT_REQUESTS: usize = 16;
 
 /// Host-owned provider, authentication, and attribution for one Luna connection.
 pub struct LunaSamplerConfig {
+    /// Classifier model selected with this provider's metadata and budget.
+    pub model: String,
     /// Provider and credentials selected for the owning thread.
     pub provider: SharedModelProvider,
-    /// Provider and feature policy shared with ordinary model requests.
-    pub api_key_cyber_access_programs: ApiKeyCyberAccessPrograms,
+    /// Explicit access-program forwarding shared with ordinary model requests.
+    pub api_key_cyber_access_programs: bool,
+    /// Whether content classifications and attribution are enabled for this thread.
+    pub content_item_kinds: bool,
     /// Routing scope and retained configuration layers for the owning thread.
     pub workspace_routing: WorkspaceRoutingContext,
     /// Effective proxy, custom-CA, and cookie configuration.
     pub http_client_factory: HttpClientFactory,
-    /// Agent-identity policy selected for the owning thread.
-    pub agent_identity_policy: AgentIdentityAuthPolicy,
-    /// Host-resolved source used to scope agent-identity authentication.
-    pub session_source: SessionSource,
     /// Owning runtime session identifier.
     pub session_id: String,
     /// Owning thread identifier.
@@ -66,8 +62,8 @@ pub struct LunaSamplerConfig {
     pub originator: Option<String>,
     /// Optional inference service tier.
     pub service_tier: Option<String>,
-    /// Luna model's host-resolved encrypted-compaction compatibility hash.
-    pub luna_compaction_hash: Option<String>,
+    /// Classifier-scoped metadata, including encrypted-compaction compatibility.
+    pub model_info: Option<ModelInfo>,
     /// Complete input allowance resolved for the classifier model.
     pub max_input_tokens: usize,
     /// Host-provided metrics capability with the owning session's attribution.
@@ -146,7 +142,12 @@ impl LunaSampler {
     /// A checkpoint is reusable only when both models declare the same nonempty hash.
     pub(super) fn supports_parent_compaction(&self, parent_hash: Option<&str>) -> bool {
         parent_hash
-            .zip(self.config.luna_compaction_hash.as_deref())
+            .zip(
+                self.config
+                    .model_info
+                    .as_ref()
+                    .and_then(|model| model.comp_hash.as_deref()),
+            )
             .is_some_and(|(parent_hash, luna_hash)| {
                 !parent_hash.is_empty() && parent_hash == luna_hash
             })
@@ -182,7 +183,7 @@ impl LunaSampler {
     pub(super) fn prepare_input(
         request: &LunaSamplingRequest,
         history: Option<Vec<ResponseItemEnvelope>>,
-        mut evidence: Vec<ResponseItemEnvelope>,
+        evidence: Vec<ResponseItemEnvelope>,
     ) -> (Vec<ResponseItemEnvelope>, usize) {
         let mut input = history.unwrap_or_else(|| {
             let mut input = vec![
@@ -201,16 +202,6 @@ impl LunaSampler {
             );
             input
         });
-        // Normalize only new evidence; never rewrite the committed prefix.
-        for item in &mut evidence {
-            if let ResponseItem::Message { content, .. } = &mut item.item {
-                for content in content {
-                    if let ContentItem::InputImage { detail, .. } = content {
-                        *detail = None;
-                    }
-                }
-            }
-        }
         input.extend(evidence);
         // Assign IDs once so retries reuse the same input item identities.
         for item in &mut input {
@@ -234,7 +225,7 @@ impl LunaSampler {
         auth_owner_generation: Option<u64>,
     ) -> execution::SamplingExecution {
         let api_request = ResponsesApiRequest {
-            model: MODEL.to_owned(),
+            model: self.config.model.clone(),
             input,
             tools: None,
             tool_choice: "none".to_owned(),

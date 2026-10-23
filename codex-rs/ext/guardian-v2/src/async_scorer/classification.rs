@@ -33,7 +33,6 @@ use codex_guardian_context::PreviousReviews;
 use codex_guardian_context::ReviewEvidence;
 use codex_guardian_context::render_review_evidence;
 use codex_history::RolloutItem;
-use codex_model_provider::create_model_provider;
 use codex_prompts::ResolvedModelMessages;
 use codex_protocol::models::ContentItem;
 use codex_protocol::openai_models::ModelInfo;
@@ -185,12 +184,64 @@ impl Classification {
                 } else {
                     thread.guardian_root_snapshot().await
                 };
-                (trusted_tool_context, root_snapshot)
+                let review_model = if config.guardian_policy_config.is_none() {
+                    let review_model_id = config
+                        .guardian_model
+                        .as_deref()
+                        .or_else(|| {
+                            config
+                                .model_catalog
+                                .as_ref()
+                                .and(review_model_override.as_deref())
+                        })
+                        .filter(|model| !model.trim().is_empty());
+                    if let Some(review_model_id) = review_model_id {
+                        let mut reviewer_config = config.as_ref().clone();
+                        let independent_provider = if let Some((id, provider)) =
+                            &config.guardian_model_provider
+                        {
+                            let changed = id != &config.model_provider_id
+                                || provider != &config.model_provider;
+                            reviewer_config.model_provider_id = id.clone();
+                            reviewer_config.model_provider = provider.clone();
+                            changed
+                        } else {
+                            false
+                        };
+                        let (models_manager, refresh) = if independent_provider {
+                            (
+                                codex_core::build_models_manager(
+                                    &reviewer_config,
+                                    thread.auth_manager(),
+                                ),
+                                codex_models_manager::manager::RefreshStrategy::OnlineIfUncached,
+                            )
+                        } else {
+                            (
+                                thread.models_manager(),
+                                codex_models_manager::manager::RefreshStrategy::Offline,
+                            )
+                        };
+                        models_manager
+                            .list_models(refresh, reviewer_config.http_client_factory())
+                            .await;
+                        Some(Arc::new(
+                            models_manager
+                                .get_model_info(review_model_id, &reviewer_config.to_models_manager_config())
+                                .await,
+                        ))
+                    } else {
+                        parent_model.clone()
+                    }
+                } else {
+                    None
+                };
+                (trusted_tool_context, root_snapshot, review_model)
             } => Some(metadata),
         };
         // Metadata can become ready in the same poll as expiry. Do not start
         // synchronous transcript preparation for an observation that is already stale.
-        let Some((trusted_tool_context, root_snapshot)) =
+        let Some((trusted_tool_context, root_snapshot, review_model)) =
             metadata.filter(|_| !pending_score.is_expired())
         else {
             record_classification(
@@ -316,26 +367,6 @@ impl Classification {
         let mut classification_risk = None;
         let mut classification_finished_at = None;
         let result: Result<ClassificationOutcome, String> = async {
-            let review_model = if config.guardian_policy_config.is_none() {
-                let review_model_id = review_model_override.as_deref().unwrap_or_else(|| {
-                    create_model_provider(
-                        config.model_provider.clone(),
-                        Some(manager.auth_manager()),
-                    )
-                    .approval_review_preferred_model()
-                });
-                let review_model = manager
-                    .get_models_manager()
-                    .get_model_info(review_model_id, &config.to_models_manager_config())
-                    .await;
-                if review_model.used_fallback_model_metadata && review_model_override.is_none() {
-                    parent_model.clone()
-                } else {
-                    Some(Arc::new(review_model))
-                }
-            } else {
-                None
-            };
             let model_messages = review_model
                 .as_deref()
                 .map(ResolvedModelMessages::from_model)

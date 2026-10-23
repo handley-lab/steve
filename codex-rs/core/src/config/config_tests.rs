@@ -1279,6 +1279,7 @@ fn config_toml_deserializes_model_availability_nux() {
             terminal_title: None,
             theme: None,
             pet: None,
+            pet_asset_base_url: None,
             pet_anchor: TuiPetAnchor::Composer,
             session_picker_view: None,
             agents_overview_grouping: Default::default(),
@@ -4491,6 +4492,7 @@ fn tui_config_missing_notifications_field_defaults_to_enabled() {
             terminal_title: None,
             theme: None,
             pet: None,
+            pet_asset_base_url: None,
             pet_anchor: TuiPetAnchor::Composer,
             session_picker_view: None,
             agents_overview_grouping: Default::default(),
@@ -6277,6 +6279,97 @@ async fn config_resolves_explicit_keyring_auth_store_mode() -> std::io::Result<(
         ),
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn file_upload_origins_follow_user_configuration() -> std::io::Result<()> {
+    for (source, expected) in [
+        ("", Vec::new()),
+        ("file_upload_origins = []", Vec::new()),
+        (
+            "file_upload_origins = ['http://127.0.0.1:43123', 'https://storage.example']",
+            vec![
+                "http://127.0.0.1:43123".to_string(),
+                "https://storage.example".to_string(),
+            ],
+        ),
+    ] {
+        let codex_home = TempDir::new()?;
+        let config = Config::load_from_base_config_with_overrides(
+            toml::from_str(source).expect("parse upload configuration"),
+            ConfigOverrides::default(),
+            codex_home.abs(),
+        )
+        .await?;
+        assert_eq!(config.file_upload_origins, expected);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn chatgpt_path_style_loads_from_config_and_ignores_the_base_url() -> std::io::Result<()> {
+    let cases = [
+        (
+            ConfigToml {
+                model_provider: Some("openai".to_string()),
+                chatgpt_base_url: Some("https://local.example/backend-api/".to_string()),
+                ..Default::default()
+            },
+            codex_config::AccountPathStyle::CodexApi,
+        ),
+        (
+            ConfigToml {
+                model_provider: Some("openai".to_string()),
+                chatgpt_path_style: Some(codex_config::AccountPathStyle::ChatgptApi),
+                chatgpt_base_url: Some("https://local.example/api/codex".to_string()),
+                ..Default::default()
+            },
+            codex_config::AccountPathStyle::ChatgptApi,
+        ),
+        (
+            ConfigToml {
+                model_provider: Some("openai".to_string()),
+                chatgpt_path_style: Some(codex_config::AccountPathStyle::CodexApi),
+                ..Default::default()
+            },
+            codex_config::AccountPathStyle::CodexApi,
+        ),
+    ];
+    for (config_toml, expected) in cases {
+        let codex_home = TempDir::new()?;
+        let config = Config::load_from_base_config_with_overrides(
+            config_toml,
+            ConfigOverrides::default(),
+            codex_home.abs(),
+        )
+        .await?;
+        assert_eq!(config.chatgpt_path_style, expected);
+    }
+    assert!(toml::from_str::<ConfigToml>("chatgpt_path_style = \"wham\"\n").is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn config_requires_explicit_chatgpt_backend_destination() -> std::io::Result<()> {
+    for backend in [
+        None,
+        Some("https://local.example/backend-api/"),
+        Some("https://chatgpt.com/backend-api/"),
+    ] {
+        let codex_home = TempDir::new()?;
+        let config = Config::load_from_base_config_with_overrides(
+            ConfigToml {
+                chatgpt_base_url: backend.map(str::to_owned),
+                ..Default::default()
+            },
+            ConfigOverrides::default(),
+            codex_home.abs(),
+        )
+        .await?;
+
+        assert_eq!(config.chatgpt_base_url, backend.unwrap_or_default());
+    }
     Ok(())
 }
 
@@ -8467,6 +8560,61 @@ experimental_policy_template = "Configured template: {{ tenant_policy_config }}"
     );
 }
 
+#[tokio::test]
+async fn load_config_resolves_auto_review_provider() -> std::io::Result<()> {
+    let home = TempDir::new()?;
+    let mut provider = built_in_model_providers(None)["openai"].clone();
+    provider.name = "reviewer".to_string();
+    provider.base_url = Some("http://localhost:12345/v1".to_string());
+    let cfg = ConfigToml {
+        auto_review: Some(AutoReviewToml {
+            model_provider: Some("reviewer".to_string()),
+            ..Default::default()
+        }),
+        model_providers: HashMap::from([("reviewer".to_string(), provider.clone())]),
+        features: Some(toml::from_str("guardianv2 = true").unwrap()),
+        ..Default::default()
+    };
+    let overrides = ConfigOverrides {
+        cwd: Some(home.path().to_path_buf()),
+        ..Default::default()
+    };
+    let config =
+        Config::load_from_base_config_with_overrides(cfg.clone(), overrides.clone(), home.abs())
+            .await?;
+    assert_eq!(
+        config.guardian_model_provider,
+        Some(("reviewer".to_string(), provider))
+    );
+    assert_eq!(config.model_provider_id, "openai");
+    assert!(config.features.enabled(Feature::GuardianV2));
+
+    let mut unknown = cfg.clone();
+    unknown.auto_review.as_mut().unwrap().model_provider = Some("missing".to_string());
+    let error =
+        Config::load_from_base_config_with_overrides(unknown, overrides.clone(), home.abs())
+            .await
+            .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+
+    let layers = ConfigLayerStack::new(
+        Vec::new(),
+        ConfigRequirements::default(),
+        ConfigRequirementsToml {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        },
+    )
+    .map_err(std::io::Error::other)?;
+    let error =
+        Config::load_config_with_layer_stack(LOCAL_FS.as_ref(), cfg, overrides, home.abs(), layers)
+            .await
+            .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    assert!(error.to_string().contains("required model_provider"));
+    Ok(())
+}
+
 #[test_case::test_case("", codex_protocol::TranscriptFormat::Line; "default_line")]
 #[test_case::test_case("[guardianv2]\ntranscript_mode = 'line'", codex_protocol::TranscriptFormat::Line; "explicit_line")]
 #[test_case::test_case("[guardianv2]\ntranscript_mode = 'json'", codex_protocol::TranscriptFormat::Json; "explicit_json")]
@@ -8479,6 +8627,8 @@ async fn load_config_uses_auto_review_guardian_policy_config_and_template(
     let cfg = ConfigToml {
         features: Some(toml::from_str(features).unwrap()),
         auto_review: Some(AutoReviewToml {
+            model_provider: None,
+            model: None,
             circuit_break_action: None,
             policy: Some("  Use the user-configured guardian policy.  ".to_string()),
             extra_policy: Some("  Use the user-configured additional policy.  ".to_string()),
@@ -8542,6 +8692,8 @@ async fn requirements_guardian_policy_beats_auto_review() -> std::io::Result<()>
         .map_err(std::io::Error::other)?;
         let cfg = ConfigToml {
             auto_review: Some(AutoReviewToml {
+                model_provider: None,
+                model: None,
                 circuit_break_action: None,
                 policy: Some("Use the user-configured guardian policy.".to_string()),
                 extra_policy: Some("Use the user-configured additional policy.".to_string()),
@@ -8583,6 +8735,8 @@ async fn load_config_ignores_empty_auto_review_guardian_policy_config() -> std::
     let codex_home = TempDir::new()?;
     let cfg = ConfigToml {
         auto_review: Some(AutoReviewToml {
+            model_provider: None,
+            model: None,
             circuit_break_action: None,
             policy: Some("   ".to_string()),
             extra_policy: Some("   ".to_string()),
@@ -9976,7 +10130,7 @@ async fn legacy_profile_selection_is_rejected() -> std::io::Result<()> {
 }
 
 #[tokio::test]
-async fn metrics_exporter_defaults_to_statsig_when_missing() -> std::io::Result<()> {
+async fn metrics_exporter_defaults_to_none_when_missing() -> std::io::Result<()> {
     let fixture = create_test_fixture()?;
 
     let config = Config::load_from_base_config_with_overrides(
@@ -9989,7 +10143,7 @@ async fn metrics_exporter_defaults_to_statsig_when_missing() -> std::io::Result<
     )
     .await?;
 
-    assert_eq!(config.otel.metrics_exporter, OtelExporterKind::Statsig);
+    assert_eq!(config.otel.metrics_exporter, OtelExporterKind::None);
     assert!(!config.otel.agent_response_logging_enabled());
     assert!(!config.otel.guardian_assessment_logging_enabled());
     Ok(())

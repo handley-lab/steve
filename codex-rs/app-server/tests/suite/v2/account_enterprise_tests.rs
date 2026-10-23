@@ -42,7 +42,6 @@ use test_case::test_case;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
-use wiremock::matchers::body_partial_json;
 use wiremock::matchers::header;
 
 const WORKSPACE_ID_REFRESHED: &str = "123e4567-e89b-42d3-a456-426614174012";
@@ -81,12 +80,8 @@ client_id = "enterprise-client""#
     }
     Mock::given(method("POST"))
         .and(path("/oauth/revoke"))
-        .and(body_partial_json(json!({
-            "token": "next-refresh-token",
-            "token_type_hint": "refresh_token",
-        })))
         .respond_with(ResponseTemplate::new(200))
-        .expect(1)
+        .expect(0)
         .mount(&server)
         .await;
     let codex_home = TempDir::new()?;
@@ -117,7 +112,7 @@ client_id = "enterprise-client""#
         .without_auto_env()
         .with_env_overrides(&[
             ("OPENAI_API_KEY", None),
-            (REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR, Some(&refresh_url)),
+            ("STEVE_REFRESH_TOKEN_URL_OVERRIDE", Some(&refresh_url)),
         ])
         .build_initialized_with_timeout(DEFAULT_READ_TIMEOUT)
         .await?;
@@ -173,7 +168,7 @@ async fn enterprise_login_attempt_lifecycle() -> Result<()> {
         Mock::given(method("POST"))
             .and(path("/oauth/revoke"))
             .respond_with(ResponseTemplate::new(200))
-            .expect(1)
+            .expect(0)
             .mount(&oauth_server)
             .await;
         let output = Command::new(std::env::current_exe()?)
@@ -185,7 +180,7 @@ async fn enterprise_login_attempt_lifecycle() -> Result<()> {
             .env(CHILD, "1")
             .env("STEVE_HOME", home.path())
             .env(
-                REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR,
+                "STEVE_REFRESH_TOKEN_URL_OVERRIDE",
                 format!("{}/oauth/token", oauth_server.uri()),
             )
             .env_remove("OPENAI_API_KEY")
@@ -612,7 +607,7 @@ async fn enterprise_login_setup_is_cancelled_by_account_changes() -> Result<()> 
         Mock::given(method("POST"))
             .and(path("/oauth/revoke"))
             .respond_with(ResponseTemplate::new(200))
-            .expect(0..=1)
+            .expect(0)
             .mount(&oauth_server)
             .await;
         let output = Command::new(std::env::current_exe()?)
@@ -624,7 +619,7 @@ async fn enterprise_login_setup_is_cancelled_by_account_changes() -> Result<()> 
             .env(CHILD, "1")
             .env("STEVE_HOME", home.path())
             .env(
-                REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR,
+                "STEVE_REFRESH_TOKEN_URL_OVERRIDE",
                 format!("{}/oauth/token", oauth_server.uri()),
             )
             .env_remove("OPENAI_API_KEY")

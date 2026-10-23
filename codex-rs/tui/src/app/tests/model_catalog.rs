@@ -25,10 +25,24 @@ fn bedrock_model_presets() -> Vec<ModelPreset> {
 #[tokio::test]
 async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()> {
     let (mut app, mut rx, _op_rx) = make_test_app_with_channels().await;
+    let catalog = codex_models_manager::bundled_models_response()?;
+    let catalog_path = app.config.codex_home.as_path().join("picker-models.json");
+    std::fs::write(&catalog_path, serde_json::to_vec(&catalog)?)?;
+    std::fs::write(
+        app.config.codex_home.join("config.toml"),
+        format!(
+            "model_provider = \"openai\"\nmodel = \"gpt-5.5\"\nmodel_catalog_json = {catalog_path:?}\n"
+        ),
+    )?;
+    app.config.model_catalog = Some(catalog);
     let mut app_server = start_config_write_test_app_server(&app).await?;
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let fast = Some(ServiceTier::Fast.request_value());
-    let thread_id = ThreadId::new();
+    let thread_id = app_server
+        .start_thread(&app.config)
+        .await?
+        .session
+        .thread_id;
     let mut session = test_thread_session(thread_id, test_path_buf("/tmp/project"));
     session.model = "gpt-5.5".to_string();
     app.primary_thread_id = Some(thread_id);
@@ -44,7 +58,11 @@ async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()
     app.chat_widget.open_model_popup();
     let request_id = std::iter::from_fn(|| rx.try_recv().ok())
         .find_map(|event| match event {
-            AppEvent::FetchModels { request_id } => Some(request_id),
+            AppEvent::FetchModels { request_id }
+                if app.chat_widget.model_popup_request_is_current(request_id) =>
+            {
+                Some(request_id)
+            }
             _ => None,
         })
         .expect("initial model request");
@@ -64,7 +82,10 @@ async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()
     app.chat_widget.open_model_popup();
     assert!(app.chat_widget.no_modal_or_popup_active());
     let request = std::iter::from_fn(|| rx.try_recv().ok())
-        .find(|event| matches!(event, AppEvent::FetchModels { .. }))
+        .find(|event| {
+            matches!(event, AppEvent::FetchModels { request_id }
+            if app.chat_widget.model_popup_request_is_current(*request_id))
+        })
         .expect("catalog request");
 
     Box::pin(app.handle_event(&mut tui, &mut app_server, request)).await?;
@@ -102,6 +123,7 @@ async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()
         (&app.primary_session_configured, &cached),
         (&Some(session.clone()), &Some(session.clone()))
     );
+    assert_eq!(app.chat_widget.model_catalog().try_list_models().unwrap(), expected);
     app.chat_widget.handle_thread_session(test_thread_session(
         ThreadId::new(),
         test_path_buf("/tmp/other"),
@@ -118,17 +140,443 @@ async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()
             app.model_catalog.try_list_models().unwrap(),
             app.chat_widget.model_catalog().try_list_models().unwrap(),
         ),
-        (expected.clone(), expected)
+        (expected, Vec::new())
     );
-    let mut config = app.config.clone();
-    config.service_tier = None;
-    config.features.enable(Feature::FastMode)?;
-    for (model, expected_tier) in [(None, fast), (Some("gpt-5.6-terra"), Some("default"))] {
-        config.model = model.map(str::to_string);
-        let started = app_server.start_thread(&config).await?;
-        assert_eq!(started.session.service_tier.as_deref(), expected_tier);
-    }
     app_server.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn lifecycle_service_tier_uses_the_destination_catalog() -> Result<()> {
+    use codex_app_server_protocol::ClientRequest;
+    use codex_app_server_protocol::ModelListParams;
+    use codex_app_server_protocol::ModelListResponse;
+    use codex_app_server_protocol::RequestId;
+    use codex_app_server_protocol::ServerNotification;
+    use codex_protocol::openai_models::ModelServiceTier;
+    use core_test_support::responses;
+
+    let mut traces = Vec::new();
+    let mut failures = Vec::new();
+    for (process_tier, destination_tier) in [("priority", "ultrafast"), ("ultrafast", "priority")] {
+        let a = responses::start_mock_server().await;
+        let b = responses::start_mock_server().await;
+        let home = tempdir()?;
+        let mut model = codex_models_manager::bundled_models_response()?
+            .models
+            .remove(0);
+        model.slug = "gpt-5.5".to_string();
+        model.service_tiers = ["priority", "ultrafast"]
+            .into_iter()
+            .map(|id| ModelServiceTier {
+                id: id.to_string(),
+                name: id.to_string(),
+                description: id.to_string(),
+            })
+            .collect();
+        let mut config_texts = Vec::new();
+        for (label, host, tier) in [
+            ("a", a.uri(), process_tier),
+            ("b", b.uri(), destination_tier),
+        ] {
+            model.default_service_tier = Some(tier.to_string());
+            let catalog = home.path().join(format!("{label}.json"));
+            std::fs::write(
+                &catalog,
+                serde_json::to_vec(&codex_protocol::openai_models::ModelsResponse {
+                    models: vec![model.clone()],
+                })?,
+            )?;
+            config_texts.push(format!(
+                r#"model_provider = "tier"
+model = "gpt-5.5"
+model_catalog_json = {catalog:?}
+[features]
+fast_mode = true
+ultrafast_mode = true
+guardian_approval = false
+api_key_model_discovery = false
+shell_snapshot = false
+cli_daybreak = false
+[model_providers.tier]
+name = "Selected service"
+base_url = "{host}/v1"
+experimental_bearer_token = "local-tier-control"
+request_max_retries = 0
+stream_max_retries = 0
+"#
+            ));
+        }
+        std::fs::write(home.path().join("config.toml"), &config_texts[0])?;
+        let config_a = ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+            .build()
+            .await?;
+        let (mut server, requests, proxy) =
+            session_lifecycle_requests::start_recording_app_server_with_history(
+                &config_a,
+                session_lifecycle_requests::HistoryCapabilities::CurrentWithNotifications,
+                None,
+                None,
+                crate::app_server_session::ThreadParamsMode::Embedded,
+                LoaderOverrides::without_managed_config_for_tests(),
+            )
+            .await?;
+        let process_models = server.bootstrap(&config_a).await?.available_models;
+        let parent = server.start_thread(&config_a).await?;
+        let parent_capture = responses::mount_sse_once(
+            &a,
+            responses::sse(vec![
+                responses::ev_response_created("tier-parent"),
+                responses::ev_completed("tier-parent"),
+            ]),
+        )
+        .await;
+        server
+            .turn_start(
+                parent.session.thread_id,
+                uuid::Uuid::new_v4().to_string(),
+                vec![codex_app_server_protocol::UserInput::Text {
+                    text: "materialize the source".to_string(),
+                    text_elements: Vec::new(),
+                }],
+                config_a.cwd.to_path_buf(),
+                None,
+                None,
+                crate::app_server_session::TurnPermissionsOverride::Preserve,
+                &config_a.workspace_roots,
+                parent.session.model.clone(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await?;
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while let Some(event) = server.next_event().await {
+                if let codex_app_server_client::AppServerEvent::ServerNotification(notification) =
+                    event
+                    && let ServerNotification::TurnCompleted(completed) = *notification
+                {
+                    assert_eq!(
+                        completed.turn.status,
+                        codex_app_server_protocol::TurnStatus::Completed
+                    );
+                    return;
+                }
+            }
+            panic!("server disconnected before source completion");
+        })
+        .await?;
+        let parent_body = parent_capture.single_request().body_json();
+        assert_eq!(parent_body["service_tier"], serde_json::json!(process_tier));
+        traces.push(
+            serde_json::json!({"stage": "source control", "configs": config_texts,
+            "rpc": *requests.lock().unwrap(), "inference": parent_body}),
+        );
+        if let Some(path) = std::env::var_os("STEVE_TEST_TIER_SCOPE_CAPTURE") {
+            std::fs::write(path, serde_json::to_vec_pretty(&traces)?)?;
+        }
+        std::fs::write(home.path().join("config.toml"), &config_texts[1])?;
+        let config_b = ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+            .build()
+            .await?;
+        let fork = server
+            .fork_thread_at(
+                &crate::local_settings::LocalSettings::from(&config_b),
+                config_b.clone(),
+                parent.session.thread_id,
+                None,
+                None,
+                crate::app_server_session::ForkGoalContinuation::StartIfIdle,
+                None,
+            )
+            .await?;
+        let mut bodies = Vec::new();
+        for loaded in [false, true] {
+            let (mut chat, _sender, mut events, mut commands) =
+                crate::chatwidget::tests::make_chatwidget_manual_with_sender().await;
+            chat.set_feature_enabled(Feature::FastMode, true);
+            chat.set_feature_enabled(Feature::UltrafastMode, true);
+            chat.set_feature_enabled(Feature::CliDaybreak, false);
+            chat.set_service_tier(None);
+            chat.handle_thread_session(fork.session.clone());
+            assert!(chat.model_catalog().try_list_models()?.is_empty());
+            assert!(!chat.on_models_loaded(uuid::Uuid::new_v4(), Ok(process_models.clone())));
+            let current_id = std::iter::from_fn(|| events.try_recv().ok())
+                .filter_map(|event| {
+                    if let AppEvent::FetchModels { request_id } = event {
+                        Some(request_id)
+                    } else {
+                        None
+                    }
+                })
+                .last()
+                .expect("destination catalog request");
+            if loaded {
+                let response: ModelListResponse = server
+                    .request_handle()
+                    .request_typed(ClientRequest::ModelList {
+                        request_id: RequestId::String(uuid::Uuid::new_v4().to_string()),
+                        params: ModelListParams {
+                            thread_id: Some(fork.session.thread_id.to_string()),
+                            include_hidden: Some(true),
+                            ..Default::default()
+                        },
+                    })
+                    .await?;
+                assert!(
+                    chat.on_models_loaded(
+                        current_id,
+                        Ok(response
+                            .data
+                            .into_iter()
+                            .map(crate::app_server_session::model_preset_from_api_model)
+                            .collect())
+                    )
+                );
+            }
+            chat.handle_paste("check the tier".to_string());
+            chat.handle_key_event(crossterm::event::KeyCode::Enter.into());
+            let dispatched = std::iter::from_fn(|| commands.try_recv().ok()).collect::<Vec<_>>();
+            let diagnostic = format!(
+                "loaded={loaded}, commands={dispatched:?}, popup={}",
+                crate::chatwidget::tests::helpers::render_bottom_popup(&chat, 100)
+            );
+            traces
+                .push(serde_json::json!({"stage": "widget submission", "diagnostic": diagnostic}));
+            if let Some(path) = std::env::var_os("STEVE_TEST_TIER_SCOPE_CAPTURE") {
+                std::fs::write(path, serde_json::to_vec_pretty(&traces)?)?;
+            }
+            let service_tier = dispatched
+                .into_iter()
+                .find_map(|command| {
+                    if let AppCommand::UserTurn { service_tier, .. } = command {
+                        Some(service_tier)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| panic!("ordinary widget turn: {diagnostic}"));
+            assert_eq!(
+                service_tier,
+                loaded.then(|| Some(destination_tier.to_string()))
+            );
+            let capture = responses::mount_sse_once(
+                &b,
+                responses::sse(vec![
+                    responses::ev_response_created("tier-response"),
+                    responses::ev_completed("tier-response"),
+                ]),
+            )
+            .await;
+            server
+                .turn_start(
+                    fork.session.thread_id,
+                    uuid::Uuid::new_v4().to_string(),
+                    vec![codex_app_server_protocol::UserInput::Text {
+                        text: "check the tier".to_string(),
+                        text_elements: Vec::new(),
+                    }],
+                    config_b.cwd.to_path_buf(),
+                    None,
+                    None,
+                    crate::app_server_session::TurnPermissionsOverride::Preserve,
+                    &config_b.workspace_roots,
+                    fork.session.model.clone(),
+                    None,
+                    None,
+                    service_tier,
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
+            tokio::time::timeout(Duration::from_secs(30), async {
+                while let Some(event) = server.next_event().await {
+                    if let codex_app_server_client::AppServerEvent::ServerNotification(notification) = event
+                        && let ServerNotification::TurnCompleted(completed) = *notification {
+                        assert_eq!(completed.turn.status, codex_app_server_protocol::TurnStatus::Completed);
+                        return;
+                    }
+                }
+                panic!("server disconnected before tier turn completed");
+            }).await?;
+            let body = capture.single_request().body_json();
+            if body["service_tier"] != serde_json::json!(destination_tier) {
+                failures.push(format!("process={process_tier}, destination={destination_tier}, loaded={loaded}, actual={}", body["service_tier"]));
+            }
+            bodies.push(body);
+        }
+        traces.push(serde_json::json!({"configs": config_texts, "process_tier": process_tier,
+            "destination_tier": destination_tier, "rpc": *requests.lock().unwrap(), "inference": bodies}));
+        if let Some(path) = std::env::var_os("STEVE_TEST_TIER_SCOPE_CAPTURE") {
+            std::fs::write(path, serde_json::to_vec_pretty(&traces)?)?;
+        }
+        server.shutdown().await?;
+        proxy.await??;
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn lifecycle_service_tier_respects_choices_and_reports_partial_creation() -> Result<()> {
+    use codex_protocol::openai_models::ModelServiceTier;
+    use session_lifecycle_requests::HistoryCapabilities;
+
+    let mut traces = Vec::new();
+    for (case, capability) in [
+        ("models-error", HistoryCapabilities::ScopedModelsFail),
+        (
+            "settings-error",
+            HistoryCapabilities::ThreadSettingsUnsupported,
+        ),
+        ("explicit-flex", HistoryCapabilities::ScopedModelsFail),
+        ("opt-out", HistoryCapabilities::ScopedModelsFail),
+        ("feature-off", HistoryCapabilities::ScopedModelsFail),
+        ("destination-tier", HistoryCapabilities::ScopedModelsFail),
+        ("unlisted-model", HistoryCapabilities::Current),
+    ] {
+        let endpoint = core_test_support::responses::start_mock_server().await;
+        let home = tempdir()?;
+        let mut catalog = codex_models_manager::bundled_models_response()?;
+        catalog.models.truncate(1);
+        catalog.models[0].slug = "gpt-5.5".to_string();
+        catalog.models[0].service_tiers = vec![ModelServiceTier {
+            id: "priority".into(),
+            name: "Priority".into(),
+            description: "Configured tier".into(),
+        }];
+        catalog.models[0].default_service_tier = Some("priority".to_string());
+        let catalog_path = home.path().join("models.json");
+        std::fs::write(&catalog_path, serde_json::to_vec(&catalog)?)?;
+        let destination_tier = if case == "destination-tier" {
+            "service_tier = \"priority\""
+        } else {
+            ""
+        };
+        let config_text = format!(
+            r#"model_provider = "tier"
+model = "gpt-5.5"
+model_catalog_json = {catalog_path:?}
+{destination_tier}
+[features]
+fast_mode = true
+ultrafast_mode = true
+guardian_approval = false
+api_key_model_discovery = false
+shell_snapshot = false
+[model_providers.tier]
+name = "Selected service"
+base_url = "{}/v1"
+experimental_bearer_token = "local-tier-control"
+"#,
+            endpoint.uri()
+        );
+        std::fs::write(home.path().join("config.toml"), &config_text)?;
+        let mut config = ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+            .build()
+            .await?;
+        match case {
+            "explicit-flex" => config.service_tier = Some("flex".into()),
+            "opt-out" => config.notices.fast_default_opt_out = Some(true),
+            "feature-off" => {
+                config.features.set_enabled(Feature::FastMode, false)?;
+                config.features.set_enabled(Feature::UltrafastMode, false)?;
+            }
+            "destination-tier" => config.service_tier = None,
+            "unlisted-model" => config.model = Some("unlisted-model".into()),
+            "models-error" | "settings-error" => {}
+            _ => unreachable!("enumerated fixture"),
+        }
+        let (mut server, requests, proxy) =
+            session_lifecycle_requests::start_recording_app_server_with_history(
+                &config,
+                capability,
+                None,
+                None,
+                crate::app_server_session::ThreadParamsMode::Embedded,
+                LoaderOverrides::without_managed_config_for_tests(),
+            )
+            .await?;
+        let result = server.start_thread(&config).await;
+        let scoped = requests
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|request| {
+                request.method == "model/list"
+                    && request
+                        .params
+                        .as_ref()
+                        .is_some_and(|params| params["threadId"].is_string())
+            })
+            .and_then(|request| request.params.as_ref())
+            .map(|params| params["threadId"].as_str().unwrap().to_string());
+        let (thread_id, outcome) = match case {
+            "models-error" | "settings-error" => {
+                let error = result.err().expect("post-creation failure");
+                let id = scoped.clone().expect("scoped destination request");
+                let message = format!("{error:#}");
+                assert!(
+                    message.contains(&id) && message.contains("was created"),
+                    "{message}"
+                );
+                assert!(
+                    message.contains(if case == "models-error" {
+                        "model/list unavailable"
+                    } else {
+                        "does not support thread/settings/update"
+                    }),
+                    "{message}"
+                );
+                (id, serde_json::json!({"error": message}))
+            }
+            _ => {
+                let started = result?;
+                let expected = match case {
+                    "explicit-flex" => Some("flex"),
+                    "opt-out" => Some("default"),
+                    "destination-tier" => Some("priority"),
+                    _ => None,
+                };
+                assert_eq!(started.session.service_tier.as_deref(), expected, "{case}");
+                assert_eq!(scoped.is_some(), case == "unlisted-model", "{case}");
+                assert!(
+                    !requests
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .any(|request| request.method == "thread/settings/update")
+                );
+                (
+                    started.session.thread_id.to_string(),
+                    serde_json::json!({"tier": started.session.service_tier}),
+                )
+            }
+        };
+        let loaded = server.thread_loaded_list(Default::default()).await?;
+        assert!(
+            loaded.data.contains(&thread_id),
+            "created thread remains discoverable"
+        );
+        assert!(endpoint.received_requests().await.unwrap().is_empty());
+        traces.push(serde_json::json!({"case": case, "config": config_text,
+            "outcome": outcome, "thread_id": thread_id, "loaded": loaded, "rpc": *requests.lock().unwrap()}));
+        if let Some(path) = std::env::var_os("STEVE_TEST_TIER_ERROR_CAPTURE") {
+            std::fs::write(path, serde_json::to_vec_pretty(&traces)?)?;
+        }
+        server.shutdown().await?;
+        proxy.await??;
+    }
     Ok(())
 }
 
@@ -187,18 +635,38 @@ async fn model_migration_prompt_only_shows_for_deprecated_models() {
     let seen = BTreeMap::new();
     let presets = model_presets_with_test_upgrades();
     assert!(should_show_model_migration_prompt(
-        "openai", "gpt-5.2", "gpt-5.5", &seen, &presets
+        "gpt-5.2", "gpt-5.5", &seen, &presets
     ));
     assert!(should_show_model_migration_prompt(
-        "openai",
         "gpt-5.4",
         "gpt-6-sol",
         &seen,
         &presets
     ));
     assert!(!should_show_model_migration_prompt(
-        "openai", "gpt-5.4", "gpt-5.4", &seen, &presets
+        "gpt-5.4", "gpt-5.4", &seen, &presets
     ));
+}
+
+#[test]
+fn retired_model_migration_requires_catalog_metadata() {
+    for (model, target) in [
+        ("gpt-5.4", "gpt-6-sol"),
+        ("gpt-5.4-mini", "gpt-6-luna"),
+        ("openai.gpt-5.4", "openai.gpt-6-sol"),
+    ] {
+        let mut presets = all_model_presets();
+        assert!(!presets.iter().any(|preset| preset.model == model));
+        presets[0].upgrade = Some(codex_protocol::openai_models::ModelUpgrade {
+            id: target.to_string(),
+            migration_config_key: "unrelated-model".to_string(),
+            model_link: None,
+            upgrade_copy: None,
+            migration_markdown: None,
+            retirement_at: None,
+        });
+        assert_eq!(model_upgrade_for_migration(model, &presets), None);
+    }
 }
 
 #[test]
@@ -213,7 +681,7 @@ fn retired_model_migration_respects_catalog_metadata() {
         current.model = model.to_string();
         let expected = current.upgrade.clone();
         assert_eq!(
-            model_upgrade_for_migration("openai", model, &presets),
+            model_upgrade_for_migration(model, &presets),
             expected
         );
 
@@ -222,7 +690,7 @@ fn retired_model_migration_respects_catalog_metadata() {
             .find(|preset| preset.model == model)
             .expect("catalog preset")
             .upgrade = None;
-        assert_eq!(model_upgrade_for_migration("openai", model, &presets), None);
+        assert_eq!(model_upgrade_for_migration(model, &presets), None);
     }
 }
 
@@ -382,7 +850,7 @@ async fn prepare_startup_tooltip_override_persists_model_availability_nux_count(
 #[tokio::test]
 async fn accepted_model_migration_persists_target_default_reasoning_effort() -> Result<()> {
     let mut migration_copies = Vec::new();
-    for (model, replacement, provider_id, presets) in [
+    for (model, replacement, provider_id, mut presets) in [
         ("gpt-5.4", "gpt-6-sol", "openai", all_model_presets()),
         ("gpt-5.4-mini", "gpt-6-luna", "openai", all_model_presets()),
         ("gpt-5.5", "gpt-6-sol", "openai", all_model_presets()),
@@ -396,6 +864,25 @@ async fn accepted_model_migration_persists_target_default_reasoning_effort() -> 
             bedrock_model_presets(),
         ),
     ] {
+        if !presets.iter().any(|preset| preset.model == model) {
+            let mut retired = presets
+                .iter()
+                .find(|preset| preset.model == replacement)
+                .expect("migration target")
+                .clone();
+            retired.id = model.to_string();
+            retired.model = model.to_string();
+            retired.show_in_picker = false;
+            retired.upgrade = Some(codex_protocol::openai_models::ModelUpgrade {
+                id: replacement.to_string(),
+                migration_config_key: model.to_string(),
+                model_link: None,
+                upgrade_copy: None,
+                migration_markdown: Some(format!("Catalog recommends {replacement} for {model}.")),
+                retirement_at: None,
+            });
+            presets.push(retired);
+        }
         let codex_home = tempdir()?;
         std::fs::write(
             codex_home.path().join("config.toml"),
@@ -409,11 +896,10 @@ async fn accepted_model_migration_persists_target_default_reasoning_effort() -> 
             .await?;
         let current_model = config.model.clone().expect("saved model");
         let provider = config.model_provider.clone();
-        let upgrade = model_upgrade_for_migration(provider_id, &current_model, &presets)
+        let upgrade = model_upgrade_for_migration(&current_model, &presets)
             .expect("catalog selection should have an upgrade");
         assert_eq!(upgrade.id, replacement);
         assert!(should_show_model_migration_prompt(
-            provider_id,
             &current_model,
             &upgrade.id,
             &BTreeMap::new(),
@@ -488,14 +974,8 @@ async fn accepted_model_migration_persists_target_default_reasoning_effort() -> 
         );
     }
     assert_snapshot!(migration_copies.join("\n"), @r"
-    GPT-5.4 is no longer available
-
-    Steve now uses GPT-6 Sol in place of GPT-5.4. Switch to GPT-6 Sol to continue.
-
-    GPT-5.4 Mini is no longer available
-
-    Steve now uses GPT-6 Luna in place of GPT-5.4 Mini. Switch to GPT-6 Luna to continue.
-
+    Catalog recommends gpt-6-sol for gpt-5.4.
+    Catalog recommends gpt-6-luna for gpt-5.4-mini.
     Meet GPT-6 Sol
 
     Our latest Sol is more intelligent and more efficient so your usage limits go further. This model is a great daily driver for complex tasks, especially coding.
@@ -512,16 +992,14 @@ async fn accepted_model_migration_persists_target_default_reasoning_effort() -> 
 
     Our latest Sol is more intelligent and more efficient so your usage limits go further. This model is a great daily driver for complex tasks, especially coding.
 
-    GPT-5.4 on Amazon Bedrock is no longer offered in Steve
-
-    Steve now uses GPT-6 Sol on Amazon Bedrock in place of GPT-5.4 on Amazon Bedrock. Switch to GPT-6 Sol on Amazon Bedrock to continue.
+    Catalog recommends openai.gpt-6-sol for openai.gpt-5.4.
     ");
     Ok(())
 }
 
 #[tokio::test]
 async fn model_migration_prompt_respects_hide_flag_and_self_target() {
-    for (model, previous_target, target, presets) in [
+    for (model, previous_target, target, mut presets) in [
         (
             "gpt-5.4-mini",
             "gpt-5.6-luna",
@@ -536,15 +1014,26 @@ async fn model_migration_prompt_respects_hide_flag_and_self_target() {
             bedrock_model_presets(),
         ),
     ] {
-        let provider_id = if model == "openai.gpt-5.4" {
-            "amazon-bedrock"
-        } else {
-            "openai"
-        };
+        let mut retired = presets
+            .iter()
+            .find(|preset| preset.model == target)
+            .expect("migration target")
+            .clone();
+        retired.id = model.to_string();
+        retired.model = model.to_string();
+        retired.show_in_picker = false;
+        retired.upgrade = Some(codex_protocol::openai_models::ModelUpgrade {
+            id: target.to_string(),
+            migration_config_key: model.to_string(),
+            model_link: None,
+            upgrade_copy: None,
+            migration_markdown: None,
+            retirement_at: None,
+        });
+        presets.push(retired);
         // A previously acknowledged intermediate upgrade must not hide the new target.
         let mut seen = BTreeMap::from([(model.to_string(), previous_target.to_string())]);
         assert!(should_show_model_migration_prompt(
-            provider_id,
             model,
             target,
             &seen,
@@ -552,14 +1041,12 @@ async fn model_migration_prompt_respects_hide_flag_and_self_target() {
         ));
         seen.insert(model.to_string(), target.to_string());
         assert!(!should_show_model_migration_prompt(
-            provider_id,
             model,
             target,
             &seen,
             &presets
         ));
         assert!(!should_show_model_migration_prompt(
-            provider_id,
             target,
             target,
             &seen,
@@ -579,18 +1066,12 @@ async fn model_migration_prompt_skips_when_target_missing_or_hidden() {
             bedrock_model_presets(),
         ),
     ] {
-        let provider_id = if model == "openai.gpt-5.4" {
-            "amazon-bedrock"
-        } else {
-            "openai"
-        };
         let target = available
             .iter_mut()
             .find(|preset| preset.model == target_model)
             .expect("target preset present");
         target.show_in_picker = false;
         assert!(!should_show_model_migration_prompt(
-            provider_id,
             model,
             target_model,
             &BTreeMap::new(),
@@ -600,7 +1081,6 @@ async fn model_migration_prompt_skips_when_target_missing_or_hidden() {
 
         available.retain(|preset| preset.model != target_model);
         assert!(!should_show_model_migration_prompt(
-            provider_id,
             model,
             target_model,
             &BTreeMap::new(),
@@ -613,6 +1093,8 @@ async fn model_migration_prompt_skips_when_target_missing_or_hidden() {
 #[tokio::test]
 async fn model_migration_prompt_shows_for_hidden_model() {
     let codex_home = tempdir().expect("temp steve home");
+    std::fs::write(codex_home.path().join("config.toml"), "model_provider = 'openai'\n")
+        .expect("explicit test provider");
     let config = ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())
         .build()
@@ -639,7 +1121,6 @@ async fn model_migration_prompt_shows_for_hidden_model() {
         .show_in_picker = true;
     assert!(
         should_show_model_migration_prompt(
-            "openai",
             &current.model,
             &upgrade.id,
             &config.notices.model_migrations,
@@ -667,4 +1148,45 @@ async fn model_migration_prompt_shows_for_hidden_model() {
         "model_migration_prompt_shows_for_hidden_model",
         model_migration_copy_to_plain_text(&copy)
     );
+}
+
+
+#[tokio::test]
+async fn model_scope_attach_invalidates_the_app_projection() -> Result<()> {
+    for replay in [false, true] {
+        let (mut app, _events, _ops) = make_test_app_with_channels().await;
+        let modes = app.chat_widget.model_catalog().collaboration_modes.clone();
+        assert!(!app.model_catalog.models.is_empty());
+        // Clearing the widget alone does not clear the separately retained app catalog.
+        app.chat_widget.handle_thread_session(test_thread_session(
+            ThreadId::new(),
+            app.config.cwd.to_path_buf(),
+        ));
+        assert!(app.chat_widget.model_catalog().models.is_empty());
+        assert!(!app.model_catalog.models.is_empty());
+        let session = test_thread_session(ThreadId::new(), app.config.cwd.to_path_buf());
+        if replay {
+            app.replay_thread_snapshot(
+                ThreadEventSnapshot {
+                    delegated_turns: Vec::new(),
+                    session: Some(session),
+                    turns: Vec::new(),
+                    events: Vec::new(),
+                    active_reasoning_item: None,
+                    input_state: None,
+                },
+                false,
+            );
+        } else {
+            app.enqueue_primary_thread_session(session, Vec::new())
+                .await?;
+        }
+        assert!(app.model_catalog.models.is_empty(), "replay={replay}");
+        assert!(Arc::ptr_eq(
+            &app.model_catalog,
+            &app.chat_widget.model_catalog()
+        ));
+        assert_eq!(app.model_catalog.collaboration_modes, modes);
+    }
+    Ok(())
 }

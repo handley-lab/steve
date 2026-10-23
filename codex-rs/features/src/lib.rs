@@ -95,9 +95,9 @@ impl Stage {
 pub enum Feature {
     /// Preview consumer five-hour and weekly allowance history.
     AnalyticsPlanHistory,
-    /// Discover model catalogs for OpenAI API-key authentication.
+    /// Discover model catalogs at configured provider destinations.
     ApiKeyModelDiscovery,
-    /// Forward explicit programs with builtin OpenAI API keys.
+    /// Forward explicit access programs on compatible provider requests.
     ApiKeyCyberAccessPrograms,
     /// Enable Daybreak controls and automatic access-program selection in CLI clients.
     CliDaybreak,
@@ -430,8 +430,6 @@ pub enum Feature {
     RetainClientDeveloperMessages,
     /// Honor client-requested tool-output retention across context windows.
     RetainClientToolOutputs,
-    /// Use Agent Identity for ChatGPT-authenticated sessions.
-    UseAgentIdentity,
     /// Enable workspace dependency support.
     WorkspaceDependencies,
 
@@ -1426,7 +1424,7 @@ pub const FEATURES: &[FeatureSpec] = &[
         id: Feature::EnableRequestCompression,
         key: "enable_request_compression",
         stage: Stage::Stable,
-        default_enabled: true,
+        default_enabled: false,
     },
     FeatureSpec {
         id: Feature::UnboundedConnectionRetries,
@@ -1440,7 +1438,7 @@ pub const FEATURES: &[FeatureSpec] = &[
         stage: Stage::Experimental {
             name: "Network proxy",
             menu_description: "Apply network proxy restrictions to sandboxed sessions that already have network access.",
-            announcement: "NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.",
+            announcement: "NEW: Network proxy can now be enabled from /experimental. Restart Steve after enabling it.",
         },
         default_enabled: false,
     },
@@ -2083,12 +2081,6 @@ pub const FEATURES: &[FeatureSpec] = &[
     FeatureSpec {
         id: Feature::RetainClientToolOutputs,
         key: "retain_client_tool_outputs",
-        stage: Stage::UnderDevelopment,
-        default_enabled: false,
-    },
-    FeatureSpec {
-        id: Feature::UseAgentIdentity,
-        key: "use_agent_identity",
         stage: Stage::UnderDevelopment,
         default_enabled: false,
     },

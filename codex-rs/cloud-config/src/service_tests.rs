@@ -131,7 +131,7 @@ async fn auth_manager_with_agent_identity_business_plan() -> Arc<AuthManager> {
                 chatgpt_account_is_fedramp: false,
                 task_id: Some("task-123".to_string()),
             },
-            "https://auth.openai.com/api/accounts",
+            None,
             &codex_login::test_support::transport_default_auth_route_config(),
         )
         .await

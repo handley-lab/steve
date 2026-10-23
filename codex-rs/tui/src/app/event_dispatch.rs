@@ -2228,29 +2228,19 @@ impl App {
             }
             AppEvent::FetchModels { request_id } => {
                 if self.chat_widget.model_popup_request_is_current(request_id) {
-                    app_server.fetch_models(request_id, self.app_event_tx.clone());
+                    app_server.fetch_models(
+                        request_id,
+                        self.chat_widget.thread_id(),
+                        self.app_event_tx.clone(),
+                    );
                 }
             }
-            AppEvent::ModelsLoaded { request_id, result: Ok(models) }
-                if self.chat_widget.model_popup_request_is_current(request_id)
-                    && self.chat_widget.status_account_display() == Some(&StatusAccountDisplay::ApiKey) =>
-            {
-                let checked = app_server.constrain_api_key_models(
-                    self.chat_widget.config_ref(),
-                    self.chat_widget.thread_id(),
-                    /*requirements*/ None,
-                    models,
-                );
-                let tx = self.app_event_tx.clone();
-                tokio::spawn(async move {
-                    tx.send(AppEvent::ApiKeyCompatModelsLoaded { request_id, result: Ok(checked.await) });
-                });
-            }
-            AppEvent::ModelsLoaded { request_id, result }
-            | AppEvent::ApiKeyCompatModelsLoaded { request_id, result } => {
+            AppEvent::ModelsLoaded { request_id, result } => {
                 if self.chat_widget.on_models_loaded(request_id, result) {
                     self.model_catalog = self.chat_widget.model_catalog();
-                    app_server.set_available_models(self.model_catalog.try_list_models()?);
+                    if self.chat_widget.thread_id().is_none() {
+                        app_server.set_available_models(self.model_catalog.try_list_models()?);
+                    }
                     self.sync_active_thread_service_tier_to_cached_session().await;
                 }
             }
@@ -2337,7 +2327,7 @@ impl App {
                 category,
                 include_logs,
             } => {
-                self.chat_widget.open_feedback_note(category, include_logs, self.feedback_audience);
+                self.chat_widget.open_feedback_note(category, include_logs);
             }
             AppEvent::OpenFeedbackConsent { category } => {
                 self.chat_widget.open_feedback_consent(category);

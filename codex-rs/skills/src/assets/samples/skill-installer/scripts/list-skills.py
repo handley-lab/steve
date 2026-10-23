@@ -11,7 +11,6 @@ import urllib.error
 
 from github_utils import github_api_contents_url, github_request
 
-DEFAULT_REPO = "openai/skills"
 DEFAULT_PATH = "skills/.curated"
 DEFAULT_REF = "main"
 
@@ -66,7 +65,7 @@ def _list_skills(repo: str, path: str, ref: str) -> list[str]:
 
 def _parse_args(argv: list[str]) -> Args:
     parser = argparse.ArgumentParser(description="List skills.")
-    parser.add_argument("--repo", default=DEFAULT_REPO)
+    parser.add_argument("--repo", required=True)
     parser.add_argument(
         "--path",
         default=DEFAULT_PATH,

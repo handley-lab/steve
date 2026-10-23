@@ -135,6 +135,7 @@ right_click_paste = "off"
 vim_mode_default = true
 terminal_resize_reflow_max_rows = 0
 session_picker_view = "comfortable"
+pet_asset_base_url = "http://127.0.0.1:43123/assets"
 [tui.effects]
 shimmer = false
 [tui.rendering]
@@ -172,6 +173,10 @@ fast_default_opt_out = true
             .await?;
         assert_eq!(config.startup_warnings, Vec::<String>::new());
         assert_eq!(config.tui_mouse_scroll_speed, Some(1.5));
+        assert_eq!(
+            config.tui_pet_asset_base_url.as_deref(),
+            (!config_text.is_empty()).then_some("http://127.0.0.1:43123/assets"),
+        );
         let bootstrap = crate::legacy_core::config::load_config_toml_with_layer_stack(
             home.path(),
             /*cwd*/ None,

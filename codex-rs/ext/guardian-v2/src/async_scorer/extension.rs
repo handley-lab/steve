@@ -73,14 +73,29 @@ impl ThreadLifecycleContributor<Config> for GuardianV2Extension {
                     .constrain_guardian_policy(&mut policy, &model.slug);
             }
             let scoring_enabled = policy.scoring_enabled();
-            let sampler_config = super::startup::sampler_config(
+            if !scoring_enabled {
+                return;
+            }
+            let sampler_config = match super::startup::sampler_config(
                 &input,
+                &guardian_config,
                 Arc::clone(&self.auth_manager),
                 self.thread_manager.upgrade(),
             )
-            .await;
+            .await
+            {
+                Ok(config) => config,
+                Err(error) => {
+                    self.event_sink.emit_warning(ExtensionWarning {
+                        thread_id,
+                        turn_id: None,
+                        message: error,
+                    });
+                    return;
+                }
+            };
 
-            if scoring_enabled && guardian_config.transcript.include_images {
+            if guardian_config.transcript.include_images {
                 input
                     .thread_store
                     .get_or_init(NodeReplReviewEvidence::default)
@@ -109,10 +124,23 @@ impl ThreadLifecycleContributor<Config> for GuardianV2Extension {
                 .config
                 .features
                 .enabled(Feature::GuardianV2DecisionsComparison)
-                && let Some(decisions_sampler) =
-                    super::startup::decisions_sampler(&input, &self.auth_manager)
             {
-                input.thread_store.insert(decisions_sampler);
+                match super::startup::decisions_sampler(
+                    &input,
+                    &guardian_config,
+                    Arc::clone(&self.auth_manager),
+                )
+                .await
+                {
+                    Ok(decisions_sampler) => {
+                        input.thread_store.insert(decisions_sampler);
+                    }
+                    Err(error) => self.event_sink.emit_warning(ExtensionWarning {
+                        thread_id,
+                        turn_id: None,
+                        message: format!("Guardian Decisions comparison is unavailable: {error}"),
+                    }),
+                }
             }
             input.thread_store.insert(guardian_config);
             input.thread_store.insert(GuardianV2ScoreProgress::new(

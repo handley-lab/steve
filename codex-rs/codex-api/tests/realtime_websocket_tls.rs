@@ -137,6 +137,7 @@ async fn check_connection(address: String) {
         Duration::from_secs(/*secs*/ 20),
         client.connect(
             RealtimeSessionConfig {
+                transcription_model: Some("fixture-transcription".into()),
                 instructions: "TLS test".into(),
                 initial_items: Vec::new(),
                 delegation_ack_filler: None,

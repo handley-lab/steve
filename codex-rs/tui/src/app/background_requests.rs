@@ -657,7 +657,6 @@ impl App {
                         event.category,
                         event.include_logs,
                         &thread_id,
-                        event.feedback_audience,
                     ))
             }
             Err(err) => self
@@ -711,7 +710,6 @@ impl App {
         let event = FeedbackThreadEvent {
             category,
             include_logs,
-            feedback_audience: self.feedback_audience,
             result,
         };
         if let Some(thread_id) = origin_thread_id {

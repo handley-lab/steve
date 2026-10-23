@@ -218,10 +218,12 @@ pub fn create_client() -> HttpClient {
     build_default_client(default_http_client_builder())
 }
 
-/// Creates an API client retaining managed policy, ChatGPT cookies, and no request diagnostics.
-pub fn create_client_with_chatgpt_cookies(http_client_factory: &HttpClientFactory) -> HttpClient {
+/// Creates an API client with the default headers, no redirects, and no request diagnostics.
+pub fn create_client_without_redirects_or_request_logging(
+    http_client_factory: &HttpClientFactory,
+) -> HttpClient {
     let builder = default_http_client_builder()
-        .with_chatgpt_cookies(http_client_factory)
+        .without_redirects()
         .without_request_logging();
     if !http_client_factory.network_policy().is_managed() {
         return build_default_client(builder);
@@ -332,7 +334,7 @@ pub async fn create_client_for_route_async(
     .await
 }
 
-/// Builds a routed default client without request URL or response-header diagnostics.
+/// Builds a routed private-service client without redirects or request diagnostics.
 pub async fn create_client_for_route_without_request_logging_async(
     http_client_factory: HttpClientFactory,
     request_url: String,
@@ -342,7 +344,11 @@ pub async fn create_client_for_route_without_request_logging_async(
         http_client_factory,
         request_url,
         route_class,
-        || default_http_client_builder().without_request_logging(),
+        || {
+            default_http_client_builder()
+                .without_redirects()
+                .without_request_logging()
+        },
     )
     .await
 }
@@ -373,8 +379,8 @@ async fn create_client_for_route_async_with_builder(
 
 /// Builds the default Codex transport without blocking the async runtime worker.
 ///
-/// Route-aware proxy handling resolves each request and redirect destination. When it is disabled,
-/// or the client is running inside the Codex sandbox, this preserves the default client's proxy
+/// Requests do not follow redirects. Route-aware proxy handling resolves each request destination.
+/// When it is disabled, or the client is running inside the Codex sandbox, this preserves the default client's proxy
 /// behavior while retaining managed application network policy enforcement.
 pub async fn create_transport_for_routes_async(
     http_client_factory: HttpClientFactory,
@@ -394,13 +400,15 @@ pub async fn create_transport_for_routes_async(
         if !http_client_factory.network_policy().is_managed()
             && (transport_default_proxy || sandboxed)
         {
-            return ReqwestTransport::from_http_client(create_client());
+            return ReqwestTransport::from_http_client(build_default_client(
+                default_http_client_builder().without_redirects(),
+            ));
         }
 
         let mut pool = RouteAwareClientPool::with_builder(
             http_client_factory,
             route_class,
-            default_http_client_builder(),
+            default_http_client_builder().without_redirects(),
         );
         if sandboxed {
             pool = pool.with_legacy_direct_proxy_and_custom_ca_fallback();
@@ -414,9 +422,7 @@ pub async fn create_transport_for_routes_async(
 }
 
 fn default_http_client_builder() -> HttpClientBuilder {
-    HttpClientBuilder::new()
-        .default_headers(default_headers())
-        .with_chatgpt_cloudflare_cookie_store()
+    HttpClientBuilder::new().default_headers(default_headers())
 }
 
 // These legacy constructors intentionally preserve the infallible behavior of `create_client`.
@@ -430,16 +436,6 @@ fn build_default_client(builder: HttpClientBuilder) -> HttpClient {
     }
 }
 
-/// Builds an HTTP client for an auth endpoint without Codex default headers.
-pub(crate) fn create_raw_auth_client(
-    endpoint: &str,
-    auth_route_config: &AuthRouteConfig,
-) -> Result<HttpClient, BuildRouteAwareHttpClientError> {
-    auth_route_config
-        .authentication_factory(endpoint)
-        .build_client_without_request_logging(endpoint, ClientRouteClass::Auth)
-}
-
 /// Builds the default Codex HTTP client wrapper for an auth endpoint.
 pub(crate) fn create_default_auth_client(
     endpoint: &str,
@@ -449,7 +445,7 @@ pub(crate) fn create_default_auth_client(
         &auth_route_config.authentication_factory(endpoint),
         endpoint,
         ClientRouteClass::Auth,
-        ClientRedirectPolicy::Default,
+        ClientRedirectPolicy::Reject,
     )
 }
 

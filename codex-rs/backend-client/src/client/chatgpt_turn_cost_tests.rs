@@ -17,6 +17,7 @@ use wiremock::matchers::path;
 async fn chatgpt_turn_costs_use_workspace_auth_and_chatgpt_path() {
     check_query(
         "/backend-api",
+        PathStyle::ChatGptApi,
         "/backend-api/wham/usage/thread-estimates/query",
     )
     .await;
@@ -24,10 +25,15 @@ async fn chatgpt_turn_costs_use_workspace_auth_and_chatgpt_path() {
 
 #[tokio::test]
 async fn chatgpt_turn_costs_use_workspace_auth_and_codex_path() {
-    check_query("", "/api/codex/usage/thread-estimates/query").await;
+    check_query(
+        "",
+        PathStyle::CodexApi,
+        "/api/codex/usage/thread-estimates/query",
+    )
+    .await;
 }
 
-async fn check_query(base_path: &str, endpoint: &str) {
+async fn check_query(base_path: &str, path_style: PathStyle, endpoint: &str) {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path(endpoint))
@@ -62,7 +68,8 @@ async fn check_query(base_path: &str, endpoint: &str) {
         format!("{}{base_path}", server.uri()),
         &CodexAuth::create_dummy_chatgpt_auth_for_testing(),
         HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-    );
+    )
+    .with_path_style(path_style);
     let result = client
         .query_chatgpt_turn_costs(&BTreeMap::from([
             ("thread-a".to_string(), vec!["turn-a".to_string()]),

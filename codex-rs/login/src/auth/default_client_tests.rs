@@ -259,11 +259,10 @@ async fn raw_auth_client_does_not_log_sensitive_request_or_response_data() {
     let endpoint = format!(
         "http://auth-user:password-secret-value@{authority}/token?client_secret=query-secret-value"
     );
-    let client = create_raw_auth_client(
-        &endpoint,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .expect("raw auth client should build");
+    let client = crate::test_support::transport_default_auth_route_config()
+        .authentication_factory(&endpoint)
+        .build_client_without_request_logging(&endpoint, ClientRouteClass::Auth)
+        .expect("auth client should build");
     let buffer = Arc::new(Mutex::new(Vec::new()));
     let subscriber = tracing_subscriber::registry().with(
         tracing_subscriber::fmt::layer()
@@ -292,11 +291,10 @@ async fn raw_auth_client_does_not_log_sensitive_request_or_response_data() {
     let unresponsive_endpoint = format!(
         "http://auth-user:failure-password-secret-value@{unresponsive_addr}/token?client_secret=failure-query-secret-value"
     );
-    let unresponsive_client = create_raw_auth_client(
-        &unresponsive_endpoint,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .expect("raw auth client should build");
+    let unresponsive_client = crate::test_support::transport_default_auth_route_config()
+        .authentication_factory(&unresponsive_endpoint)
+        .build_client_without_request_logging(&unresponsive_endpoint, ClientRouteClass::Auth)
+        .expect("auth client should build");
     let error = unresponsive_client
         .post(&unresponsive_endpoint)
         .header("x-sensitive-request", "failure-request-header-secret-value")
@@ -354,4 +352,125 @@ fn test_macos() {
     ))
     .unwrap();
     assert!(re.is_match(&user_agent));
+}
+
+#[tokio::test]
+async fn private_backend_clients_do_not_delegate_requests() -> anyhow::Result<()> {
+    use codex_http_client::DestinationPolicy;
+    use codex_http_client::NetworkPolicyController;
+    use wiremock::Mock;
+    use wiremock::MockServer;
+    use wiremock::ResponseTemplate;
+    use wiremock::matchers::path;
+
+    let mut observations = Vec::new();
+    for (routed, managed) in [(false, false), (false, true), (true, false), (true, true)] {
+        let origin = MockServer::start().await;
+        let target = MockServer::start().await;
+        let destination = format!("{}/receive", target.uri());
+        Mock::given(path("/private"))
+            .respond_with(
+                ResponseTemplate::new(307).insert_header("location", destination.as_str()),
+            )
+            .mount(&origin)
+            .await;
+        Mock::given(path("/receive"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&target)
+            .await;
+        let controller = NetworkPolicyController::default();
+        let policy = controller.policy();
+        assert!(controller.publish(policy.revision(), DestinationPolicy::Unrestricted));
+        let mut factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
+        if managed {
+            factory = factory.with_network_policy(policy);
+        }
+        let endpoint = format!("{}/private", origin.uri());
+        let client = if routed {
+            create_client_for_route_without_request_logging_async(
+                factory,
+                endpoint.clone(),
+                ClientRouteClass::Api,
+            )
+            .await?
+        } else {
+            create_client_without_redirects_or_request_logging(&factory)
+        };
+        let body = "synthetic-private-body";
+        let direct = client.post(&destination).body(body).send().await?;
+        assert!(direct.status().is_success());
+        let direct_requests = target.received_requests().await.unwrap();
+        assert_eq!(direct_requests.len(), 1);
+        assert_eq!(direct_requests[0].body, body.as_bytes());
+
+        let get = client
+            .get(&endpoint)
+            .header("ChatGPT-Account-Id", "synthetic-account")
+            .send()
+            .await?;
+        let post = client
+            .post(&endpoint)
+            .header("ChatGPT-Account-Id", "synthetic-account")
+            .body(body)
+            .send()
+            .await?;
+        assert_eq!(origin.received_requests().await.unwrap().len(), 2);
+        observations.push((
+            routed,
+            managed,
+            get.status(),
+            post.status(),
+            target.received_requests().await.unwrap(),
+        ));
+    }
+    assert!(
+        observations.iter().all(|(_, _, get, post, requests)| {
+            requests.len() == 1
+                && *get == http::StatusCode::TEMPORARY_REDIRECT
+                && *post == http::StatusCode::TEMPORARY_REDIRECT
+        }),
+        "routed, managed, GET status, POST status, target requests: {observations:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn auth_endpoint_client_does_not_follow_redirects() -> anyhow::Result<()> {
+    use wiremock::Mock;
+    use wiremock::MockServer;
+    use wiremock::ResponseTemplate;
+    use wiremock::matchers::method;
+    use wiremock::matchers::path;
+
+    let origin = MockServer::start().await;
+    let target = MockServer::start().await;
+    let endpoint = format!("{}/metadata", origin.uri());
+    Mock::given(method("GET"))
+        .and(path("/metadata"))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("location", format!("{}/metadata", target.uri())),
+        )
+        .expect(1)
+        .mount(&origin)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/metadata"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&target)
+        .await;
+    let client = create_default_auth_client(
+        &endpoint,
+        &crate::test_support::transport_default_auth_route_config(),
+    )?;
+    let response = client
+        .get(&endpoint)
+        .bearer_auth("synthetic-token")
+        .send()
+        .await?;
+    assert_eq!(response.status(), http::StatusCode::FOUND);
+    origin.verify().await;
+    target.verify().await;
+    Ok(())
 }

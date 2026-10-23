@@ -197,6 +197,58 @@ fn sample_regular_track_event(thread_id: &str) -> TrackEventRequest {
     sample_skill_track_event(thread_id, /*plugin_id*/ None)
 }
 
+#[tokio::test]
+async fn configured_analytics_delivery_does_not_follow_redirects() {
+    use wiremock::Mock;
+    use wiremock::MockServer;
+    use wiremock::ResponseTemplate;
+    use wiremock::matchers::path;
+
+    let origin = MockServer::start().await;
+    let target = MockServer::start().await;
+    let destination = format!("{}/events", target.uri());
+    Mock::given(path("/events"))
+        .respond_with(ResponseTemplate::new(307).insert_header("location", destination.as_str()))
+        .mount(&origin)
+        .await;
+    Mock::given(path("/events"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&target)
+        .await;
+    let factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
+    let auth = codex_login::CodexAuth::from_api_key("synthetic-token");
+    let expected = serde_json::json!({
+        "events": [sample_regular_track_event("synthetic-event-thread")]
+    });
+    super::send_track_events_request(
+        &auth,
+        &AnalyticsEventsDestination::Http { url: destination },
+        vec![sample_regular_track_event("synthetic-event-thread")],
+        &factory,
+        Some("synthetic-product"),
+    )
+    .await;
+    let direct = target.received_requests().await.unwrap();
+    assert_eq!(direct.len(), 1);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&direct[0].body).unwrap(),
+        expected
+    );
+    super::send_track_events_request(
+        &auth,
+        &AnalyticsEventsDestination::Http {
+            url: format!("{}/events", origin.uri()),
+        },
+        vec![sample_regular_track_event("synthetic-event-thread")],
+        &factory,
+        Some("synthetic-product"),
+    )
+    .await;
+    assert_eq!(origin.received_requests().await.unwrap().len(), 1);
+    let requests = target.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1, "redirected private events: {requests:?}");
+}
+
 #[cfg(debug_assertions)]
 fn sample_mcp_tool_call_event(thread_id: &str, plugin_id: Option<&str>) -> TrackEventRequest {
     TrackEventRequest::McpToolCall(CodexMcpToolCallEventRequest {

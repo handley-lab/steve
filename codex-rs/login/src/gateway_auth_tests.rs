@@ -1031,10 +1031,11 @@ async fn failed_save_retains_rotation_without_overwriting_a_new_external_login()
         Expired,
         ExternalLogin,
     }
-    for recovery in [
-        Recovery::RetrySave,
-        Recovery::Expired,
-        Recovery::ExternalLogin,
+    for (recovery, expired) in [
+        (Recovery::RetrySave, true),
+        (Recovery::RetrySave, false),
+        (Recovery::Expired, true),
+        (Recovery::ExternalLogin, true),
     ] {
         let server = MockServer::start().await;
         let keyring = Arc::new(MockKeyringStore::default());
@@ -1043,7 +1044,7 @@ async fn failed_save_retains_rotation_without_overwriting_a_new_external_login()
             &manager,
             "old-access",
             Some("old-refresh"),
-            Utc::now().timestamp() - 1,
+            Utc::now().timestamp() + if expired { -1 } else { 3600 },
         );
         let before = serde_json::to_value(manager.load_token().expect("initial token"))
             .expect("stored credential");
@@ -1074,7 +1075,21 @@ async fn failed_save_retains_rotation_without_overwriting_a_new_external_login()
                 .mount(&server)
                 .await;
         }
-        assert!(manager.resolve_access_token().await.is_err());
+        let failed = if expired {
+            manager.resolve_access_token().await
+        } else {
+            manager.refresh_access_token("old-access").await
+        };
+        assert!(failed.is_err());
+        let snapshot = {
+            let cached = manager.state.cached_token.lock().await;
+            json!({"retained": &cached.token, "pending": &cached.pending})
+        };
+        let peek = manager.cached_access_token();
+        eprintln!("T18_EVIDENCE {}", json!({"kind": "gateway-pending-credential",
+            "old_expired": expired, "state": snapshot, "peek": &peek,
+        }));
+        assert!(peek.is_none());
         std::fs::remove_dir(&path).expect("unblock credential persistence");
         std::fs::rename(&backup, &path).expect("restore old store");
         assert_eq!(
@@ -1138,6 +1153,7 @@ async fn failed_save_retains_rotation_without_overwriting_a_new_external_login()
             recovered.expect("recover pending rotation"),
             expected["access_token"].as_str().expect("expected token")
         );
+        assert_eq!(manager.cached_access_token().as_deref(), expected["access_token"].as_str());
         assert_eq!(
             serde_json::to_value(manager.load_token().expect("saved rotation"))
                 .expect("stored credential"),

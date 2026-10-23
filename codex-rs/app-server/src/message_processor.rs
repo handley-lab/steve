@@ -351,6 +351,7 @@ impl MessageProcessor {
                     environment_manager: Arc::clone(&environment_manager_for_extensions),
                     executor_skill_provider: Arc::clone(&executor_skill_provider),
                     git_attribution_base_url: config.chatgpt_base_url.clone(),
+                    git_attribution_path_style: config.chatgpt_path_style,
                     http_client_factory: config.http_client_factory(),
                     queue_service: queue_service.clone(),
                     turn_start_admission: Some(Arc::clone(&turn_start_admission)),

@@ -72,6 +72,7 @@ impl EmbeddedNetworkPolicy {
     pub fn bind_bootstrap_auth(
         &self,
         mut auth: codex_login::AuthConfig,
+        path_style: codex_config::AccountPathStyle,
     ) -> codex_login::AuthConfig {
         let factory = auth
             .auth_route_config
@@ -79,11 +80,10 @@ impl EmbeddedNetworkPolicy {
             .clone()
             .with_network_policy(self.local.policy());
         let endpoint = codex_backend_client::Client::new(
-            auth.chatgpt_base_url
-                .as_deref()
-                .unwrap_or("https://chatgpt.com/backend-api/"),
+            auth.chatgpt_base_url.as_deref().unwrap_or_default(),
             factory.clone(),
         )
+        .with_account_path_style(path_style)
         .config_bundle_url();
         auth.auth_route_config = codex_login::AuthRouteConfig::from_http_client_factory(
             factory.clone().with_network_policy(
@@ -128,6 +128,7 @@ pub(super) async fn configure(
     config_manager.replace_cloud_config_bundle_loader(
         bootstrap_auth_manager,
         bootstrap_config.chatgpt_base_url.clone(),
+        bootstrap_config.chatgpt_path_style,
         bootstrap_config.http_client_factory(),
     );
     let policy_config = config_manager
@@ -161,6 +162,7 @@ pub(super) async fn configure(
     };
     let config = Arc::make_mut(config);
     config.chatgpt_base_url = policy_config.chatgpt_base_url;
+    config.chatgpt_path_style = policy_config.chatgpt_path_style;
     config.enforce_residency = policy_config.enforce_residency;
     config.application_network_policy = policy_config.application_network_policy;
     config.application_auth_route_config = policy_config.application_auth_route_config;
@@ -169,6 +171,7 @@ pub(super) async fn configure(
     config_manager.replace_cloud_config_bundle_loader(
         policy_auth_manager,
         config.chatgpt_base_url.clone(),
+        config.chatgpt_path_style,
         config.http_client_factory(),
     );
     codex_login::default_client::set_default_client_residency_requirement(

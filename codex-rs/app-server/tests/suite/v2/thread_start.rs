@@ -40,7 +40,6 @@ use codex_config::types::AuthCredentialsStoreMode;
 use codex_core::config::set_project_trust_level;
 use codex_exec_server::LOCAL_FS;
 use codex_git_utils::resolve_root_git_project_for_trust;
-use codex_login::REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR;
 use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
 use codex_protocol::config_types::TrustLevel;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
@@ -1459,6 +1458,7 @@ async fn config_requests_surface_cloud_config_bundle_load_errors(
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": { "code": "refresh_token_invalidated" }
         })))
+        .expect(0)
         .mount(&server)
         .await;
 
@@ -1487,7 +1487,7 @@ async fn config_requests_surface_cloud_config_bundle_load_errors(
         .with_env_overrides(&[
             ("OPENAI_API_KEY", None),
             (
-                REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR,
+                "STEVE_REFRESH_TOKEN_URL_OVERRIDE",
                 Some(refresh_token_url.as_str()),
             ),
         ])
@@ -1520,7 +1520,7 @@ async fn config_requests_surface_cloud_config_bundle_load_errors(
             "errorCode": "Auth",
             "action": "relogin",
             "statusCode": 401,
-            "detail": "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.",
+            "detail": "The configured service rejected the supplied credentials. Supply updated credentials.",
         }))
     );
 

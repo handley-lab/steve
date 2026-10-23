@@ -109,12 +109,21 @@ async fn model_switch_program_pair(
     let models = ModelsResponse {
         models: vec![old, new, discarded],
     };
-    let provider = if local {
+    let mut provider = if local {
         local_compaction_provider(&server)
     } else {
         openai_model_provider(&server)
     };
+    provider.requires_openai_auth = true;
+    if !local {
+        provider.capabilities.get_or_insert_default().remote_compaction =
+            Some(codex_model_provider_info::RemoteCompactionSupport::V2);
+    }
     let mut builder = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("explicit test provider");
+        })
         .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
         .with_model(previous_model)
         .with_config(move |config| {
@@ -270,7 +279,7 @@ async fn model_switch_program_pair(
         assert!(
             error
                 .to_string()
-                .contains("Cyber access programs are disabled for this API-key session.")
+                .contains("Cyber access programs are disabled for this session.")
         );
         thread.shutdown_and_wait().await?;
         assert_eq!(
@@ -320,14 +329,7 @@ async fn model_switch_program_pair(
             );
         }
     }
-    let (old_program, new_program) = if matches!(history, History::ApiKeyCustomProviderResume) {
-        for request in &requests {
-            assert_eq!(request.body_json().get("access_programs"), None);
-        }
-        (Value::Null, Value::Null)
-    } else {
-        (expected_program, json!({"cyber": "daybreak_red"}))
-    };
+    let (old_program, new_program) = (expected_program, json!({"cyber": "daybreak_red"}));
     let actual = requests
         .iter()
         .map(|request| {
@@ -382,13 +384,19 @@ async fn model_switch_program_pair(
     Ok(())
 }
 
-#[test_case("next-model", Some(CyberAccessProgram::Standard); "standard after model switch")]
-#[test_case("gpt-5.5", None; "omitted after same model hash change")]
-#[test_case("next-model", Some(CyberAccessProgram::DaybreakBlue); "explicit blue remains denied")]
+#[test_case("next-model", Some(CyberAccessProgram::Standard), false; "standard after model switch")]
+#[test_case("gpt-5.5", None, false; "omitted after same model hash change")]
+#[test_case("next-model", Some(CyberAccessProgram::DaybreakBlue), false; "explicit blue remains denied")]
+#[test_case("gpt-5.5", Some(CyberAccessProgram::DaybreakBlue), false; "identical pair is not retried")]
+#[test_case("next-model", Some(CyberAccessProgram::Standard), true; "provider bearer standard")]
+#[test_case("gpt-5.5", None, true; "provider bearer omitted")]
+#[test_case("next-model", Some(CyberAccessProgram::DaybreakBlue), true; "provider bearer explicit blue remains denied")]
+#[test_case("gpt-5.5", Some(CyberAccessProgram::DaybreakBlue), true; "provider bearer identical pair is not retried")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn api_key_resume_compaction_retries_current_program(
     current_model: &str,
     current_program: Option<CyberAccessProgram>,
+    provider_owned_key: bool,
 ) -> Result<()> {
     skip_if_no_network!(Ok(()));
     let server = start_mock_server().await;
@@ -404,7 +412,14 @@ async fn api_key_resume_compaction_retries_current_program(
     };
     let mut provider = openai_model_provider(&server);
     provider.stream_max_retries = Some(0);
+    provider.requires_openai_auth = true;
+    provider.capabilities.get_or_insert_default().remote_compaction =
+        Some(codex_model_provider_info::RemoteCompactionSupport::V2);
     let mut builder = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("explicit test provider");
+        })
         .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
         .with_model(previous_model)
         .with_config(move |config| {
@@ -433,9 +448,13 @@ async fn api_key_resume_compaction_retries_current_program(
     let denied = ResponseTemplate::new(/*s*/ 403).set_body_json(json!({"error": {
         "message": "API key is not entitled to daybreak_blue"
     }}));
+    let identical_pair = current_model == previous_model
+        && current_program == Some(CyberAccessProgram::DaybreakBlue);
     let mut replies = vec![denied.clone()];
     if current_program == Some(CyberAccessProgram::DaybreakBlue) {
-        replies.push(denied);
+        if !identical_pair {
+            replies.push(denied);
+        }
     } else {
         replies.push(sse_response(sse(vec![
             json!({"type": "response.output_item.done", "item": {
@@ -452,11 +471,30 @@ async fn api_key_resume_compaction_retries_current_program(
         vec![previous, current]
     };
     let provider = initial.config.model_provider.clone();
+    let empty_auth = if provider_owned_key {
+        let mut config = initial.config.clone();
+        config.cli_auth_credentials_store_mode = codex_login::AuthCredentialsStoreMode::File;
+        let manager = codex_login::AuthManager::shared_from_config(&config, false).await?;
+        assert!(manager.auth_cached().is_none());
+        builder = builder.with_auth_manager(Arc::clone(&manager));
+        Some(manager)
+    } else {
+        builder = builder.with_auth(CodexAuth::from_api_key("test-key"));
+        None
+    };
     builder = builder
-        .with_auth(CodexAuth::from_api_key("test-key"))
         .with_config(move |config| {
             config.model_catalog = Some(ModelsResponse { models });
             config.model_provider = provider;
+            if provider_owned_key {
+                config.model_provider.requires_openai_auth = false;
+                config.model_provider.experimental_bearer_token = Some("provider-key".into());
+                config.model_provider_id = "cambridge".into();
+                config.model_provider.name = "Cambridge".into();
+                config
+                    .model_providers
+                    .insert("cambridge".into(), config.model_provider.clone());
+            }
             config
                 .features
                 .enable(Feature::ApiKeyModelDiscovery)
@@ -473,13 +511,22 @@ async fn api_key_resume_compaction_retries_current_program(
             initial.codex.rollout_path().expect("rollout"),
         )
         .await?;
+    if let Some(empty_auth) = empty_auth {
+        let session_auth = resumed.thread_manager.auth_manager();
+        assert!(Arc::ptr_eq(&session_auth, &empty_auth));
+        assert!(session_auth.auth_cached().is_none());
+    }
     let result = submit_pair(&resumed.codex, current_model, current_program).await;
     resumed.codex.shutdown_and_wait().await?;
     let requests = requests.requests();
     for request in &requests {
         assert_eq!(
             request.header("authorization").as_deref(),
-            Some("Bearer test-key")
+            Some(if provider_owned_key {
+                "Bearer provider-key"
+            } else {
+                "Bearer test-key"
+            })
         );
     }
     let requests = requests
@@ -492,10 +539,10 @@ async fn api_key_resume_compaction_retries_current_program(
     let program = current_program
         .map(|program| json!({"cyber": program}))
         .unwrap_or(Value::Null);
-    let mut expected = vec![
-        json!([previous_model, {"cyber": "daybreak_blue"}]),
-        json!([current_model, program]),
-    ];
+    let mut expected = vec![json!([previous_model, {"cyber": "daybreak_blue"}])];
+    if !identical_pair {
+        expected.push(json!([current_model, program]));
+    }
     if current_program == Some(CyberAccessProgram::DaybreakBlue) {
         assert!(result.is_err(), "explicit Blue unexpectedly succeeded");
     } else {

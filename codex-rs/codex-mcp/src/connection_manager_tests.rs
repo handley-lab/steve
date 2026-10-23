@@ -6505,12 +6505,8 @@ async fn connection_identity_distinguishes_agent_account_runtime_and_task() -> a
     };
     let auth_route_config = codex_login::test_support::transport_default_auth_route_config();
     let previous_auth = CodexAuth::AgentIdentity(
-        codex_login::auth::AgentIdentityAuth::from_record(
-            record.clone(),
-            "https://auth.openai.com/api/accounts",
-            &auth_route_config,
-        )
-        .await?,
+        codex_login::auth::AgentIdentityAuth::from_record(record.clone(), None, &auth_route_config)
+            .await?,
     );
     let connection_identity = |auth: &CodexAuth| {
         let provider = codex_model_provider::auth_provider_from_auth(auth);
@@ -6558,7 +6554,7 @@ async fn connection_identity_distinguishes_agent_account_runtime_and_task() -> a
         let changed_auth = CodexAuth::AgentIdentity(
             codex_login::auth::AgentIdentityAuth::from_record(
                 changed_record,
-                "https://auth.openai.com/api/accounts",
+                None,
                 &auth_route_config,
             )
             .await?,

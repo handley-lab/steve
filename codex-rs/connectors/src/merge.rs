@@ -6,6 +6,7 @@ use crate::metadata::connector_install_url;
 use crate::metadata::sort_connectors_by_accessibility_and_name;
 
 pub fn merge_connectors(
+    chatgpt_base_url: &str,
     connectors: Vec<AppInfo>,
     accessible_connectors: Vec<AppInfo>,
 ) -> Vec<AppInfo> {
@@ -54,7 +55,8 @@ pub fn merge_connectors(
     let mut merged = merged.into_values().collect::<Vec<_>>();
     for connector in &mut merged {
         if connector.install_url.is_none() {
-            connector.install_url = Some(connector_install_url(&connector.name, &connector.id));
+            connector.install_url =
+                connector_install_url(chatgpt_base_url, &connector.name, &connector.id);
         }
         connector.plugin_display_names.sort_unstable();
         connector.plugin_display_names.dedup();
@@ -63,7 +65,11 @@ pub fn merge_connectors(
     merged
 }
 
-pub fn merge_plugin_connectors<I>(connectors: Vec<AppInfo>, plugin_app_ids: I) -> Vec<AppInfo>
+pub fn merge_plugin_connectors<I>(
+    chatgpt_base_url: &str,
+    connectors: Vec<AppInfo>,
+    plugin_app_ids: I,
+) -> Vec<AppInfo>
 where
     I: IntoIterator<Item = String>,
 {
@@ -75,7 +81,7 @@ where
 
     for connector_id in plugin_app_ids {
         if connector_ids.insert(connector_id.clone()) {
-            merged.push(plugin_connector_to_app_info(connector_id));
+            merged.push(plugin_connector_to_app_info(chatgpt_base_url, connector_id));
         }
     }
 
@@ -84,6 +90,7 @@ where
 }
 
 pub fn merge_plugin_connectors_with_accessible<I>(
+    chatgpt_base_url: &str,
     plugin_app_ids: I,
     accessible_connectors: Vec<AppInfo>,
 ) -> Vec<AppInfo>
@@ -97,12 +104,12 @@ where
     let plugin_connectors = plugin_app_ids
         .into_iter()
         .filter(|connector_id| accessible_connector_ids.contains(connector_id.as_str()))
-        .map(plugin_connector_to_app_info)
+        .map(|connector_id| plugin_connector_to_app_info(chatgpt_base_url, connector_id))
         .collect::<Vec<_>>();
-    merge_connectors(plugin_connectors, accessible_connectors)
+    merge_connectors(chatgpt_base_url, plugin_connectors, accessible_connectors)
 }
 
-pub fn plugin_connector_to_app_info(connector_id: String) -> AppInfo {
+pub fn plugin_connector_to_app_info(chatgpt_base_url: &str, connector_id: String) -> AppInfo {
     // Leave the placeholder name as the connector id so merge_connectors() can
     // replace it with canonical app metadata from directory fetches or
     // connector_name values from codex_apps tool discovery.
@@ -119,7 +126,7 @@ pub fn plugin_connector_to_app_info(connector_id: String) -> AppInfo {
         branding: None,
         app_metadata: None,
         labels: None,
-        install_url: Some(connector_install_url(&name, &connector_id)),
+        install_url: connector_install_url(chatgpt_base_url, &name, &connector_id),
         is_accessible: false,
         is_enabled: true,
         plugin_display_names: Vec::new(),
@@ -159,10 +166,11 @@ mod tests {
 
     #[test]
     fn merge_connectors_replaces_plugin_placeholder_name_with_accessible_name() {
-        let plugin = plugin_connector_to_app_info("calendar".to_string());
+        let plugin =
+            plugin_connector_to_app_info("https://chatgpt.example", "calendar".to_string());
         let accessible = google_calendar_accessible_connector(&[]);
 
-        let merged = merge_connectors(vec![plugin], vec![accessible]);
+        let merged = merge_connectors("https://chatgpt.example", vec![plugin], vec![accessible]);
 
         assert_eq!(
             merged,
@@ -178,7 +186,11 @@ mod tests {
                 branding: None,
                 app_metadata: None,
                 labels: None,
-                install_url: Some(connector_install_url("calendar", "calendar")),
+                install_url: connector_install_url(
+                    "https://chatgpt.example",
+                    "calendar",
+                    "calendar"
+                ),
                 is_accessible: true,
                 is_enabled: true,
                 plugin_display_names: Vec::new(),
@@ -189,12 +201,13 @@ mod tests {
 
     #[test]
     fn merge_connectors_unions_and_dedupes_plugin_display_names() {
-        let mut plugin = plugin_connector_to_app_info("calendar".to_string());
+        let mut plugin =
+            plugin_connector_to_app_info("https://chatgpt.example", "calendar".to_string());
         plugin.plugin_display_names = plugin_names(&["sample", "alpha", "sample"]);
 
         let accessible = google_calendar_accessible_connector(&["beta", "alpha"]);
 
-        let merged = merge_connectors(vec![plugin], vec![accessible]);
+        let merged = merge_connectors("https://chatgpt.example", vec![plugin], vec![accessible]);
 
         assert_eq!(
             merged,
@@ -210,7 +223,11 @@ mod tests {
                 branding: None,
                 app_metadata: None,
                 labels: None,
-                install_url: Some(connector_install_url("calendar", "calendar")),
+                install_url: connector_install_url(
+                    "https://chatgpt.example",
+                    "calendar",
+                    "calendar"
+                ),
                 is_accessible: true,
                 is_enabled: true,
                 plugin_display_names: plugin_names(&["alpha", "beta", "sample"]),

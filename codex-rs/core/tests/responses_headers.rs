@@ -6,7 +6,6 @@ use codex_core::Prompt;
 use codex_core::ResponseEvent;
 use codex_features::Feature;
 use codex_login::CodexAuth;
-use codex_login::auth::AgentIdentityAuthPolicy;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::WireApi;
 use codex_otel::SessionTelemetry;
@@ -93,6 +92,7 @@ async fn responses_stream_includes_subagent_header_on_review() {
         supports_websockets: false,
         supports_standalone_web_search: false,
         capabilities: None,
+        accepts_response_continuation: false,
         include_internal_metadata: false,
     };
 
@@ -127,7 +127,6 @@ async fn responses_stream_includes_subagent_header_on_review() {
 
     let client = ModelClient::new(
         /*auth_manager*/ None,
-        AgentIdentityAuthPolicy::JwtOnly,
         thread_id,
         provider.clone(),
         session_source.clone(),
@@ -240,6 +239,7 @@ async fn responses_stream_includes_subagent_header_on_other() {
         supports_websockets: false,
         supports_standalone_web_search: false,
         capabilities: None,
+        accepts_response_continuation: false,
         include_internal_metadata: false,
     };
 
@@ -274,7 +274,6 @@ async fn responses_stream_includes_subagent_header_on_other() {
 
     let client = ModelClient::new(
         /*auth_manager*/ None,
-        AgentIdentityAuthPolicy::JwtOnly,
         thread_id,
         provider.clone(),
         session_source.clone(),
@@ -368,6 +367,7 @@ async fn responses_respects_model_info_overrides_from_config() {
         supports_websockets: false,
         supports_standalone_web_search: false,
         capabilities: None,
+        accepts_response_continuation: false,
         include_internal_metadata: false,
     };
 
@@ -406,7 +406,6 @@ async fn responses_respects_model_info_overrides_from_config() {
 
     let client = ModelClient::new(
         /*auth_manager*/ None,
-        AgentIdentityAuthPolicy::JwtOnly,
         thread_id,
         provider.clone(),
         session_source.clone(),

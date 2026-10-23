@@ -34,7 +34,8 @@ impl WorkerRuntime {
             self.config.chatgpt_base_url.clone(),
             auth,
             http_client_factory,
-        );
+        )
+        .with_account_path_style(self.config.chatgpt_path_style);
         let costs = client.query_chatgpt_turn_costs(&threads).await?;
         let mut settled_costs = Vec::new();
         for thread in costs {

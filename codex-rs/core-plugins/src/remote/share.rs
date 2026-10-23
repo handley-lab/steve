@@ -433,8 +433,15 @@ async fn put_workspace_plugin_upload(
     upload_url: &str,
     archive_bytes: Vec<u8>,
 ) -> Result<(), RemotePluginCatalogError> {
+    let upload_url = crate::remote_bundle::validate_plugin_transfer_url(
+        &config.chatgpt_base_url,
+        upload_url,
+        &config.file_upload_origins,
+        "file_upload_origins",
+    )
+    .map_err(RemotePluginCatalogError::UnexpectedResponse)?;
     let request = config
-        .http_request(Method::PUT, upload_url)
+        .http_request(Method::PUT, upload_url.as_str())
         .timeout(REMOTE_PLUGIN_CATALOG_TIMEOUT)
         .header("x-ms-blob-type", "BlockBlob")
         .header("Content-Type", "application/gzip")

@@ -22,14 +22,12 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from io import BytesIO
 
-DEFAULT_MODEL = "gpt-image-2"
 DEFAULT_SIZE = "auto"
 DEFAULT_QUALITY = "medium"
 DEFAULT_OUTPUT_FORMAT = "png"
 DEFAULT_CONCURRENCY = 5
 DEFAULT_DOWNSCALE_SUFFIX = "-web"
 DEFAULT_OUTPUT_PATH = "output/imagegen/output.png"
-GPT_IMAGE_MODEL_PREFIX = "gpt-image-"
 
 ALLOWED_LEGACY_SIZES = {"1024x1024", "1536x1024", "1024x1536", "auto"}
 ALLOWED_QUALITIES = {"low", "medium", "high", "auto"}
@@ -172,10 +170,8 @@ def _validate_input_fidelity(input_fidelity: Optional[str]) -> None:
 
 
 def _validate_model(model: str) -> None:
-    if not model.startswith(GPT_IMAGE_MODEL_PREFIX):
-        _die(
-            "model must be a GPT Image model (for example gpt-image-1.5, gpt-image-1, or gpt-image-1-mini)."
-        )
+    if not isinstance(model, str) or not model.strip():
+        _die("model must not be empty.")
 
 
 def _validate_transparency(background: Optional[str], output_format: str) -> None:
@@ -203,7 +199,7 @@ def _validate_model_specific_options(
 
 
 def _validate_generate_payload(payload: Dict[str, Any]) -> None:
-    model = str(payload.get("model", DEFAULT_MODEL))
+    model = payload.get("model")
     _validate_model(model)
     n = int(payload.get("n", 1))
     if n < 1 or n > 10:
@@ -409,18 +405,24 @@ def _decode_write_and_downscale(
 
 
 def _create_client():
+    base_url = os.getenv("OPENAI_BASE_URL", "").strip()
+    if not base_url:
+        _die("OPENAI_BASE_URL is not set. Configure the image API endpoint before running.")
     try:
-        from openai import OpenAI
+        from openai import DefaultHttpxClient, OpenAI
     except ImportError:
         _die(
             f"openai SDK not installed in the active environment. {_dependency_hint('openai')}"
         )
-    return OpenAI()
+    return OpenAI(base_url=base_url, http_client=DefaultHttpxClient(follow_redirects=False))
 
 
 def _create_async_client():
+    base_url = os.getenv("OPENAI_BASE_URL", "").strip()
+    if not base_url:
+        _die("OPENAI_BASE_URL is not set. Configure the image API endpoint before running.")
     try:
-        from openai import AsyncOpenAI
+        from openai import AsyncOpenAI, DefaultAsyncHttpxClient
     except ImportError:
         try:
             import openai as _openai  # noqa: F401
@@ -432,7 +434,9 @@ def _create_async_client():
             "AsyncOpenAI not available in this openai SDK version. "
             f"{_dependency_hint('openai', upgrade=True)}"
         )
-    return AsyncOpenAI()
+    return AsyncOpenAI(
+        base_url=base_url, http_client=DefaultAsyncHttpxClient(follow_redirects=False)
+    )
 
 
 def _slugify(value: str) -> str:
@@ -926,7 +930,7 @@ class _FileBundle:
 
 
 def _add_shared_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--model", required=True)
     parser.add_argument("--prompt")
     parser.add_argument("--prompt-file")
     parser.add_argument("--n", type=int, default=1)

@@ -40,6 +40,7 @@ pub struct RealtimeSessionConfig {
     pub initial_items: Vec<ConversationTextParams>,
     pub delegation_ack_filler: Option<bool>,
     pub model: Option<String>,
+    pub transcription_model: Option<String>,
     pub session_id: Option<String>,
     pub event_parser: RealtimeEventParser,
     pub session_mode: RealtimeSessionMode,

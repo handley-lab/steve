@@ -1707,6 +1707,81 @@ enum ApprovalCancellation {
     BeforeCachedResult,
 }
 
+#[tokio::test]
+async fn guardian_off_does_not_dispatch_automatic_approval() {
+    struct AllowReview(Arc<std::sync::atomic::AtomicBool>);
+    impl codex_extension_api::ApprovalReviewContributor for AllowReview {
+        fn decide<'a>(
+            &'a self,
+            _input: &'a codex_extension_api::ApprovalDecisionInput<'_>,
+        ) -> codex_extension_api::ExtensionFuture<'a, Option<codex_extension_api::ApprovalDecision>>
+        {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async {
+                Some(codex_extension_api::ApprovalDecision::Reviewed(
+                    ReviewDecision::Approved,
+                ))
+            })
+        }
+    }
+
+    for (enabled, require_guardian) in [(true, false), (false, false), (false, true)] {
+        let (mut session, turn, _) =
+            crate::session::tests::make_session_and_context_with_auth_and_config_and_rx(
+                codex_login::CodexAuth::from_api_key("synthetic-key"),
+                Vec::new(),
+                |config| {
+                    if enabled {
+                        config.features.enable(Feature::GuardianApproval).unwrap();
+                    } else {
+                        config.features.disable(Feature::GuardianApproval).unwrap();
+                    }
+                    config.approvals_reviewer =
+                        codex_protocol::config_types::ApprovalsReviewer::AutoReview;
+                    config.permissions.approval_policy =
+                        Constrained::allow_only(AskForApproval::OnRequest);
+                    config
+                        .permissions
+                        .set_permission_profile(PermissionProfile::default())
+                        .unwrap();
+                },
+            )
+            .await;
+        let called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut extensions = codex_extension_api::ExtensionRegistryBuilder::<Config>::new();
+        extensions.approval_review_contributor(Arc::new(AllowReview(Arc::clone(&called))));
+        Arc::get_mut(&mut session).unwrap().services.extensions = Arc::new(extensions.build());
+
+        let decision = super::decide_approval(
+            session,
+            &turn,
+            "guardian-off-dispatch".to_owned(),
+            guardian_exec_command_request("guardian-off-command"),
+            ApprovalRequestReasons {
+                approval: None,
+                retry: None,
+            },
+            GuardianReviewOptions {
+                require_guardian,
+                plugin_attribution_override: None,
+                approval_request_source: GuardianApprovalRequestSource::MainTurn,
+                external_cancel: None,
+                require_synchronous_review: false,
+            },
+        )
+        .await;
+
+        assert_eq!(called.load(std::sync::atomic::Ordering::SeqCst), enabled);
+        if enabled {
+            assert_eq!(decision, Some(ReviewDecision::Approved));
+        } else if require_guardian {
+            assert!(matches!(decision, Some(ReviewDecision::Denied { .. })));
+        } else {
+            assert_eq!(decision, None);
+        }
+    }
+}
+
 #[test_case::test_case(ApprovalCancellation::BeforeRouting; "before_routing")]
 #[test_case::test_case(ApprovalCancellation::BeforeCachedResult; "before_cached_result")]
 #[tokio::test]
@@ -1928,6 +2003,186 @@ enum GuardianTestCatalog {
     ParentOnly,
 }
 
+#[test_case::test_case(true, false, true; "same_slug_override")]
+#[test_case::test_case(false, false, true; "configured_model_without_catalog_override")]
+#[test_case::test_case(true, true, true; "provider_failure")]
+#[test_case::test_case(true, false, false; "guardian_off")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn guardian_review_uses_independent_provider_catalog(
+    explicit_override: bool,
+    failure: bool,
+    enabled: bool,
+) -> anyhow::Result<()> {
+    skip_if_no_network!(Ok(()));
+    let parent_server = start_mock_server().await;
+    let reviewer_server = wiremock::MockServer::start().await;
+    let (session, mut turn) = guardian_test_session_and_turn(&parent_server).await;
+    let mut provider = turn.config.model_provider.clone();
+    provider.name = "independent-reviewer".to_owned();
+    provider.base_url = Some(format!("{}/v1", reviewer_server.uri()));
+    provider.model_catalog_url = Some(format!("{}/models", reviewer_server.uri()).into());
+    provider.env_key = None;
+    provider.experimental_bearer_token = Some("reviewer-key".into());
+    provider.requires_openai_auth = false;
+    provider.supports_websockets = false;
+    let preferred = "configured-reviewer".to_owned();
+    let selected = if explicit_override {
+        turn.model_info().slug.clone()
+    } else {
+        preferred
+    };
+    let config = Arc::make_mut(&mut Arc::get_mut(&mut turn).unwrap().config);
+    config.guardian_model_provider = Some(("reviewer".to_owned(), provider));
+    config.guardian_model = Some(selected.clone());
+    config.model_context_window = Some(3_072);
+    config.model_auto_compact_token_limit = Some(2_000);
+    config
+        .features
+        .set_enabled(Feature::GuardianApproval, enabled)?;
+    config.features.enable(Feature::ApiKeyModelDiscovery)?;
+    config.approvals_reviewer = codex_protocol::config_types::ApprovalsReviewer::AutoReview;
+    config.permissions.approval_policy = Constrained::allow_only(AskForApproval::OnRequest);
+    config
+        .permissions
+        .set_permission_profile(PermissionProfile::Disabled)?;
+    let reviewer_thread = crate::guardian::test_host::install(&session, &turn.config);
+    let mut context = GuardianReviewContext::from(&turn);
+    Arc::make_mut(&mut context.model_info).auto_review_model_override =
+        explicit_override.then(|| selected.clone());
+    Arc::make_mut(&mut context.model_info).model_messages = Some(serde_json::from_value(
+        serde_json::json!({"auto_review": {"policy": "parent reviewer default"}}),
+    )?);
+    let mut reviewer_model = context.model_info.as_ref().clone();
+    reviewer_model.slug = selected.clone();
+    reviewer_model.context_window = Some(131_072);
+    reviewer_model.default_reasoning_level = Some(ReasoningEffort::Medium);
+    reviewer_model.supported_reasoning_levels =
+        vec![codex_protocol::openai_models::ReasoningEffortPreset {
+            effort: ReasoningEffort::Medium,
+            description: "reviewer effort".to_owned(),
+        }];
+    reviewer_model.visibility = codex_protocol::openai_models::ModelVisibility::List;
+    reviewer_model.supported_in_api = true;
+    reviewer_model.auto_review_model_override =
+        Some("must-not-follow-reviewer-override".to_owned());
+    reviewer_model.model_messages = Some(serde_json::from_value(serde_json::json!({
+        "auto_review": {"policy": "reviewer B policy", "policy_template": "{{ tenant_policy_config }}"}
+    }))?);
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/models"))
+        .and(wiremock::matchers::header(
+            "authorization",
+            "Bearer reviewer-key",
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(ModelsResponse {
+                models: vec![reviewer_model],
+            }),
+        )
+        .expect(u64::from(enabled))
+        .mount(&reviewer_server)
+        .await;
+    let response = if failure {
+        wiremock::ResponseTemplate::new(401).set_body_json(serde_json::json!({
+            "error": {"message": "reviewer authentication rejected", "type": "authentication_error"}
+        }))
+    } else {
+        wiremock::ResponseTemplate::new(200)
+            .insert_header("content-type", "text/event-stream")
+            .set_body_string(sse(vec![
+                ev_response_created("independent-review"),
+                ev_assistant_message("assessment", r#"{"outcome":"allow"}"#),
+                ev_completed("independent-review"),
+            ]))
+    };
+    let response_log =
+        core_test_support::responses::mount_response_once(&reviewer_server, response.clone()).await;
+    if failure {
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/v1/responses"))
+            .respond_with(response)
+            .mount(&reviewer_server)
+            .await;
+    }
+    seed_guardian_parent_history(&session, &turn).await;
+    let decision = super::decide_approval(
+        Arc::clone(&session),
+        context,
+        "independent-review".to_owned(),
+        guardian_exec_command_request("independent-review"),
+        ApprovalRequestReasons::default(),
+        GuardianReviewOptions {
+            require_guardian: enabled,
+            plugin_attribution_override: None,
+            approval_request_source: GuardianApprovalRequestSource::MainTurn,
+            external_cancel: None,
+            require_synchronous_review: false,
+        },
+    )
+    .await;
+    eprintln!("independent reviewer decision: {decision:?}");
+    let requests = reviewer_server.received_requests().await.unwrap();
+    for request in &requests {
+        eprintln!(
+            "reviewer {} {} {:?} {}",
+            request.method,
+            request.url,
+            request.headers,
+            String::from_utf8_lossy(&request.body)
+        );
+    }
+    let parent_requests = parent_server.received_requests().await.unwrap();
+    eprintln!("parent requests: {parent_requests:#?}");
+    assert!(
+        parent_requests.is_empty(),
+        "review must not dispatch to the parent provider"
+    );
+    reviewer_server.verify().await;
+    if !enabled {
+        assert_eq!(decision, None);
+        assert!(requests.is_empty());
+        assert!(reviewer_thread.lock().await.is_none());
+        return Ok(());
+    }
+    assert!(!response_log.requests().is_empty());
+    for request in response_log.requests() {
+        assert_eq!(request.body_json()["model"], selected);
+        assert_eq!(
+            request.header("authorization").as_deref(),
+            Some("Bearer reviewer-key")
+        );
+    }
+    if failure {
+        let Some(ReviewDecision::Denied { rejection }) = decision else {
+            panic!("reviewer authentication failure must deny the action");
+        };
+        assert!(rejection.contains("401"), "{rejection}");
+        return Ok(());
+    }
+    assert_eq!(decision, Some(ReviewDecision::Approved));
+    assert_eq!(
+        response_log.single_request().body_json()["reasoning"]["effort"],
+        "medium"
+    );
+    let reviewer = reviewer_thread
+        .lock()
+        .await
+        .as_ref()
+        .and_then(std::sync::Weak::upgrade)
+        .expect("live reviewer thread");
+    let reviewer_config = reviewer.config().await;
+    assert_eq!(reviewer_config.model_provider_id, "reviewer");
+    assert_eq!(reviewer_config.model_context_window, None);
+    assert_eq!(reviewer_config.model_auto_compact_token_limit, None);
+    let reviewer_turn = reviewer.session.new_default_turn().await;
+    assert_eq!(reviewer_turn.model_info().context_window, Some(131_072));
+    assert!(!reviewer_turn.model_info().used_fallback_model_metadata);
+    let instructions = reviewer.session.get_base_instructions().await;
+    assert!(instructions.text.contains("reviewer B policy"));
+    assert!(!instructions.text.contains("parent reviewer default"));
+    Ok(())
+}
+
 #[test_case::test_case(None; "captured_policy")]
 #[test_case::test_case(Some("configured policy wins"); "configured_policy")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2081,7 +2336,11 @@ async fn guardian_request_model_for_auto_review(
         },
     );
     let parent_model = turn.model_info().slug.clone();
-    let preferred_model = turn.provider.approval_review_preferred_model().to_string();
+    let preferred_model = turn
+        .config
+        .guardian_model
+        .clone()
+        .expect("configured review model");
     let parent_turn_id = turn.sub_id.clone();
     seed_guardian_parent_history(&session, &turn).await;
 
@@ -3417,7 +3676,9 @@ async fn guardian_review_does_not_retry_valid_denial() -> anyhow::Result<()> {
         ])],
     )
     .await;
-    let (session, turn) = guardian_test_session_and_turn(&server).await;
+    let (session, mut turn) = guardian_test_session_and_turn(&server).await;
+    let reviewer_model = turn.model_info().slug.clone();
+    Arc::make_mut(&mut Arc::get_mut(&mut turn).unwrap().config).guardian_model = Some(reviewer_model);
     seed_guardian_parent_history(&session, &turn).await;
 
     let decision = review_approval_request(

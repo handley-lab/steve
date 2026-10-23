@@ -4,7 +4,6 @@ use app_test_support::ChatGptAuthFixture;
 use app_test_support::TestAppServer;
 use app_test_support::to_response;
 use app_test_support::write_chatgpt_auth;
-use app_test_support::write_models_cache;
 use codex_app_server_protocol::AttestationGenerateResponse;
 use codex_app_server_protocol::ClientInfo;
 use codex_app_server_protocol::InitializeCapabilities;
@@ -32,11 +31,20 @@ const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(60);
 const ATTESTATION_HEADER: &str = "v1.integration-test";
 const APP_SERVER_ATTESTATION_HEADER: &str = r#"{"v":1,"s":0,"t":"v1.integration-test"}"#;
 
-#[test_case(ThreadStartParams::default(); "persistent")]
-#[test_case(ThreadStartParams { ephemeral: Some(true), ..Default::default() }; "ephemeral")]
+#[test_case(ThreadStartParams::default(), "account", true; "account")]
+#[test_case(ThreadStartParams::default(), "account", false; "account_no_opt_in")]
+#[test_case(ThreadStartParams::default(), "bearer", true; "provider_bearer_without_account")]
+#[test_case(ThreadStartParams::default(), "bearer", false; "provider_bearer_without_account_no_opt_in")]
+#[test_case(ThreadStartParams::default(), "bearer-unused-account", true; "provider_bearer")]
+#[test_case(ThreadStartParams::default(), "bearer-unused-account", false; "provider_bearer_no_opt_in")]
+#[test_case(ThreadStartParams::default(), "anonymous", true; "anonymous")]
+#[test_case(ThreadStartParams::default(), "anonymous", false; "anonymous_no_opt_in")]
+#[test_case(ThreadStartParams { ephemeral: Some(true), ..Default::default() }, "account", true; "ephemeral")]
 #[tokio::test]
 async fn attestation_generate_round_trip_adds_header_to_responses_websocket_handshake(
     thread_start_params: ThreadStartParams,
+    credential: &str,
+    opted_in: bool,
 ) -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -59,20 +67,24 @@ async fn attestation_generate_round_trip_adds_header_to_responses_websocket_hand
     .await;
 
     let codex_home = TempDir::new()?;
-    create_chatgpt_websocket_config(
+    create_configured_websocket_config(
         codex_home.path(),
         &websocket_server.uri().replacen("ws://", "http://", 1),
+        credential,
     )?;
-    write_chatgpt_auth(
-        codex_home.path(),
-        ChatGptAuthFixture::new("access-chatgpt").plan_type("pro"),
-        AuthCredentialsStoreMode::File,
-    )?;
-    write_models_cache(codex_home.path()).await?;
+    if matches!(credential, "account" | "bearer-unused-account") {
+        write_chatgpt_auth(
+            codex_home.path(),
+            ChatGptAuthFixture::new("access-chatgpt")
+                .account_id("attestation-account")
+                .plan_type("pro"),
+            AuthCredentialsStoreMode::File,
+        )?;
+    }
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
-        .with_env_overrides(&[("OPENAI_API_KEY", None)])
+        .with_env_overrides(&[("OPENAI_API_KEY", None), ("STEVE_API_KEY", None)])
         .build()
         .await?;
     let initialized = timeout(
@@ -86,7 +98,7 @@ async fn attestation_generate_round_trip_adds_header_to_responses_websocket_hand
             Some(InitializeCapabilities {
                 explicit_gateway_oauth: false,
                 experimental_api: true,
-                request_attestation: true,
+                request_attestation: opted_in,
                 opt_out_notification_methods: None,
                 mcp_server_openai_form_elicitation: false,
                 extensions: None,
@@ -160,24 +172,56 @@ async fn attestation_generate_round_trip_adds_header_to_responses_websocket_hand
         }
     })
     .await??;
-    assert!(attestation_requests > 0);
-
     assert!(
         websocket_server
             .wait_for_handshakes(/*expected*/ 1, DEFAULT_READ_TIMEOUT)
             .await
     );
     let handshake = websocket_server.single_handshake();
-    assert_eq!(
-        handshake.header("x-oai-attestation").as_deref(),
-        Some(APP_SERVER_ATTESTATION_HEADER)
+    let expected_authorization = match credential {
+        "account" => Some("Bearer access-chatgpt"),
+        "bearer" | "bearer-unused-account" => Some("Bearer selected-bearer"),
+        "anonymous" => None,
+        _ => unreachable!(),
+    };
+    eprintln!(
+        "T19_EVIDENCE {}",
+        serde_json::json!({"kind": "app-server-attestation",
+            "credential": credential, "opted_in": opted_in, "attestation_requests": attestation_requests,
+            "handshake_uri": handshake.uri(), "attestation": handshake.header("x-oai-attestation"),
+            "authorization": handshake.header("authorization"), "account_id": handshake.header("chatgpt-account-id"),
+            "requests": websocket_server.connections().iter().map(|connection| connection.iter().map(|request| request.body_json()).collect::<Vec<_>>()).collect::<Vec<_>>(),
+        })
     );
 
+    assert_eq!(attestation_requests > 0, opted_in);
+    assert_eq!(
+        handshake.header("x-oai-attestation").as_deref(),
+        opted_in.then_some(APP_SERVER_ATTESTATION_HEADER)
+    );
+    assert_eq!(
+        handshake.header("authorization").as_deref(),
+        expected_authorization
+    );
+    assert_eq!(
+        handshake.header("chatgpt-account-id").as_deref(),
+        (credential == "account").then_some("attestation-account")
+    );
     websocket_server.shutdown().await;
     Ok(())
 }
 
-fn create_chatgpt_websocket_config(codex_home: &Path, server_uri: &str) -> std::io::Result<()> {
+fn create_configured_websocket_config(
+    codex_home: &Path,
+    server_uri: &str,
+    credential: &str,
+) -> std::io::Result<()> {
+    let requires_auth = credential == "account";
+    let bearer = if matches!(credential, "bearer" | "bearer-unused-account") {
+        "experimental_bearer_token = \"selected-bearer\""
+    } else {
+        ""
+    };
     std::fs::write(
         codex_home.join("config.toml"),
         format!(
@@ -189,13 +233,18 @@ sandbox_mode = "read-only"
 model_provider = "mock_provider"
 
 [model_providers.mock_provider]
-name = "Mock ChatGPT provider for test"
+name = "Cambridge"
 base_url = "{server_uri}/v1"
 wire_api = "responses"
 request_max_retries = 0
 stream_max_retries = 0
-requires_openai_auth = true
+requires_openai_auth = {requires_auth}
 supports_websockets = true
+{bearer}
+
+[features]
+api_key_model_discovery = false
+guardian_approval = false
 "#
         ),
     )

@@ -10,7 +10,6 @@ use codex_http_client::RouteAwareRequestError;
 use codex_http_client::RouteFailureClass;
 #[cfg(target_os = "macos")]
 use codex_http_client::macos_system_proxy_configuration;
-use codex_login::default_client::create_client_without_request_logging;
 use http::HeaderMap;
 use http::Method;
 
@@ -24,17 +23,25 @@ pub(super) fn check(config: Option<&Config>) -> DoctorCheck {
     push_proxy_env_details(&mut details);
     #[cfg(target_os = "macos")]
     {
-        let request_url = config
+        if let Some(request_url) = config
             .and_then(|config| config.model_provider.base_url.as_deref())
-            .or_else(|| config.map(|config| config.chatgpt_base_url.as_str()))
-            .unwrap_or("https://chatgpt.com/backend-api/");
-        let configuration = match macos_system_proxy_configuration(request_url) {
-            MacosSystemProxyConfiguration::Automatic => "automatic (PAC)",
-            MacosSystemProxyConfiguration::Manual => "manual",
-            MacosSystemProxyConfiguration::Direct => "direct",
-            MacosSystemProxyConfiguration::Unavailable => "unavailable",
-        };
-        details.push(format!("system proxy: {configuration}"));
+            .filter(|url| !url.trim().is_empty())
+            .or_else(|| {
+                config
+                    .map(|config| config.chatgpt_base_url.as_str())
+                    .filter(|url| !url.trim().is_empty())
+            })
+        {
+            let configuration = match macos_system_proxy_configuration(request_url) {
+                MacosSystemProxyConfiguration::Automatic => "automatic (PAC)",
+                MacosSystemProxyConfiguration::Manual => "manual",
+                MacosSystemProxyConfiguration::Direct => "direct",
+                MacosSystemProxyConfiguration::Unavailable => "unavailable",
+            };
+            details.push(format!("system proxy: {configuration}"));
+        } else {
+            details.push("system proxy: no configured endpoint".to_string());
+        }
     }
     if let Some(config) = config {
         let enabled = |value| if value { "enabled" } else { "disabled" };
@@ -121,23 +128,21 @@ pub(super) async fn probe_status(
     method: Method,
     headers: HeaderMap,
 ) -> Result<u16, String> {
-    let response = if env::var("STEVE_SANDBOX").as_deref() == Ok("seatbelt") {
-        create_client_without_request_logging()
-            .request(method, url)
-            .headers(headers)
-            .timeout(Duration::from_secs(8))
-            .send()
-            .await
-    } else {
+    let client = if env::var("STEVE_SANDBOX").as_deref() == Ok("seatbelt") {
         client
-            .request(method, url)
-            .headers(headers)
-            // Allow five seconds for PAC resolution before the three-second HTTP budget.
-            .timeout(Duration::from_secs(8))
-            .send()
-            .await
-    }
-    .map_err(request_error)?;
+            .clone()
+            .with_legacy_direct_proxy_and_custom_ca_fallback()
+    } else {
+        client.clone()
+    };
+    let response = client
+        .request(method, url)
+        .headers(headers)
+        // Allow five seconds for PAC resolution before the three-second HTTP budget.
+        .timeout(Duration::from_secs(8))
+        .send()
+        .await
+        .map_err(request_error)?;
     let status = response.status().as_u16();
     if status == 407 {
         return Err("proxy authentication required (HTTP 407)".to_string());

@@ -107,21 +107,14 @@ pub(super) fn startup_model(
     bootstrap: &AppServerBootstrap,
     server_defaults_read: bool,
 ) -> String {
-    config.model.clone().unwrap_or_else(|| {
-        if server_defaults_read {
-            // Legacy bootstrap paths may be seeded with local config, which can differ from a
-            // cleared server model. Use the server catalog when config/read returned model: null.
-            bootstrap
-                .available_models
-                .iter()
-                .find(|model| model.is_default)
-                .or_else(|| bootstrap.available_models.first())
-                .map(|model| model.model.clone())
-                .unwrap_or_else(|| bootstrap.default_model.clone())
-        } else {
-            bootstrap.default_model.clone()
-        }
-    })
+    if server_defaults_read {
+        config.model.clone().unwrap_or_default()
+    } else {
+        config
+            .model
+            .clone()
+            .unwrap_or_else(|| bootstrap.default_model.clone())
+    }
 }
 
 impl App {
@@ -469,7 +462,6 @@ impl App {
             ModelCatalog::new(available_models.clone())
                 .with_collaboration_modes(bootstrap.collaboration_modes),
         );
-        let feedback_audience = bootstrap.feedback_audience;
         let auth_mode = bootstrap.auth_mode;
         let has_chatgpt_account = bootstrap.has_chatgpt_account;
         let has_codex_backend_auth = matches!(auth_mode, Some(TelemetryAuthMode::Chatgpt));
@@ -933,7 +925,6 @@ See the Steve keymap documentation for supported actions and examples."
             backtrack: BacktrackState::default(),
             backtrack_render_pending: false,
             feedback: feedback.clone(),
-            feedback_audience,
             environment_manager,
             app_server_target,
             pending_right_click_paste: None,

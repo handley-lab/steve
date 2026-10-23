@@ -9,7 +9,6 @@ use super::ConnectionPool;
 use super::LunaSamplerConfig;
 use super::LunaSamplerError;
 use super::MAX_OUTPUT_BYTES;
-use super::connection_pool::RequestMode;
 use super::response::PendingResponse;
 use codex_api::ApiError;
 use codex_api::ResponseEvent;
@@ -265,30 +264,13 @@ impl SamplingExecution {
                     return Err(error);
                 }
             };
-            // Omitted programs need no auth lookup, which can refresh credentials.
-            self.request.access_programs = match self.cyber_access_program {
-                None => None,
-                Some(program) => {
-                    let auth = tokio::select! {
-                        biased;
-                        _ = &mut owner_changed => return Err(account_changed_error()),
-                        _ = mode.superseded() => return Err(LunaSamplerError::Superseded),
-                        auth = self.config.provider.auth() => auth,
-                    };
-                    cyber_access_program::for_auth(
-                        auth.as_ref(),
-                        Some(program),
-                        self.config.api_key_cyber_access_programs,
-                    )
-                    .map_err(LunaSamplerError::Provider)?
-                }
-            };
+            self.request.access_programs = cyber_access_program::for_request(
+                self.cyber_access_program,
+                self.config.api_key_cyber_access_programs,
+            )
+            .map_err(LunaSamplerError::Provider)?;
             ensure_account_owner()?;
-            self.request.service_tier = if lease.request_kind == RequestMode::GuardianClassifier {
-                None
-            } else {
-                self.config.service_tier.clone()
-            };
+            self.request.service_tier = self.config.service_tier.clone();
             let thread_id = &lease.thread_id;
             let mut turn_metadata = json!({
                 "session_id": self.config.session_id,
@@ -307,16 +289,21 @@ impl SamplingExecution {
                 ("x-openai-subagent".to_owned(), "guardian".to_owned()),
                 // Classifier requests do not advance their own context window.
                 ("x-codex-window-id".to_owned(), format!("{thread_id}:0")),
-                (RESPONSES_LITE_METADATA_KEY.to_owned(), "true".to_owned()),
             ]);
+            if self
+                .config
+                .model_info
+                .as_ref()
+                .is_some_and(|model| model.use_responses_lite)
+            {
+                client_metadata.insert(RESPONSES_LITE_METADATA_KEY.to_owned(), "true".to_owned());
+            }
             if let Some(root_turn_id) = &self.root_turn_id {
                 client_metadata.insert("root_turn_id".to_owned(), root_turn_id.clone());
                 turn_metadata["root_turn_id"] = json!(root_turn_id);
             }
             client_metadata.insert(TURN_METADATA_KEY.to_owned(), turn_metadata.to_string());
-            if lease.request_kind == RequestMode::GuardianClassifier
-                && let Some(parent_response_id) = &self.parent_response_id
-            {
+            if let Some(parent_response_id) = &self.parent_response_id {
                 client_metadata.insert("parent_response_id".to_owned(), parent_response_id.clone());
             }
             self.request.client_metadata = Some(client_metadata);

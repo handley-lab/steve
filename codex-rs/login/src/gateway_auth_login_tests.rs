@@ -161,6 +161,7 @@ async fn rejected_credentials_stay_not_ready_until_replaced() {
         std::io::ErrorKind::PermissionDenied
     );
     assert_eq!(manager.status().await.unwrap(), GatewayAuthStatus::NotReady);
+    assert!(manager.cached_access_token().is_none());
     assert_eq!(
         events.try_recv().unwrap().status,
         GatewayAuthStatus::NotReady
@@ -200,6 +201,7 @@ async fn rejected_credentials_stay_not_ready_until_replaced() {
         GatewayAuthStatus::Succeeded
     );
     assert_eq!(manager.resolve_access_token().await.unwrap(), "replacement");
+    assert_eq!(manager.cached_access_token().as_deref(), Some("replacement"));
 
     // A rejected token with no refresh token also requires replacement credentials.
     save_token(
@@ -238,6 +240,7 @@ async fn rejected_credentials_stay_not_ready_until_replaced() {
         manager.status().await.unwrap(),
         GatewayAuthStatus::Succeeded
     );
+    assert!(manager.cached_access_token().is_none());
     drop(cache_lock);
     assert_eq!(manager.resolve_access_token().await.unwrap(), "signed-in");
 }

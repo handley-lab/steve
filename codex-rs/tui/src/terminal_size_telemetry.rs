@@ -9,7 +9,6 @@ pub(crate) type LaunchTags = Vec<(&'static str, &'static str)>;
 pub(crate) fn enabled(config: &Config) -> bool {
     match config.otel.metrics_exporter {
         OtelExporterKind::None => false,
-        OtelExporterKind::Statsig => config.analytics_enabled != Some(false),
         OtelExporterKind::OtlpHttp { .. } | OtelExporterKind::OtlpGrpc { .. } => true,
     }
 }
@@ -47,18 +46,13 @@ pub(crate) fn read_size() -> Size {
     size.unwrap_or_default()
 }
 
-pub(crate) fn record(context: &LaunchTags, config: &Config, reason: &'static str, size: Size) {
+pub(crate) fn record(context: &LaunchTags, _config: &Config, reason: &'static str, size: Size) {
     if !context.is_empty()
         && let Some(metrics) = codex_otel::global()
     {
         let mut labels = context.clone();
         labels.extend(tags(size));
         labels.push(("observation_reason", reason));
-        let _ = metrics.counter_with_analytics_consent(
-            "steve.tui.terminal_size",
-            /*inc*/ 1,
-            &labels,
-            config.analytics_enabled != Some(false),
-        );
+        let _ = metrics.counter("steve.tui.terminal_size", /*inc*/ 1, &labels);
     }
 }

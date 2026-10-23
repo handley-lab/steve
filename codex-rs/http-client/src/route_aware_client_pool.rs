@@ -345,77 +345,6 @@ impl RouteAwareClientPool {
         self
     }
 
-    /// Creates a pool that retains the Cloudflare cookies required by ChatGPT endpoints.
-    pub fn with_chatgpt_cloudflare_cookies(
-        http_client_factory: HttpClientFactory,
-        route_class: ClientRouteClass,
-    ) -> Self {
-        Self::with_chatgpt_cloudflare_cookies_and_default_headers(
-            http_client_factory,
-            route_class,
-            HeaderMap::new(),
-        )
-    }
-
-    /// Creates a pool with ChatGPT Cloudflare cookies and default headers on every route.
-    pub fn with_chatgpt_cloudflare_cookies_and_default_headers(
-        http_client_factory: HttpClientFactory,
-        route_class: ClientRouteClass,
-        default_headers: HeaderMap,
-    ) -> Self {
-        Self::with_builder(
-            http_client_factory,
-            route_class,
-            HttpClientBuilder::new()
-                .default_headers(default_headers)
-                .with_chatgpt_cloudflare_cookie_store(),
-        )
-    }
-
-    /// Creates a no-redirect pool that retains the Cloudflare cookies required by ChatGPT
-    /// endpoints.
-    pub fn with_chatgpt_cloudflare_cookies_without_redirects(
-        http_client_factory: HttpClientFactory,
-        route_class: ClientRouteClass,
-    ) -> Self {
-        Self::with_builder(
-            http_client_factory,
-            route_class,
-            HttpClientBuilder::new()
-                .with_chatgpt_cloudflare_cookie_store()
-                .without_redirects(),
-        )
-    }
-
-    /// Creates a no-redirect ChatGPT Cloudflare-cookie pool without request diagnostics.
-    pub fn with_chatgpt_cloudflare_cookies_without_redirects_or_request_logging(
-        http_client_factory: HttpClientFactory,
-        route_class: ClientRouteClass,
-    ) -> Self {
-        Self::with_builder(
-            http_client_factory,
-            route_class,
-            HttpClientBuilder::new()
-                .with_chatgpt_cloudflare_cookie_store()
-                .without_redirects()
-                .without_request_logging(),
-        )
-    }
-
-    /// Creates a ChatGPT Cloudflare-cookie pool without URL or response-header diagnostics.
-    pub fn with_chatgpt_cloudflare_cookies_without_request_logging(
-        http_client_factory: HttpClientFactory,
-        route_class: ClientRouteClass,
-    ) -> Self {
-        Self::with_builder(
-            http_client_factory,
-            route_class,
-            HttpClientBuilder::new()
-                .with_chatgpt_cloudflare_cookie_store()
-                .without_request_logging(),
-        )
-    }
-
     pub fn get<U>(&self, url: U) -> RequestBuilder
     where
         U: IntoUrl,
@@ -523,11 +452,7 @@ impl RouteAwareClientPool {
                 | (
                     OutboundProxyPolicy::RespectSystemProxy,
                     CustomCaFallback::LegacyTransportDefault,
-                ) => client_builder.build_for_resolved_route(
-                    &pool.http_client_factory,
-                    pool.route_class,
-                    &build_route,
-                ),
+                ) => client_builder.build_for_resolved_route(pool.route_class, &build_route),
             }?;
             let mut clients = pool.clients.lock().unwrap_or_else(|error| {
                 panic!("route-aware client cache lock should not be poisoned: {error}")
@@ -562,7 +487,7 @@ impl RouteAwareClientPool {
             client_builder = client_builder.without_redirects();
         }
         client_builder
-            .build_for_resolved_route(&self.http_client_factory, self.route_class, route)
+            .build_for_resolved_route(self.route_class, route)
             .map_err(Into::into)
     }
 }

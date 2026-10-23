@@ -12,7 +12,11 @@ use chrono::DateTime;
 use chrono::Local;
 
 impl BackendBanner {
-    pub(crate) fn actionable_banner(&self, clock_format: ClockFormat) -> ActionableBanner {
+    pub(crate) fn actionable_banner(
+        &self,
+        clock_format: ClockFormat,
+        backend_base_url: &str,
+    ) -> ActionableBanner {
         let reset_time = self
             .reset_at
             .and_then(|timestamp| DateTime::from_timestamp(timestamp, /*nsecs*/ 0))
@@ -43,7 +47,7 @@ impl BackendBanner {
                 {
                     return None;
                 }
-                let action = self.resolve_action(&cta.action)?;
+                let action = self.resolve_action(&cta.action, backend_base_url)?;
                 Some(SelectionItem {
                     name: cta.label.clone(),
                     actions: vec![Box::new(move |tx| {

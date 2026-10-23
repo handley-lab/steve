@@ -8,6 +8,7 @@ use crate::windows_sandbox::WindowsSandboxLevelExt;
 use crate::windows_sandbox::resolve_windows_sandbox_mode;
 use crate::windows_sandbox::windows_sandbox_level_for_legacy_checks;
 use codex_agent_roles::load_agent_roles;
+use codex_config::AccountPathStyle;
 use codex_config::CloudConfigBundleLoader;
 use codex_config::ConfigLayerSource;
 use codex_config::ConfigLayerStack;
@@ -134,7 +135,7 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_absolute_path::AbsolutePathBufGuard;
 use codex_utils_path_uri::PathConvention;
 use codex_utils_path_uri::PathUri;
-use http::HeaderValue;
+
 use rmcp::model::ElicitationCapability;
 use rmcp::model::FormElicitationCapability;
 use rmcp::model::UrlElicitationCapability;
@@ -179,6 +180,7 @@ pub(crate) use runtime_refresh::RuntimeConfigRefresh;
 mod schema;
 mod token_budget_startup;
 mod windows_sandbox_config;
+pub use auth_keyring::bootstrap_account_path_style;
 pub use auth_keyring::bootstrap_auth_config;
 pub use auth_keyring::resolve_bootstrap_auth_keyring_backend_kind;
 pub use codex_agent_roles::AgentRoleConfig;
@@ -312,6 +314,7 @@ pub(crate) async fn test_config() -> Config {
     Config::load_from_base_config_with_overrides(
         ConfigToml {
             model: Some("gpt-5.5".to_string()),
+            model_provider: Some("openai".to_string()),
             ..Default::default()
         },
         ConfigOverrides::default(),
@@ -647,6 +650,9 @@ pub struct Config {
     /// Model used specifically for review sessions.
     pub review_model: Option<String>,
 
+    /// Model used by the standalone image-generation tool.
+    pub image_generation_model: Option<String>,
+
     /// Size of the context window for the model, in tokens.
     pub model_context_window: Option<i64>,
 
@@ -666,6 +672,8 @@ pub struct Config {
 
     /// Key into the model_providers map that specifies which provider to use.
     pub model_provider_id: String,
+    /// Explicit model for automatic usage-limit recovery.
+    pub fallback_model: Option<String>,
 
     /// Info needed to make an API request to the model.
     pub model_provider: ModelProviderInfo,
@@ -710,6 +718,11 @@ pub struct Config {
 
     /// Developer instructions override injected as a separate message.
     pub developer_instructions: Option<String>,
+
+    /// Resolved named provider for synchronous Guardian review, when independently selected.
+    pub guardian_model_provider: Option<(String, ModelProviderInfo)>,
+    /// Explicit model for synchronous Guardian review.
+    pub guardian_model: Option<String>,
 
     /// Guardian-specific policy config override from requirements.toml or config.toml.
     /// This is inserted into the fixed guardian prompt template under the
@@ -866,6 +879,9 @@ pub struct Config {
 
     /// Pet id preselected by the terminal pet picker.
     pub tui_pet: Option<String>,
+
+    /// Explicit source for uncached built-in pet assets.
+    pub tui_pet_asset_base_url: Option<String>,
 
     /// Vertical anchor used by terminal pet rendering.
     pub tui_pet_anchor: TuiPetAnchor,
@@ -1055,6 +1071,15 @@ pub struct Config {
     /// Base URL for requests to ChatGPT (as opposed to the OpenAI API).
     pub chatgpt_base_url: String,
 
+    /// Path dialect for [`Self::chatgpt_base_url`]. Omission selects `codex_api`.
+    pub chatgpt_path_style: AccountPathStyle,
+
+    /// Additional configured origins permitted to receive backend-staged file contents.
+    pub file_upload_origins: Vec<String>,
+
+    /// Optional explicitly configured desktop update feed.
+    pub desktop_update_url: Option<String>,
+
     /// Whether Codex-owned clients should respect host system proxy settings.
     pub respect_system_proxy: bool,
 
@@ -1078,6 +1103,8 @@ pub struct Config {
     /// Experimental / do not use. Selects the realtime websocket model/snapshot
     /// used for the `Op::RealtimeConversation` connection.
     pub experimental_realtime_ws_model: Option<String>,
+    /// Explicit model for realtime input transcription; omission disables transcription.
+    pub experimental_realtime_transcription_model: Option<String>,
     /// Experimental / do not use. Realtime websocket session selection.
     /// `version` controls v1/v2 and `type` controls conversational/transcription.
     pub realtime: RealtimeConfig,
@@ -1181,6 +1208,7 @@ pub struct Config {
     /// When `false`, disables feedback collection across Codex product surfaces.
     /// Defaults to `true`.
     pub feedback_enabled: bool,
+    pub feedback_dsn: Option<String>,
 
     /// Configured discoverable tools for tool suggestions.
     pub tool_suggest: ToolSuggestConfig,
@@ -1465,6 +1493,10 @@ impl AuthManagerConfig for Config {
 
     fn chatgpt_base_url(&self) -> String {
         self.chatgpt_base_url.clone()
+    }
+
+    fn account_path_style(&self) -> AccountPathStyle {
+        self.chatgpt_path_style
     }
 
     fn auth_route_config(&self) -> AuthRouteConfig {
@@ -1756,11 +1788,7 @@ impl Config {
         if !self.respect_system_proxy && self.features.enabled(Feature::SystemProxyFallback) {
             factory = factory.with_system_proxy_fallback();
         }
-        if self.features.enabled(Feature::Psp) {
-            factory.with_chatgpt_cookies([HeaderValue::from_static("oai-chat-psp=true")])
-        } else {
-            factory
-        }
+        factory
     }
 
     /// Build the plugin-manager input from the effective config.
@@ -1774,6 +1802,7 @@ impl Config {
             self.chatgpt_base_url.clone(),
             self.http_client_factory(),
             self.apps_mcp_product_sku.clone(),
+            self.file_upload_origins.clone(),
         )
     }
 
@@ -3936,7 +3965,10 @@ impl Config {
         let model_provider_id = config_layer_stack.required_model_provider().map(str::to_string)
             .or(model_provider)
             .or(cfg.model_provider)
-            .unwrap_or_else(|| "openai".to_string());
+            .ok_or_else(|| std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Set model_provider explicitly in config.toml or with an override",
+            ))?;
         let model_provider = model_providers
             .get(&model_provider_id)
             .ok_or_else(|| {
@@ -3948,6 +3980,30 @@ impl Config {
                 std::io::Error::new(std::io::ErrorKind::NotFound, message)
             })?
             .clone();
+
+        let guardian_model_provider = cfg
+            .auto_review
+            .as_ref()
+            .and_then(|auto_review| auto_review.model_provider.as_ref())
+            .map(|provider_id| {
+                if let Some(required) = config_layer_stack.required_model_provider()
+                    && provider_id != required
+                {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        format!("auto_review.model_provider conflicts with required model_provider `{required}`"),
+                    ));
+                }
+                model_providers
+                    .get(provider_id)
+                    .cloned()
+                    .map(|provider| (provider_id.clone(), provider))
+                    .ok_or_else(|| std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("Guardian model provider `{provider_id}` not found"),
+                    ))
+            })
+            .transpose()?;
 
         let shell_environment_policy = ShellEnvironmentPolicy::from(cfg.shell_environment_policy);
         let allow_login_shell = cfg.allow_login_shell.unwrap_or(true);
@@ -4410,6 +4466,7 @@ impl Config {
             daybreak_enabled: cfg.daybreak.unwrap_or(false),
             service_tier,
             review_model,
+            image_generation_model: cfg.image_generation_model,
             model_context_window: cfg.model_context_window,
             model_auto_compact_token_limit: cfg.model_auto_compact_token_limit,
             model_auto_compact_token_limit_scope: cfg
@@ -4420,6 +4477,7 @@ impl Config {
                 .unwrap_or_default(),
             async_compaction_threshold_percent,
             model_provider_id,
+            fallback_model: cfg.fallback_model,
             model_provider,
             cwd: resolved_cwd,
             workspace_roots: workspace_roots.clone(),
@@ -4537,6 +4595,8 @@ impl Config {
                 .show_raw_agent_reasoning
                 .or(show_raw_agent_reasoning)
                 .unwrap_or(false),
+            guardian_model_provider,
+            guardian_model: cfg.auto_review.as_ref().and_then(|review| review.model.clone()),
             guardian_policy_config,
             guardian_extra_policy,
             guardian_policy_template,
@@ -4553,9 +4613,10 @@ impl Config {
             model_reasoning_summary: cfg.model_reasoning_summary,
             model_catalog,
             model_verbosity: cfg.model_verbosity,
-            chatgpt_base_url: cfg
-                .chatgpt_base_url
-                .unwrap_or("https://chatgpt.com/backend-api/".to_string()),
+            chatgpt_base_url: cfg.chatgpt_base_url.unwrap_or_default(),
+            chatgpt_path_style: cfg.chatgpt_path_style.unwrap_or_default(),
+            file_upload_origins: cfg.file_upload_origins.unwrap_or_default(),
+            desktop_update_url: cfg.desktop_update_url,
             respect_system_proxy,
             apps_mcp_product_sku: cfg.apps_mcp_product_sku.clone(),
             responses_api_metadata: cfg.responses_api_metadata.unwrap_or_default(),
@@ -4570,6 +4631,7 @@ impl Config {
             experimental_realtime_webrtc_call_base_url: cfg
                 .experimental_realtime_webrtc_call_base_url,
             experimental_realtime_ws_model: cfg.experimental_realtime_ws_model,
+            experimental_realtime_transcription_model: cfg.experimental_realtime_transcription_model,
             realtime: cfg
                 .realtime
                 .map_or_else(RealtimeConfig::default, |realtime| {
@@ -4622,6 +4684,7 @@ impl Config {
                 .as_ref()
                 .and_then(|feedback| feedback.enabled)
                 .unwrap_or(true),
+            feedback_dsn: cfg.feedback.as_ref().and_then(|feedback| feedback.dsn.clone()),
             tool_suggest,
             tui_notifications: cfg
                 .tui
@@ -4687,6 +4750,7 @@ impl Config {
             tui_terminal_title: cfg.tui.as_ref().and_then(|t| t.terminal_title.clone()),
             tui_theme: cfg.tui.as_ref().and_then(|t| t.theme.clone()),
             tui_pet: cfg.tui.as_ref().and_then(|t| t.pet.clone()),
+            tui_pet_asset_base_url: cfg.tui.as_ref().and_then(|t| t.pet_asset_base_url.clone()),
             tui_pet_anchor: cfg
                 .tui
                 .as_ref()

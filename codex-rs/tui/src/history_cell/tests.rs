@@ -902,14 +902,14 @@ fn ps_output_multiline_long_command_snapshot() {
 
 #[test]
 fn cyber_policy_error_event_snapshot() {
-    let cell = new_cyber_policy_error_event(crate::daybreak::Notice::Apply);
+    let cell = new_cyber_policy_error_event(crate::daybreak::Notice::Undetermined);
     let rendered = render_lines(&cell.display_lines(/*width*/ 80)).join("\n");
     insta::assert_snapshot!(rendered);
 }
 
 #[test]
 fn cyber_policy_error_event_astra_snapshot() {
-    let cell = new_cyber_policy_error_event(crate::daybreak::Notice::Astra);
+    let cell = new_cyber_policy_error_event(crate::daybreak::Notice::Unavailable);
     let rendered = render_lines(&cell.display_lines(/*width*/ 80)).join("\n");
     insta::assert_snapshot!(rendered);
 }
@@ -919,6 +919,7 @@ fn cyber_policy_error_event_available_snapshot() {
     let rendered = [
         crate::daybreak::Notice::Disabled,
         crate::daybreak::Notice::Enabled,
+        crate::daybreak::Notice::Advertised,
     ]
     .into_iter()
     .map(|notice| {
@@ -938,7 +939,7 @@ fn safety_access_block_event_snapshot() {
 
 #[test]
 fn cyber_policy_error_event_narrow_snapshot() {
-    let cell = new_cyber_policy_error_event(crate::daybreak::Notice::Apply);
+    let cell = new_cyber_policy_error_event(crate::daybreak::Notice::Undetermined);
     let rendered = render_lines(&cell.display_lines(/*width*/ 36)).join("\n");
     insta::assert_snapshot!(rendered);
 }
@@ -3221,4 +3222,20 @@ fn consolidation_walker_replaces_agent_message_cells() {
         transcript_cells[1].as_any().is::<AgentMarkdownCell>(),
         "second cell should be AgentMarkdownCell"
     );
+}
+
+#[test]
+fn provider_neutral_refusal_cells_have_no_unconfigured_links() {
+    for cell in [
+        new_safety_access_block_event(),
+        new_cyber_policy_error_event(crate::daybreak::Notice::Undetermined),
+    ] {
+        for width in [36, 80] {
+            assert!(
+                cell.display_hyperlink_lines(width)
+                    .iter()
+                    .all(|line| line.hyperlinks.is_empty())
+            );
+        }
+    }
 }

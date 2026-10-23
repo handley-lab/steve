@@ -117,13 +117,13 @@ impl App {
         let enabled = self.chat_widget.daybreak_enabled
             && !self.chat_widget.side_conversation_active()
             && !self.side_threads.contains_key(&review.thread_id);
-        let eligible_account = self.chat_widget.daybreak_account_eligible();
-        let cyber_access_program = match crate::daybreak::program_for_turn(
-            &self.chat_widget.model_catalog().models,
+        let cyber_access_program = match crate::daybreak::program_for_thread(
+            &self.chat_widget.config_ref().features,
+            &app_server.request_handle(),
+            &review.thread_id.to_string(),
             self.chat_widget.current_model(),
-            eligible_account,
             enabled,
-        ) {
+        ).await {
             Ok(program) => program,
             Err(message) => {
                 self.chat_widget.add_error_message(message);

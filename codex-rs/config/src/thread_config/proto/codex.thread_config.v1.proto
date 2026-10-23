@@ -50,6 +50,15 @@ message ModelProvider {
   bool supports_websockets = 17;
   bool supports_standalone_web_search = 18;
   optional string model_catalog_url = 19;
+  bool accepts_response_continuation = 20;
+  bool include_internal_metadata = 21;
+  optional RemoteCompaction remote_compaction = 22;
+}
+
+enum RemoteCompaction {
+  REMOTE_COMPACTION_UNSPECIFIED = 0;
+  REMOTE_COMPACTION_UNSUPPORTED = 1;
+  REMOTE_COMPACTION_V2 = 2;
 }
 
 message StringMap {

@@ -17,4 +17,5 @@ pub use api::TaskText;
 pub use api::TurnAttempt;
 
 mod http;
+pub use codex_backend_client::PathStyle;
 pub use http::HttpClient;

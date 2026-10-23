@@ -1,6 +1,7 @@
 use codex_backend_client::Client as BackendClient;
 use codex_backend_client::ConfigBundleResponse;
 use codex_backend_client::DeliveredTomlFragment;
+use codex_config::AccountPathStyle;
 use codex_config::CloudConfigBundle;
 use codex_config::CloudConfigFragment;
 use codex_config::CloudConfigTomlBundle;
@@ -46,13 +47,19 @@ pub(crate) trait BundleClient: Send + Sync {
 
 pub(crate) struct BackendBundleClient {
     base_url: String,
+    path_style: AccountPathStyle,
     http_client_factory: HttpClientFactory,
 }
 
 impl BackendBundleClient {
-    pub(crate) fn new(base_url: String, http_client_factory: HttpClientFactory) -> Self {
+    pub(crate) fn new(
+        base_url: String,
+        path_style: AccountPathStyle,
+        http_client_factory: HttpClientFactory,
+    ) -> Self {
         Self {
             base_url,
+            path_style,
             http_client_factory,
         }
     }
@@ -64,7 +71,8 @@ impl BundleClient for BackendBundleClient {
             self.base_url.clone(),
             auth,
             self.http_client_factory.clone(),
-        );
+        )
+        .with_account_path_style(self.path_style);
 
         let response = client
             .get_config_bundle()

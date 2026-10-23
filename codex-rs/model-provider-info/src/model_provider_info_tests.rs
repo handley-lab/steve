@@ -6,19 +6,24 @@ use std::num::NonZeroU64;
 use tempfile::tempdir;
 
 #[test]
-fn runtime_internal_metadata_opt_in_is_not_serialized_or_configurable() {
+fn include_internal_metadata_round_trips_through_provider_toml() {
     let trusted = ModelProviderInfo {
         include_internal_metadata: true,
         ..Default::default()
     };
-    assert_eq!(
-        toml::to_string(&trusted).unwrap(),
-        toml::to_string(&ModelProviderInfo::default()).unwrap(),
+    let encoded = toml::to_string(&trusted).unwrap();
+    assert_ne!(
+        encoded,
+        toml::to_string(&ModelProviderInfo::default()).unwrap()
     );
-    assert_eq!(
-        toml::from_str::<ModelProviderInfo>("include_internal_metadata = true").unwrap(),
-        ModelProviderInfo::default(),
-    );
+    let decoded: ModelProviderInfo = toml::from_str(&encoded).unwrap();
+    assert!(decoded.include_internal_metadata);
+
+    let omitted: ModelProviderInfo = toml::from_str("name = \"Cambridge\"\n").unwrap();
+    assert!(!omitted.include_internal_metadata);
+    let explicit_false: ModelProviderInfo =
+        toml::from_str("include_internal_metadata = false\n").unwrap();
+    assert!(!explicit_false.include_internal_metadata);
 }
 
 #[test]
@@ -28,7 +33,7 @@ fn test_api_provider_applies_current_managed_residency() {
             "X-OpenAI-Internal-Codex-Residency".to_string() => "eu".into(),
             "x-provider-header".to_string() => "preserved".into(),
         }),
-        ..ModelProviderInfo::create_openai_provider(/*base_url*/ None)
+        ..ModelProviderInfo::create_openai_provider(Some("http://localhost:30000/v1".into()))
     };
     let original_info = info.clone();
     let previous_requirement = read_managed_residency_requirement();
@@ -97,6 +102,7 @@ base_url = "http://localhost:11434/v1"
         supports_websockets: false,
         supports_standalone_web_search: false,
         capabilities: None,
+        accepts_response_continuation: false,
         include_internal_metadata: false,
     };
 
@@ -136,6 +142,7 @@ query_params = { api-version = "2025-04-01-preview" }
         supports_websockets: false,
         supports_standalone_web_search: false,
         capabilities: None,
+        accepts_response_continuation: false,
         include_internal_metadata: false,
     };
 
@@ -179,6 +186,7 @@ supports_standalone_web_search = true
         supports_websockets: false,
         supports_standalone_web_search: true,
         capabilities: None,
+        accepts_response_continuation: false,
         include_internal_metadata: false,
     };
 
@@ -213,21 +221,42 @@ supports_websockets = true
 }
 
 #[test]
-fn test_personal_access_token_uses_chatgpt_codex_base_url() {
-    let api_provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None)
-        .to_api_provider(Some(AuthMode::PersonalAccessToken))
-        .expect("OpenAI provider should build API provider");
-
-    assert_eq!(api_provider.base_url, CHATGPT_CODEX_BASE_URL);
+fn api_provider_requires_an_explicit_base_url() {
+    for base_url in [None, Some(""), Some(" \t")] {
+        for auth_mode in [
+            None,
+            Some(AuthMode::ApiKey),
+            Some(AuthMode::Chatgpt),
+            Some(AuthMode::ChatgptAuthTokens),
+            Some(AuthMode::AgentIdentity),
+            Some(AuthMode::Headers),
+            Some(AuthMode::PersonalAccessToken),
+        ] {
+            let provider = ModelProviderInfo::create_openai_provider(base_url.map(str::to_owned));
+            assert!(provider.to_api_provider(auth_mode).is_err());
+        }
+    }
 }
 
 #[test]
-fn test_header_auth_uses_chatgpt_codex_base_url() {
-    let api_provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None)
-        .to_api_provider(Some(AuthMode::Headers))
-        .expect("OpenAI provider should build API provider");
-
-    assert_eq!(api_provider.base_url, CHATGPT_CODEX_BASE_URL);
+fn api_provider_preserves_explicit_endpoints_for_every_auth_mode() {
+    for base_url in ["http://localhost:30000/v1", "https://api.openai.com/v1"] {
+        for auth_mode in [
+            None,
+            Some(AuthMode::ApiKey),
+            Some(AuthMode::Chatgpt),
+            Some(AuthMode::ChatgptAuthTokens),
+            Some(AuthMode::Headers),
+            Some(AuthMode::AgentIdentity),
+            Some(AuthMode::PersonalAccessToken),
+        ] {
+            let provider = ModelProviderInfo::create_openai_provider(Some(base_url.to_string()));
+            assert_eq!(
+                provider.to_api_provider(auth_mode).unwrap().base_url,
+                base_url
+            );
+        }
+    }
 }
 
 #[test]
@@ -241,31 +270,16 @@ fn codex_backend_routes_require_codex_base_url() {
         let provider = ModelProviderInfo::create_openai_provider(base_url.map(str::to_owned));
         assert_eq!(provider.supports_codex_backend_routes(), expected);
     }
-}
 
-#[test]
-fn test_uses_openai_actor_authorization() {
-    let mut provider = ModelProviderInfo {
-        http_headers: Some(maplit::hashmap! {
-            "X-OpenAI-Actor-Authorization".to_string() => "actor-token".into(),
-        }),
-        ..ModelProviderInfo::default()
-    };
-    assert!(provider.uses_openai_actor_authorization());
+    let mut cambridge =
+        ModelProviderInfo::create_openai_provider(Some("https://hpc.example/backend-api/codex".into()));
+    cambridge.name = "Cambridge".to_string();
+    assert!(cambridge.supports_codex_backend_routes());
 
-    provider.http_headers = None;
-    assert!(!provider.uses_openai_actor_authorization());
-
-    provider.http_headers = Some(maplit::hashmap! {
-        OPENAI_ACTOR_AUTHORIZATION_HEADER.to_string() => "  ".into(),
-    });
-    assert!(!provider.uses_openai_actor_authorization());
-
-    provider.http_headers = Some(maplit::hashmap! {
-        OPENAI_ACTOR_AUTHORIZATION_HEADER.to_string() => "actor-token".into(),
-    });
-    provider.requires_openai_auth = true;
-    assert!(!provider.uses_openai_actor_authorization());
+    let openai_other_path =
+        ModelProviderInfo::create_openai_provider(Some("https://api.openai.com/v1".into()));
+    assert_eq!(openai_other_path.name, "OpenAI");
+    assert!(!openai_other_path.supports_codex_backend_routes());
 }
 
 #[test]
@@ -369,6 +383,7 @@ fn test_create_amazon_bedrock_provider() {
             supports_websockets: false,
             supports_standalone_web_search: false,
             capabilities: None,
+            accepts_response_continuation: false,
             include_internal_metadata: false,
         }
     );
@@ -434,10 +449,11 @@ fn provider_auth_for_test() -> ModelProviderAuthInfo {
 
 #[test]
 fn test_amazon_bedrock_providers_add_mantle_client_agent_header() {
-    for provider in [
+    for mut provider in [
         ModelProviderInfo::create_amazon_bedrock_provider(/*aws*/ None),
         ModelProviderInfo::create_amazon_bedrock_runtime_provider(/*aws*/ None),
     ] {
+        provider.base_url = Some("http://localhost:30000/v1".into());
         let api_provider = provider
             .to_api_provider(/*auth_mode*/ None)
             .expect("Amazon Bedrock provider should build API provider");
@@ -511,6 +527,98 @@ fn test_merge_configured_model_providers_adds_custom_provider() {
         ),
         Ok(expected)
     );
+}
+
+#[test]
+fn test_merge_configured_model_providers_keeps_builtin_openai_defaults() {
+    let builtin = built_in_model_providers(/*openai_base_url*/ None);
+    let openai = builtin
+        .get(OPENAI_PROVIDER_ID)
+        .expect("built-in openai provider");
+    assert_eq!(openai.wire_api, WireApi::Responses);
+    assert!(
+        openai
+            .http_headers
+            .as_ref()
+            .is_some_and(|headers| headers.contains_key("version"))
+    );
+    assert!(openai.base_url.is_none());
+    assert!(openai.env_http_headers.is_none());
+    assert!(!openai.requires_openai_auth);
+    assert!(!openai.supports_websockets);
+    assert!(!openai.supports_standalone_web_search);
+    assert!(openai.capabilities.is_none());
+    assert!(!openai.accepts_response_continuation);
+    assert!(!openai.include_internal_metadata);
+
+    let configured_openai = ModelProviderInfo {
+        name: "Replaced".to_string(),
+        base_url: Some("https://replaced.example/v1".to_string()),
+        requires_openai_auth: true,
+        supports_websockets: true,
+        supports_standalone_web_search: true,
+        accepts_response_continuation: true,
+        include_internal_metadata: true,
+        env_key: Some("OPENAI_API_KEY".to_string()),
+        env_http_headers: Some(std::collections::HashMap::from([(
+            "OpenAI-Organization".to_string(),
+            "OPENAI_ORGANIZATION".to_string(),
+        )])),
+        capabilities: Some(ModelProviderCapabilities {
+            external_web_access: None,
+            remote_compaction: Some(RemoteCompactionSupport::V2),
+        }),
+        ..ModelProviderInfo::default()
+    };
+    let enabled = ModelProviderInfo {
+        name: "Other".to_string(),
+        base_url: Some("https://other.example/v1".to_string()),
+        env_key: Some("OTHER_API_KEY".to_string()),
+        requires_openai_auth: true,
+        supports_websockets: true,
+        supports_standalone_web_search: true,
+        accepts_response_continuation: true,
+        include_internal_metadata: true,
+        env_http_headers: Some(std::collections::HashMap::from([(
+            "X-Org".to_string(),
+            "OTHER_ORG".to_string(),
+        )])),
+        capabilities: Some(ModelProviderCapabilities {
+            external_web_access: None,
+            remote_compaction: Some(RemoteCompactionSupport::V2),
+        }),
+        ..ModelProviderInfo::default()
+    };
+    let omitted = ModelProviderInfo {
+        name: "Omitted".to_string(),
+        base_url: Some("https://omitted.example/v1".to_string()),
+        ..ModelProviderInfo::default()
+    };
+    let merged = merge_configured_model_providers(
+        builtin,
+        std::collections::HashMap::from([
+            (OPENAI_PROVIDER_ID.to_string(), configured_openai),
+            ("other".to_string(), enabled.clone()),
+            ("omitted".to_string(), omitted.clone()),
+        ]),
+    )
+    .expect("merge");
+
+    assert_eq!(
+        merged.get(OPENAI_PROVIDER_ID),
+        built_in_model_providers(/*openai_base_url*/ None).get(OPENAI_PROVIDER_ID)
+    );
+    assert_eq!(merged.get("other"), Some(&enabled));
+    let stored_omitted = merged.get("omitted").expect("omitted provider");
+    assert_eq!(stored_omitted, &omitted);
+    assert!(stored_omitted.env_key.is_none());
+    assert!(stored_omitted.env_http_headers.is_none());
+    assert!(stored_omitted.capabilities.is_none());
+    assert!(!stored_omitted.requires_openai_auth);
+    assert!(!stored_omitted.supports_websockets);
+    assert!(!stored_omitted.supports_standalone_web_search);
+    assert!(!stored_omitted.accepts_response_continuation);
+    assert!(!stored_omitted.include_internal_metadata);
 }
 
 #[test]
@@ -706,7 +814,7 @@ fn test_validate_provider_aws_rejects_conflicting_auth() {
 
     assert_eq!(
         provider.validate(),
-        Err("provider aws cannot be combined with env_key, requires_openai_auth".to_string())
+        Err("provider aws cannot be combined with env_key".to_string())
     );
 }
 
@@ -880,5 +988,40 @@ model_catalog_url = "https://gateway.example/codex/catalog?token=catalog-secret"
             .unwrap()
             .base_url,
         "https://gateway.example/v1"
+    );
+}
+
+#[test]
+fn continuation_and_metadata_round_trip_provider_toml() {
+    let omitted: ModelProviderInfo = toml::from_str(
+        r#"
+name = "Cambridge"
+base_url = "https://hpc.example/v1"
+"#,
+    )
+    .unwrap();
+    assert!(!omitted.accepts_response_continuation);
+    assert!(!omitted.include_internal_metadata);
+
+    let provider: ModelProviderInfo = toml::from_str(
+        r#"
+name = "Cambridge"
+base_url = "https://hpc.example/v1"
+accepts_response_continuation = true
+include_internal_metadata = false
+"#,
+    )
+    .unwrap();
+    assert!(provider.accepts_response_continuation);
+    assert!(!provider.include_internal_metadata);
+    let encoded = toml::to_string(&provider).unwrap();
+    let again: ModelProviderInfo = toml::from_str(&encoded).unwrap();
+    assert_eq!(
+        (
+            again.accepts_response_continuation,
+            again.include_internal_metadata,
+            again.base_url.as_deref(),
+        ),
+        (true, false, Some("https://hpc.example/v1"))
     );
 }

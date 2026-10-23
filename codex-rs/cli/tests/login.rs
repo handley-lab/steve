@@ -3,15 +3,12 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
-use anyhow::Context;
 use anyhow::Result;
 use app_test_support::ChatGptAuthFixture;
 use app_test_support::write_chatgpt_auth;
 use codex_config::types::AuthCredentialsStoreMode;
 use codex_login::AuthKeyringBackendKind;
-use codex_login::CLIENT_ID;
 use codex_login::CODEX_ACCESS_TOKEN_ENV_VAR;
-use codex_login::REVOKE_TOKEN_URL_OVERRIDE_ENV_VAR;
 use codex_login::login_with_bedrock_access_keys;
 use codex_protocol::shell_environment::OPENAI_FEDERATION_RULE_ID_ENV_VAR;
 use codex_protocol::shell_environment::OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR;
@@ -87,20 +84,32 @@ fn login_status_reports_auth_storage_errors() -> Result<()> {
 }
 
 #[test]
-fn login_status_validates_configured_workload_identity() -> Result<()> {
+fn supplied_api_key_does_not_activate_account_exchange() -> Result<()> {
     let codex_home = TempDir::new()?;
     write_file_auth_config(codex_home.path())?;
-    let missing_assertion = codex_home.path().join("missing-identity-token");
+    codex_command(codex_home.path())?
+        .args(["login", "--with-api-key"])
+        .write_stdin("supplied-key\n")
+        .assert()
+        .success();
+    let stored_auth = std::fs::read(codex_home.path().join("auth.json"))?;
 
     codex_command(codex_home.path())?
         .env_remove(CODEX_ACCESS_TOKEN_ENV_VAR)
         .env(OPENAI_FEDERATION_RULE_ID_ENV_VAR, "rule-test")
-        .env(OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR, &missing_assertion)
+        .env(
+            OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR,
+            codex_home.path().join("missing-identity-token"),
+        )
         .args(["login", "status"])
         .assert()
-        .failure()
-        .stderr(contains("could not read workload identity assertion file"));
+        .success()
+        .stderr(contains("Logged in using an API key"));
 
+    assert_eq!(
+        std::fs::read(codex_home.path().join("auth.json"))?,
+        stored_auth
+    );
     Ok(())
 }
 
@@ -196,7 +205,7 @@ async fn logout_survives_enterprise_cleanup_failure_with_xaa_disabled() -> Resul
     Mock::given(method("POST"))
         .and(path("/oauth/revoke"))
         .respond_with(ResponseTemplate::new(200))
-        .expect(1)
+        .expect(0)
         .mount(&server)
         .await;
     let home = TempDir::new()?;
@@ -241,7 +250,7 @@ async fn logout_survives_enterprise_cleanup_failure_with_xaa_disabled() -> Resul
         .env("NO_PROXY", "127.0.0.1,localhost")
         .env("no_proxy", "127.0.0.1,localhost")
         .env(
-            REVOKE_TOKEN_URL_OVERRIDE_ENV_VAR,
+            "STEVE_REVOKE_TOKEN_URL_OVERRIDE",
             format!("{}/oauth/revoke", server.uri()),
         )
         .env_remove("STEVE_API_KEY")
@@ -312,7 +321,7 @@ async fn debug_prompt_input_follows_authenticated_attribution_setting() -> Resul
         assert!(output.status.success());
         let prompt = String::from_utf8(output.stdout)?;
         assert_eq!(
-            prompt.contains("Co-authored-by: Steve <noreply@openai.com>"),
+            prompt.contains("Co-authored-by: Codex <noreply@openai.com>"),
             enabled
         );
         assert!(!prompt.contains("attribution is disabled for the current workspace"));
@@ -321,103 +330,34 @@ async fn debug_prompt_input_follows_authenticated_attribution_setting() -> Resul
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn device_login_revokes_existing_auth_before_requesting_new_tokens() -> Result<()> {
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/oauth/revoke"))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(1)
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path("/api/accounts/deviceauth/usercode"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "device_auth_id": "device-auth-123",
-            "user_code": "CODE-12345",
-            "interval": "0",
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path("/api/accounts/deviceauth/token"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "authorization_code": "authorization-code-123",
-            "code_challenge": "code-challenge-123",
-            "code_verifier": "code-verifier-123",
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path("/oauth/token"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "id_token": "eyJhbGciOiJub25lIn0.e30.c2ln",
-            "access_token": "new-access",
-            "refresh_token": "new-refresh",
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-
+#[test]
+fn account_login_options_are_not_exposed() -> Result<()> {
     let codex_home = TempDir::new()?;
-    write_file_auth_config(codex_home.path())?;
-    std::fs::write(
-        codex_home.path().join("auth.json"),
-        serde_json::to_vec(&json!({
-            "auth_mode": "chatgpt",
-            "OPENAI_API_KEY": null,
-            "tokens": {
-                "id_token": "eyJhbGciOiJub25lIn0.e30.c2ln",
-                "access_token": "old-access",
-                "refresh_token": "old-refresh",
-                "account_id": "old-account",
-            },
-        }))?,
-    )?;
+    for args in [
+        vec!["login", "--device-auth"],
+        vec!["login", "--experimental_issuer", "http://localhost:30000"],
+        vec!["login", "--experimental_client-id", "client-id"],
+    ] {
+        codex_command(codex_home.path())?
+            .args(args)
+            .assert()
+            .failure()
+            .stderr(contains("unexpected argument"));
+    }
+    assert!(!codex_home.path().join("auth.json").exists());
+    Ok(())
+}
 
-    let issuer = server.uri();
-    let mut cmd = codex_command(codex_home.path())?;
-    cmd.env(
-        REVOKE_TOKEN_URL_OVERRIDE_ENV_VAR,
-        format!("{issuer}/oauth/revoke"),
-    )
-    .env("NO_PROXY", "127.0.0.1,localhost")
-    .env("no_proxy", "127.0.0.1,localhost")
-    .env_remove("STEVE_ACCESS_TOKEN")
-    .env_remove("OPENAI_API_KEY")
-    .args(["login", "--device-auth", "--experimental_issuer", &issuer])
-    .assert()
-    .success()
-    .stderr(contains("Successfully logged in"));
-
-    let requests = server
-        .received_requests()
-        .await
-        .context("failed to read mock OAuth requests")?;
-    let paths: Vec<&str> = requests.iter().map(|request| request.url.path()).collect();
-    assert_eq!(
-        paths,
-        vec![
-            "/oauth/revoke",
-            "/api/accounts/deviceauth/usercode",
-            "/api/accounts/deviceauth/token",
-            "/oauth/token",
-        ]
-    );
-    assert_eq!(
-        requests[0]
-            .body_json::<Value>()
-            .context("revoke request should be JSON")?,
-        json!({
-            "token": "old-refresh",
-            "token_type_hint": "refresh_token",
-            "client_id": CLIENT_ID,
-        })
-    );
-
-    let auth = read_auth_json(codex_home.path())?;
-    assert_eq!(auth["tokens"]["refresh_token"], "new-refresh");
+#[test]
+fn login_requires_supplied_credentials() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    codex_command(codex_home.path())?
+        .arg("login")
+        .assert()
+        .failure()
+        .stderr(contains(
+            "Supply credentials with --with-api-key or --with-access-token.",
+        ));
+    assert!(!codex_home.path().join("auth.json").exists());
     Ok(())
 }

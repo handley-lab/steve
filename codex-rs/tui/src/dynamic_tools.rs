@@ -4,7 +4,6 @@ use crate::app_event::AppEvent;
 use crate::app_event_sender::AppEventSender;
 use codex_app_server_client::AppServerRequestHandle;
 use codex_app_server_client::TypedRequestError;
-use codex_app_server_protocol::Account;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::DynamicToolCallOutputContentItem;
 use codex_app_server_protocol::DynamicToolCallParams;
@@ -13,11 +12,7 @@ use codex_app_server_protocol::DynamicToolFunctionSpec;
 use codex_app_server_protocol::DynamicToolNamespaceSpec;
 use codex_app_server_protocol::DynamicToolNamespaceTool;
 use codex_app_server_protocol::DynamicToolSpec;
-use codex_app_server_protocol::GetAccountParams;
-use codex_app_server_protocol::GetAccountResponse;
 use codex_app_server_protocol::ImageReference;
-use codex_app_server_protocol::ModelListParams;
-use codex_app_server_protocol::ModelListResponse;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::SandboxMode;
 use codex_app_server_protocol::SandboxPolicy;
@@ -563,15 +558,15 @@ async fn execute_inner(
             let thread_id = started.thread.id.clone();
             let daybreak_enabled = started.thread.daybreak_enabled.unwrap_or(false);
             register_background_thread(app_event_tx, started.thread, task_tools_available).await?;
-            let cyber_access_program = background_turn_program(
+            let cyber_access_program = crate::daybreak::program_for_thread(
                 &features,
                 &handle,
                 &thread_id,
                 &started.model,
-                &started.model_provider,
                 daybreak_enabled,
             )
-            .await?;
+            .await?
+            .map(Into::into);
             if let Some(title) = arguments.title
                 && let Err(error) = request::<ThreadSetNameResponse>(&handle, |request_id| {
                     ClientRequest::ThreadSetName {
@@ -715,15 +710,15 @@ async fn execute_inner(
                 /*task_tools_available*/ false,
             )
             .await?;
-            let cyber_access_program = background_turn_program(
+            let cyber_access_program = crate::daybreak::program_for_thread(
                 &features,
                 &handle,
                 &arguments.thread_id,
                 arguments.model.as_deref().unwrap_or(&resumed.model),
-                &resumed.model_provider,
                 daybreak_enabled,
             )
-            .await?;
+            .await?
+            .map(Into::into);
             start_turn(
                 &handle,
                 &arguments.thread_id,
@@ -1259,81 +1254,6 @@ async fn start_turn(
         },
     })
     .await
-}
-
-async fn background_turn_program(
-    features: &Features,
-    handle: &AppServerRequestHandle,
-    thread_id: &str,
-    model: &str,
-    provider: &str,
-    enabled: bool,
-) -> Result<Option<codex_app_server_protocol::CyberAccessProgram>, String> {
-    if !features.enabled(Feature::CliDaybreak) {
-        return Ok(None);
-    }
-    let (account, models) = tokio::join!(
-        request::<GetAccountResponse>(handle, |request_id| ClientRequest::GetAccount {
-            request_id,
-            params: GetAccountParams {
-                refresh_token: false
-            },
-        }),
-        request::<ModelListResponse>(handle, |request_id| ClientRequest::ModelList {
-            request_id,
-            params: ModelListParams {
-                cursor: None,
-                limit: None,
-                include_hidden: Some(true)
-            },
-        }),
-    );
-    let account = match account {
-        Ok(response) => response.account,
-        Err(error) if enabled && provider == "openai" => {
-            return Err(format!(
-                "Could not determine Daybreak account eligibility: {error}"
-            ));
-        }
-        Err(_) => None,
-    };
-    let eligible = provider == "openai"
-        && match account {
-            Some(Account::Chatgpt { .. }) => true,
-            Some(Account::ApiKey { .. }) => {
-                // Only the target thread can establish its forwarding policy, including
-                // project opt-outs. Older servers that cannot report it keep omission.
-                let (tx, rx) = tokio::sync::oneshot::channel();
-                crate::experimental_features::fetch(
-                    handle.clone(),
-                    Some(ThreadId::from_string(thread_id).map_err(|error| error.to_string())?),
-                    format!("tui-dynamic-{}", Uuid::new_v4()),
-                    tx,
-                );
-                if !rx.await.ok().and_then(Result::ok).is_some_and(|features| {
-                    features.into_iter().any(|feature| {
-                        feature.name == Feature::ApiKeyCyberAccessPrograms.key() && feature.enabled
-                    })
-                }) {
-                    return Ok(None);
-                }
-                true
-            }
-            Some(Account::AmazonBedrock { .. }) | None => false,
-        };
-    // Retain saved metadata while suppressing it for accounts that cannot use Daybreak.
-    let enabled = enabled && eligible;
-    let models = models
-        .map(|response| {
-            response
-                .data
-                .into_iter()
-                .map(crate::app_server_session::model_preset_from_api_model)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    crate::daybreak::program_for_turn(&models, model, eligible, enabled)
-        .map(|program| program.map(Into::into))
 }
 
 fn thread_summary(thread: &Thread) -> Value {

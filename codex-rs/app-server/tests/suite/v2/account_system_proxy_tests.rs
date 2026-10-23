@@ -1,4 +1,4 @@
-//! Browser login must finish enterprise bootstrap when only the system proxy can reach it.
+//! Supplied credentials must bootstrap configured services through the system proxy.
 
 use anyhow::Context;
 use anyhow::Result;
@@ -11,6 +11,7 @@ use codex_app_server::in_process::InProcessServerEvent;
 use codex_app_server::in_process::InProcessStartArgs;
 use codex_app_server_protocol::ClientInfo;
 use codex_app_server_protocol::ClientRequest;
+use codex_app_server_protocol::InitializeCapabilities;
 use codex_app_server_protocol::InitializeParams;
 use codex_app_server_protocol::LoginAccountParams;
 use codex_app_server_protocol::LoginAccountResponse;
@@ -27,7 +28,6 @@ use codex_config::LoaderOverrides;
 use codex_core::config::ConfigBuilder;
 use codex_exec_server::EnvironmentManager;
 use codex_feedback::CodexFeedback;
-use codex_http_client::HttpClientBuilder;
 use codex_http_client::cache_system_proxy_route_for_test;
 use codex_protocol::protocol::SessionSource;
 use core_test_support::responses;
@@ -39,23 +39,20 @@ use std::time::Duration;
 use tempfile::TempDir;
 use tokio::process::Command;
 use tokio::time::timeout;
-use url::Url;
 use wiremock::Mock;
 use wiremock::MockServer;
 use wiremock::ResponseTemplate;
-use wiremock::matchers::body_string_contains;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
 const TEST_NAME: &str =
-    "suite::v2::account_system_proxy::browser_login_bootstraps_through_system_proxy";
+    "suite::v2::account_system_proxy::supplied_token_bootstraps_through_system_proxy";
 const TEST_MODE: &str = "STEVE_APP_SERVER_SYSTEM_PROXY_TEST_MODE";
 const BLOCKED_ORIGIN: &str = "http://127.0.0.1:0";
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[serial_test::serial(login_port)]
-async fn browser_login_bootstraps_through_system_proxy() -> Result<()> {
+async fn supplied_token_bootstraps_through_system_proxy() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let Ok(mode) = std::env::var(TEST_MODE) else {
@@ -72,7 +69,6 @@ async fn browser_login_bootstraps_through_system_proxy() -> Result<()> {
                 command
                     .kill_on_drop(true)
                     .env(TEST_MODE, mode)
-                    .env("STEVE_APP_SERVER_LOGIN_ISSUER", BLOCKED_ORIGIN)
                     .env_remove("OPENAI_API_KEY")
                     .env_remove("STEVE_API_KEY")
                     .output(),
@@ -118,26 +114,6 @@ async fn browser_login_bootstraps_through_system_proxy() -> Result<()> {
             .chatgpt_user_id("proxy-user")
             .chatgpt_account_id("proxy-workspace"),
     )?;
-    Mock::given(method("POST"))
-        .and(path("/oauth/token"))
-        .and(body_string_contains("grant_type=authorization_code"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "id_token": id_token,
-            "access_token": "proxy-access-token",
-            "refresh_token": "proxy-refresh-token",
-        })))
-        .expect(1)
-        .mount(&proxy)
-        .await;
-    Mock::given(method("POST"))
-        .and(path("/oauth/token"))
-        .and(body_string_contains("requested_token=openai-api-key"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "access_token": "proxy-api-key",
-        })))
-        .expect(1)
-        .mount(&proxy)
-        .await;
     let cloud_config = if cloud_enables_proxy {
         json!({"config_toml": {"enterprise_managed": [{
             "id": "proxy-rollout",
@@ -155,7 +131,6 @@ async fn browser_login_bootstraps_through_system_proxy() -> Result<()> {
         .await;
     mount_workspace_routing(&proxy).await;
     for route in [
-        "/oauth/token",
         "/backend-api/wham/config/bundle",
         "/backend-api/wham/accounts/check",
         "/v1/responses",
@@ -202,7 +177,10 @@ async fn browser_login_bootstraps_through_system_proxy() -> Result<()> {
                 title: None,
                 version: "0.1.0".to_string(),
             },
-            capabilities: None,
+            capabilities: Some(InitializeCapabilities {
+                experimental_api: true,
+                ..Default::default()
+            }),
         },
         channel_capacity: in_process::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
     })
@@ -211,30 +189,16 @@ async fn browser_login_bootstraps_through_system_proxy() -> Result<()> {
         client
             .request(ClientRequest::LoginAccount {
                 request_id: RequestId::Integer(1),
-                params: LoginAccountParams::Chatgpt {
-                    codex_streamlined_login: false,
-                    use_hosted_login_success_page: false,
-                    app_brand: None,
+                params: LoginAccountParams::ChatgptAuthTokens {
+                    access_token: id_token,
+                    chatgpt_account_id: "proxy-workspace".to_string(),
+                    chatgpt_plan_type: Some("enterprise".to_string()),
                 },
             })
             .await?
-            .expect("browser login starts"),
+            .expect("supplied credentials accepted"),
     )?;
-    let LoginAccountResponse::Chatgpt { login_id, auth_url } = login else {
-        anyhow::bail!("unexpected login response: {login:?}");
-    };
-    let auth_url = Url::parse(&auth_url)?;
-    let params = auth_url
-        .query_pairs()
-        .collect::<std::collections::HashMap<_, _>>();
-    let mut callback = Url::parse(params.get("redirect_uri").context("redirect URI")?)?;
-    callback
-        .query_pairs_mut()
-        .append_pair("code", "proxy-code")
-        .append_pair("state", params.get("state").context("OAuth state")?);
-    let browser = HttpClientBuilder::new().build_direct()?;
-    let response = timeout(READ_TIMEOUT, browser.get(callback).send()).await??;
-    assert_eq!(response.status(), 200);
+    assert_eq!(login, LoginAccountResponse::ChatgptAuthTokens {});
     timeout(READ_TIMEOUT, async {
         loop {
             let event = client
@@ -244,17 +208,13 @@ async fn browser_login_bootstraps_through_system_proxy() -> Result<()> {
             if let InProcessServerEvent::ServerNotification(notification) = event
                 && let ServerNotification::AccountLoginCompleted(completed) = notification.as_ref()
             {
-                assert_eq!(completed.login_id.as_deref(), Some(login_id.as_str()));
+                assert_eq!(completed.login_id, None);
                 assert!(completed.success, "login failed: {completed:?}");
                 return anyhow::Ok(());
             }
         }
     })
     .await??;
-    let saved_auth: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(codex_home.path().join("auth.json"))?)?;
-    assert_eq!(saved_auth["OPENAI_API_KEY"], "proxy-api-key");
-
     let started: ThreadStartResponse = serde_json::from_value(
         client
             .request(ClientRequest::ThreadStart {

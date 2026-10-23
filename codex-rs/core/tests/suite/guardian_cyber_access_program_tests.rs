@@ -21,11 +21,14 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 use test_case::test_case;
 
-#[test_case(CodexAuth::from_api_key("test-api-key"); "api_key")]
-#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(); "chatgpt")]
+#[test_case(CodexAuth::from_api_key("test-api-key"), false; "api_key")]
+#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(), false; "chatgpt")]
+#[test_case(CodexAuth::from_api_key("test-api-key"), true; "api_key_independent_reviewer")]
+#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(), true; "chatgpt_independent_reviewer")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn guardian_reused_reviewer_uses_blue_without_changing_parent_cyber_access_program(
     auth: CodexAuth,
+    independent_reviewer: bool,
 ) -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_wine_exec!(
@@ -34,14 +37,29 @@ async fn guardian_reused_reviewer_uses_blue_without_changing_parent_cyber_access
     );
 
     let server = responses::start_mock_server().await;
+    let reviewer_server = responses::start_mock_server().await;
+    let mut reviewer_provider = codex_model_provider_info::ModelProviderInfo::create_openai_provider(
+        Some(format!("{}/v1", reviewer_server.uri())),
+    );
+    reviewer_provider.name = "Local reviewer".into();
+    reviewer_provider.experimental_bearer_token = Some("reviewer-provider-key".into());
     let test = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("explicit test provider");
+        })
         .with_auth(auth)
         .with_model_info_override("gpt-6.1-sol", |_| {})
         .with_model_info_override("gpt-5.5", |model| {
             model.guardian = None;
             model.auto_review_model_override = Some("gpt-6.1-sol".to_owned());
         })
-        .with_config(|config| {
+        .with_config(move |config| {
+            config.model_provider.requires_openai_auth = true;
+            if independent_reviewer {
+                config.guardian_model = Some("gpt-6.1-sol".into());
+                config.guardian_model_provider = Some(("local-reviewer".into(), reviewer_provider));
+            }
             config.permissions.approval_policy = Constrained::allow_any(AskForApproval::OnRequest);
             config.approvals_reviewer = ApprovalsReviewer::AutoReview;
             config
@@ -65,6 +83,7 @@ async fn guardian_reused_reviewer_uses_blue_without_changing_parent_cyber_access
         (None, None),
     ];
     let mut events = Vec::new();
+    let mut reviewer_events = Vec::new();
     for (index, _) in cases.iter().enumerate() {
         events.push(responses::sse(vec![
             responses::ev_function_call(
@@ -79,18 +98,28 @@ async fn guardian_reused_reviewer_uses_blue_without_changing_parent_cyber_access
             ),
             responses::ev_completed(&format!("parent-call-{index}")),
         ]));
-        events.push(responses::sse(vec![
+        let review = responses::sse(vec![
             responses::ev_assistant_message(
                 &format!("approval-{index}"),
                 r#"{"risk_level":"low","user_authorization":"high","outcome":"allow","rationale":"requested command"}"#,
             ),
             responses::ev_completed(&format!("review-{index}")),
-        ]));
+        ]);
+        if independent_reviewer {
+            reviewer_events.push(review);
+        } else {
+            events.push(review);
+        }
         events.push(responses::sse(vec![responses::ev_completed(&format!(
             "parent-done-{index}"
         ))]));
     }
     let requests = responses::mount_sse_sequence(&server, events).await;
+    let reviewer_requests = if independent_reviewer {
+        Some(responses::mount_sse_sequence(&reviewer_server, reviewer_events).await)
+    } else {
+        None
+    };
 
     for (index, (program, _)) in cases.iter().enumerate() {
         test.codex
@@ -122,7 +151,20 @@ async fn guardian_reused_reviewer_uses_blue_without_changing_parent_cyber_access
         );
     }
 
-    let requests = requests.requests();
+    let mut requests = requests.requests();
+    if let Some(reviewer_requests) = reviewer_requests {
+        let captured = reviewer_requests.requests();
+        assert_eq!(captured.len(), cases.len());
+        for request in &captured {
+            assert_eq!(
+                request.header("authorization").as_deref(),
+                Some("Bearer reviewer-provider-key")
+            );
+        }
+        requests.extend(captured);
+    } else {
+        assert!(reviewer_server.received_requests().await.unwrap().is_empty());
+    }
     let (guardian_requests, parent_requests): (Vec<_>, Vec<_>) = requests
         .iter()
         .map(responses::ResponsesRequest::body_json)

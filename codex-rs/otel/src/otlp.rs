@@ -102,8 +102,9 @@ fn build_http_client_inner(
     tls: &OtelTlsConfig,
     timeout_var: &str,
 ) -> Result<reqwest::blocking::Client, Box<dyn Error>> {
-    let mut builder =
-        reqwest::blocking::Client::builder().timeout(resolve_otlp_timeout(timeout_var));
+    let mut builder = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(resolve_otlp_timeout(timeout_var));
 
     if let Some(path) = tls.ca_certificate.as_ref() {
         let (pem, location) = read_bytes(path)?;
@@ -191,6 +192,7 @@ pub(crate) fn build_async_http_client(
 
     Ok(crate::network_policy::RuntimeHttpClient {
         client: codex_http_client::HttpClientBuilder::new()
+            .without_redirects()
             .without_request_logging()
             .build_with_tls(factory, codex_http_client::ClientRouteClass::Other, config),
         timeout: resolve_otlp_timeout(timeout_var),
@@ -236,6 +238,114 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
     use tokio::runtime::Builder;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn otlp_http_clients_do_not_forward_private_exports_on_redirect() {
+        use bytes::Bytes;
+        use codex_http_client::HttpClientFactory;
+        use codex_http_client::OutboundProxyPolicy;
+        use opentelemetry_http::HttpClient;
+        use wiremock::Mock;
+        use wiremock::MockServer;
+        use wiremock::ResponseTemplate;
+        use wiremock::matchers::method;
+
+        let collector = MockServer::start().await;
+        let redirector = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&collector)
+            .await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(307).insert_header("Location", collector.uri()))
+            .mount(&redirector)
+            .await;
+        let factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
+        let client = build_async_http_client(&factory, None, OTEL_EXPORTER_OTLP_TIMEOUT)
+            .expect("async exporter client");
+        let request = |url: String| {
+            http::Request::post(url)
+                .header("x-private-collector-key", "configured-key")
+                .body(Bytes::from_static(b"private-export"))
+                .expect("export request")
+        };
+        assert_eq!(
+            client
+                .send_bytes(request(collector.uri()))
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+        let async_redirect = client.send_bytes(request(redirector.uri())).await;
+        let async_count = collector.received_requests().await.unwrap().len();
+
+        let collector_uri = collector.uri();
+        let redirector_uri = redirector.uri();
+        let blocking_redirect = tokio::task::spawn_blocking(move || {
+            let client = build_http_client(&OtelTlsConfig::default(), OTEL_EXPORTER_OTLP_TIMEOUT)
+                .expect("blocking exporter client");
+            assert_eq!(
+                client
+                    .post(collector_uri)
+                    .body("private-export")
+                    .send()
+                    .unwrap()
+                    .status(),
+                200
+            );
+            client
+                .post(redirector_uri)
+                .header("x-private-collector-key", "configured-key")
+                .body("private-export")
+                .send()
+                .map(|response| response.status())
+        })
+        .await
+        .unwrap();
+        let blocking_count = collector.received_requests().await.unwrap().len() - async_count;
+
+        let export = |endpoint| {
+            let client = crate::MetricsClient::new(crate::MetricsConfig::otlp(
+                "test",
+                "redirect-test",
+                "0",
+                crate::OtelExporter::OtlpHttp {
+                    endpoint,
+                    headers: std::collections::HashMap::from([(
+                        "x-private-collector-key".to_string(),
+                        "configured-key".to_string(),
+                    )]),
+                    protocol: crate::OtelHttpProtocol::Binary,
+                    tls: None,
+                },
+            ))
+            .unwrap();
+            client.counter("private.export", 1, &[]).unwrap();
+            client.shutdown()
+        };
+        let direct_uri = collector.uri();
+        tokio::task::spawn_blocking(move || export(direct_uri))
+            .await
+            .unwrap()
+            .unwrap();
+        let sdk_direct_count = collector.received_requests().await.unwrap().len();
+        assert!(sdk_direct_count > async_count + blocking_count);
+        let redirected_uri = redirector.uri();
+        let sdk_redirect = tokio::task::spawn_blocking(move || export(redirected_uri))
+            .await
+            .unwrap();
+        let sdk_redirect_count =
+            collector.received_requests().await.unwrap().len() - sdk_direct_count;
+        eprintln!(
+            "async collector requests: {async_count}; blocking: {blocking_count}; SDK redirected: {sdk_redirect_count}; SDK result: {sdk_redirect:?}"
+        );
+        assert!(async_redirect.is_err() || async_redirect.unwrap().status() == 307);
+        assert!(blocking_redirect.is_err() || blocking_redirect.unwrap() == 307);
+        assert_eq!(async_count, 1);
+        assert_eq!(blocking_count, 1);
+        assert_eq!(sdk_redirect_count, 0);
+    }
 
     #[test]
     fn current_tokio_runtime_is_multi_thread_detects_runtime_flavor() {

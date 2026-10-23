@@ -8,7 +8,6 @@ use chrono::DateTime;
 use chrono::Utc;
 use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
-use codex_protocol::auth::AuthMode;
 use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::error::Result as CoreResult;
 use codex_protocol::openai_models::ModelInfo;
@@ -46,21 +45,10 @@ pub trait ModelsEndpointClient: fmt::Debug + Send + Sync {
     /// Return `None` when identity is unavailable; cached catalog reuse is then disabled.
     fn identity(&self) -> Option<String>;
 
-    /// Returns whether this provider can authenticate command-scoped requests.
-    fn has_command_auth(&self) -> bool;
-
-    /// Returns whether the currently resolved auth can use Codex backend-only models.
-    fn uses_codex_backend(&self) -> ModelsEndpointFuture<'_, bool>;
-
-    /// Returns whether this provider supports an authoritative catalog with OpenAI API keys.
-    fn supports_api_key_models(&self) -> bool {
-        false
-    }
-
-    /// Returns whether explicit provider configuration supplies API-key authentication.
-    /// This takes precedence over any unrelated first-party login used by the picker.
-    fn has_provider_api_key(&self) -> bool {
-        false
+    /// Prepare current credential identity before catalog cache comparisons.
+    /// This must not fetch a catalog or start browser authorization.
+    fn prepare_catalog_identity(&self) -> ModelsEndpointFuture<'_, CoreResult<()>> {
+        Box::pin(std::future::ready(Ok(())))
     }
 
     /// Fetches the latest remote model catalog and optional ETag.
@@ -114,13 +102,13 @@ type SharedModelsEndpointClient = Arc<dyn ModelsEndpointClient>;
 
 /// Coordinates model discovery plus cached metadata on disk.
 pub trait ModelsManager: fmt::Debug + Send + Sync {
-    /// Supply startup API-key discovery policy; live changes require a new session.
+    /// Supply remote model discovery policy.
     /// Static catalogs ignore this setting.
     fn set_api_key_model_discovery_enabled(&self, _enabled: bool) {}
 
     /// List all available models, refreshing according to the specified strategy.
     ///
-    /// Returns model presets sorted by priority and filtered by auth mode and visibility.
+    /// Returns model presets sorted by priority with catalog visibility.
     fn list_models(
         &self,
         refresh_strategy: RefreshStrategy,
@@ -164,7 +152,7 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
     /// Returns an error if the internal lock cannot be acquired.
     fn try_get_remote_models(&self) -> Result<Vec<ModelInfo>, TryLockError>;
 
-    /// Return the auth manager used for picker filtering.
+    /// Return the associated auth manager.
     fn auth_manager(&self) -> Option<&AuthManager>;
 
     /// Build picker-ready presets from the active catalog snapshot.
@@ -172,11 +160,6 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
         remote_models.sort_by_key(|model| model.priority);
 
         let mut presets: Vec<ModelPreset> = remote_models.into_iter().map(Into::into).collect();
-        let uses_codex_backend = self
-            .auth_manager()
-            .is_some_and(AuthManager::current_auth_uses_codex_backend);
-        presets = ModelPreset::filter_by_auth(presets, uses_codex_backend);
-
         ModelPreset::mark_default_by_picker_visibility(&mut presets);
 
         presets
@@ -198,26 +181,17 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
     // todo(aibrahim): should be visible to core only and sent on session_configured event
     /// Get the model identifier to use, refreshing according to the specified strategy.
     ///
-    /// If `model` is provided, preserves it unless the implementation supports and the policy
-    /// allows provider fallback. Otherwise selects the default based on auth mode and available
-    /// models.
+    /// Preserve the explicitly supplied model; an empty result leaves missing-model
+    /// reporting to the caller without selecting a catalog default.
     fn get_default_model<'a>(
         &'a self,
         model: &'a Option<String>,
         allow_provider_model_fallback: bool,
         refresh_strategy: RefreshStrategy,
-        http_client_factory: HttpClientFactory,
+        _http_client_factory: HttpClientFactory,
     ) -> ModelsManagerFuture<'a, String> {
         Box::pin(
-            async move {
-                if let Some(model) = model.as_ref() {
-                    return model.to_string();
-                }
-                default_model_from_available(
-                    self.list_models(refresh_strategy, http_client_factory)
-                        .await,
-                )
-            }
+            async move { model.clone().unwrap_or_default() }
             .instrument(tracing::info_span!(
                 "get_default_model",
                 model.provided = model.is_some(),
@@ -352,7 +326,7 @@ impl OpenAiModelsManager {
                 models: load_remote_models_from_file().unwrap_or_default(),
             }),
             cache,
-            api_key_model_discovery_enabled: AtomicBool::new(false),
+            api_key_model_discovery_enabled: AtomicBool::new(true),
             endpoint_client,
             catalog_source: CatalogSource::Default,
             auth_manager,
@@ -402,10 +376,11 @@ impl ModelsManager for OpenAiModelsManager {
     ) -> ModelsManagerFuture<'_, ()> {
         Box::pin(async move {
             let refresh = async {
-                // Resolve lazy command credentials before comparing catalog identities.
-                if !self.should_refresh_models().await {
+                // Resolve current credentials before comparing catalog identities.
+                if self.model_discovery_disabled() {
                     return Ok(());
                 }
+                self.endpoint_client.prepare_catalog_identity().await?;
                 let identity = self.endpoint_client.identity();
                 if identity.is_some() && self.remote_models.read().await.identity == identity {
                     return Ok(());
@@ -429,7 +404,7 @@ impl ModelsManager for OpenAiModelsManager {
     fn get_remote_models(&self) -> ModelsManagerFuture<'_, Vec<ModelInfo>> {
         Box::pin(async move {
             let entry = self.remote_models.read().await;
-            if !self.api_key_discovery_disabled()
+            if !self.model_discovery_disabled()
                 && entry.identity.is_some()
                 && entry.identity == self.endpoint_client.identity()
             {
@@ -443,7 +418,7 @@ impl ModelsManager for OpenAiModelsManager {
     fn try_get_remote_models(&self) -> Result<Vec<ModelInfo>, TryLockError> {
         let entry = self.remote_models.try_read()?;
         Ok(
-            if !self.api_key_discovery_disabled()
+            if !self.model_discovery_disabled()
                 && entry.identity.is_some()
                 && entry.identity == self.endpoint_client.identity()
             {
@@ -514,7 +489,14 @@ impl OpenAiModelsManager {
     }
 
     async fn refresh_if_new_etag(&self, etag: String, http_client_factory: HttpClientFactory) {
+        if self.model_discovery_disabled() {
+            return;
+        }
         let refresh_guard = self.catalog_source.refresh_lock().await;
+        if let Err(err) = self.endpoint_client.prepare_catalog_identity().await {
+            error!("failed to prepare model catalog identity: {err}");
+            return;
+        }
         let (identity, current_etag) = {
             let entry = self.remote_models.read().await;
             (entry.identity.clone(), entry.etag.clone())
@@ -548,21 +530,10 @@ impl OpenAiModelsManager {
         http_client_factory: &HttpClientFactory,
     ) -> CoreResult<()> {
         let _refresh_guard = self.catalog_source.refresh_lock().await;
-        // API-key discovery must be enabled and supported before reusing a remote catalog.
-        // Otherwise even a matching cache from an earlier run would bypass bundled-only behavior.
-        // Command-auth providers retain their existing discovery behavior.
-        if self.api_key_discovery_disabled() {
+        if self.model_discovery_disabled() {
             return Ok(());
         }
-        if !self.should_refresh_models().await {
-            if matches!(
-                refresh_strategy,
-                RefreshStrategy::Offline | RefreshStrategy::OnlineIfUncached
-            ) {
-                self.try_load_cache().await;
-            }
-            return Ok(());
-        }
+        self.endpoint_client.prepare_catalog_identity().await?;
         match refresh_strategy {
             RefreshStrategy::Offline => {
                 self.try_load_cache().await;
@@ -650,32 +621,8 @@ impl OpenAiModelsManager {
         Ok(())
     }
 
-    fn supports_api_key_discovery(&self) -> bool {
-        self.endpoint_client.supports_api_key_models()
-            && !self.endpoint_client.has_command_auth()
-            && self.uses_api_key_auth()
-    }
-
-    // A runtime opt-out must hide catalogs fetched before the flag was disabled, too.
-    fn api_key_discovery_disabled(&self) -> bool {
-        self.uses_api_key_auth()
-            && !self.endpoint_client.has_command_auth()
-            && (!self.endpoint_client.supports_api_key_models()
-                || !self.api_key_model_discovery_enabled.load(Ordering::SeqCst))
-    }
-
-    fn uses_api_key_auth(&self) -> bool {
-        self.endpoint_client.has_provider_api_key()
-            || self
-                .auth_manager
-                .as_ref()
-                .is_some_and(|auth_manager| auth_manager.auth_mode() == Some(AuthMode::ApiKey))
-    }
-
-    async fn should_refresh_models(&self) -> bool {
-        self.endpoint_client.uses_codex_backend().await
-            || self.endpoint_client.has_command_auth()
-            || self.supports_api_key_discovery()
+    fn model_discovery_disabled(&self) -> bool {
+        !self.api_key_model_discovery_enabled.load(Ordering::SeqCst)
     }
 
     /// Publish only while the request identity still matches, including after async storage.
@@ -687,13 +634,7 @@ impl OpenAiModelsManager {
         let remote_only = entry
             .models
             .iter()
-            .any(|model| model.visibility == ModelVisibility::List)
-            && (self.supports_api_key_discovery()
-                || self.auth_manager.as_ref().is_some_and(|auth_manager| {
-                    auth_manager
-                        .auth_mode()
-                        .is_some_and(AuthMode::has_chatgpt_account)
-                }));
+            .any(|model| model.visibility == ModelVisibility::List);
         if !remote_only && let Some(mut models) = self.catalog_source.fallback_models() {
             for model in entry.models {
                 if let Some(index) = models
@@ -765,42 +706,6 @@ impl OpenAiModelsManager {
 }
 
 impl ModelsManager for StaticModelsManager {
-    fn get_default_model<'a>(
-        &'a self,
-        model: &'a Option<String>,
-        allow_provider_model_fallback: bool,
-        refresh_strategy: RefreshStrategy,
-        http_client_factory: HttpClientFactory,
-    ) -> ModelsManagerFuture<'a, String> {
-        Box::pin(
-            async move {
-                let available_models = self
-                    .list_models(refresh_strategy, http_client_factory)
-                    .await;
-                let requested_model = model.as_deref();
-
-                if allow_provider_model_fallback {
-                    if requested_model_is_available(requested_model, &available_models)
-                        && let Some(requested_model) = requested_model
-                    {
-                        return requested_model.to_string();
-                    }
-                    return default_model_from_available(available_models);
-                }
-
-                model
-                    .clone()
-                    .unwrap_or_else(|| default_model_from_available(available_models))
-            }
-            .instrument(tracing::info_span!(
-                "get_default_model",
-                model.provided = model.is_some(),
-                allow_provider_model_fallback,
-                refresh_strategy = %refresh_strategy
-            )),
-        )
-    }
-
     fn raw_model_catalog(
         &self,
         _refresh_strategy: RefreshStrategy,
@@ -840,26 +745,6 @@ impl ModelsManager for StaticModelsManager {
 
 fn load_remote_models_from_file() -> Result<Vec<ModelInfo>, std::io::Error> {
     Ok(crate::bundled_models_response()?.models)
-}
-
-fn default_model_from_available(available: Vec<ModelPreset>) -> String {
-    available
-        .iter()
-        .find(|model| model.is_default)
-        .or_else(|| available.first())
-        .map(|model| model.model.clone())
-        .unwrap_or_default()
-}
-
-fn requested_model_is_available(
-    requested_model: Option<&str>,
-    available_models: &[ModelPreset],
-) -> bool {
-    requested_model.is_some_and(|requested_model| {
-        available_models
-            .iter()
-            .any(|available_model| available_model.model == requested_model)
-    })
 }
 
 fn find_model_by_longest_prefix(model: &str, candidates: &[ModelInfo]) -> Option<ModelInfo> {

@@ -6,7 +6,6 @@ use crate::wrapping::word_wrap_lines;
 use codex_app_server_protocol::ModelSafetyBufferingUpdatedNotification;
 
 const SAFETY_BUFFERING_PROMPT_VIEW_ID: &str = "safety-buffering-prompt";
-const SAFETY_BUFFERING_LEARN_MORE_URL: &str = "https://help.openai.com/en/articles/20001326";
 
 const SAFETY_BUFFERING_HEADER: &str = "Giving this request a little extra thought";
 const SAFETY_BUFFERING_MESSAGE_WITH_RETRY: &str = "If you'd rather not wait, retry with a faster model. It may be less capable of handling complex requests.";
@@ -210,22 +209,11 @@ impl ChatWidget {
                 ..Default::default()
             });
         }
-        items.extend([
-            SelectionItem {
-                name: "Dismiss and keep waiting".to_string(),
-                dismiss_on_select: true,
-                ..Default::default()
-            },
-            SelectionItem {
-                name: "Learn more".to_string(),
-                actions: vec![Box::new(|tx| {
-                    tx.send(AppEvent::OpenUrlInBrowser {
-                        url: SAFETY_BUFFERING_LEARN_MORE_URL.to_string(),
-                    });
-                })],
-                ..Default::default()
-            },
-        ]);
+        items.push(SelectionItem {
+            name: "Dismiss and keep waiting".to_string(),
+            dismiss_on_select: true,
+            ..Default::default()
+        });
         self.bottom_pane.show_selection_view(SelectionViewParams {
             view_id: Some(SAFETY_BUFFERING_PROMPT_VIEW_ID),
             header: Box::new(SafetyBufferingHeader(header)),

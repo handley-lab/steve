@@ -17,9 +17,8 @@ expression: snapshot
   Already installed in this session.
 
 
-     ChatGPT apps link unavailable  This app did not provide an install/manage
-                                    URL
-› 1. Continue                       Advance to the next app
-  2. Skip remaining app setup       Stop this follow-up flow for this plugin
+     App link unavailable      This app did not provide an install/manage URL
+› 1. Continue                  Advance to the next app
+  2. Skip remaining app setup  Stop this follow-up flow for this plugin
 
   esc close

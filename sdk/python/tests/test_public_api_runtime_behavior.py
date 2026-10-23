@@ -117,7 +117,10 @@ def test_async_codex_initializes_only_once_under_concurrency() -> None:
                 }
             )
 
-        async def fake_model_list(include_hidden: bool = False):  # noqa: ANN202,ARG001
+        scopes = []
+
+        async def fake_model_list(include_hidden: bool = False, thread_id: str | None = None):  # noqa: ANN202,ARG001
+            scopes.append(thread_id)
             await ready.wait()
             return object()
 
@@ -125,7 +128,8 @@ def test_async_codex_initializes_only_once_under_concurrency() -> None:
         codex._client.initialize = fake_initialize  # type: ignore[method-assign]
         codex._client.model_list = fake_model_list  # type: ignore[method-assign]
 
-        await asyncio.gather(codex.models(), codex.models())
+        await asyncio.gather(codex.models(), codex.models(thread_id="selected-thread"))
+        assert scopes == [None, "selected-thread"]
 
         assert start_calls == 1
         assert initialize_calls == 1

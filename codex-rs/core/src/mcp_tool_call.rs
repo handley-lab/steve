@@ -793,8 +793,9 @@ async fn maybe_request_codex_apps_auth_elicitation(
 
     let connector_id = metadata.and_then(|metadata| metadata.connector_id.as_deref());
     let connector_name = metadata.and_then(|metadata| metadata.connector_name.as_deref());
-    let install_url = connector_id.map(|connector_id| {
+    let install_url = connector_id.and_then(|connector_id| {
         codex_connectors::metadata::connector_install_url(
+            &turn_context.config.chatgpt_base_url,
             connector_name.unwrap_or(connector_id),
             connector_id,
         )

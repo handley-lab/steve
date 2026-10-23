@@ -2,7 +2,6 @@
 
 use crate::CodexFeedback;
 use crate::FeedbackUploadOptions;
-use crate::UPLOAD_TIMEOUT;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
 use flate2::read::GzDecoder;
@@ -16,7 +15,6 @@ use sentry::protocol::Values;
 use sentry::protocol::value::to_value;
 use std::collections::BTreeMap;
 use std::io::Read;
-use std::time::Instant;
 use wiremock::Mock;
 use wiremock::MockServer;
 use wiremock::ResponseTemplate;
@@ -194,7 +192,7 @@ async fn feedback_upload_sends_safe_reason_tag_and_full_comment() {
     let reason = format!("first\r\nsecond\n{}tail", "界🌍".repeat(120));
     let tags = BTreeMap::from([("reason".to_string(), "caller override\n".to_string())]);
     snapshot
-        .upload_feedback_with_dsn(
+        .upload_feedback(
             FeedbackUploadOptions {
                 classification: "bug",
                 reason: Some(&reason),
@@ -207,7 +205,6 @@ async fn feedback_upload_sends_safe_reason_tag_and_full_comment() {
             },
             &HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
             &format!("http://public@{}/42", server.address()),
-            Instant::now() + UPLOAD_TIMEOUT,
         )
         .await
         .unwrap();

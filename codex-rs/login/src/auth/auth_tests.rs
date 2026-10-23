@@ -6,13 +6,10 @@ use codex_protocol::account::PlanType as AccountPlanType;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::auth::KnownPlan as InternalKnownPlan;
 use codex_protocol::auth::PlanType as InternalPlanType;
-use codex_protocol::protocol::SessionSource;
 
 use base64::Engine;
 use codex_protocol::config_types::ForcedLoginMethod;
 use codex_protocol::config_types::ModelProviderAuthInfo;
-use codex_protocol::shell_environment::OPENAI_FEDERATION_RULE_ID_ENV_VAR;
-use codex_protocol::shell_environment::OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR;
 use pretty_assertions::assert_eq;
 use serde::Serialize;
 use serde_json::json;
@@ -24,7 +21,6 @@ use tempfile::tempdir;
 use wiremock::Mock;
 use wiremock::MockServer;
 use wiremock::ResponseTemplate;
-use wiremock::matchers::body_partial_json;
 use wiremock::matchers::header;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
@@ -56,38 +52,6 @@ fn header_auth_exposes_a_valid_chatgpt_account_id() {
         let auth = CodexAuth::Headers(AuthHeaders::new(headers));
         assert_eq!(auth.get_account_id().as_deref(), expected_account_id);
     }
-}
-
-#[tokio::test]
-async fn refresh_without_id_token() {
-    let codex_home = tempdir().unwrap();
-    let fake_jwt = write_auth_file(
-        AuthFileParams {
-            openai_api_key: None,
-            chatgpt_plan_type: Some("pro".to_string()),
-            chatgpt_account_id: None,
-        },
-        codex_home.path(),
-    )
-    .expect("failed to write auth file");
-
-    let storage = create_auth_storage(
-        codex_home.path().to_path_buf(),
-        AuthCredentialsStoreMode::File,
-        AuthKeyringBackendKind::default(),
-    );
-    let updated = super::persist_tokens(
-        &storage,
-        /*id_token*/ None,
-        Some("new-access-token".to_string()),
-        Some("new-refresh-token".to_string()),
-    )
-    .expect("update_tokens should succeed");
-
-    let tokens = updated.tokens.expect("tokens should exist");
-    assert_eq!(tokens.id_token.raw_jwt, fake_jwt);
-    assert_eq!(tokens.access_token, "new-access-token");
-    assert_eq!(tokens.refresh_token, "new-refresh-token");
 }
 
 #[test]
@@ -128,6 +92,10 @@ fn login_with_api_key_overwrites_existing_auth_json() {
 #[tokio::test]
 #[serial(codex_auth_env)]
 async fn login_with_access_token_writes_agent_identity_jwt() {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let dir = tempdir().unwrap();
     let auth_path = dir.path().join("auth.json");
     let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
@@ -135,7 +103,7 @@ async fn login_with_access_token_writes_agent_identity_jwt() {
         signed_agent_identity_jwt(&record, json!(record.plan_type)).expect("signed agent identity");
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/backend-api/wham/agent-identities/jwks"))
+        .and(path("/backend-api/agent-identities/jwks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
         .expect(1)
         .mount(&server)
@@ -199,6 +167,10 @@ async fn login_with_access_token_rejects_agent_identity_workspace_mismatch() {
 #[tokio::test]
 #[serial(codex_auth_env)]
 async fn agent_identity_jwt_uses_explicit_staging_endpoint_overrides() -> anyhow::Result<()> {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let jwks_server = MockServer::start().await;
     let authapi_server = MockServer::start().await;
     let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
@@ -224,7 +196,7 @@ async fn agent_identity_jwt_uses_explicit_staging_endpoint_overrides() -> anyhow
 
     let auth = CodexAuth::from_agent_identity_jwt(
         &jwt,
-        Some(ChatGptEnvironment::Staging.chatgpt_base_url()),
+        Some("https://chatgpt-staging.com/backend-api"),
         &crate::test_support::transport_default_auth_route_config(),
     )
     .await?;
@@ -241,6 +213,10 @@ async fn agent_identity_jwt_uses_explicit_staging_endpoint_overrides() -> anyhow
 #[tokio::test]
 #[serial(codex_auth_env)]
 async fn agent_identity_jwt_supports_existing_staging_launcher() -> anyhow::Result<()> {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let jwks_server = MockServer::start().await;
     let authapi_server = MockServer::start().await;
     let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
@@ -266,7 +242,7 @@ async fn agent_identity_jwt_supports_existing_staging_launcher() -> anyhow::Resu
 
     let auth = CodexAuth::from_agent_identity_jwt(
         &jwt,
-        Some(&jwks_base_url),
+        /*chatgpt_base_url*/ None,
         &crate::test_support::transport_default_auth_route_config(),
     )
     .await?;
@@ -280,71 +256,124 @@ async fn agent_identity_jwt_supports_existing_staging_launcher() -> anyhow::Resu
     Ok(())
 }
 
-#[test]
+#[tokio::test]
 #[serial(codex_auth_env)]
-fn agent_identity_authapi_override_preserves_chatgpt_environment_validation() {
-    let _authapi_guard = EnvVarGuard::set(
-        "STEVE_AGENT_IDENTITY_AUTHAPI_BASE_URL",
-        "https://authapi.example/api/accounts",
-    );
-    let _jwks_guard = EnvVarGuard::set(
-        "STEVE_AGENT_IDENTITY_JWKS_BASE_URL",
-        "https://jwks.example/api/codex",
-    );
-
-    let error = agent_identity_authapi_base_url(Some("https://attacker.example/backend-api"))
-        .expect_err("AuthAPI overrides must not bypass ChatGPT environment validation");
-
-    assert_eq!(
-        error.to_string(),
-        "Agent Identity only supports production and staging ChatGPT environments"
-    );
+async fn agent_identity_jwt_requires_configured_verification_service() -> anyhow::Result<()> {
+    let _authapi_guard = EnvVarGuard::remove("STEVE_AGENT_IDENTITY_AUTHAPI_BASE_URL");
+    let _jwks_guard = EnvVarGuard::remove("STEVE_AGENT_IDENTITY_JWKS_BASE_URL");
+    let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
+    let jwt = signed_agent_identity_jwt(&record, json!(record.plan_type))?;
+    for backend in [None, Some(""), Some("   ")] {
+        let error = CodexAuth::from_agent_identity_jwt(
+            &jwt,
+            backend,
+            &crate::test_support::transport_default_auth_route_config(),
+        )
+        .await
+        .expect_err("verification requires explicit authority");
+        assert!(error.to_string().contains("verification requires"));
+    }
+    Ok(())
 }
 
 #[test]
 #[serial(codex_auth_env)]
-fn agent_identity_custom_jwks_base_requires_explicit_authapi_override() {
+fn agent_identity_authapi_uses_only_explicit_service_configuration() {
     let _authapi_guard = EnvVarGuard::remove("STEVE_AGENT_IDENTITY_AUTHAPI_BASE_URL");
-    let jwks_base_url = "https://jwks.example/api/codex";
-    let _jwks_guard = EnvVarGuard::set("STEVE_AGENT_IDENTITY_JWKS_BASE_URL", jwks_base_url);
+    assert_eq!(agent_identity_authapi_base_url(), None);
+    for base_url in ["", "   "] {
+        let _guard = EnvVarGuard::set("STEVE_AGENT_IDENTITY_AUTHAPI_BASE_URL", base_url);
+        assert_eq!(agent_identity_authapi_base_url(), None);
+    }
+    for base_url in [
+        "https://authapi.example/api/accounts",
+        "https://auth.openai.com/api/accounts",
+    ] {
+        let _guard = EnvVarGuard::set("STEVE_AGENT_IDENTITY_AUTHAPI_BASE_URL", base_url);
+        assert_eq!(agent_identity_authapi_base_url().as_deref(), Some(base_url));
+    }
+}
 
-    let error = agent_identity_authapi_base_url(Some(jwks_base_url))
-        .expect_err("custom JWKS bases must also explicitly configure AuthAPI");
-
-    assert_eq!(
-        error.to_string(),
-        "Agent Identity only supports production and staging ChatGPT environments"
+#[test]
+#[serial(codex_auth_env)]
+fn agent_identity_jwks_override_does_not_authorize_authapi() {
+    let _authapi_guard = EnvVarGuard::remove("STEVE_AGENT_IDENTITY_AUTHAPI_BASE_URL");
+    let _jwks_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWKS_BASE_URL",
+        "https://jwks.example/api/codex",
     );
+    assert_eq!(agent_identity_authapi_base_url(), None);
 }
 
 #[tokio::test]
 #[serial(codex_auth_env)]
-async fn agent_identity_jwks_override_preserves_chatgpt_environment_validation() {
+async fn agent_identity_requires_issuer_before_contacting_jwks() -> anyhow::Result<()> {
+    let server = MockServer::start().await;
+    let _jwks_guard = EnvVarGuard::set("STEVE_AGENT_IDENTITY_JWKS_BASE_URL", &server.uri());
     let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
-    let jwt =
-        signed_agent_identity_jwt(&record, json!(record.plan_type)).expect("signed agent identity");
-    let _jwks_guard = EnvVarGuard::set(
-        "STEVE_AGENT_IDENTITY_JWKS_BASE_URL",
-        "https://jwks.example/api/codex",
-    );
+    let jwt = signed_agent_identity_jwt(&record, json!(record.plan_type))?;
+    for issuer in [None, Some(""), Some("  ")] {
+        let _issuer_guard = match issuer {
+            Some(issuer) => EnvVarGuard::set("STEVE_AGENT_IDENTITY_JWT_ISSUER", issuer),
+            None => EnvVarGuard::remove("STEVE_AGENT_IDENTITY_JWT_ISSUER"),
+        };
+        let error = verified_record_from_jwt(
+            &jwt,
+            None,
+            &crate::test_support::transport_default_auth_route_config(),
+        )
+        .await
+        .expect_err("verification requires an explicit issuer");
+        assert!(error.to_string().contains("STEVE_AGENT_IDENTITY_JWT_ISSUER"));
+    }
+    assert!(server.received_requests().await.expect("captured requests").is_empty());
+    Ok(())
+}
 
-    let error = verified_record_from_jwt(
+#[tokio::test]
+#[serial(codex_auth_env)]
+async fn agent_identity_jwks_override_selects_the_explicit_service() -> anyhow::Result<()> {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
+    let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
+    let jwt = signed_agent_identity_jwt(&record, json!(record.plan_type))?;
+    let jwks_server = MockServer::start().await;
+    let backend_server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/codex/agent-identities/jwks"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
+        .expect(1)
+        .mount(&jwks_server)
+        .await;
+    let jwks_base_url = format!("{}/api/codex", jwks_server.uri());
+    let _jwks_guard = EnvVarGuard::set("STEVE_AGENT_IDENTITY_JWKS_BASE_URL", &jwks_base_url);
+    let verified = verified_record_from_jwt(
         &jwt,
-        "https://attacker.example/backend-api",
+        Some(&backend_server.uri()),
         &crate::test_support::transport_default_auth_route_config(),
     )
-    .await
-    .expect_err("JWKS overrides must not bypass ChatGPT environment validation");
-
-    assert_eq!(
-        error.to_string(),
-        "Agent Identity only supports production and staging ChatGPT environments"
+    .await?;
+    assert_eq!(verified.account_id, record.account_id);
+    assert!(
+        backend_server
+            .received_requests()
+            .await
+            .expect("captured requests")
+            .is_empty()
     );
+    jwks_server.verify().await;
+    Ok(())
 }
 
 #[tokio::test]
 #[serial(codex_auth_env)]
 async fn stored_agent_identity_jwt_keeps_auth_json_unchanged() -> anyhow::Result<()> {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let _access_token_guard = remove_access_token_env_var();
     let codex_home = tempdir()?;
     let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
@@ -352,7 +381,7 @@ async fn stored_agent_identity_jwt_keeps_auth_json_unchanged() -> anyhow::Result
         signed_agent_identity_jwt(&record, json!(record.plan_type)).expect("signed agent identity");
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/backend-api/wham/agent-identities/jwks"))
+        .and(path("/backend-api/agent-identities/jwks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
         .expect(1)
         .mount(&server)
@@ -404,6 +433,33 @@ async fn stored_agent_identity_jwt_keeps_auth_json_unchanged() -> anyhow::Result
     );
     server.verify().await;
     Ok(())
+}
+
+#[tokio::test]
+#[serial(codex_auth_env)]
+async fn login_with_access_token_requires_personal_access_token_metadata_endpoint() {
+    let dir = tempdir().unwrap();
+    for endpoint in [None, Some(""), Some("   ")] {
+        let _authapi_guard = match endpoint {
+            Some(endpoint) => EnvVarGuard::set("STEVE_AUTHAPI_BASE_URL", endpoint),
+            None => EnvVarGuard::remove("STEVE_AUTHAPI_BASE_URL"),
+        };
+        let err = super::login_with_access_token(
+            dir.path(),
+            "at-unconfigured-service",
+            AuthCredentialsStoreMode::File,
+            /*forced_chatgpt_workspace_id*/ None,
+            /*chatgpt_base_url*/ None,
+            AuthKeyringBackendKind::default(),
+            &crate::test_support::transport_default_auth_route_config(),
+        )
+        .await
+        .expect_err("metadata service must be configured before using it");
+
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(err.to_string().contains("STEVE_AUTHAPI_BASE_URL"));
+        assert!(!get_auth_file(dir.path()).exists());
+    }
 }
 
 #[tokio::test]
@@ -556,378 +612,17 @@ async fn login_with_access_token_rejects_invalid_jwt() {
 
 #[tokio::test]
 #[serial(codex_auth_env)]
-async fn chatgpt_auth_registers_agent_identity_when_enabled() -> anyhow::Result<()> {
-    let codex_home = tempdir()?;
-    write_auth_file(
-        AuthFileParams {
-            openai_api_key: None,
-            chatgpt_plan_type: Some("pro".to_string()),
-            chatgpt_account_id: Some("account-123".to_string()),
-        },
-        codex_home.path(),
-    )?;
-    let auth = super::load_auth(
-        codex_home.path(),
-        /*enable_codex_api_key_env*/ false,
-        AuthCredentialsStoreMode::File,
-        /*allowed_login_methods*/ None,
-        /*forced_chatgpt_workspace_id*/ None,
-        /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::Direct,
-        /*agent_identity_authapi_base_url*/ None,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .await?
-    .expect("auth should load");
-
-    assert!(
-        auth.agent_identity_auth(
-            AgentIdentityAuthPolicy::JwtOnly,
-            /*agent_identity_authapi_base_url*/ None,
-            /*forced_chatgpt_workspace_id*/ None,
-            &crate::test_support::transport_default_auth_route_config(),
-            SessionSource::Cli,
-        )
-        .await?
-        .is_none()
-    );
-
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/v1/agent/register"))
-        .and(header("authorization", "Bearer test-access-token"))
-        .and(body_partial_json(json!({
-            "abom": {
-                "agent_harness_id": "codex-cli",
-            },
-            "capabilities": ["responsesapi"],
-            "ttl": null,
-        })))
-        .respond_with(ResponseTemplate::new(/*s*/ 200).set_body_json(json!({
-            "agent_runtime_id": "agent-runtime-123",
-        })))
-        .expect(/*r*/ 1)
-        .mount(&server)
-        .await;
-    mock_agent_task_registration(&server, "", "agent-runtime-123", "task-123").await;
-
-    let agent_auth = auth
-        .agent_identity_auth(
-            AgentIdentityAuthPolicy::ChatGptAuth,
-            Some(&server.uri()),
-            /*forced_chatgpt_workspace_id*/ None,
-            &crate::test_support::transport_default_auth_route_config(),
-            SessionSource::Cli,
-        )
-        .await?
-        .expect("agent identity should register");
-    let reused = auth
-        .agent_identity_auth(
-            AgentIdentityAuthPolicy::ChatGptAuth,
-            Some(&server.uri()),
-            /*forced_chatgpt_workspace_id*/ None,
-            &crate::test_support::transport_default_auth_route_config(),
-            SessionSource::Cli,
-        )
-        .await?
-        .expect("agent identity should be reused");
-
-    assert_eq!(
-        agent_auth.record().agent_runtime_id,
-        reused.record().agent_runtime_id
-    );
-    assert_eq!(agent_auth.run_task_id(), "task-123");
-    assert_eq!(reused.run_task_id(), "task-123");
-    assert_eq!(agent_auth.record().agent_runtime_id, "agent-runtime-123");
-    assert_eq!(agent_auth.record().account_id, "account-123");
-    assert_eq!(agent_auth.record().chatgpt_user_id, "user-12345");
-    assert_eq!(agent_auth.record().task_id.as_deref(), Some("task-123"));
-    assert_eq!(reused.record().task_id.as_deref(), Some("task-123"));
-    let persisted = auth
-        .stored_managed_chatgpt_agent_identity_record("account-123")
-        .expect("identity should persist");
-    assert_eq!(persisted.agent_runtime_id, "agent-runtime-123");
-    assert_eq!(persisted.task_id.as_deref(), Some("task-123"));
-
-    let reloaded = super::load_auth(
-        codex_home.path(),
-        /*enable_codex_api_key_env*/ false,
-        AuthCredentialsStoreMode::File,
-        /*allowed_login_methods*/ None,
-        /*forced_chatgpt_workspace_id*/ None,
-        /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::Direct,
-        /*agent_identity_authapi_base_url*/ None,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .await?
-    .expect("auth should reload");
-    let reloaded_agent_auth = reloaded
-        .agent_identity_auth(
-            AgentIdentityAuthPolicy::ChatGptAuth,
-            Some(&server.uri()),
-            /*forced_chatgpt_workspace_id*/ None,
-            &crate::test_support::transport_default_auth_route_config(),
-            SessionSource::Cli,
-        )
-        .await?
-        .expect("agent identity should reload from storage");
-    assert_eq!(
-        reloaded_agent_auth.record().agent_runtime_id,
-        "agent-runtime-123"
-    );
-    assert_eq!(reloaded_agent_auth.run_task_id(), "task-123");
-    Ok(())
-}
-
-#[tokio::test]
-#[serial(codex_auth_env)]
-async fn chatgpt_auth_retries_transient_agent_identity_registration() -> anyhow::Result<()> {
-    let codex_home = tempdir()?;
-    write_auth_file(
-        AuthFileParams {
-            openai_api_key: None,
-            chatgpt_plan_type: Some("pro".to_string()),
-            chatgpt_account_id: Some("account-123".to_string()),
-        },
-        codex_home.path(),
-    )?;
-    let auth = super::load_auth(
-        codex_home.path(),
-        /*enable_codex_api_key_env*/ false,
-        AuthCredentialsStoreMode::File,
-        /*allowed_login_methods*/ None,
-        /*forced_chatgpt_workspace_id*/ None,
-        /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::Direct,
-        /*agent_identity_authapi_base_url*/ None,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .await?
-    .expect("auth should load");
-
-    let server = MockServer::start().await;
-    let registration_count = Arc::new(AtomicUsize::new(0));
-    let response_count = Arc::clone(&registration_count);
-    Mock::given(method("POST"))
-        .and(path("/v1/agent/register"))
-        .respond_with(move |_request: &wiremock::Request| {
-            if response_count.fetch_add(1, Ordering::SeqCst) < 2 {
-                ResponseTemplate::new(/*status*/ 503)
-            } else {
-                ResponseTemplate::new(/*status*/ 200).set_body_json(json!({
-                    "agent_runtime_id": "agent-runtime-123",
-                }))
-            }
-        })
-        .expect(/*requests*/ 3)
-        .mount(&server)
-        .await;
-    mock_agent_task_registration(&server, "", "agent-runtime-123", "task-123").await;
-
-    let agent_auth = auth
-        .agent_identity_auth(
-            AgentIdentityAuthPolicy::ChatGptAuth,
-            Some(&server.uri()),
-            /*forced_chatgpt_workspace_id*/ None,
-            &crate::test_support::transport_default_auth_route_config(),
-            SessionSource::Cli,
-        )
-        .await?
-        .expect("agent identity should register after retries");
-
-    assert_eq!(registration_count.load(Ordering::SeqCst), 3);
-    assert_eq!(agent_auth.record().agent_runtime_id, "agent-runtime-123");
-    assert_eq!(agent_auth.record().task_id.as_deref(), Some("task-123"));
-    assert_eq!(
-        auth.stored_managed_chatgpt_agent_identity_record("account-123")
-            .and_then(|record| record.task_id),
-        Some("task-123".to_string())
-    );
-    Ok(())
-}
-
-#[tokio::test]
-#[serial(codex_auth_env)]
-async fn chatgpt_auth_registration_retry_exhaustion_is_fallback_eligible() -> anyhow::Result<()> {
-    let codex_home = tempdir()?;
-    write_auth_file(
-        AuthFileParams {
-            openai_api_key: None,
-            chatgpt_plan_type: Some("pro".to_string()),
-            chatgpt_account_id: Some("account-123".to_string()),
-        },
-        codex_home.path(),
-    )?;
-    let auth = super::load_auth(
-        codex_home.path(),
-        /*enable_codex_api_key_env*/ false,
-        AuthCredentialsStoreMode::File,
-        /*allowed_login_methods*/ None,
-        /*forced_chatgpt_workspace_id*/ None,
-        /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::Direct,
-        /*agent_identity_authapi_base_url*/ None,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .await?
-    .expect("auth should load");
-
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/v1/agent/register"))
-        .respond_with(ResponseTemplate::new(/*status*/ 503))
-        .expect(/*requests*/ 3)
-        .mount(&server)
-        .await;
-
-    let err = auth
-        .agent_identity_auth(
-            AgentIdentityAuthPolicy::ChatGptAuth,
-            Some(&server.uri()),
-            /*forced_chatgpt_workspace_id*/ None,
-            &crate::test_support::transport_default_auth_route_config(),
-            SessionSource::Cli,
-        )
-        .await
-        .expect_err("retry exhaustion should return an error");
-
-    assert!(AgentIdentityAuthError::bootstrap_unavailable(&err).is_some());
-    assert!(
-        auth.stored_managed_chatgpt_agent_identity_record("account-123")
-            .is_none()
-    );
-    Ok(())
-}
-
-#[tokio::test]
-#[serial(codex_auth_env)]
-async fn chatgpt_auth_task_registration_retry_exhaustion_is_fallback_eligible() -> anyhow::Result<()>
-{
-    let codex_home = tempdir()?;
-    write_auth_file(
-        AuthFileParams {
-            openai_api_key: None,
-            chatgpt_plan_type: Some("pro".to_string()),
-            chatgpt_account_id: Some("account-123".to_string()),
-        },
-        codex_home.path(),
-    )?;
-    let mut record = agent_identity_record("account-123");
-    record.chatgpt_user_id = "user-12345".to_string();
-    record.email = Some("user@example.com".to_string());
-    let storage = FileAuthStorage::new(codex_home.path().to_path_buf());
-    let auth_path = get_auth_file(codex_home.path());
-    let mut auth_json = storage.try_read_auth_json(&auth_path)?;
-    auth_json.agent_identity = Some(AgentIdentityStorage::Record(record.clone()));
-    storage.save(&auth_json)?;
-    let auth = super::load_auth(
-        codex_home.path(),
-        /*enable_codex_api_key_env*/ false,
-        AuthCredentialsStoreMode::File,
-        /*allowed_login_methods*/ None,
-        /*forced_chatgpt_workspace_id*/ None,
-        /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::Direct,
-        /*agent_identity_authapi_base_url*/ None,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .await?
-    .expect("auth should load");
-
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path(format!(
-            "/v1/agent/{}/task/register",
-            record.agent_runtime_id
-        )))
-        .respond_with(ResponseTemplate::new(/*status*/ 503))
-        .expect(/*requests*/ 3)
-        .mount(&server)
-        .await;
-
-    let err = auth
-        .agent_identity_auth(
-            AgentIdentityAuthPolicy::ChatGptAuth,
-            Some(&server.uri()),
-            /*forced_chatgpt_workspace_id*/ None,
-            &crate::test_support::transport_default_auth_route_config(),
-            SessionSource::Cli,
-        )
-        .await
-        .expect_err("task retry exhaustion should return an error");
-
-    assert!(AgentIdentityAuthError::bootstrap_unavailable(&err).is_some());
-    record.task_id = None;
-    assert_eq!(
-        auth.stored_managed_chatgpt_agent_identity_record("account-123"),
-        Some(record)
-    );
-    Ok(())
-}
-
-#[tokio::test]
-#[serial(codex_auth_env)]
-async fn chatgpt_auth_non_retryable_registration_error_is_hard_failure() -> anyhow::Result<()> {
-    let codex_home = tempdir()?;
-    write_auth_file(
-        AuthFileParams {
-            openai_api_key: None,
-            chatgpt_plan_type: Some("pro".to_string()),
-            chatgpt_account_id: Some("account-123".to_string()),
-        },
-        codex_home.path(),
-    )?;
-    let auth = super::load_auth(
-        codex_home.path(),
-        /*enable_codex_api_key_env*/ false,
-        AuthCredentialsStoreMode::File,
-        /*allowed_login_methods*/ None,
-        /*forced_chatgpt_workspace_id*/ None,
-        /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::Direct,
-        /*agent_identity_authapi_base_url*/ None,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .await?
-    .expect("auth should load");
-
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/v1/agent/register"))
-        .respond_with(ResponseTemplate::new(/*status*/ 403))
-        .expect(/*requests*/ 1)
-        .mount(&server)
-        .await;
-
-    let err = auth
-        .agent_identity_auth(
-            AgentIdentityAuthPolicy::ChatGptAuth,
-            Some(&server.uri()),
-            /*forced_chatgpt_workspace_id*/ None,
-            &crate::test_support::transport_default_auth_route_config(),
-            SessionSource::Cli,
-        )
-        .await
-        .expect_err("hard registration failure should return an error");
-
-    assert!(AgentIdentityAuthError::bootstrap_unavailable(&err).is_none());
-    assert!(
-        auth.stored_managed_chatgpt_agent_identity_record("account-123")
-            .is_none()
-    );
-    Ok(())
-}
-
-#[tokio::test]
-#[serial(codex_auth_env)]
 async fn agent_identity_jwt_task_registration_retry_exhaustion_is_strict() -> anyhow::Result<()> {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
     let agent_identity =
         signed_agent_identity_jwt(&record, json!(record.plan_type)).expect("signed agent identity");
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/backend-api/wham/agent-identities/jwks"))
+        .and(path("/backend-api/agent-identities/jwks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
         .expect(1)
         .mount(&server)
@@ -947,25 +642,29 @@ async fn agent_identity_jwt_task_registration_retry_exhaustion_is_strict() -> an
     let err = CodexAuth::from_agent_identity_jwt_with_authapi_base_url(
         &agent_identity,
         Some(&chatgpt_base_url),
-        &authapi_base_url,
+        Some(&authapi_base_url),
         &crate::test_support::transport_default_auth_route_config(),
     )
     .await
     .expect_err("agent identity jwt task retry exhaustion should fail");
 
-    assert!(AgentIdentityAuthError::bootstrap_unavailable(&err).is_none());
+    assert!(crate::auth::agent_identity::is_retryable_io_registration_error(&err));
     Ok(())
 }
 
 #[tokio::test]
 #[serial(codex_auth_env)]
 async fn login_with_access_token_rejects_unsigned_jwt() {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let dir = tempdir().unwrap();
     let record = agent_identity_record(WORKSPACE_ID_ALLOWED);
     let agent_identity = fake_agent_identity_jwt(&record).expect("fake agent identity");
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/backend-api/wham/agent-identities/jwks"))
+        .and(path("/backend-api/agent-identities/jwks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
         .expect(1)
         .mount(&server)
@@ -1210,11 +909,8 @@ async fn refresh_failure_is_scoped_to_the_matching_auth_snapshot() {
     updated_tokens.access_token = "new-access-token".to_string();
     updated_tokens.refresh_token = "new-refresh-token".to_string();
     let updated_auth = CodexAuth::from_auth_dot_json(
-        codex_home.path(),
         updated_auth_dot_json,
-        AuthCredentialsStoreMode::File,
         /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::Direct,
         /*agent_identity_authapi_base_url*/ None,
         &crate::test_support::transport_default_auth_route_config(),
     )
@@ -1575,63 +1271,6 @@ async fn external_header_auth_rejects_a_disallowed_workspace_on_refresh() {
     assert_eq!(manager.auth_cached(), Some(allowed_auth));
 }
 
-#[tokio::test]
-async fn workload_identity_auth_is_immutable_and_process_local() {
-    let codex_home = tempdir().expect("tempdir");
-    let mut manager = AuthManager::from_auth_for_testing_with_home(
-        CodexAuth::from_api_key("seed"),
-        codex_home.path().to_path_buf(),
-    );
-    Arc::get_mut(&mut manager)
-        .expect("test manager should not be shared yet")
-        .workload_identity_selected = true;
-    let access_token = fake_jwt_for_auth_file_params(&AuthFileParams {
-        openai_api_key: None,
-        chatgpt_plan_type: Some("enterprise".to_string()),
-        chatgpt_account_id: Some("workspace-one".to_string()),
-    })
-    .expect("fake access token");
-    let auth =
-        CodexAuth::from_external_chatgpt_tokens(&access_token, "workspace-one", Some("enterprise"))
-            .expect("external ChatGPT auth");
-
-    manager
-        .install_external_auth(Arc::new(StaticExternalAuth(auth.clone())))
-        .await
-        .expect("workload identity auth should install");
-    manager.clear_external_auth();
-
-    assert!(manager.has_external_auth());
-    assert_eq!(manager.auth().await, Some(auth.clone()));
-    assert!(matches!(
-        manager
-            .set_external_auth(Arc::new(StaticExternalAuth(auth.clone())))
-            .await,
-        Err(RefreshTokenError::Permanent(_))
-    ));
-
-    let logout_error = manager
-        .logout()
-        .await
-        .expect_err("workload identity auth must not be logged out");
-    assert_eq!(logout_error.kind(), std::io::ErrorKind::PermissionDenied);
-    assert!(manager.has_external_auth());
-    assert_eq!(manager.auth_cached(), Some(auth));
-
-    assert!(!get_auth_file(codex_home.path()).exists());
-    let ephemeral_storage = create_auth_storage(
-        codex_home.path().to_path_buf(),
-        AuthCredentialsStoreMode::Ephemeral,
-        AuthKeyringBackendKind::default(),
-    );
-    assert!(
-        ephemeral_storage
-            .load()
-            .expect("load ephemeral auth")
-            .is_some()
-    );
-}
-
 struct ProviderAuthScript {
     tempdir: TempDir,
     command: String,
@@ -1835,14 +1474,14 @@ async fn build_config(
 /// Use sparingly.
 /// TODO (gpeal): replace this with an injectable env var provider.
 #[cfg(test)]
-struct EnvVarGuard {
+pub(crate) struct EnvVarGuard {
     key: &'static str,
     original: Option<std::ffi::OsString>,
 }
 
 #[cfg(test)]
 impl EnvVarGuard {
-    fn set(key: &'static str, value: &str) -> Self {
+    pub(crate) fn set(key: &'static str, value: &str) -> Self {
         let original = env::var_os(key);
         unsafe {
             env::set_var(key, value);
@@ -1909,6 +1548,10 @@ impl AuthManagerConfig for TestAuthManagerConfig {
             .expect("test config should include a ChatGPT base URL")
     }
 
+    fn account_path_style(&self) -> codex_config::AccountPathStyle {
+        codex_config::AccountPathStyle::CodexApi
+    }
+
     fn auth_route_config(&self) -> AuthRouteConfig {
         self.0.auth_route_config.clone()
     }
@@ -1945,27 +1588,11 @@ fn auth_config_from_preserves_all_fields() {
 
 #[tokio::test]
 #[serial(codex_auth_env)]
-async fn shared_from_config_prefers_workload_identity_to_explicit_access_token() {
-    let codex_home = tempdir().expect("tempdir");
-    let config = test_auth_manager_config(codex_home.path());
-    let _access_token_guard = EnvVarGuard::set(CODEX_ACCESS_TOKEN_ENV_VAR, "at-explicit");
-    let _rule_guard = EnvVarGuard::set(OPENAI_FEDERATION_RULE_ID_ENV_VAR, "rule-one");
-    let _assertion_file_guard = EnvVarGuard::remove(OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR);
-
-    let error = AuthManager::shared_from_config(&config, /*enable_codex_api_key_env*/ false)
-        .await
-        .expect_err("partial workload identity config should fail closed");
-
-    assert!(
-        error
-            .to_string()
-            .contains(OPENAI_IDENTITY_TOKEN_FILE_ENV_VAR)
-    );
-}
-
-#[tokio::test]
-#[serial(codex_auth_env)]
 async fn load_auth_reads_access_token_from_env() {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let codex_home = tempdir().unwrap();
     let mut expected_record = agent_identity_record(WORKSPACE_ID_ALLOWED);
     let agent_identity =
@@ -1973,7 +1600,7 @@ async fn load_auth_reads_access_token_from_env() {
             .expect("signed agent identity");
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/backend-api/wham/agent-identities/jwks"))
+        .and(path("/backend-api/agent-identities/jwks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
         .expect(1)
         .mount(&server)
@@ -2579,6 +2206,10 @@ async fn enforce_login_restrictions_allows_any_matching_workspace_in_list() {
 #[tokio::test]
 #[serial(codex_auth_env)]
 async fn enforce_login_restrictions_logs_out_for_agent_identity_workspace_mismatch() {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let codex_home = tempdir().unwrap();
     let _access_token_guard = remove_access_token_env_var();
     let record = agent_identity_record(WORKSPACE_ID_DISALLOWED);
@@ -2586,7 +2217,7 @@ async fn enforce_login_restrictions_logs_out_for_agent_identity_workspace_mismat
         signed_agent_identity_jwt(&record, json!(record.plan_type)).expect("signed agent identity");
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/backend-api/wham/agent-identities/jwks"))
+        .and(path("/backend-api/agent-identities/jwks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
         .expect(1)
         .mount(&server)
@@ -2856,11 +2487,15 @@ async fn assert_agent_identity_plan_alias(
     plan_type: serde_json::Value,
     expected_plan_type: AccountPlanType,
 ) {
+    let _issuer_guard = EnvVarGuard::set(
+        "STEVE_AGENT_IDENTITY_JWT_ISSUER",
+        "https://chatgpt.com/codex-backend/agent-identity",
+    );
     let record = agent_identity_record("account-id");
     let jwt = signed_agent_identity_jwt(&record, plan_type).expect("agent identity jwt");
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/backend-api/wham/agent-identities/jwks"))
+        .and(path("/backend-api/agent-identities/jwks"))
         .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks_body()))
         .expect(1)
         .mount(&server)
@@ -2878,7 +2513,7 @@ async fn assert_agent_identity_plan_alias(
     let auth = CodexAuth::from_agent_identity_jwt_with_authapi_base_url(
         &jwt,
         Some(&chatgpt_base_url),
-        &authapi_base_url,
+        Some(&authapi_base_url),
         &crate::test_support::transport_default_auth_route_config(),
     )
     .await

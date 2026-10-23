@@ -23,7 +23,7 @@ use codex_login::GatewayAuthManager;
 use codex_login::collect_auth_env_telemetry;
 use codex_login::default_client::ClientRedirectPolicy;
 use codex_login::default_client::create_client_for_route_async;
-use codex_model_provider_info::CHATGPT_CODEX_BASE_URL;
+use codex_model_provider_info::GatewayOAuthDelivery;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_models_manager::manager::ModelsEndpointClient;
 use codex_models_manager::manager::ModelsEndpointFuture;
@@ -34,12 +34,16 @@ use codex_protocol::error::Result as CoreResult;
 use codex_response_debug_context::extract_response_debug_context;
 use codex_response_debug_context::telemetry_transport_error_message;
 use http::HeaderMap;
+use http::HeaderValue;
+use sha2::Digest;
+use sha2::Sha256;
 use tokio::time::timeout;
 
 use crate::auth::ResolvedProviderAuth;
 use crate::auth::agent_identity_telemetry;
 use crate::auth::resolve_provider_auth;
 use crate::combined_auth::compose_auth;
+use crate::combined_auth::gateway_header;
 
 const MODELS_REFRESH_TIMEOUT: Duration = Duration::from_secs(5);
 const MODELS_ENDPOINT: &str = "/models";
@@ -61,16 +65,12 @@ impl OpenAiModelsEndpoint {
         auth_manager: Option<Arc<AuthManager>>,
         gateway_auth_manager: Option<Result<Arc<GatewayAuthManager>, String>>,
     ) -> Self {
-        let redirect_policy = if provider_info.model_catalog_url.is_some() {
-            ClientRedirectPolicy::Reject
-        } else {
-            ClientRedirectPolicy::Default
-        };
+        let request_logging = provider_info.model_catalog_url.is_none();
         Self {
             provider_info,
             auth_manager,
             gateway_auth_manager,
-            transport_builder: Arc::new(RouteAwareModelsTransportBuilder { redirect_policy }),
+            transport_builder: Arc::new(RouteAwareModelsTransportBuilder { request_logging }),
         }
     }
 
@@ -81,11 +81,9 @@ impl OpenAiModelsEndpoint {
         }
     }
 
-    async fn uses_codex_backend(&self) -> bool {
-        self.auth()
-            .await
-            .as_ref()
-            .is_some_and(CodexAuth::uses_codex_backend)
+    fn has_provider_api_key(&self) -> bool {
+        self.provider_info.env_key.is_some()
+            || self.provider_info.experimental_bearer_token.is_some()
     }
 
     async fn list_models(
@@ -109,15 +107,11 @@ impl OpenAiModelsEndpoint {
         );
         let identity = crate::models_identity::identity(&self.provider_info, auth.as_ref())?;
         let auth_mode = auth.as_ref().map(CodexAuth::auth_mode);
-        let mut api_provider = self.provider_info.to_api_provider(auth_mode)?;
-        if (auth.as_ref().is_some_and(CodexAuth::is_api_key_auth) || self.has_provider_api_key())
-            && self.supports_api_key_models()
-            && self.provider_info.base_url.is_none()
-            && self.provider_info.model_catalog_url.is_none()
-        {
-            // Codex metadata is served by the Codex backend, not the public /v1/models API.
-            api_provider.base_url = CHATGPT_CODEX_BASE_URL.to_string();
+        let mut catalog_provider = self.provider_info.clone();
+        if let Some(catalog_url) = &self.provider_info.model_catalog_url {
+            catalog_provider.base_url = Some(catalog_url.to_string());
         }
+        let api_provider = catalog_provider.to_api_provider(auth_mode)?;
         let resolved = compose_auth(
             &self.provider_info,
             self.gateway_auth_manager.as_ref(),
@@ -125,6 +119,19 @@ impl OpenAiModelsEndpoint {
         )
         .await?;
         let api_auth = resolved.auth;
+        let identity = if let Some(config) = &self.provider_info.gateway_oauth {
+            let headers = api_auth.to_auth_headers();
+            let name = match &config.delivery {
+                GatewayOAuthDelivery::Header { name, .. } => name.as_str(),
+                GatewayOAuthDelivery::Cookie { .. } => "cookie",
+            };
+            let header = headers.get(name).ok_or_else(|| {
+                CodexErr::InvalidRequest("gateway OAuth credential header is unavailable".into())
+            })?;
+            gateway_catalog_identity(identity, header)
+        } else {
+            identity
+        };
         let request_url = match self.provider_info.model_catalog_url.as_deref() {
             Some(catalog_url) => ModelsClient::<ReqwestTransport>::catalog_request_url(
                 &api_provider,
@@ -209,31 +216,51 @@ impl OpenAiModelsEndpoint {
     }
 }
 
+fn gateway_catalog_identity(identity: String, header: &HeaderValue) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"models-gateway-credential-v1");
+    digest.update((identity.len() as u64).to_le_bytes());
+    digest.update(identity.as_bytes());
+    digest.update((header.as_bytes().len() as u64).to_le_bytes());
+    digest.update(header.as_bytes());
+    format!("{:x}", digest.finalize())
+}
+
 impl ModelsEndpointClient for OpenAiModelsEndpoint {
-    fn supports_api_key_models(&self) -> bool {
-        self.provider_info.model_catalog_url.is_some()
-            || (self.provider_info.is_openai() && self.provider_info.base_url.is_none())
-    }
-
-    fn has_provider_api_key(&self) -> bool {
-        self.provider_info.env_key.is_some()
-            || self.provider_info.experimental_bearer_token.is_some()
-    }
-
     fn identity(&self) -> Option<String> {
         let auth = self
             .auth_manager
             .as_ref()
             .and_then(|manager| manager.auth_cached());
-        crate::models_identity::identity(&self.provider_info, auth.as_ref()).ok()
+        let identity = crate::models_identity::identity(&self.provider_info, auth.as_ref()).ok()?;
+        if let Some(config) = &self.provider_info.gateway_oauth {
+            let manager = self.gateway_auth_manager.as_ref()?.as_ref().ok()?;
+            let token = manager.cached_access_token()?;
+            let (_, header) = gateway_header(config, &token).ok()?;
+            Some(gateway_catalog_identity(identity, &header))
+        } else {
+            Some(identity)
+        }
     }
 
-    fn has_command_auth(&self) -> bool {
-        self.provider_info.has_command_auth()
-    }
-
-    fn uses_codex_backend(&self) -> ModelsEndpointFuture<'_, bool> {
-        Box::pin(OpenAiModelsEndpoint::uses_codex_backend(self))
+    fn prepare_catalog_identity(&self) -> ModelsEndpointFuture<'_, CoreResult<()>> {
+        Box::pin(async move {
+            self.auth().await;
+            if self.provider_info.gateway_oauth.is_some() {
+                let manager = self
+                    .gateway_auth_manager
+                    .as_ref()
+                    .ok_or_else(|| {
+                        CodexErr::InvalidRequest(
+                            "gateway_oauth requires auth runtime configuration".into(),
+                        )
+                    })?
+                    .as_ref()
+                    .map_err(|error| CodexErr::InvalidRequest(error.clone()))?;
+                manager.status().await.map_err(CodexErr::Io)?;
+            }
+            Ok(())
+        })
     }
 
     fn list_models<'a>(
@@ -265,7 +292,7 @@ trait ModelsTransportBuilder: fmt::Debug + Send + Sync {
 
 #[derive(Debug)]
 struct RouteAwareModelsTransportBuilder {
-    redirect_policy: ClientRedirectPolicy,
+    request_logging: bool,
 }
 
 impl ModelsTransportBuilder for RouteAwareModelsTransportBuilder {
@@ -274,18 +301,19 @@ impl ModelsTransportBuilder for RouteAwareModelsTransportBuilder {
         http_client_factory: HttpClientFactory,
         request_url: String,
     ) -> ModelsTransportFuture<'_> {
-        let redirect_policy = self.redirect_policy;
+        let request_logging = self.request_logging;
         Box::pin(async move {
             let client = create_client_for_route_async(
                 http_client_factory,
                 request_url,
                 ClientRouteClass::Api,
-                redirect_policy,
+                ClientRedirectPolicy::Reject,
             )
             .await?;
-            let client = match redirect_policy {
-                ClientRedirectPolicy::Default => client,
-                ClientRedirectPolicy::Reject => client.without_request_logging(),
+            let client = if request_logging {
+                client
+            } else {
+                client.without_request_logging()
             };
             Ok(ReqwestTransport::from_http_client(client))
         })
@@ -461,26 +489,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn api_key_discovery_respects_provider_routing() {
+    async fn api_key_discovery_uses_the_configured_models_route() {
+        let mut observations = Vec::new();
         let client_version = codex_models_manager::client_version_to_whole();
         for (name, base_url, models_url, inference_url) in [
-            (
-                "OpenAI",
-                None,
-                Some("https://chatgpt.com/backend-api/codex/models"),
-                "https://api.openai.com/v1",
-            ),
+            ("OpenAI", None, None::<&str>, None),
             (
                 "OpenAI",
                 Some("https://example.com/codex"),
-                None,
-                "https://example.com/codex",
+                Some("https://example.com/codex/models"),
+                Some("https://example.com/codex"),
             ),
             (
                 "Azure",
                 Some("https://example.openai.azure.com/openai/v1"),
-                None,
-                "https://example.openai.azure.com/openai/v1",
+                Some("https://example.openai.azure.com/openai/v1/models"),
+                Some("https://example.openai.azure.com/openai/v1"),
             ),
         ] {
             let capture = Arc::new(CaptureModelsUrl(Mutex::new(/*t*/ None)));
@@ -502,23 +526,29 @@ mod tests {
                     HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
                 )
                 .await;
-            assert_eq!(
-                *capture.0.lock().unwrap(),
-                models_url.map(|url| format!("{url}?client_version={client_version}"))
-            );
+            let actual = capture.0.lock().unwrap().clone();
+            let expected = models_url.map(|url| format!("{url}?client_version={client_version}"));
+            eprintln!("T18_EVIDENCE {}", serde_json::json!({
+                "kind": "route-construction", "name": name, "base_url": base_url,
+                "actual": actual, "expected": expected,
+            }));
+            observations.push((actual, expected));
             assert_eq!(
                 endpoint
                     .provider_info
                     .to_api_provider(Some(AuthMode::ApiKey))
-                    .unwrap()
-                    .base_url,
-                inference_url
+                    .map(|provider| provider.base_url)
+                    .ok(),
+                inference_url.map(str::to_string)
             );
+        }
+        for (actual, expected) in observations {
+            assert_eq!(actual, expected);
         }
     }
 
     #[tokio::test]
-    async fn provider_api_key_without_endpoint_overrides_uses_codex_backend() {
+    async fn provider_api_key_without_endpoint_overrides_does_not_dispatch() {
         for auth in [
             None,
             Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
@@ -542,13 +572,7 @@ mod tests {
                     HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
                 )
                 .await;
-            assert_eq!(
-                *capture.0.lock().unwrap(),
-                Some(format!(
-                    "{CHATGPT_CODEX_BASE_URL}/models?client_version={}",
-                    codex_models_manager::client_version_to_whole(),
-                ))
-            );
+            assert_eq!(*capture.0.lock().unwrap(), None);
         }
     }
 
@@ -567,28 +591,6 @@ mod tests {
             requires_openai_auth: false,
             ..ModelProviderInfo::create_openai_provider(/*base_url*/ None)
         }
-    }
-
-    #[test]
-    fn command_auth_provider_reports_command_auth_without_cached_auth() {
-        let endpoint = OpenAiModelsEndpoint::new(
-            provider_info_with_command_auth(),
-            /*auth_manager*/ None,
-            /*gateway_auth_manager*/ None,
-        );
-
-        assert!(endpoint.has_command_auth());
-    }
-
-    #[test]
-    fn provider_without_command_auth_reports_no_command_auth() {
-        let endpoint = OpenAiModelsEndpoint::new(
-            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
-            /*auth_manager*/ None,
-            /*gateway_auth_manager*/ None,
-        );
-
-        assert!(!endpoint.has_command_auth());
     }
 
     #[tokio::test]
@@ -792,14 +794,20 @@ mod tests {
 
     #[tokio::test]
     async fn explicit_catalog_reuses_auth_headers_and_query_parameters() {
-        for auth in [
-            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
-            CodexAuth::from_api_key("test-key"),
-        ] {
+        for (base_url, auth) in [None, Some(""), Some("http://unused.example/v1")]
+            .into_iter()
+            .flat_map(|base_url| {
+                [
+                    CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+                    CodexAuth::from_api_key("test-key"),
+                ]
+                .map(|auth| (base_url, auth))
+            })
+        {
             let server = MockServer::start().await;
             let mut model = model_info_from_slug("provider-model");
             model.visibility = ModelVisibility::List;
-            model.supported_in_api = true;
+            model.supported_in_api = false;
             model.used_fallback_model_metadata = false;
             let expected = ModelsResponse {
                 models: vec![model],
@@ -834,7 +842,8 @@ mod tests {
                         "us".into(),
                     ),
                 ])),
-                ..ModelProviderInfo::create_openai_provider(Some(format!("{}/v1", server.uri())))
+                requires_openai_auth: true,
+                ..ModelProviderInfo::create_openai_provider(base_url.map(str::to_string))
             };
             let home = tempfile::tempdir().unwrap();
             let endpoint = Arc::new(OpenAiModelsEndpoint::new(
@@ -848,10 +857,7 @@ mod tests {
                 Some(auth_manager.clone()),
             )
             .with_provider_catalog();
-            // SIWC does not require the API-key rollout flag.
-            manager.set_api_key_model_discovery_enabled(
-                auth_manager.auth_mode() == Some(codex_protocol::auth::AuthMode::ApiKey),
-            );
+            manager.set_api_key_model_discovery_enabled(true);
             for _ in 0..2 {
                 assert_eq!(
                     manager
@@ -863,6 +869,18 @@ mod tests {
                     expected
                 );
             }
+            let presets = manager
+                .list_models(
+                    RefreshStrategy::Offline,
+                    HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+                )
+                .await;
+            assert_eq!(presets.len(), 1);
+            assert_eq!(presets[0].model, "provider-model");
+            assert!(!presets[0].supported_in_api);
+            assert!(presets[0].show_in_picker);
+            assert!(presets[0].is_default);
+            assert_eq!(server.received_requests().await.unwrap().len(), 1);
         }
     }
 
@@ -972,5 +990,69 @@ mod tests {
         assert!(!error.to_string().contains("catalog-secret"));
         assert!(!format!("{error:?}").contains("catalog-secret"));
         assert_eq!(destination.received_requests().await.unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn ordinary_models_reject_redirects_without_forwarding_provider_headers() {
+        let destination = MockServer::builder().start().await;
+        let redirect = MockServer::builder().start().await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(ModelsResponse { models: Vec::new() }),
+            )
+            .expect(1)
+            .mount(&destination)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(
+                ResponseTemplate::new(302)
+                    .insert_header("location", format!("{}/models", destination.uri())),
+            )
+            .expect(1)
+            .mount(&redirect)
+            .await;
+        for (base, direct) in [(destination.uri(), true), (redirect.uri(), false)] {
+            let endpoint = OpenAiModelsEndpoint::new(
+                ModelProviderInfo {
+                    base_url: Some(base),
+                    experimental_bearer_token: Some("provider-key".into()),
+                    http_headers: Some(std::collections::HashMap::from([(
+                        "x-provider-private".into(),
+                        "private-provider-header-sentinel".into(),
+                    )])),
+                    request_max_retries: Some(0),
+                    ..ModelProviderInfo::default()
+                },
+                None,
+                None,
+            );
+            let result = endpoint
+                .list_models(
+                    "1.2.3",
+                    HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+                )
+                .await;
+            let captured = destination.received_requests().await.unwrap();
+            for request in &captured {
+                eprintln!(
+                    "Models redirect capture {} {:?}",
+                    request.url, request.headers
+                );
+            }
+            assert_eq!(
+                captured.len(),
+                1,
+                "provider headers must not follow a redirect"
+            );
+            if direct {
+                assert!(result.is_ok(), "configured model endpoint must work");
+            } else {
+                assert!(result.is_err(), "unconfigured redirect must remain visible");
+            }
+        }
+        destination.verify().await;
+        redirect.verify().await;
     }
 }

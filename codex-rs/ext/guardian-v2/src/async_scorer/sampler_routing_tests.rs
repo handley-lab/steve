@@ -48,7 +48,11 @@ async fn failed_routing_blocks_a_prewarmed_classifier_connection() -> Result<()>
         AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
     let mut config = sampler_config(base_url.clone());
     config.provider = create_model_provider(
-        ModelProviderInfo::create_openai_provider(Some(base_url)),
+        ModelProviderInfo {
+            requires_openai_auth: true,
+            supports_websockets: true,
+            ..ModelProviderInfo::create_openai_provider(Some(base_url))
+        },
         Some(auth.clone()),
     );
     let sampler = connect_sampler(config).await?;
@@ -132,7 +136,9 @@ async fn classification_retries_refreshes_but_never_switches_accounts() -> Resul
         let resolver: Arc<dyn WorkspaceRoutingResolver> = changes;
         auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
         let mut config = sampler_config(format!("{}/backend-api/codex", server.uri()));
-        config.provider = create_model_provider(config.provider.info().clone(), Some(auth));
+        let mut provider = config.provider.info().clone();
+        provider.requires_openai_auth = true;
+        config.provider = create_model_provider(provider, Some(auth));
         let sampler = super::LunaSampler::new(config);
         let result = sampler.sample(sample_request("turn-1")).await;
         if account == "workspace-a" {
@@ -171,7 +177,7 @@ impl WorkspaceRoutingResolver for ChangedBootstrap {
             } else if self.0.swap(/*val*/ false, Ordering::SeqCst) {
                 Ok(Some(WorkspaceRouting {
                     chatgpt_account_id: "account_id".into(),
-                    backend_origin: "https://gov.chatgpt.com".into(),
+                    backend_origin: "https://provider.invalid".into(),
                     account_routing_override: "us_cr".into(),
                 }))
             } else {
@@ -186,6 +192,9 @@ async fn idle_classifier_retains_the_owning_threads_workspace_binding() -> Resul
     core_test_support::skip_if_no_network!(Ok(()));
     let server = responses::start_mock_server().await;
     let test = core_test_support::test_codex::test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), r#"model_provider = "openai""#).unwrap();
+        })
         .build_with_auto_env(&server)
         .await?;
     let auth =
@@ -194,10 +203,13 @@ async fn idle_classifier_retains_the_owning_threads_workspace_binding() -> Resul
         Arc::new(ChangedBootstrap(AtomicBool::new(/*v*/ true)));
     auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
     let mut config = test.config.clone();
-    config.model_provider = ModelProviderInfo::create_openai_provider(Some(format!(
-        "{}/backend-api/codex",
-        server.uri()
-    )));
+    config.model_provider = ModelProviderInfo {
+        requires_openai_auth: true,
+        supports_websockets: true,
+        ..ModelProviderInfo::create_openai_provider(Some(
+            "https://provider.invalid/backend-api/codex".into(),
+        ))
+    };
     let session_store = codex_extension_api::ExtensionData::new("session-1");
     let input = codex_extension_api::ThreadStartInput {
         config: &config,
@@ -213,16 +225,34 @@ async fn idle_classifier_retains_the_owning_threads_workspace_binding() -> Resul
         .thread_store
         .get::<codex_model_provider::WorkspaceRoutingContext>()
         .expect("Core seeds the owning thread's routing context before extensions start");
-    let classifier =
-        crate::async_scorer::startup::sampler_config(&input, auth.clone(), /*manager*/ None).await;
+    let mut guardian_config = crate::async_scorer::config::GuardianV2Config::resolve(&config).unwrap();
+    guardian_config.local_overrides.model = Some("gpt-test".into());
+    let classifier = crate::async_scorer::startup::sampler_config(
+        &input,
+        &guardian_config,
+        auth.clone(),
+        /*manager*/ None,
+    )
+    .await
+    .expect("classifier config");
     classifier
         .provider
         .responses_api_provider(&owning_context)
         .await?;
     let sampler = super::LunaSampler::new(classifier);
+    let previous_requests = server.received_requests().await.unwrap();
     let error = sampler.sample(sample_request("turn-1")).await.unwrap_err();
     assert!(error.to_string().contains("start a new thread"), "{error}");
-    assert!(server.received_requests().await.unwrap().is_empty());
+    let observed = server.received_requests().await.unwrap();
+    eprintln!("T19_EVIDENCE {}", serde_json::json!({
+        "kind": "same-provider-routing-control", "error": error.to_string(),
+        "before_requests": previous_requests.len(),
+        "requests": observed.iter().map(|r| serde_json::json!({
+            "method": r.method.as_str(), "url": r.url.as_str(),
+            "body": String::from_utf8_lossy(&r.body),
+        })).collect::<Vec<_>>(),
+    }));
+    assert_eq!(observed.len(), previous_requests.len());
     Ok(())
 }
 
@@ -269,7 +299,9 @@ async fn account_switch_cancels_request_opening_and_first_token_waits() -> Resul
             proxy_websocket_servers(&[&websocket, &websocket]).await?
         };
         let mut config = sampler_config(base_url);
-        config.provider = create_model_provider(config.provider.info().clone(), Some(auth.clone()));
+        let mut provider = config.provider.info().clone();
+        provider.requires_openai_auth = true;
+        config.provider = create_model_provider(provider, Some(auth.clone()));
         let sampler = if transport == "http" {
             super::LunaSampler::new(config)
         } else {
@@ -303,5 +335,198 @@ async fn account_switch_cancels_request_opening_and_first_token_waits() -> Resul
             usize::from(transport == "websocket")
         );
     }
+    Ok(())
+}
+
+struct StartupRouting {
+    calls: std::sync::Mutex<Vec<(String, bool)>>,
+}
+
+impl WorkspaceRoutingResolver for StartupRouting {
+    fn resolve(&self, request: WorkspaceRoutingRequest) -> RoutingFuture<'_> {
+        Box::pin(async move {
+            self.calls
+                .lock()
+                .unwrap()
+                .push((request.provider_base_url.clone(), request.previously_routed));
+            let bound = request
+                .provider_base_url
+                .starts_with("https://classifier.invalid/");
+            if bound && request.previously_routed {
+                return Err(std::io::Error::other(
+                    "bound classifier changed after routing",
+                ));
+            }
+            if bound
+                || request
+                    .provider_base_url
+                    .starts_with("https://parent.invalid/")
+                || request.previously_routed
+            {
+                Ok(Some(WorkspaceRouting {
+                    chatgpt_account_id: "account_id".into(),
+                    backend_origin: if bound {
+                        "https://classifier.invalid".into()
+                    } else {
+                        "https://parent.invalid".into()
+                    },
+                    account_routing_override: "us_cr".into(),
+                }))
+            } else {
+                Ok(None)
+            }
+        })
+    }
+}
+
+#[tokio::test]
+async fn independent_classifier_keeps_its_own_workspace_binding() -> Result<()> {
+    let bootstrap = responses::start_mock_server().await;
+    let target = responses::start_mock_server().await;
+    let response = responses::mount_sse_once(
+        &target,
+        responses::sse(vec![
+            ev_assistant_message("independent-score", "low"),
+            ev_completed("independent-score"),
+        ]),
+    )
+    .await;
+    let home = tempfile::tempdir()?;
+    let mut model = codex_models_manager::bundled_models_response()?
+        .models
+        .remove(0);
+    model.slug = "scope-model".into();
+    std::fs::write(
+        home.path().join("catalog.json"),
+        serde_json::to_vec(&codex_protocol::openai_models::ModelsResponse {
+            models: vec![model],
+        })?,
+    )?;
+    std::fs::write(
+        home.path().join("config.toml"),
+        format!(
+            r#"
+model_provider = "parent"
+model = "scope-model"
+chatgpt_base_url = "{}/backend-api"
+model_catalog_json = "catalog.json"
+[features]
+api_key_model_discovery = false
+[features.guardianv2]
+enabled = true
+model = "scope-model"
+model_provider = "classifier"
+[model_providers.parent]
+name = "Parent"
+base_url = "https://parent.invalid/backend-api/codex"
+requires_openai_auth = true
+[model_providers.classifier]
+name = "Classifier"
+base_url = "{}/backend-api/codex"
+requires_openai_auth = true
+[model_providers.bound]
+name = "Bound classifier"
+base_url = "https://classifier.invalid/backend-api/codex"
+requires_openai_auth = true
+"#,
+            bootstrap.uri(),
+            target.uri()
+        ),
+    )?;
+    let config = codex_core::config::ConfigBuilder::default()
+        .codex_home(home.path().to_path_buf())
+        .loader_overrides(codex_config::LoaderOverrides::without_managed_config_for_tests())
+        .build()
+        .await?;
+    let auth =
+        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let routing = Arc::new(StartupRouting {
+        calls: std::sync::Mutex::new(Vec::new()),
+    });
+    let resolver: Arc<dyn WorkspaceRoutingResolver> = routing.clone();
+    auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
+    let thread_store = codex_extension_api::ExtensionData::new("routing-parent");
+    thread_store.insert(config.workspace_routing_context());
+    let session_store = codex_extension_api::ExtensionData::new("routing-session");
+    let input = codex_extension_api::ThreadStartInput {
+        config: &config,
+        session_source: &codex_protocol::protocol::SessionSource::Exec,
+        persistent_thread_state_available: false,
+        environments: &[],
+        mcp_resource_client: None,
+        extension_metrics: None,
+        session_store: &session_store,
+        thread_store: &thread_store,
+    };
+    let parent_context = thread_store
+        .get::<codex_model_provider::WorkspaceRoutingContext>()
+        .unwrap();
+    let parent = create_model_provider(config.model_provider.clone(), Some(auth.clone()));
+    let before = parent.responses_api_provider(&parent_context).await?;
+    assert_eq!(
+        before.provider.headers["x-openai-account-routing-override"],
+        "us_cr"
+    );
+    let mut guardian = crate::async_scorer::config::GuardianV2Config::resolve(&config).unwrap();
+    let selected =
+        crate::async_scorer::startup::sampler_config(&input, &guardian, auth.clone(), None)
+            .await
+            .unwrap();
+    let result = super::LunaSampler::new(selected)
+        .sample(sample_request("parent-turn"))
+        .await;
+    let requests = response.requests();
+    eprintln!(
+        "T19_EVIDENCE {}",
+        serde_json::json!({"kind": "independent-classifier-routing",
+            "result": format!("{result:?}"), "calls": &*routing.calls.lock().unwrap(),
+            "requests": requests.iter().map(|r| serde_json::json!({"body": r.body_json(), "authorization": r.header("authorization"),
+                "account_id": r.header("chatgpt-account-id")})).collect::<Vec<_>>(),
+        })
+    );
+    let independent_ok = result.as_ref().is_ok_and(|value| value == "low")
+        && requests.len() == 1
+        && requests[0].header("authorization").as_deref() == Some("Bearer Access Token")
+        && requests[0].header("chatgpt-account-id").as_deref() == Some("account_id");
+    guardian.local_overrides.model_provider = Some("bound".into());
+    let bound = crate::async_scorer::startup::sampler_config(&input, &guardian, auth, None)
+        .await
+        .unwrap();
+    let first = bound
+        .provider
+        .responses_api_provider(&bound.workspace_routing)
+        .await;
+    let second = bound
+        .provider
+        .responses_api_provider(&bound.workspace_routing)
+        .await;
+    let after = parent.responses_api_provider(&parent_context).await?;
+    let calls = routing.calls.lock().unwrap().clone();
+    eprintln!(
+        "T19_EVIDENCE {}",
+        serde_json::json!({"kind": "classifier-retained-routing",
+            "first": format!("{first:?}"), "second": format!("{second:?}"), "calls": &calls,
+            "parent_after": after.provider.base_url, "bootstrap_requests": bootstrap.received_requests().await.unwrap().len(),
+        })
+    );
+    assert!(
+        independent_ok,
+        "independent classifier inherited the parent's routing"
+    );
+    assert!(first.is_ok());
+    assert!(
+        second
+            .unwrap_err()
+            .to_string()
+            .contains("bound classifier changed after routing")
+    );
+    let own: Vec<_> = calls
+        .iter()
+        .filter(|(url, _)| url.starts_with("https://classifier.invalid/"))
+        .map(|(_, previous)| *previous)
+        .collect();
+    assert_eq!(own, vec![false, true]);
+    assert_eq!(calls.last().unwrap().1, true);
+    assert!(bootstrap.received_requests().await.unwrap().is_empty());
     Ok(())
 }

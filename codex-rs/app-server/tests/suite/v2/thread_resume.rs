@@ -82,7 +82,6 @@ use codex_config::types::AuthCredentialsStoreMode;
 use codex_core::ARCHIVED_SESSIONS_SUBDIR;
 use codex_exec_server::LOCAL_ENVIRONMENT_ID;
 use codex_features::Feature;
-use codex_login::REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::CollaborationMode;
 use codex_protocol::config_types::ModeKind;
@@ -6027,6 +6026,7 @@ async fn thread_resume_surfaces_cloud_config_bundle_load_errors() -> Result<()> 
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": { "code": "refresh_token_invalidated" }
         })))
+        .expect(0)
         .mount(&server)
         .await;
 
@@ -6061,7 +6061,7 @@ async fn thread_resume_surfaces_cloud_config_bundle_load_errors() -> Result<()> 
         .with_env_overrides(&[
             ("OPENAI_API_KEY", None),
             (
-                REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR,
+                "STEVE_REFRESH_TOKEN_URL_OVERRIDE",
                 Some(refresh_token_url.as_str()),
             ),
         ])
@@ -6092,7 +6092,7 @@ async fn thread_resume_surfaces_cloud_config_bundle_load_errors() -> Result<()> 
             "errorCode": "Auth",
             "action": "relogin",
             "statusCode": 401,
-            "detail": "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.",
+            "detail": "The configured service rejected the supplied credentials. Supply updated credentials.",
         }))
     );
 

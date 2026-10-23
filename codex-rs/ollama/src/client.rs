@@ -72,11 +72,13 @@ impl OllamaClient {
         provider: &ModelProviderInfo,
         http_client_factory: HttpClientFactory,
     ) -> io::Result<Self> {
-        #![expect(clippy::expect_used)]
         let base_url = provider
             .base_url
             .as_ref()
-            .expect("oss provider must have a base_url");
+            .filter(|base_url| !base_url.trim().is_empty())
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "Set an explicit Ollama base_url")
+            })?;
         let uses_openai_compat = is_openai_compatible_base_url(base_url);
         let host_root = base_url_to_host_root(base_url);
         let client = RouteAwareClientPool::with_connect_timeout(

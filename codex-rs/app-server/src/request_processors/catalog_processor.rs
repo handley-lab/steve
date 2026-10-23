@@ -178,10 +178,29 @@ impl CatalogRequestProcessor {
         &self,
         params: ModelListParams,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+        let (config, scoped_catalog, cyber_access_programs_enabled) = match params.thread_id.as_deref() {
+            Some(thread_id) => {
+                let thread_id = ThreadId::from_string(thread_id)
+                    .map_err(|err| invalid_request(format!("invalid thread id: {err}")))?;
+                let thread = self
+                    .thread_manager
+                    .get_thread(thread_id)
+                    .await
+                    .map_err(|_| invalid_request(format!("thread not found: {thread_id}")))?;
+                let config = thread.config().await;
+                let catalog = ModelCatalog::new(
+                    self.config_manager.clone(),
+                    config.clone(),
+                    thread.models_manager(),
+                );
+                (config, Some(catalog), Some(thread.enabled(Feature::ApiKeyCyberAccessPrograms)))
+            }
+            None => (self.config.clone(), None, None),
+        };
         // Gate the same provider used by the catalog, including when its model cache is warm.
         // Resolving credentials may refresh them, but explicit host policy prevents browser login.
         if let Some(gateway) = codex_model_provider::create_model_provider(
-            self.config.model_provider.clone(),
+            config.model_provider.clone(),
             Some(self.thread_manager.auth_manager()),
         )
         .gateway_auth_manager()
@@ -189,18 +208,24 @@ impl CatalogRequestProcessor {
         {
             // Refreshing credentials can contact the gateway before the catalog's own check.
             self.config_manager
-                .check_thread_model_provider(&self.config)
+                .check_thread_model_provider(&config)
                 .await
                 .map_err(|err| config_load_error(&err))?;
             if gateway.resolve_access_token().await.is_err() {
-                let current = self
-                    .config_manager
-                    .load_latest_config(/*fallback_cwd*/ None)
-                    .await
-                    .map_err(|err| config_load_error(&err))?;
-                // Login RPCs use current config, while the catalog retains its startup provider.
-                if current.model_provider_id != self.config.model_provider_id
-                    || current.model_provider != self.config.model_provider
+                let current = match params.thread_id.as_ref() {
+                    Some(_) => self
+                        .config_manager
+                        .load_latest_config_with_session_layers(
+                            &config.config_layer_stack,
+                            &config.cwd,
+                        )
+                        .await,
+                    None => self.config_manager.load_latest_config(/*fallback_cwd*/ None).await,
+                }
+                .map_err(|err| config_load_error(&err))?;
+                // Login RPCs use current config, while the catalog retains its selected provider.
+                if current.model_provider_id != config.model_provider_id
+                    || current.model_provider != config.model_provider
                 {
                     return Err(invalid_request(
                         "Model provider settings changed. Restart Codex to apply them, then retry fetching the model list",
@@ -211,7 +236,11 @@ impl CatalogRequestProcessor {
                 ));
             }
         }
-        self.list_models(params)
+        self.list_models(
+            params,
+            scoped_catalog.as_ref().unwrap_or(&self.model_catalog),
+            cyber_access_programs_enabled,
+        )
             .await
             .map(|response| Some(response.into()))
     }
@@ -280,14 +309,16 @@ impl CatalogRequestProcessor {
     async fn list_models(
         &self,
         params: ModelListParams,
+        catalog: &ModelCatalog,
+        cyber_access_programs_enabled: Option<bool>,
     ) -> Result<ModelListResponse, JSONRPCErrorError> {
         let ModelListParams {
+            thread_id: _,
             limit,
             cursor,
             include_hidden,
         } = params;
-        let presets = self
-            .model_catalog
+        let presets = catalog
             .list_models(codex_models_manager::manager::RefreshStrategy::OnlineIfUncached)
             .await
             .map_err(|err| config_load_error(&err))?;
@@ -298,6 +329,7 @@ impl CatalogRequestProcessor {
             return Ok(ModelListResponse {
                 data: Vec::new(),
                 next_cursor: None,
+                cyber_access_programs_enabled,
             });
         }
 
@@ -326,6 +358,7 @@ impl CatalogRequestProcessor {
         Ok(ModelListResponse {
             data: items,
             next_cursor,
+            cyber_access_programs_enabled,
         })
     }
 

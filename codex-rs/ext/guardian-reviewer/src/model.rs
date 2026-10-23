@@ -14,7 +14,7 @@ pub struct ReviewModel {
     pub model_override: Option<String>,
 }
 
-/// Prefers the review model and low effort when advertised; preserves the parent fallback.
+/// Uses the explicitly selected review model and its advertised reasoning effort.
 pub fn select_review_model(
     parent_model: &ModelInfo,
     parent_reasoning_effort: Option<&ReasoningEffort>,
@@ -28,7 +28,7 @@ pub fn select_review_model(
             fallback
         }
     };
-    let model_override = parent_model.auto_review_model_override.as_deref();
+    let model_override = Some(default_review_model_id);
     let review_model_id = model_override.unwrap_or(default_review_model_id);
     let review_model = available_models
         .iter()
@@ -58,9 +58,7 @@ pub fn select_review_model(
                 .cloned(),
         );
         (
-            model_override
-                .unwrap_or(parent_model.slug.as_str())
-                .to_string(),
+            review_model_id.to_string(),
             reasoning_effort,
         )
     };

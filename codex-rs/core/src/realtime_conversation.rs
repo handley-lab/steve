@@ -35,7 +35,6 @@ use codex_http_client::HttpClientFactory;
 use codex_login::CodexAuth;
 use codex_login::default_client::add_originator_header;
 use codex_login::default_client::default_headers;
-use codex_login::read_openai_api_key_from_env;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::error::CodexErr;
@@ -109,8 +108,6 @@ const HANDOFF_STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(200);
 const HANDOFF_STREAM_TRUNCATION_MARKER: &str = "\n…output truncated…\n";
 const AGENT_FINAL_MESSAGE_PREFIX: &str = "\"Agent Final Message\":\n\n";
 const STANDALONE_HANDOFF_ID: &str = "codex";
-const DEFAULT_REALTIME_MODEL: &str = "gpt-realtime-1.5";
-const DEFAULT_FRAMELESS_REALTIME_MODEL: &str = "gpt-live-1-codex";
 pub(crate) const REALTIME_USER_TEXT_PREFIX: &str = "[USER] ";
 pub(crate) const REALTIME_BACKEND_TEXT_PREFIX: &str = "[BACKEND] ";
 const REALTIME_V2_HANDOFF_COMPLETE_ACKNOWLEDGEMENT: &str =
@@ -702,7 +699,7 @@ impl RealtimeConversationManager {
             audio_rx,
         };
 
-        let client = RealtimeWebsocketClient::new(api_provider, http_client_factory);
+        let client = RealtimeWebsocketClient::new(api_provider.clone(), http_client_factory);
         let client = match realtime_sideband_base_url {
             Some(base_url) => client.with_webrtc_sideband_base_url(base_url),
             None => client,
@@ -739,6 +736,7 @@ impl RealtimeConversationManager {
         } else if let Some(call_id) = existing_call_id {
             let task = existing_call::attach(existing_call::ExistingCallAttachment {
                 client,
+                api_provider,
                 model_client,
                 session_config,
                 call_id,
@@ -1372,7 +1370,6 @@ async fn prepare_realtime_start(
         .transport
         .clone()
         .unwrap_or(ConversationStartTransport::Websocket);
-    let mut api_provider = provider.to_api_provider(Some(AuthMode::ApiKey))?;
     let realtime_sideband_base_url = match &transport {
         ConversationStartTransport::ExistingCall {
             sideband_base_url, ..
@@ -1383,14 +1380,16 @@ async fn prepare_realtime_start(
             config.experimental_realtime_ws_base_url.clone()
         }
     };
+    let mut realtime_provider = provider.clone();
     if let Some(realtime_ws_base_url) = &realtime_sideband_base_url {
-        api_provider.base_url = realtime_ws_base_url.clone();
+        realtime_provider.base_url = Some(realtime_ws_base_url.clone());
     }
+    let api_provider = realtime_provider.to_api_provider(Some(AuthMode::ApiKey))?;
     let realtime_call_api_provider =
         if let Some(realtime_call_base_url) = &config.experimental_realtime_webrtc_call_base_url {
-            let mut api_provider = provider.to_api_provider(Some(AuthMode::ApiKey))?;
-            api_provider.base_url = realtime_call_base_url.clone();
-            Some(api_provider)
+            let mut call_provider = provider.clone();
+            call_provider.base_url = Some(realtime_call_base_url.clone());
+            Some(call_provider.to_api_provider(Some(AuthMode::ApiKey))?)
         } else {
             None
         };
@@ -1591,10 +1590,12 @@ pub(crate) async fn build_realtime_session_config(
             .model
             .clone()
             .or_else(|| config.experimental_realtime_ws_model.clone())
-            .unwrap_or_else(|| match version {
-                RealtimeWsVersion::V1 | RealtimeWsVersion::V2 => DEFAULT_REALTIME_MODEL.to_string(),
-                RealtimeWsVersion::V3 => DEFAULT_FRAMELESS_REALTIME_MODEL.to_string(),
-            }),
+            .filter(|model| !model.trim().is_empty())
+            .ok_or_else(|| {
+                CodexErr::InvalidRequest(
+                    "Set experimental_realtime_ws_model or supply a realtime model".into(),
+                )
+            })?,
     );
     let event_parser = match version {
         RealtimeWsVersion::V1 => RealtimeEventParser::V1,
@@ -1612,6 +1613,16 @@ pub(crate) async fn build_realtime_session_config(
         RealtimeWsMode::Conversational => RealtimeSessionMode::Conversational,
         RealtimeWsMode::Transcription => RealtimeSessionMode::Transcription,
     };
+    let transcription_model = config.experimental_realtime_transcription_model.clone();
+    if session_mode == RealtimeSessionMode::Transcription
+        && transcription_model
+            .as_ref()
+            .is_none_or(|model| model.trim().is_empty())
+    {
+        return Err(CodexErr::InvalidRequest(
+            "Set experimental_realtime_transcription_model before starting transcription".into(),
+        ));
+    }
     let config_voice = match configured_voice {
         ConfiguredRealtimeVoice::Use => config.realtime.voice,
         ConfiguredRealtimeVoice::Ignore => None,
@@ -1626,6 +1637,7 @@ pub(crate) async fn build_realtime_session_config(
         initial_items: params.initial_items.clone(),
         delegation_ack_filler: params.delegation_ack_filler,
         model,
+        transcription_model,
         session_id: Some(
             params
                 .realtime_session_id
@@ -1936,14 +1948,6 @@ fn realtime_api_key(auth: Option<&CodexAuth>, provider: &ModelProviderInfo) -> C
 
     if let Some(api_key) = auth.and_then(CodexAuth::api_key) {
         return Ok(api_key.to_string());
-    }
-
-    // TODO(aibrahim): Remove this temporary fallback once realtime auth no longer
-    // requires API key auth for ChatGPT/SIWC sessions.
-    if provider.is_openai()
-        && let Some(api_key) = read_openai_api_key_from_env()
-    {
-        return Ok(api_key);
     }
 
     Err(CodexErr::InvalidRequest(

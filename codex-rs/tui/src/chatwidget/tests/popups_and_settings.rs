@@ -3392,7 +3392,6 @@ async fn model_picker_refresh_rejects_obsolete_and_unusable_replies() {
 
     for result in [
         Err("unavailable".to_string()),
-        Ok(Vec::new()),
         Ok(initial.clone()),
     ] {
         chat.handle_key_event(KeyEvent::from(KeyCode::Esc));

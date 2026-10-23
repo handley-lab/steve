@@ -2,6 +2,7 @@ use crate::backend::BackendBundleClient;
 use crate::backend::BundleClient;
 use crate::service::CLOUD_CONFIG_BUNDLE_TIMEOUT;
 use crate::service::CloudConfigBundleService;
+use codex_config::AccountPathStyle;
 use codex_config::CloudConfigBundleLoader;
 use codex_http_client::HttpClientFactory;
 use codex_login::AuthConfig;
@@ -25,13 +26,18 @@ impl<C> Drop for CloudConfigBundleLoaderLifetime<C> {
 pub fn cloud_config_bundle_loader(
     auth_manager: Arc<AuthManager>,
     chatgpt_base_url: String,
+    path_style: AccountPathStyle,
     codex_home: PathBuf,
     http_client_factory: HttpClientFactory,
 ) -> CloudConfigBundleLoader {
+    if chatgpt_base_url.trim().is_empty() {
+        return CloudConfigBundleLoader::default();
+    }
     let service = CloudConfigBundleService::new(
         auth_manager,
         Arc::new(BackendBundleClient::new(
             chatgpt_base_url,
+            path_style,
             http_client_factory,
         )),
         codex_home,
@@ -74,10 +80,19 @@ where
 
 pub async fn cloud_config_bundle_loader_for_storage(
     auth_config: AuthConfig,
+    path_style: AccountPathStyle,
     enable_codex_api_key_env: bool,
 ) -> std::io::Result<CloudConfigBundleLoader> {
+    if auth_config
+        .chatgpt_base_url
+        .as_deref()
+        .is_none_or(|url| url.trim().is_empty())
+    {
+        return Ok(CloudConfigBundleLoader::default());
+    }
     let service =
-        cloud_config_bundle_service_for_storage(auth_config, enable_codex_api_key_env).await?;
+        cloud_config_bundle_service_for_storage(auth_config, path_style, enable_codex_api_key_env)
+            .await?;
     let (loader, _) = cloud_config_bundle_loader_for_service(service);
     Ok(loader)
 }
@@ -86,10 +101,18 @@ pub async fn cloud_config_bundle_loader_for_storage(
 /// the disk cache or starting a background refresher.
 pub async fn cloud_config_bundle_loader_for_storage_without_cache(
     auth_config: AuthConfig,
+    path_style: AccountPathStyle,
     enable_codex_api_key_env: bool,
 ) -> std::io::Result<CloudConfigBundleLoader> {
+    if auth_config
+        .chatgpt_base_url
+        .as_deref()
+        .is_none_or(|url| url.trim().is_empty())
+    {
+        return Ok(CloudConfigBundleLoader::default());
+    }
     let service = Arc::new(
-        cloud_config_bundle_service_for_storage(auth_config, enable_codex_api_key_env)
+        cloud_config_bundle_service_for_storage(auth_config, path_style, enable_codex_api_key_env)
             .await?
             .without_cache(),
     );
@@ -101,6 +124,7 @@ pub async fn cloud_config_bundle_loader_for_storage_without_cache(
 
 async fn cloud_config_bundle_service_for_storage(
     auth_config: AuthConfig,
+    path_style: AccountPathStyle,
     enable_codex_api_key_env: bool,
 ) -> std::io::Result<CloudConfigBundleService<BackendBundleClient>> {
     let auth_manager =
@@ -108,9 +132,8 @@ async fn cloud_config_bundle_service_for_storage(
     Ok(CloudConfigBundleService::new(
         auth_manager,
         Arc::new(BackendBundleClient::new(
-            auth_config
-                .chatgpt_base_url
-                .unwrap_or_else(|| "https://chatgpt.com/backend-api/".to_string()),
+            auth_config.chatgpt_base_url.unwrap_or_default(),
+            path_style,
             auth_config.auth_route_config.http_client_factory().clone(),
         )),
         auth_config.codex_home,

@@ -90,6 +90,7 @@ pub(crate) async fn list_tool_suggest_discoverable_tools_with_auth(
 ) -> anyhow::Result<Vec<DiscoverableTool>> {
     let connector_ids = tool_suggest_connector_ids(config, loaded_plugin_app_connector_ids);
     let directory_connectors = codex_connectors::merge::merge_plugin_connectors(
+        &config.chatgpt_base_url,
         cached_directory_connectors_for_tool_suggest_with_auth(config, auth).await,
         connector_ids.iter().cloned(),
     );
@@ -143,7 +144,8 @@ pub(crate) fn refresh_accessible_connectors_cache_from_mcp_tools(
     }
 
     let cache_key = accessible_connectors_cache_key(config, auth);
-    let accessible_connectors = accessible_connectors_for_app_list_from_mcp_tools(mcp_tools);
+    let accessible_connectors =
+        accessible_connectors_for_app_list_from_mcp_tools(&config.chatgpt_base_url, mcp_tools);
     write_cached_accessible_connectors(cache_key, &accessible_connectors);
 }
 
@@ -329,7 +331,8 @@ pub async fn list_accessible_connectors_from_mcp_tools_with_mcp_manager(
         cancel_token.cancel();
     }
 
-    let accessible_connectors = accessible_connectors_for_app_list_from_mcp_tools(&tools);
+    let accessible_connectors =
+        accessible_connectors_for_app_list_from_mcp_tools(&config.chatgpt_base_url, &tools);
     if codex_apps_ready || !accessible_connectors.is_empty() {
         write_cached_accessible_connectors(cache_key, &accessible_connectors);
     }
@@ -461,11 +464,15 @@ async fn cached_directory_connectors_for_tool_suggest_with_auth(
     codex_connectors::cached_directory_connectors(&cache_context).unwrap_or_default()
 }
 
-pub(crate) fn accessible_connectors_from_mcp_tools(mcp_tools: &[ToolInfo]) -> Vec<AppInfo> {
-    collect_accessible_connectors_from_mcp_tools(mcp_tools.iter())
+pub(crate) fn accessible_connectors_from_mcp_tools(
+    chatgpt_base_url: &str,
+    mcp_tools: &[ToolInfo],
+) -> Vec<AppInfo> {
+    collect_accessible_connectors_from_mcp_tools(chatgpt_base_url, mcp_tools.iter())
 }
 
 fn collect_accessible_connectors_from_mcp_tools<'a>(
+    chatgpt_base_url: &str,
     mcp_tools: impl Iterator<Item = &'a ToolInfo>,
 ) -> Vec<AppInfo> {
     // ToolInfo already carries plugin provenance, so app-level plugin sources
@@ -482,10 +489,13 @@ fn collect_accessible_connectors_from_mcp_tools<'a>(
             plugin_display_names: tool.plugin_display_names.clone(),
         })
     });
-    codex_connectors::accessible::collect_accessible_connectors(tools)
+    codex_connectors::accessible::collect_accessible_connectors(chatgpt_base_url, tools)
 }
 
-fn accessible_connectors_for_app_list_from_mcp_tools(mcp_tools: &[ToolInfo]) -> Vec<AppInfo> {
+fn accessible_connectors_for_app_list_from_mcp_tools(
+    chatgpt_base_url: &str,
+    mcp_tools: &[ToolInfo],
+) -> Vec<AppInfo> {
     let non_synthetic_tools = mcp_tools.iter().filter(|tool| {
         tool.tool
             .meta
@@ -496,7 +506,7 @@ fn accessible_connectors_for_app_list_from_mcp_tools(mcp_tools: &[ToolInfo]) -> 
             .and_then(serde_json::Value::as_bool)
             != Some(true)
     });
-    collect_accessible_connectors_from_mcp_tools(non_synthetic_tools)
+    collect_accessible_connectors_from_mcp_tools(chatgpt_base_url, non_synthetic_tools)
 }
 
 pub fn with_app_plugin_sources(

@@ -13,7 +13,6 @@ use chrono::Utc;
 use codex_http_client::HttpClient;
 use codex_http_client::HttpError;
 use codex_protocol::auth::PlanType as AuthPlanType;
-use codex_protocol::protocol::SessionSource;
 use crypto_box::SecretKey as Curve25519SecretKey;
 use ed25519_dalek::Signer as _;
 use ed25519_dalek::SigningKey;
@@ -38,55 +37,8 @@ use sha2::Sha512;
 const AGENT_TASK_REGISTRATION_TIMEOUT: Duration = Duration::from_secs(30);
 const AGENT_IDENTITY_JWKS_TIMEOUT: Duration = Duration::from_secs(10);
 const AGENT_IDENTITY_JWT_AUDIENCE: &str = "codex-app-server";
-const AGENT_IDENTITY_JWT_ISSUER: &str = "https://chatgpt.com/codex-backend/agent-identity";
-const AGENT_REGISTRATION_TIMEOUT: Duration = Duration::from_secs(15);
-const PROD_AGENT_IDENTITY_AUTHAPI_BASE_URL: &str = "https://auth.openai.com/api/accounts";
-const STAGING_AGENT_IDENTITY_AUTHAPI_BASE_URL: &str = "https://auth.api.openai.org/api/accounts";
 const AGENT_IDENTITY_KEY_SEED_BYTES: usize = 64;
 const AGENT_IDENTITY_KEY_DERIVATION_CONTEXT: &[u8] = b"codex-agent-identity-ed25519-v1";
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ChatGptEnvironment {
-    #[default]
-    Production,
-    Staging,
-}
-
-impl ChatGptEnvironment {
-    pub fn from_chatgpt_base_url(chatgpt_base_url: &str) -> Result<Self> {
-        match chatgpt_base_url.trim_end_matches('/') {
-            "https://chatgpt.com"
-            | "https://chatgpt.com/backend-api"
-            | "https://chatgpt.com/codex"
-            | "https://chatgpt.com/backend-api/codex"
-            | "https://chat.openai.com"
-            | "https://chat.openai.com/backend-api"
-            | "https://chat.openai.com/codex"
-            | "https://chat.openai.com/backend-api/codex" => Ok(Self::Production),
-            "https://chatgpt-staging.com"
-            | "https://chatgpt-staging.com/backend-api"
-            | "https://chatgpt-staging.com/codex"
-            | "https://chatgpt-staging.com/backend-api/codex" => Ok(Self::Staging),
-            _ => anyhow::bail!(
-                "Agent Identity only supports production and staging ChatGPT environments"
-            ),
-        }
-    }
-
-    pub fn chatgpt_base_url(self) -> &'static str {
-        match self {
-            Self::Production => "https://chatgpt.com/backend-api",
-            Self::Staging => "https://chatgpt-staging.com/backend-api",
-        }
-    }
-
-    pub fn agent_identity_authapi_base_url(self) -> &'static str {
-        match self {
-            Self::Production => PROD_AGENT_IDENTITY_AUTHAPI_BASE_URL,
-            Self::Staging => STAGING_AGENT_IDENTITY_AUTHAPI_BASE_URL,
-        }
-    }
-}
 
 /// Borrowed durable signing material for a registered agent identity.
 ///
@@ -97,13 +49,6 @@ impl ChatGptEnvironment {
 pub struct AgentIdentityKey<'a> {
     pub agent_runtime_id: &'a str,
     pub private_key_pkcs8_base64: &'a str,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AgentBillOfMaterials {
-    pub agent_version: String,
-    pub agent_harness_id: String,
-    pub running_location: String,
 }
 
 pub struct GeneratedAgentKeyMaterial {
@@ -151,19 +96,6 @@ struct RegisterTaskResponse {
     encrypted_task_id: Option<String>,
     #[serde(default, rename = "encryptedTaskId")]
     encrypted_task_id_camel: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct RegisterAgentRequest {
-    abom: AgentBillOfMaterials,
-    agent_public_key: String,
-    capabilities: Vec<String>,
-    ttl: Option<u64>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RegisterAgentResponse {
-    agent_runtime_id: String,
 }
 
 /// HTTP status failure returned by Agent Identity registration endpoints.
@@ -266,6 +198,7 @@ pub async fn fetch_agent_identity_jwks(
 pub fn decode_agent_identity_jwt(
     jwt: &str,
     jwks: Option<&JwkSet>,
+    issuer: Option<&str>,
 ) -> Result<AgentIdentityJwtClaims> {
     let Some(jwks) = jwks else {
         return decode_agent_identity_jwt_payload(jwt);
@@ -281,7 +214,10 @@ pub fn decode_agent_identity_jwt(
     let decoding_key = DecodingKey::from_jwk(jwk).context("failed to build JWT decoding key")?;
     let mut validation = Validation::new(Algorithm::RS256);
     validation.set_audience(&[AGENT_IDENTITY_JWT_AUDIENCE]);
-    validation.set_issuer(&[AGENT_IDENTITY_JWT_ISSUER]);
+    let issuer = issuer
+        .filter(|issuer| !issuer.trim().is_empty())
+        .context("Agent Identity verification requires a configured issuer")?;
+    validation.set_issuer(&[issuer]);
     validation.required_spec_claims.insert("iss".to_string());
     validation.required_spec_claims.insert("aud".to_string());
     decode::<AgentIdentityJwtClaims>(jwt, &decoding_key, &validation)
@@ -353,45 +289,6 @@ pub async fn register_agent_task(
         .context("failed to decode agent task registration response")?;
 
     task_id_from_register_task_response(key, response)
-}
-
-pub async fn register_agent_identity(
-    client: &HttpClient,
-    agent_identity_authapi_base_url: &str,
-    access_token: &str,
-    is_fedramp_account: bool,
-    key_material: &GeneratedAgentKeyMaterial,
-    abom: AgentBillOfMaterials,
-    capabilities: Vec<String>,
-) -> Result<String> {
-    let url = agent_registration_url(agent_identity_authapi_base_url);
-    let request = RegisterAgentRequest {
-        abom,
-        agent_public_key: key_material.public_key_ssh.clone(),
-        capabilities,
-        ttl: None,
-    };
-
-    let mut request_builder = client
-        .post(&url)
-        .bearer_auth(access_token)
-        .json(&request)
-        .timeout(AGENT_REGISTRATION_TIMEOUT);
-    if is_fedramp_account {
-        request_builder = request_builder.header("X-OpenAI-Fedramp", "true");
-    }
-
-    let response = request_builder
-        .send()
-        .await
-        .with_context(|| format!("failed to send agent identity registration request to {url}"))?
-        .error_for_status()
-        .with_context(|| format!("agent identity registration failed for {url}"))?
-        .json::<RegisterAgentResponse>()
-        .await
-        .with_context(|| format!("failed to parse agent identity response from {url}"))?;
-
-    Ok(response.agent_runtime_id)
 }
 
 fn task_id_from_register_task_response(
@@ -466,10 +363,6 @@ pub fn curve25519_secret_key_from_private_key_pkcs8_base64(
     Ok(curve25519_secret_key_from_signing_key(&signing_key))
 }
 
-pub fn agent_registration_url(agent_identity_authapi_base_url: &str) -> String {
-    agent_identity_authapi_url(agent_identity_authapi_base_url, "/v1/agent/register")
-}
-
 pub fn agent_task_registration_url(
     agent_identity_authapi_base_url: &str,
     agent_runtime_id: &str,
@@ -482,33 +375,12 @@ pub fn agent_task_registration_url(
 
 pub fn agent_identity_jwks_url(agent_identity_jwt_base_url: &str) -> String {
     let trimmed = agent_identity_jwt_base_url.trim_end_matches('/');
-    if trimmed.contains("/backend-api") {
-        format!("{trimmed}/wham/agent-identities/jwks")
-    } else {
-        format!("{trimmed}/agent-identities/jwks")
-    }
+    format!("{trimmed}/agent-identities/jwks")
 }
 
 fn agent_identity_authapi_url(agent_identity_authapi_base_url: &str, api_path: &str) -> String {
     let base_url = agent_identity_authapi_base_url.trim_end_matches('/');
     format!("{base_url}{api_path}")
-}
-
-pub fn build_abom(session_source: SessionSource) -> AgentBillOfMaterials {
-    AgentBillOfMaterials {
-        agent_version: env!("CARGO_PKG_VERSION").to_string(),
-        agent_harness_id: match &session_source {
-            SessionSource::VSCode => "codex-app".to_string(),
-            SessionSource::Cli
-            | SessionSource::Exec
-            | SessionSource::Mcp
-            | SessionSource::Custom(_)
-            | SessionSource::Internal(_)
-            | SessionSource::SubAgent(_)
-            | SessionSource::Unknown => "codex-cli".to_string(),
-        },
-        running_location: format!("{}-{}", session_source, std::env::consts::OS),
-    }
 }
 
 pub fn encode_ssh_ed25519_public_key(verifying_key: &VerifyingKey) -> String {
@@ -564,6 +436,7 @@ fn signing_key_from_private_key_pkcs8_base64(private_key_pkcs8_base64: &str) -> 
 
 #[cfg(test)]
 mod tests {
+    const AGENT_IDENTITY_JWT_ISSUER: &str = "fixture-issuer";
     use base64::Engine as _;
     use ed25519_dalek::Signature;
     use ed25519_dalek::Verifier as _;
@@ -657,7 +530,8 @@ mod tests {
             "chatgpt_account_is_fedramp": false,
         }));
 
-        let claims = decode_agent_identity_jwt(&jwt, /*jwks*/ None).expect("JWT should decode");
+        let claims = decode_agent_identity_jwt(&jwt, /*jwks*/ None, /*issuer*/ None)
+            .expect("JWT should decode");
 
         assert_eq!(
             claims,
@@ -692,7 +566,8 @@ mod tests {
             "chatgpt_account_is_fedramp": false,
         }));
 
-        let claims = decode_agent_identity_jwt(&jwt, /*jwks*/ None).expect("JWT should decode");
+        let claims = decode_agent_identity_jwt(&jwt, /*jwks*/ None, /*issuer*/ None)
+            .expect("JWT should decode");
 
         assert_eq!(claims.email, None);
     }
@@ -713,7 +588,8 @@ mod tests {
             "chatgpt_account_is_fedramp": false,
         }));
 
-        let claims = decode_agent_identity_jwt(&jwt, /*jwks*/ None).expect("JWT should decode");
+        let claims = decode_agent_identity_jwt(&jwt, /*jwks*/ None, /*issuer*/ None)
+            .expect("JWT should decode");
 
         assert_eq!(claims.plan_type, AuthPlanType::Known(KnownPlan::Enterprise));
     }
@@ -767,9 +643,12 @@ mod tests {
             chatgpt_account_is_fedramp: false,
         };
         assert_eq!(
-            decode_agent_identity_jwt(&jwt, Some(&jwks)).expect("JWT should verify"),
+            decode_agent_identity_jwt(&jwt, Some(&jwks), Some(AGENT_IDENTITY_JWT_ISSUER))
+                .expect("JWT should verify"),
             expected_claims
         );
+        assert!(decode_agent_identity_jwt(&jwt, Some(&jwks), None).is_err());
+        assert!(decode_agent_identity_jwt(&jwt, Some(&jwks), Some("another-issuer")).is_err());
     }
 
     #[test]
@@ -795,7 +674,8 @@ mod tests {
         )
         .expect("JWT should encode");
 
-        decode_agent_identity_jwt(&jwt, Some(&jwks)).expect_err("JWT should not verify");
+        decode_agent_identity_jwt(&jwt, Some(&jwks), Some(AGENT_IDENTITY_JWT_ISSUER))
+            .expect_err("JWT should not verify");
     }
 
     #[test]
@@ -818,7 +698,8 @@ mod tests {
         )
         .expect("JWT should encode");
 
-        decode_agent_identity_jwt(&jwt, Some(&jwks)).expect_err("JWT should not verify");
+        decode_agent_identity_jwt(&jwt, Some(&jwks), Some(AGENT_IDENTITY_JWT_ISSUER))
+            .expect_err("JWT should not verify");
     }
 
     fn test_jwt_header(kid: &str) -> Header {
@@ -876,48 +757,6 @@ J1bwkqKZTB5dHolX9A58e/xXnfZ5P8f3Z83+Izap3FwqQulk7b1WO1MQcHuVg2NN
     }
 
     #[test]
-    fn chatgpt_environment_maps_known_urls_to_authapi() -> anyhow::Result<()> {
-        assert_eq!(
-            ChatGptEnvironment::from_chatgpt_base_url("https://chatgpt.com/backend-api/codex")?,
-            ChatGptEnvironment::Production
-        );
-        assert_eq!(
-            ChatGptEnvironment::Production.agent_identity_authapi_base_url(),
-            "https://auth.openai.com/api/accounts"
-        );
-        assert_eq!(
-            ChatGptEnvironment::from_chatgpt_base_url("https://chatgpt-staging.com/backend-api")?,
-            ChatGptEnvironment::Staging
-        );
-        assert_eq!(
-            ChatGptEnvironment::Staging.agent_identity_authapi_base_url(),
-            "https://auth.api.openai.org/api/accounts"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn chatgpt_environment_rejects_custom_urls() {
-        assert!(ChatGptEnvironment::from_chatgpt_base_url("http://localhost:8080").is_err(),);
-    }
-
-    #[test]
-    fn agent_registration_url_appends_to_authapi_base_url() {
-        assert_eq!(
-            agent_registration_url("https://auth.openai.com/api/accounts"),
-            "https://auth.openai.com/api/accounts/v1/agent/register"
-        );
-        assert_eq!(
-            agent_registration_url("http://localhost:8080"),
-            "http://localhost:8080/v1/agent/register"
-        );
-        assert_eq!(
-            agent_registration_url("http://localhost:8080/backend-api"),
-            "http://localhost:8080/backend-api/v1/agent/register"
-        );
-    }
-
-    #[test]
     fn agent_task_registration_url_appends_to_authapi_base_url() {
         assert_eq!(
             agent_task_registration_url("https://auth.openai.com/api/accounts", "agent-runtime-id"),
@@ -970,11 +809,11 @@ J1bwkqKZTB5dHolX9A58e/xXnfZ5P8f3Z83+Izap3FwqQulk7b1WO1MQcHuVg2NN
     fn agent_identity_jwks_url_uses_agent_identity_jwt_route() {
         assert_eq!(
             agent_identity_jwks_url("https://chatgpt.com/backend-api"),
-            "https://chatgpt.com/backend-api/wham/agent-identities/jwks"
+            "https://chatgpt.com/backend-api/agent-identities/jwks"
         );
         assert_eq!(
             agent_identity_jwks_url("https://chatgpt.com/backend-api/"),
-            "https://chatgpt.com/backend-api/wham/agent-identities/jwks"
+            "https://chatgpt.com/backend-api/agent-identities/jwks"
         );
     }
 
@@ -987,6 +826,10 @@ J1bwkqKZTB5dHolX9A58e/xXnfZ5P8f3Z83+Izap3FwqQulk7b1WO1MQcHuVg2NN
         assert_eq!(
             agent_identity_jwks_url("http://localhost:8080/api/codex/"),
             "http://localhost:8080/api/codex/agent-identities/jwks"
+        );
+        assert_eq!(
+            agent_identity_jwks_url("https://chatgpt.com/backend-api/wham"),
+            "https://chatgpt.com/backend-api/wham/agent-identities/jwks"
         );
     }
 

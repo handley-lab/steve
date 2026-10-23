@@ -560,13 +560,25 @@ async fn inline_review_delegate_runs_strict_guardian_assessment() -> Result<()> 
         start_mcp_server_with_tools(&["js"], /*sensitive_action*/ None).await?;
     let codex_home = TempDir::new()?;
     sync_config(&server.uri())
+        .with_extra_config("[auto_review]\nmodel = \"mock-model\"")
         .with_extra_config(&format!("[mcp_servers.node_repl]\nurl = \"{mcp_url}/mcp\"\ndefault_tools_approval_mode = \"auto\""))
         .write(codex_home.path())?;
     let config = load_default_config_for_test(&codex_home).await;
     let mut model = codex_core::test_support::construct_model_info_offline(MODEL, &config);
     // Strict MCP approvals must work under the inline delegate's `never` policy.
     model.node_repl_auto_review_required = true;
-    write_models_cache_with_models(codex_home.path(), vec![model]).await?;
+    std::fs::write(
+        codex_home.path().join("guardian-models.json"),
+        serde_json::to_vec(&codex_protocol::openai_models::ModelsResponse {
+            models: vec![model],
+        })?,
+    )?;
+    let config_path = codex_home.path().join("config.toml");
+    let config_text = std::fs::read_to_string(&config_path)?;
+    std::fs::write(
+        config_path,
+        format!("model_catalog_json = \"guardian-models.json\"\n{config_text}"),
+    )?;
     let mut app = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .build_initialized_with_timeout(TIMEOUT)
@@ -586,6 +598,12 @@ async fn inline_review_delegate_runs_strict_guardian_assessment() -> Result<()> 
         .await?;
     let completed: TurnCompletedNotification =
         timeout(TIMEOUT, app.read_notification("turn/completed")).await??;
+    eprintln!("T19_EVIDENCE {}", json!({
+        "kind": "inline-review-control", "status": completed.turn.status,
+        "requests": requests.requests().iter().map(|r| json!({
+            "role": r.header("x-codex-guardian"), "body": r.body_json(),
+        })).collect::<Vec<_>>(),
+    }));
     assert_eq!(completed.turn.status, TurnStatus::Completed);
     let output = requests
         .function_call_output_text("inline-tool")

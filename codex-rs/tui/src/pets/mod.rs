@@ -63,10 +63,11 @@ pub(crate) const DISABLED_PET_ID: &str = "disabled";
 async fn ensure_builtin_pack_for_pet(
     pet_id: &str,
     codex_home: &std::path::Path,
+    asset_base_url: Option<&str>,
     http_client: &RouteAwareClientPool,
 ) -> Result<()> {
     if let Some(pet) = catalog::builtin_pet(pet_id) {
-        asset_pack::ensure_builtin_pet(codex_home, pet, http_client).await?;
+        asset_pack::ensure_builtin_pet(codex_home, pet, asset_base_url, http_client).await?;
     }
     Ok(())
 }
@@ -77,9 +78,10 @@ pub(crate) async fn load_pet_with_assets(
     codex_home: AbsolutePathBuf,
     frame_requester: FrameRequester,
     animations_enabled: bool,
+    asset_base_url: Option<&str>,
     http_client: &RouteAwareClientPool,
 ) -> Result<AmbientPet> {
-    ensure_builtin_pack_for_pet(&pet_id, &codex_home, http_client).await?;
+    ensure_builtin_pack_for_pet(&pet_id, &codex_home, asset_base_url, http_client).await?;
     tokio::task::spawn_blocking(move || {
         AmbientPet::load(
             Some(&pet_id),

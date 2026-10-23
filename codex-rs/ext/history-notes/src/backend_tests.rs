@@ -145,3 +145,86 @@ async fn marks_encrypted_history_and_notes_arguments_without_changing_the_json_b
             .expect("encrypted argument request should succeed");
     }
 }
+
+#[tokio::test]
+async fn note_writes_do_not_follow_redirects() {
+    let mut failures = Vec::new();
+    for outbound_proxy_policy in [
+        OutboundProxyPolicy::ReqwestDefault,
+        OutboundProxyPolicy::RespectSystemProxy,
+    ] {
+        let recipient = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+            .mount(&recipient)
+            .await;
+        let redirect = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(307).insert_header(
+                "Location",
+                format!("{}/redirect-recipient", recipient.uri()),
+            ))
+            .mount(&redirect)
+            .await;
+        let arguments = json!({"path": "fixture.md", "text": "synthetic-private-note"});
+        for (index, server) in [&recipient, &redirect].into_iter().enumerate() {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                "x-openai-actor-authorization",
+                HeaderValue::from_static("synthetic-note-credential"),
+            );
+            let backend = HistoryNotesBackend::new(
+                create_model_provider(
+                    ModelProviderInfo::create_openai_provider(Some(format!("{}/v1", server.uri()))),
+                    Some(AuthManager::from_auth_for_testing(CodexAuth::Headers(
+                        AuthHeaders::new(headers),
+                    ))),
+                ),
+                HttpClientFactory::new(outbound_proxy_policy),
+            );
+            let result = backend
+                .call(
+                    "alpha/notes/v2/write_file",
+                    "fixture-session",
+                    "/root",
+                    arguments.clone(),
+                    TruncationPolicy::Bytes(1024),
+                )
+                .await;
+            let received = recipient
+                .received_requests()
+                .await
+                .expect("captured requests");
+            eprintln!(
+                "note redirect control {outbound_proxy_policy:?} {index}: result={result:?}, recipient={:?}",
+                received
+                    .iter()
+                    .map(|request| (
+                        &request.url,
+                        &request.headers,
+                        String::from_utf8_lossy(&request.body)
+                    ))
+                    .collect::<Vec<_>>()
+            );
+            if index == 0 {
+                assert_eq!(
+                    result.expect("configured recipient accepts notes"),
+                    json!({"ok": true})
+                );
+                assert_eq!(received.len(), 1);
+                let body: serde_json::Value = serde_json::from_slice(&received[0].body).unwrap();
+                assert_eq!(body["text"], "synthetic-private-note");
+                assert_eq!(body["context"]["session_id"], "fixture-session");
+            } else {
+                if received.len() != 1 || result.is_ok() {
+                    failures.push((outbound_proxy_policy, received.len(), result.is_ok()));
+                }
+                assert_eq!(redirect.received_requests().await.unwrap().len(), 1);
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "note content followed redirects: {failures:?}"
+    );
+}

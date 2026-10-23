@@ -187,7 +187,6 @@ use slash_commands::ServiceTierCommand;
 mod feedback_note_view;
 mod feedback_view;
 mod hooks_browser_view;
-pub(crate) use feedback_view::FeedbackAudience;
 pub(crate) use feedback_view::feedback_classification;
 pub(crate) use feedback_view::feedback_disabled_params;
 pub(crate) use feedback_view::feedback_selection_params;
@@ -2087,10 +2086,7 @@ impl BottomPane {
         if let Some(tool_suggestion) = request.tool_suggestion()
             && let Some(install_url) = tool_suggestion.install_url.clone()
         {
-            let Some(install_url) = app_link_view::validate_external_url(
-                &install_url,
-                /*require_chatgpt_host*/ false,
-            ) else {
+            let Some(install_url) = app_link_view::validate_external_url(&install_url) else {
                 self.app_event_tx.resolve_elicitation(
                     request.thread_id(),
                     request.server_name().to_string(),
@@ -2838,9 +2834,10 @@ mod tests {
             .expect("valid optional banner");
             let (tx, mut rx) = unbounded_channel();
             let mut pane = test_pane(AppEventSender::new(tx));
-            pane.set_inline_banner(Some(
-                banner.actionable_banner(crate::clock_format::ClockFormat::TwentyFourHour),
-            ));
+            pane.set_inline_banner(Some(banner.actionable_banner(
+                crate::clock_format::ClockFormat::TwentyFourHour,
+                "https://chatgpt.com/backend-api",
+            )));
             let width = 44;
             let area = Rect::new(
                 /*x*/ 0,

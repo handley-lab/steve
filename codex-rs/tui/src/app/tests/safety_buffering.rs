@@ -46,6 +46,7 @@ enum SafetyRetryScenario {
     PendingPermissions,
     InterruptedPrevious,
     UnsupportedPermissions,
+    ForwardingDisabled,
 }
 
 fn response_chunks(response_id: &str) -> Vec<StreamingSseChunk> {
@@ -531,6 +532,26 @@ async fn run_safety_retry(
         .filter(|model| matches!(model.slug.as_str(), CURRENT_MODEL | FASTER_MODEL))
     {
         model.tool_mode = Some(ToolMode::Direct);
+        if scenario == SafetyRetryScenario::Once {
+            model.service_tiers = ["priority", "ultrafast"]
+                .into_iter()
+                .map(|id| codex_protocol::openai_models::ModelServiceTier {
+                    id: id.into(),
+                    name: id.into(),
+                    description: id.into(),
+                })
+                .collect();
+            model.default_service_tier = Some(if model.slug == CURRENT_MODEL {
+                "priority".into()
+            } else {
+                "ultrafast".into()
+            });
+        }
+        if scenario == SafetyRetryScenario::ForwardingDisabled && model.slug == FASTER_MODEL {
+            model.available_access_programs = Some(ModelAccessPrograms {
+                cyber: vec![CyberAccessProgram::Standard, CyberAccessProgram::DaybreakBlue],
+            });
+        }
         if scenario == SafetyRetryScenario::UnsupportedPermissions && model.slug == FASTER_MODEL {
             model.available_access_programs = Some(ModelAccessPrograms {
                 cyber: vec![CyberAccessProgram::Standard],
@@ -543,6 +564,16 @@ async fn run_safety_retry(
     // The committed-steer case counts usage from the response that finishes before steering.
     let instant_interrupt_config = if committed_steer.is_some() {
         "instant_interrupt = false"
+    } else {
+        ""
+    };
+    let forwarding_config = if scenario == SafetyRetryScenario::ForwardingDisabled {
+        "cli_daybreak = true\napi_key_cyber_access_programs = false"
+    } else {
+        ""
+    };
+    let tier_config = if scenario == SafetyRetryScenario::Once {
+        "fast_mode = true\nultrafast_mode = true"
     } else {
         ""
     };
@@ -564,6 +595,8 @@ stream_max_retries = 0
 [features]
 goals = true
 {instant_interrupt_config}
+{forwarding_config}
+{tier_config}
 "#,
             server.uri()
         ),
@@ -594,6 +627,11 @@ goals = true
         .features
         .enable(Feature::Goals)
         .expect("test config should allow goals");
+
+    if scenario == SafetyRetryScenario::Once {
+        app.config.features.enable(Feature::FastMode)?;
+        app.config.features.enable(Feature::UltrafastMode)?;
+    }
 
     if scenario == SafetyRetryScenario::PendingPermissions {
         app.config
@@ -683,6 +721,11 @@ goals = true
 
     submit_prompt(&mut app, RETRY_PROMPT);
     let mut active_turn = next_user_turn_event(&mut app_event_rx);
+    if scenario == SafetyRetryScenario::Once
+        && let AppCommand::UserTurn { service_tier, .. } = &mut active_turn
+    {
+        *service_tier = Some(Some("priority".to_string()));
+    }
     app.submit_thread_op(&mut app_server, source_thread_id, active_turn.clone())
         .await?;
     let active_turn_id = next_turn_started(&mut app, &mut app_server, source_thread_id).await;
@@ -775,6 +818,35 @@ goals = true
     assert_eq!(app.chat_widget.thread_id(), Some(source_thread_id));
     app.primary_thread_id = Some(source_thread_id);
     while app_event_rx.try_recv().is_ok() {}
+
+    if scenario == SafetyRetryScenario::ForwardingDisabled {
+        app.chat_widget.set_feature_enabled(Feature::CliDaybreak, true);
+        app.chat_widget.set_daybreak_enabled(true);
+        let before = server.requests().await.len();
+        Box::pin(app.retry_safety_buffered_turn(
+            &mut tui, &mut app_server,
+            SafetyBufferedRetry {
+                thread_id: source_thread_id, turn_id: active_turn_id.clone(),
+                model: FASTER_MODEL.into(), turn: active_turn.clone(),
+                prompt: UserMessage::from(RETRY_PROMPT),
+            },
+        )).await;
+        assert_eq!(app.chat_widget.thread_id(), Some(source_thread_id));
+        let source = app_server.thread_read(source_thread_id, true).await?;
+        assert_eq!(source.turns.last().map(|turn| &turn.status), Some(&TurnStatus::InProgress));
+        assert_eq!(server.requests().await.len(), before);
+        let error = std::iter::from_fn(|| app_event_rx.try_recv().ok()).find_map(|event| match event {
+            AppEvent::InsertHistoryCell(cell) => Some(lines_to_single_string(&cell.display_lines(200))),
+            _ => None,
+        }).expect("disabled-program preflight error");
+        assert!(error.contains("Cyber access programs are disabled for this session."), "{error}");
+        // The parent remains disabled; the successor must resolve its own newly enabled scope.
+        let config_path = codex_home.path().join("config.toml");
+        std::fs::write(&config_path, std::fs::read_to_string(&config_path)?.replace(
+            "api_key_cyber_access_programs = false", "api_key_cyber_access_programs = true",
+        ))?;
+        app.chat_widget.set_daybreak_enabled(false);
+    }
 
     if scenario == SafetyRetryScenario::UnsupportedPermissions {
         app_server
@@ -884,6 +956,9 @@ goals = true
         .await;
     }
 
+    if scenario == SafetyRetryScenario::Once {
+        app.chat_widget.set_service_tier(None);
+    }
     Box::pin(app.retry_safety_buffered_turn(
         &mut tui,
         &mut app_server,
@@ -1137,6 +1212,12 @@ goals = true
     let retry_request = request_bodies
         .get(retry_request_index)
         .expect("retry should issue a Responses API request");
+    if scenario == SafetyRetryScenario::ForwardingDisabled {
+        assert_eq!(retry_request["access_programs"], serde_json::json!({"cyber": "standard"}));
+        if let Some(path) = std::env::var_os("STEVE_TEST_DAYBREAK_SAFETY_CAPTURE") {
+            std::fs::write(path, serde_json::to_vec_pretty(&request_bodies)?)?;
+        }
+    }
     assert_eq!(retry_request["model"].as_str(), Some(FASTER_MODEL));
     assert_eq!(retry_request["reasoning"]["effort"].as_str(), Some("low"));
     let relevant_prompts = user_input_texts(retry_request)
@@ -1187,6 +1268,17 @@ goals = true
             .any(|text| text.contains(RETRY_GOAL)),
         "inherited goal continuation should resume after the explicit retry"
     );
+
+    if scenario == SafetyRetryScenario::Once {
+        assert_eq!(retry_request["service_tier"], serde_json::json!("priority"));
+        assert_eq!(
+            request_bodies[goal_continuation_request_index]["service_tier"],
+            serde_json::json!("priority")
+        );
+        if let Some(path) = std::env::var_os("STEVE_TEST_TIER_SAFETY_CAPTURE") {
+            std::fs::write(path, serde_json::to_vec_pretty(&request_bodies)?)?;
+        }
+    }
 
     if let Some(release_active_response) = release_active_response.take() {
         let _ = release_active_response.send(());
@@ -1285,4 +1377,9 @@ async fn safety_retry_preserves_unconfirmed_permissions_on_its_first_turn() -> R
         SafetyRetryScenario::PendingPermissions,
     )
     .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn daybreak_safety_preflight_preserves_turn_and_successor_uses_its_own_scope() -> Result<()> {
+    run_safety_retry(None, None, None, SafetyRetryScenario::ForwardingDisabled).await
 }

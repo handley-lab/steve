@@ -43,7 +43,6 @@ fn make_view(category: FeedbackCategory) -> FeedbackNoteView {
         /*turn_id*/ None,
         tx,
         /*include_logs*/ true,
-        FeedbackAudience::External,
     )
 }
 
@@ -75,47 +74,12 @@ fn feedback_view_safety_check() {
 }
 
 #[test]
-fn feedback_disclosure_matches_audience_at_normal_and_narrow_widths() {
-    let mut rendered = Vec::new();
-    for (audience, name, url, link_label) in [
-        (
-            FeedbackAudience::External,
-            "external",
-            FEEDBACK_POLICY_URL,
-            "Learnmore",
-        ),
-        (
-            FeedbackAudience::OpenAiEmployee,
-            "employee",
-            EMPLOYEE_FEEDBACK_FAQ_URL,
-            "here",
-        ),
-    ] {
-        let mut view = make_view(FeedbackCategory::Bug);
-        view.feedback_audience = audience;
-        for width in [80, 40] {
-            let area = Rect::new(
-                /*x*/ 0,
-                /*y*/ 0,
-                width,
-                view.desired_height(width),
-            );
-            let mut buf = Buffer::empty(area);
-            view.render(area, &mut buf);
-
-            let linked_text = buf
-                .content
-                .iter()
-                .filter(|cell| cell.symbol().contains(&format!("\x1b]8;;{url}\x07")))
-                .map(|cell| crate::terminal_hyperlinks::strip_osc8(cell.symbol()))
-                .collect::<String>();
-            assert_eq!(linked_text, link_label);
-            rendered.push(format!(
-                "{name} ({width} columns)\n{}",
-                render_buffer(area, &buf)
-            ));
-        }
-    }
+fn feedback_disclosure_at_normal_and_narrow_widths() {
+    let view = make_view(FeedbackCategory::Bug);
+    let rendered = [80, 40]
+        .into_iter()
+        .map(|width| format!("feedback ({width} columns)\n{}", render(&view, width)))
+        .collect::<Vec<_>>();
     insta::assert_snapshot!("feedback_disclosures", rendered.join("\n\n"));
 }
 
@@ -124,7 +88,6 @@ fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
     let mut rendered = Vec::new();
     for (width, height) in [(40, 12), (80, 8)] {
         let mut view = make_view(FeedbackCategory::Bug);
-        view.feedback_audience = FeedbackAudience::OpenAiEmployee;
         view.handle_paste("A visible note.".to_string());
         let area = Rect::new(/*x*/ 0, /*y*/ 0, width, height);
         for (stage, key) in [
@@ -146,7 +109,9 @@ fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
             );
             assert_eq!(view.is_complete(), false);
             if stage == "scrolled" {
-                assert!(text.contains("sensitive personal"));
+                assert!(
+                    text.contains("configured feedback") || text.contains("logs and diagnostics")
+                );
             }
             rendered.push(format!("{width}x{height} {stage}\n{text}"));
         }
@@ -157,7 +122,6 @@ fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
 #[test]
 fn feedback_disclosure_keeps_editor_visible_in_four_rows() {
     let mut view = make_view(FeedbackCategory::Bug);
-    view.feedback_audience = FeedbackAudience::OpenAiEmployee;
     view.handle_paste("A visible note.".to_string());
     let area = Rect::new(
         /*x*/ 0, /*y*/ 0, /*width*/ 80, /*height*/ 4,
@@ -170,14 +134,14 @@ fn feedback_disclosure_keeps_editor_visible_in_four_rows() {
             .is_some_and(|(x, y)| area.contains((x, y).into()))
     );
     let initial = render_buffer(area, &buf);
-    assert!(initial.contains("Your data may be used to improve our models and products"));
+    assert!(initial.contains("Your feedback will be sent"));
     for _ in view.intro_lines(area.width, IntroContent::Full) {
         view.handle_key_event(KeyEvent::from(KeyCode::PageDown));
         buf = Buffer::empty(area);
         view.render(area, &mut buf);
     }
     let scrolled = render_buffer(area, &buf);
-    assert!(scrolled.contains("personal information."));
+    assert!(scrolled.contains("logs and diagnostics will be included."));
     insta::assert_snapshot!(
         "feedback_disclosure_four_rows",
         format!("{initial}\n\n{scrolled}")
@@ -186,15 +150,12 @@ fn feedback_disclosure_keeps_editor_visible_in_four_rows() {
     let narrow_area = Rect::new(
         /*x*/ 0, /*y*/ 0, /*width*/ 24, /*height*/ 4,
     );
-    for (audience, disclosure) in [
-        (FeedbackAudience::OpenAiEmployee, "Your data"),
-        (FeedbackAudience::External, "Your feedback"),
-    ] {
+    for include_logs in [false, true] {
         let mut view = make_view(FeedbackCategory::SafetyCheck);
-        view.feedback_audience = audience;
+        view.include_logs = include_logs;
         let mut buf = Buffer::empty(narrow_area);
         view.render(narrow_area, &mut buf);
-        assert!(render_buffer(narrow_area, &buf).contains(disclosure));
+        assert!(render_buffer(narrow_area, &buf).contains("Your feedback"));
     }
 }
 
@@ -208,7 +169,6 @@ fn feedback_paste_burst_preserves_multiline_note_until_submit() {
                 /*turn_id*/ None,
                 AppEventSender::new(tx),
                 include_logs,
-                FeedbackAudience::External,
             );
             let now = Instant::now();
             for (index, ch) in note.chars().enumerate() {
@@ -270,7 +230,6 @@ fn feedback_bracketed_paste_does_not_reach_chat_composer() {
             /*turn_id*/ None,
             tx,
             include_logs,
-            FeedbackAudience::External,
         )));
         // An explicit paste ends any preceding keystroke burst.
         pane.handle_key_event(KeyEvent::from(KeyCode::Char('x')));
@@ -306,7 +265,6 @@ fn submit_feedback_emits_submit_event_with_trimmed_note() {
         Some("turn-123".to_string()),
         tx,
         /*include_logs*/ true,
-        FeedbackAudience::OpenAiEmployee,
     );
     view.textarea.insert_str("  something broke  ");
 
@@ -334,7 +292,6 @@ fn submit_feedback_omits_empty_note() {
         /*turn_id*/ None,
         tx,
         /*include_logs*/ false,
-        FeedbackAudience::External,
     );
 
     view.submit();
@@ -359,7 +316,6 @@ fn feedback_note_cancel_does_not_submit() {
         /*turn_id*/ None,
         AppEventSender::new(tx_raw),
         /*include_logs*/ false,
-        FeedbackAudience::OpenAiEmployee,
     );
     view.textarea.insert_str("unfinished feedback");
 
@@ -367,4 +323,28 @@ fn feedback_note_cancel_does_not_submit() {
 
     assert_eq!(view.is_complete(), true);
     assert!(rx.try_recv().is_err());
+}
+
+#[test]
+fn provider_neutral_feedback_disclosure_names_configured_recipient() {
+    let view = make_view(FeedbackCategory::Bug);
+    for width in [80, 40] {
+        let area = Rect::new(0, 0, width, view.desired_height(width));
+        let mut buf = Buffer::empty(area);
+        view.render(area, &mut buf);
+        assert!(
+            buf.content
+                .iter()
+                .all(|cell| !cell.symbol().contains("\x1b]8;;"))
+        );
+        let text = render_buffer(area, &buf)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(text.contains("configured feedback"), "{text}");
+        assert!(
+            !text.contains("OpenAI") && !text.contains("ChatGPT"),
+            "{text}"
+        );
+    }
 }

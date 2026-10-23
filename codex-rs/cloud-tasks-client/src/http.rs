@@ -52,6 +52,15 @@ impl HttpClient {
         self
     }
 
+    pub fn with_path_style(mut self, style: backend::PathStyle) -> Self {
+        self.backend = self.backend.clone().with_path_style(style);
+        self
+    }
+
+    pub fn path_style(&self) -> backend::PathStyle {
+        self.backend.path_style()
+    }
+
     fn tasks_api(&self) -> api::Tasks<'_> {
         api::Tasks::new(self)
     }
@@ -136,6 +145,13 @@ impl CloudBackend for HttpClient {
                 .create(env_id, prompt, git_ref, qa_mode, best_of_n)
                 .await
         })
+    }
+}
+
+pub(crate) fn details_path(base_url: &str, id: &str, path_style: backend::PathStyle) -> String {
+    match path_style {
+        backend::PathStyle::ChatGptApi => format!("{base_url}/wham/tasks/{id}"),
+        backend::PathStyle::CodexApi => format!("{base_url}/api/codex/tasks/{id}"),
     }
 }
 
@@ -291,10 +307,7 @@ mod api {
                 return Ok(vec![format!("Task failed: {err}")]);
             }
 
-            let url = match details_path(self.base_url, &id.0) {
-                Some(url) => url,
-                None => format!("{}/api/codex/tasks/{}", self.base_url, id.0),
-            };
+            let url = super::details_path(self.base_url, &id.0, self.backend.path_style());
             Err(CloudTaskError::Http(format!(
                 "No assistant text messages in response. GET {url}; content-type={ct}; body={body}"
             )))
@@ -571,16 +584,6 @@ mod api {
                 skipped_paths: r.skipped_paths,
                 conflict_paths: r.conflicted_paths,
             })
-        }
-    }
-
-    fn details_path(base_url: &str, id: &str) -> Option<String> {
-        if base_url.contains("/backend-api") {
-            Some(format!("{base_url}/wham/tasks/{id}"))
-        } else if base_url.contains("/api/codex") {
-            Some(format!("{base_url}/tasks/{id}"))
-        } else {
-            None
         }
     }
 
@@ -917,5 +920,33 @@ fn append_error_log(message: &str) {
     {
         use std::io::Write as _;
         let _ = writeln!(f, "[{ts}] {message}");
+    }
+}
+
+#[cfg(test)]
+mod details_path_tests {
+    use super::details_path;
+    use codex_backend_client::PathStyle;
+
+    #[test]
+    fn details_path_follows_the_client_path_style() {
+        let backend_api = "https://example.test/backend-api";
+        let already_prefixed = "https://example.test/api/codex";
+        assert_eq!(
+            details_path(backend_api, "task-1", PathStyle::CodexApi),
+            "https://example.test/backend-api/api/codex/tasks/task-1"
+        );
+        assert_eq!(
+            details_path(backend_api, "task-1", PathStyle::ChatGptApi),
+            "https://example.test/backend-api/wham/tasks/task-1"
+        );
+        assert_eq!(
+            details_path(already_prefixed, "task-1", PathStyle::CodexApi),
+            "https://example.test/api/codex/api/codex/tasks/task-1"
+        );
+        assert_eq!(
+            details_path(already_prefixed, "task-1", PathStyle::ChatGptApi),
+            "https://example.test/api/codex/wham/tasks/task-1"
+        );
     }
 }

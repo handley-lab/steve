@@ -286,13 +286,19 @@ async fn reviewer_compaction_hash(sess: &Session, turn_context: &TurnContext) ->
         sess.conversation_history_snapshot().await.as_ref(),
     ) == crate::context::GuardianContextMode::Legacy
         && let Some(review_turn) = sess.turn_context_for_sub_id(&turn_context.sub_id).await
+        && review_turn
+            .config
+            .features
+            .enabled(Feature::GuardianApproval)
     {
         // Previous-model compaction must remain compatible with the continuing turn's
         // reviewer, including model changes accepted while compaction was running.
         let mut review_context = crate::guardian::GuardianReviewContext::from(&review_turn);
         review_context.model_info = review_turn.capture_current_model_info();
-        let (_, reviewer) = crate::guardian::resolve_review_model(sess, &review_context).await;
-        reviewer.comp_hash.clone()
+        crate::guardian::resolve_review_model(sess, &review_context)
+            .await
+            .ok()
+            .and_then(|(_, reviewer, _)| reviewer.comp_hash.clone())
     } else {
         None
     }

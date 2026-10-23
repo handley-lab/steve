@@ -241,6 +241,10 @@ fn guardian_v2_feature_config_deserializes_classifier_and_transcript_settings() 
 enabled = true
 free_guardian = true
 persist_scores = true
+model_provider = "local"
+model = "local-risk"
+comparison_model_provider = "comparison"
+comparison_model = "local-comparison"
 classifier_instructions = "Review this action"
 review_threshold = 0.65
 max_tool_call_lag = 2
@@ -270,6 +274,10 @@ max_recent_non_user_entries = 12
     assert_eq!(
         features.guardianv2,
         Some(FeatureToml::Config(crate::GuardianV2ConfigToml {
+            model_provider: Some("local".to_owned()),
+            model: Some("local-risk".to_owned()),
+            comparison_model_provider: Some("comparison".to_owned()),
+            comparison_model: Some("local-comparison".to_owned()),
             transcript_mode: None,
             async_classifier_mode: None,
             async_classifier_conversation_token_limit: Some(120_000),

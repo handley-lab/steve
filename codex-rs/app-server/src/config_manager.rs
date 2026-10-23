@@ -141,12 +141,14 @@ impl ConfigManager {
         &self,
         auth_manager: Arc<AuthManager>,
         chatgpt_base_url: String,
+        path_style: codex_config::AccountPathStyle,
         http_client_factory: codex_http_client::HttpClientFactory,
     ) {
         let endpoint = codex_backend_client::Client::new(
             chatgpt_base_url.clone(),
             http_client_factory.clone(),
         )
+        .with_account_path_style(path_style)
         .config_bundle_url();
         let http_client_factory = http_client_factory.with_network_policy(
             self.local_network_policy
@@ -156,6 +158,7 @@ impl ConfigManager {
         let loader = cloud_config_bundle_loader(
             auth_manager,
             chatgpt_base_url,
+            path_style,
             self.codex_home.clone(),
             http_client_factory,
         );

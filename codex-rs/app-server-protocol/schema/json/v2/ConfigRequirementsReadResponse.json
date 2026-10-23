@@ -781,6 +781,12 @@
     },
     "FeedbackRequirements": {
       "properties": {
+        "dsn": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "enabled": {
           "type": [
             "boolean",

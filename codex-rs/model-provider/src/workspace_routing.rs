@@ -1,4 +1,4 @@
-//! Applies discovered routing and keeps requests within the selected ChatGPT backend.
+//! Applies account routing within the configured provider origin.
 
 use codex_login::WorkspaceRouting;
 use codex_login::WorkspaceRoutingSession;
@@ -36,15 +36,14 @@ impl WorkspaceRoutingContext {
     }
 }
 
-/// Changes only the origin of requests to the selected ChatGPT backend.
+/// Applies account routing without changing the configured provider origin.
 pub(crate) fn apply_workspace_routing(
     provider: &mut codex_api::Provider,
     routing: WorkspaceRouting,
 ) -> io::Result<()> {
-    let base_url = &mut provider.base_url;
     let headers = &mut provider.headers;
     let parse = |value: &str| Url::parse(value).map_err(io::Error::other);
-    let mut url = parse(base_url)?;
+    let url = parse(&provider.base_url)?;
     let backend = parse(&routing.backend_origin)?;
     if backend.scheme() != "https"
         || backend.host_str().is_none()
@@ -56,6 +55,11 @@ pub(crate) fn apply_workspace_routing(
     {
         return Err(io::Error::other("invalid workspace backend origin"));
     }
+    if url.origin() != backend.origin() {
+        return Err(io::Error::other(
+            "workspace routing cannot change the configured provider origin",
+        ));
+    }
     let header = match routing.account_routing_override.as_str() {
         "NO_CONSTRAINT" => None,
         "us" | "us_cr" => Some(
@@ -63,12 +67,6 @@ pub(crate) fn apply_workspace_routing(
         ),
         _ => return Err(io::Error::other("invalid workspace routing override")),
     };
-    url.set_scheme(backend.scheme())
-        .map_err(|()| io::Error::other("invalid backend scheme"))?;
-    url.set_host(backend.host_str()).map_err(io::Error::other)?;
-    url.set_port(backend.port())
-        .map_err(|()| io::Error::other("invalid backend port"))?;
-    *base_url = url.into();
     headers.remove(ACCOUNT_ROUTING_HEADER);
     if let Some(header) = header {
         headers.insert(ACCOUNT_ROUTING_HEADER, header);

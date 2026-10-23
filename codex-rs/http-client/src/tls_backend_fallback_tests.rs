@@ -206,10 +206,6 @@ fn evicting_a_destination_removes_its_unshared_route_client() {
 fn direct_rustls_client() -> crate::client::TransportClient {
     HttpClientBuilder::new()
         .with_rustls_tls()
-        .build_for_resolved_route(
-            &crate::HttpClientFactory::new(crate::OutboundProxyPolicy::ReqwestDefault),
-            crate::ClientRouteClass::Api,
-            &OutboundProxyRoute::Direct,
-        )
+        .build_for_resolved_route(crate::ClientRouteClass::Api, &OutboundProxyRoute::Direct)
         .expect("rustls client should build without proxy autodiscovery")
 }

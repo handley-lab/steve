@@ -7,6 +7,7 @@ use super::RealtimeWebrtcSidebandInputTask;
 use super::spawn_webrtc_sideband_input_task;
 use crate::client::ModelClient;
 use async_channel::Sender;
+use codex_api::Provider;
 use codex_api::RealtimeEvent;
 use codex_api::RealtimeEventParser;
 use codex_api::RealtimeSessionConfig;
@@ -23,6 +24,7 @@ use tokio_util::sync::CancellationToken;
 
 pub(super) struct ExistingCallAttachment {
     pub(super) client: RealtimeWebsocketClient,
+    pub(super) api_provider: Provider,
     pub(super) model_client: ModelClient,
     pub(super) session_config: RealtimeSessionConfig,
     pub(super) call_id: String,
@@ -40,6 +42,7 @@ pub(super) struct ExistingCallAttachment {
 pub(super) async fn attach(attachment: ExistingCallAttachment) -> CodexResult<JoinHandle<()>> {
     let ExistingCallAttachment {
         client,
+        api_provider,
         model_client,
         session_config,
         call_id,
@@ -54,7 +57,7 @@ pub(super) async fn attach(attachment: ExistingCallAttachment) -> CodexResult<Jo
         stop_token,
     } = attachment;
     let sideband_headers = model_client
-        .realtime_sideband_headers(extra_headers)
+        .realtime_sideband_headers(extra_headers, api_provider)
         .await?;
     let transcript_state = RealtimeTranscriptState::default();
     let connection = client

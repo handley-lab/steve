@@ -44,15 +44,16 @@ impl From<&Config> for WebSearchExtensionConfig {
         let web_search_mode = config.web_search_mode.value();
         Self {
             // Core selects this executor per turn using the feature flag or model metadata.
-            available: (config.model_provider.is_openai()
-                || config.model_provider.uses_openai_actor_authorization()
-                || config.model_provider.supports_standalone_web_search)
-                && web_search_mode != WebSearchMode::Disabled,
+            available: standalone_web_search_available(&config.model_provider, web_search_mode),
             http_client_factory: config.http_client_factory(),
             provider: config.model_provider.clone(),
             settings: search_settings(config, web_search_mode),
         }
     }
+}
+
+fn standalone_web_search_available(provider: &ModelProviderInfo, mode: WebSearchMode) -> bool {
+    provider.supports_standalone_web_search && mode != WebSearchMode::Disabled
 }
 
 fn search_settings(config: &Config, web_search_mode: WebSearchMode) -> SearchSettings {
@@ -172,6 +173,7 @@ mod tests {
     use super::WebSearchExtensionConfig;
     use super::external_web_access_for_mode;
     use super::install;
+    use super::standalone_web_search_available;
     use crate::tool::RUN_TOOL_NAME;
     use crate::tool::WEB_NAMESPACE;
     use codex_api::ExternalWebAccess;
@@ -225,5 +227,52 @@ mod tests {
             tool_names,
             vec![(ToolName::namespaced(WEB_NAMESPACE, RUN_TOOL_NAME), true)]
         );
+    }
+
+    #[test]
+    fn standalone_web_search_follows_the_provider_flag() {
+        let mut provider = ModelProviderInfo {
+            name: "OpenAI".to_string(),
+            ..ModelProviderInfo::default()
+        };
+        assert!(!standalone_web_search_available(
+            &provider,
+            WebSearchMode::Live
+        ));
+        provider.supports_standalone_web_search = true;
+        assert!(standalone_web_search_available(
+            &provider,
+            WebSearchMode::Live
+        ));
+        provider.name = "Cambridge".to_string();
+        assert!(standalone_web_search_available(
+            &provider,
+            WebSearchMode::Cached
+        ));
+        provider.supports_standalone_web_search = false;
+        assert!(!standalone_web_search_available(
+            &provider,
+            WebSearchMode::Live
+        ));
+        provider.http_headers = Some(std::collections::HashMap::from([(
+            "X-OpenAI-Actor-Authorization".to_string(),
+            "actor-token".into(),
+        )]));
+        assert!(!standalone_web_search_available(
+            &provider,
+            WebSearchMode::Live
+        ));
+        provider.supports_standalone_web_search = true;
+        for name in ["OpenAI", "Cambridge"] {
+            provider.name = name.to_string();
+            assert!(standalone_web_search_available(
+                &provider,
+                WebSearchMode::Live
+            ));
+            assert!(!standalone_web_search_available(
+                &provider,
+                WebSearchMode::Disabled
+            ));
+        }
     }
 }

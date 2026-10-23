@@ -55,7 +55,6 @@ use crate::artifact::image_generation_artifact_path;
 use crate::artifact::image_generation_output_hint;
 use crate::backend::CodexImagesBackend;
 
-const IMAGE_MODEL: &str = "gpt-image-2";
 const MAX_EDIT_IMAGES: usize = 5;
 const MAX_EXECUTOR_GENERATED_IMAGE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_EXECUTOR_GENERATED_IMAGE_BASE64_BYTES: usize =
@@ -67,6 +66,7 @@ pub(crate) struct ImageGenerationTool {
     backend: CodexImagesBackend,
     save_root: Option<AbsolutePathBuf>,
     thread_id: String,
+    model: Option<String>,
 }
 
 impl ImageGenerationTool {
@@ -74,11 +74,13 @@ impl ImageGenerationTool {
     pub(crate) fn new(
         backend: CodexImagesBackend,
         save_root: Option<AbsolutePathBuf>,
+        model: Option<String>,
         thread_id: String,
     ) -> Self {
         Self {
             backend,
             save_root,
+            model,
             thread_id,
         }
     }
@@ -147,9 +149,20 @@ impl ImageGenerationTool {
         call: ToolCall<'_>,
     ) -> Result<Box<dyn ToolOutput>, FunctionCallError> {
         let args = parse_args(&call)?;
-        let request =
-            request_for_call_args(&args, call.conversation_history.items(), &call.environments)
-                .await?;
+        let request = request_for_call_args(
+            self.model
+                .as_deref()
+                .filter(|model| !model.trim().is_empty())
+                .ok_or_else(|| {
+                    FunctionCallError::RespondToModel(
+                        "Set image_generation_model before generating images".into(),
+                    )
+                })?,
+            &args,
+            call.conversation_history.items(),
+            &call.environments,
+        )
+        .await?;
         call.turn_item_emitter
             .emit_started(extension_turn_item(
                 ImageGenerationItem {
@@ -412,6 +425,7 @@ enum ImageRequest {
 }
 
 async fn request_for_call_args(
+    model: &str,
     args: &ImagegenArgs,
     history: &[ResponseItem],
     environments: &[ToolEnvironment<'_>],
@@ -432,7 +446,7 @@ async fn request_for_call_args(
             return Ok(ImageRequest::Generate(ImageGenerationRequest {
                 prompt: args.prompt.clone(),
                 background: Some(background),
-                model: IMAGE_MODEL.to_string(),
+                model: model.to_string(),
                 n: None,
                 quality: Some(ImageQuality::Auto),
                 size: Some("auto".to_string()),
@@ -476,7 +490,7 @@ async fn request_for_call_args(
         images,
         prompt: args.prompt.clone(),
         background: Some(background),
-        model: IMAGE_MODEL.to_string(),
+        model: model.to_string(),
         n: None,
         quality: Some(ImageQuality::Auto),
         size: Some("auto".to_string()),

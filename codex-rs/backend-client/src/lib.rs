@@ -8,6 +8,7 @@ pub use client::AddCreditsNudgeCreditType;
 pub use client::ChatgptThreadTurnCosts;
 pub use client::ChatgptTurnCost;
 pub use client::Client;
+pub use client::PathStyle;
 pub use client::RequestError;
 pub use client::ThreadUsage;
 pub use client::ThreadUsageBreakdownGroup;

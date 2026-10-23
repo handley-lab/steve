@@ -91,20 +91,17 @@ impl Drop for AgentsOverviewState {
 impl App {
     pub(super) fn open_agents_overview(&mut self, app_server: &AppServerSession) {
         if matches!(self.app_server_target, AppServerTarget::Embedded) {
-            let workload_identity_selected = codex_login::is_workload_identity_selected();
             self.chat_widget.show_selection_view(SelectionViewParams {
                 title: Some("Shared agents unavailable".to_string()),
                 subtitle: Some(
-                    if workload_identity_selected {
-                        "The agents dashboard is unavailable while workload identity is active."
-                    } else if cfg!(any(unix, windows)) {
+                    if cfg!(any(unix, windows)) {
                         "This session isn’t connected to a shared background server."
                     } else {
                         "Connect to a remote background server to use the agents dashboard."
                     }
                     .to_string(),
                 ),
-                footer_note: (cfg!(any(unix, windows)) && !workload_identity_selected).then(|| {
+                footer_note: cfg!(any(unix, windows)).then(|| {
                     Line::from(
                         "Starting a background server will not interrupt or move this session."
                             .dim(),
@@ -112,7 +109,7 @@ impl App {
                 }),
                 items: [
                     #[cfg(any(unix, windows))]
-                    (!workload_identity_selected).then(|| SelectionItem {
+                    Some(SelectionItem {
                         name: "Start background server".to_string(),
                         description: Some(
                             "Open `steve agents` in another terminal afterward".to_string(),
@@ -1069,10 +1066,10 @@ impl App {
                     &self.harness_overrides,
                 );
                 // Embedded thread/start sends a provider ID alongside the selected model.
-                if use_server_provider {
-                    config.model_provider_id = defaults
-                        .model_provider
-                        .unwrap_or_else(|| "openai".to_string());
+                if use_server_provider
+                    && let Some(provider) = defaults.model_provider
+                {
+                    config.model_provider_id = provider;
                 }
             }
             Ok(None) => {}
@@ -1101,15 +1098,8 @@ impl App {
             && (config.features.enabled(Feature::FastMode)
                 || config.features.enabled(Feature::UltrafastMode))
         {
-            // Bootstrap's fallback model may be seeded from the client. Resolve tiers
-            // against the server catalog when config/read cleared the model.
-            config.model = self
-                .model_catalog
-                .models
-                .iter()
-                .find(|model| model.is_default)
-                .or_else(|| self.model_catalog.models.first())
-                .map(|model| model.model.clone());
+            // A cleared server selection remains absent until the operator chooses a model.
+            config.model = None;
         }
         Some((config, remote_cwd))
     }

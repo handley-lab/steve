@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use codex_backend_client::PathStyle;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
 use codex_login::AuthManager;
@@ -77,6 +78,7 @@ async fn policy_resolution_recovers_after_unauthorized() {
     let policy = resolve_attribution_policy(
         &auth_manager,
         &format!("{}/backend-api", server.uri()),
+        PathStyle::ChatGptApi,
         &http_client_factory(),
     )
     .await
@@ -121,7 +123,12 @@ async fn policy_resolution_retries_after_auth_refresh() {
         let auth_manager = auth_manager.clone();
         let base_url = format!("{}/backend-api", server.uri());
         async move {
-            resolve_attribution_policy(&auth_manager, &base_url, &http_client_factory())
+            resolve_attribution_policy(
+                &auth_manager,
+                &base_url,
+                PathStyle::ChatGptApi,
+                &http_client_factory(),
+            )
                 .await
                 .ok()
                 .flatten()

@@ -1058,7 +1058,7 @@ async fn send_track_events_request(
         http_client_factory.clone(),
         url.clone(),
         codex_http_client::ClientRouteClass::Api,
-        codex_login::default_client::ClientRedirectPolicy::Default,
+        codex_login::default_client::ClientRedirectPolicy::Reject,
     )
     .await
     {

@@ -60,7 +60,6 @@ use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
 use codex_http_client::RouteAwareClientPool;
 use codex_login::CodexAuth;
-use codex_login::auth::AgentIdentityAuthPolicy;
 use codex_model_provider::create_model_provider;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::built_in_model_providers;
@@ -851,7 +850,6 @@ fn test_model_client_session() -> crate::client::ModelClientSession {
         .expect("test thread id should be valid");
     crate::client::ModelClient::new(
         /*auth_manager*/ None,
-        AgentIdentityAuthPolicy::JwtOnly,
         thread_id,
         ModelProviderInfo::create_openai_provider(/* base_url */ /*base_url*/ None),
         codex_protocol::protocol::SessionSource::Exec,
@@ -4989,6 +4987,7 @@ async fn build_test_config(codex_home: &Path) -> Config {
         .codex_home(codex_home.to_path_buf())
         .harness_overrides(ConfigOverrides {
             model: Some("gpt-5.5".to_string()),
+            model_provider: Some("openai".to_string()),
             ..Default::default()
         })
         .build()
@@ -6913,11 +6912,12 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         show_raw_agent_reasoning: config.show_raw_agent_reasoning,
         exec_policy,
         auth_manager: auth_manager.clone(),
-        openai_file_upload_client_pool: RouteAwareClientPool::new_without_request_logging(
-            config.http_client_factory(),
-            ClientRouteClass::Api,
-        )
-        .with_legacy_custom_ca_fallback(),
+        openai_file_upload_client_pool:
+            RouteAwareClientPool::new_without_redirects_or_request_logging(
+                config.http_client_factory(),
+                ClientRouteClass::Api,
+            )
+            .with_legacy_custom_ca_fallback(),
         session_telemetry: session_telemetry.clone(),
         models_manager: Arc::clone(&models_manager),
         git_root_discovery: Arc::default(),
@@ -6953,7 +6953,6 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         time_provider: Arc::new(crate::current_time::SystemTimeProvider),
         model_client: ModelClient::new(
             Some(auth_manager.clone()),
-            AgentIdentityAuthPolicy::JwtOnly,
             thread_id,
             session_configuration.provider.info().clone(),
             session_configuration.session_source.clone(),
@@ -9181,11 +9180,12 @@ where
         show_raw_agent_reasoning: config.show_raw_agent_reasoning,
         exec_policy,
         auth_manager: Arc::clone(&auth_manager),
-        openai_file_upload_client_pool: RouteAwareClientPool::new_without_request_logging(
-            config.http_client_factory(),
-            ClientRouteClass::Api,
-        )
-        .with_legacy_custom_ca_fallback(),
+        openai_file_upload_client_pool:
+            RouteAwareClientPool::new_without_redirects_or_request_logging(
+                config.http_client_factory(),
+                ClientRouteClass::Api,
+            )
+            .with_legacy_custom_ca_fallback(),
         session_telemetry: session_telemetry.clone(),
         models_manager: Arc::clone(&models_manager),
         git_root_discovery: Arc::default(),
@@ -9221,7 +9221,6 @@ where
         time_provider: Arc::new(crate::current_time::SystemTimeProvider),
         model_client: ModelClient::new(
             Some(Arc::clone(&auth_manager)),
-            AgentIdentityAuthPolicy::JwtOnly,
             thread_id,
             session_configuration.provider.info().clone(),
             session_configuration.session_source.clone(),

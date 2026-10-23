@@ -40,7 +40,6 @@ impl WindowsSandboxRequestProcessor {
                 WindowsSandboxLevel::from_config(&self.config),
                 WindowsSandboxLevel::Elevated
             )
-            && !codex_login::is_workload_identity_selected()
         {
             let processor = self.clone();
             let request_id = request_id.clone();
@@ -150,13 +149,10 @@ impl WindowsSandboxRequestProcessor {
                 codex_home: config.codex_home.to_path_buf(),
             };
             let setup_result = async {
-                // Workload identity is process-local, so use the existing helper path with
-                // the caller's resolved configuration instead of loading auth in the service.
                 #[cfg(target_os = "windows")]
                 if setup_mode == CoreWindowsSandboxSetupMode::Elevated
                     && (codex_windows_sandbox::registered_core_requested()
                         || config.features.enabled(Feature::WindowsSandboxService))
-                    && !codex_login::is_workload_identity_selected()
                 {
                     let provisioning = match config
                         .permissions

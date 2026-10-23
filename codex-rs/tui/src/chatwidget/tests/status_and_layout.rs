@@ -134,8 +134,8 @@ async fn app_server_cyber_policy_error_renders_dedicated_notice() {
     assert_eq!(cells.len(), 1);
     let rendered = lines_to_single_string(&cells[0]);
     assert!(rendered.contains("This content can’t be shown"));
-    assert!(rendered.contains("We take extra care with some cybersecurity requests"));
-    assert!(rendered.contains("Apply for Daybreak"));
+    assert!(rendered.contains("Daybreak availability could not be determined"));
+    assert!(!rendered.contains("https://"));
     assert!(!rendered.contains("server fallback message"));
 }
 
@@ -215,10 +215,9 @@ async fn app_server_model_verification_renders_warning() {
     let cells = drain_insert_history_transcript(&mut rx);
     assert_eq!(cells.len(), 1);
     let rendered = lines_to_single_string(&cells[0]);
-    assert!(rendered.contains("multiple flags for possible cybersecurity risk"));
+    assert!(rendered.contains("configured service reports additional cybersecurity review"));
     assert!(rendered.contains("extra safety checks are on"));
-    assert!(rendered.contains("Trusted Access for Cyber"));
-    assert!(rendered.contains("https://chatgpt.com/cyber"));
+    assert!(!rendered.contains("chatgpt.com"));
 }
 
 #[tokio::test]
@@ -4056,10 +4055,22 @@ async fn status_line_model_with_reasoning_includes_fast_for_fast_capable_models(
     chat.refresh_status_line();
     let test_cwd = test_path_display("/tmp/project");
 
-    assert_eq!(
-        status_line_text(&chat),
-        Some(format!("gpt-5.4 xhigh fast · Context 0% used · {test_cwd}"))
-    );
+    for account in [
+        Some(StatusAccountDisplay::ChatGpt {
+            email: None,
+            plan: None,
+        }),
+        Some(StatusAccountDisplay::ApiKey),
+        None,
+    ] {
+        chat.has_chatgpt_account = matches!(account, Some(StatusAccountDisplay::ChatGpt { .. }));
+        chat.status_account_display = account;
+        chat.refresh_status_line();
+        assert_eq!(
+            status_line_text(&chat),
+            Some(format!("gpt-5.4 xhigh fast · Context 0% used · {test_cwd}"))
+        );
+    }
 
     chat.set_model("gpt-5.2");
     chat.refresh_status_line();
@@ -5882,4 +5893,149 @@ async fn chatwidget_tall() {
         "chatwidget_tall",
         normalize_snapshot_paths(term.backend().vt100().screen().contents())
     );
+}
+
+#[tokio::test]
+async fn model_scope_thread_switch_invalidates_rows_and_late_replies() {
+    let mut failures = Vec::new();
+    for account in [0, 1, 2] {
+        let (mut chat, mut events, _ops) = make_chatwidget_manual(Some("gpt-5.4")).await;
+        chat.status_account_display = match account {
+            0 => None,
+            1 => Some(StatusAccountDisplay::ApiKey),
+            _ => Some(StatusAccountDisplay::ChatGpt {
+                email: Some("user@example.test".into()),
+                plan: None,
+            }),
+        };
+        chat.has_chatgpt_account = account == 2;
+        chat.thread_id = Some(ThreadId::new());
+        let previous = chat.model_catalog.models.clone();
+        let modes = chat.model_catalog.collaboration_modes.clone();
+        let stale = uuid::Uuid::new_v4();
+        chat.model_popup_request_id = Some(stale);
+        let session = model_scope_session(&chat);
+        chat.handle_thread_session(session);
+        let current = chat.model_popup_request_id;
+        if !chat.model_catalog.models.is_empty() {
+            failures.push(format!(
+                "account {account}: old scope rows remain while pending"
+            ));
+        }
+        if current.is_none() || current == Some(stale) {
+            failures.push(format!("account {account}: no new scoped refresh"));
+        }
+        if chat.on_models_loaded(stale, Ok(previous)) {
+            failures.push(format!("account {account}: late old-scope reply accepted"));
+        }
+        if let Some(current) = current {
+            let requested = std::iter::from_fn(|| events.try_recv().ok())
+                .any(|event| matches!(event, AppEvent::FetchModels { request_id } if request_id == current));
+            if !requested {
+                failures.push(format!("account {account}: refresh event missing"));
+            }
+            chat.on_models_loaded(current, Ok(Vec::new()));
+        }
+        if !chat.model_catalog.models.is_empty() {
+            failures.push(format!("account {account}: empty new scope kept old rows"));
+        }
+        assert_eq!(chat.model_catalog.collaboration_modes, modes);
+        assert_eq!(chat.current_model(), "gpt-5.4");
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+#[tokio::test]
+async fn model_scope_empty_success_replaces_rows_but_failure_does_not() {
+    let (mut chat, _events, _ops) = make_chatwidget_manual(Some("gpt-5.4")).await;
+    let initial = chat.model_catalog.models.clone();
+    assert!(!initial.is_empty());
+    let modes = chat.model_catalog.collaboration_modes.clone();
+    let failed = uuid::Uuid::new_v4();
+    chat.model_popup_request_id = Some(failed);
+    assert!(!chat.on_models_loaded(failed, Err("catalog unavailable".into())));
+    assert_eq!(chat.model_catalog.models, initial);
+    assert!(chat.model_popup_request_id.is_none());
+    let current = uuid::Uuid::new_v4();
+    chat.model_popup_request_id = Some(current);
+    assert!(chat.on_models_loaded(current, Ok(Vec::new())));
+    assert!(chat.model_catalog.models.is_empty());
+    assert!(!chat.on_models_loaded(failed, Ok(initial)));
+    assert!(chat.model_catalog.models.is_empty());
+    assert_eq!(chat.model_catalog.collaboration_modes, modes);
+    assert_eq!(chat.current_model(), "gpt-5.4");
+}
+
+fn model_scope_session(chat: &ChatWidget) -> crate::session_state::ThreadSessionState {
+    crate::session_state::ThreadSessionState {
+        daybreak_enabled: false,
+        windows_sandbox_host: crate::app::WindowsSandboxHost::Local,
+        thread_id: ThreadId::new(),
+        forked_from_id: None,
+        fork_parent_title: None,
+        thread_name: None,
+        model: chat.current_model().into(),
+        model_provider_id: "selected-provider".into(),
+        service_tier: None,
+        approval_policy: AskForApproval::Never,
+        approvals_reviewer: ApprovalsReviewer::User,
+        permission_profile: PermissionProfile::read_only(),
+        active_permission_profile: None,
+        cwd: chat.config.cwd.clone(),
+        runtime_workspace_roots: Vec::new(),
+        instruction_source_paths: Vec::new(),
+        reasoning_effort: Some(ReasoningEffortConfig::default()),
+        collaboration_mode: None,
+        message_history: None,
+        network_proxy: None,
+        rollout_path: None,
+    }
+}
+
+#[tokio::test]
+async fn model_scope_thread_switch_dismisses_old_choosers_only() {
+    for choice in 0..5 {
+        let (mut chat, _events, _ops) = make_chatwidget_manual(Some("gpt-5.5")).await;
+        chat.thread_id = Some(ThreadId::new());
+        let mut preset = get_available_model(&chat, "gpt-5.5");
+        preset.supported_reasoning_efforts = [
+            ReasoningEffortConfig::Low,
+            ReasoningEffortConfig::High,
+            ReasoningEffortConfig::Max,
+        ]
+        .into_iter()
+        .map(
+            |effort| codex_protocol::openai_models::ReasoningEffortPreset {
+                effort,
+                description: "Fixture effort".into(),
+            },
+        )
+        .collect();
+        let modes = chat.model_catalog.collaboration_modes.clone();
+        match choice {
+            0 => chat.open_model_popup(),
+            1 => chat.open_all_models_popup(),
+            2 => chat.open_reasoning_popup(preset),
+            3 => chat.open_advanced_reasoning_popup(preset),
+            _ => chat.open_plan_reasoning_scope_prompt("gpt-5.5".into(), None),
+        }
+        assert!(
+            !chat.no_modal_or_popup_active(),
+            "chooser {choice} was not opened"
+        );
+        chat.bottom_pane.show_selection_view(SelectionViewParams {
+            view_id: Some("scope-control"),
+            title: Some("Unrelated dialog".into()),
+            ..SelectionViewParams::picker()
+        });
+        let session = model_scope_session(&chat);
+        chat.handle_thread_session(session);
+        assert!(chat.bottom_pane.dismiss_active_view_if_id("scope-control"));
+        assert!(
+            chat.no_modal_or_popup_active(),
+            "old chooser {choice} remained"
+        );
+        assert_eq!(chat.current_model(), "gpt-5.5");
+        assert_eq!(chat.model_catalog.collaboration_modes, modes);
+    }
 }

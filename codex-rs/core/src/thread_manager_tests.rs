@@ -2828,6 +2828,194 @@ async fn metadata_update_without_result_reads_only_when_the_caller_needs_the_thr
 }
 
 #[tokio::test]
+async fn thread_metadata_follows_manager_construction_inputs() {
+    let a = MockServer::start().await;
+    let b = MockServer::start().await;
+    let catalog = |marker: &str| {
+        let mut model = codex_models_manager::bundled_models_response()
+            .expect("bundled catalog")
+            .models
+            .remove(0);
+        model.slug = "scope-test-model".to_string();
+        model.model_messages = Some(codex_protocol::openai_models::ModelMessages {
+            instructions_template: Some(marker.to_string()),
+            ..Default::default()
+        });
+        model.experimental_supported_tools = vec![marker.to_string()];
+        ModelsResponse {
+            models: vec![model],
+        }
+    };
+    for (server, marker) in [(&a, "catalog-a"), (&b, "catalog-b")] {
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/models"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(catalog(marker)))
+            .mount(server)
+            .await;
+    }
+    let home = tempdir().expect("home");
+    let mut config = test_config().await;
+    config.codex_home = home.path().abs();
+    config.cwd = home.path().abs();
+    config.model = Some("scope-test-model".to_string());
+    config.base_instructions = None;
+    config.model_catalog = None;
+    config
+        .features
+        .enable(Feature::ApiKeyModelDiscovery)
+        .expect("enable discovery");
+    config
+        .features
+        .disable(Feature::GuardianApproval)
+        .expect("disable Guardian");
+    config
+        .features
+        .disable(Feature::ShellSnapshot)
+        .expect("disable snapshots");
+    config.model_provider.base_url = Some(a.uri());
+    config.model_provider.model_catalog_url = Some(format!("{}/models", a.uri()).into());
+    config.model_provider.experimental_bearer_token = Some("credential-a".into());
+    let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("unused"));
+    let process_manager = build_models_manager(&config, Arc::clone(&auth));
+    let manager = ThreadManager::new(
+        &config,
+        auth,
+        Arc::clone(&process_manager),
+        crate::CodexAppsToolsCache::default(),
+        SessionSource::Exec,
+        Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
+        empty_extension_registry(),
+        Arc::new(crate::test_support::EmptyUserInstructionsProvider),
+        None,
+        passthrough_image_store(),
+        thread_store_from_config(&config, None),
+        None,
+        TEST_INSTALLATION_ID.to_string(),
+        None,
+        None,
+    );
+    let mut cases = vec![("original", config.clone(), "catalog-a")];
+    let mut selected_b = config.clone();
+    selected_b.model_provider.base_url = Some(b.uri());
+    selected_b.model_provider.model_catalog_url = Some(format!("{}/models", b.uri()).into());
+    selected_b.model_provider.experimental_bearer_token = Some("credential-b".into());
+    cases.push(("same-id-new-definition", selected_b.clone(), "catalog-b"));
+    selected_b.model_provider_id = "other-provider".to_string();
+    cases.push(("different-provider", selected_b, "catalog-b"));
+    let mut local = config.clone();
+    local.model_catalog = Some(catalog("local-catalog"));
+    cases.push(("same-provider-local-catalog", local, "local-catalog"));
+    let mut alias = config.clone();
+    alias.model_provider_id = "alias".to_string();
+    cases.push(("equal-definition-alias", alias, "catalog-a"));
+    let mut failures = Vec::new();
+    let mut disabled = config.clone();
+    disabled
+        .features
+        .disable(Feature::ApiKeyModelDiscovery)
+        .expect("disable discovery");
+    cases.push(("same-provider-discovery-off", disabled, ""));
+    for (name, selected, expected) in cases {
+        let requests_before = a
+            .received_requests()
+            .await
+            .expect("requests before thread")
+            .len();
+        let started = manager
+            .start_thread(StartThreadOptions {
+                environments: Some(Vec::new()),
+                ..StartThreadOptions::new(selected)
+            })
+            .await
+            .expect("start metadata fixture");
+        let info = started
+            .thread
+            .session
+            .services
+            .thread_extension_data
+            .get::<codex_protocol::openai_models::ModelInfo>()
+            .expect("resolved model info");
+        let actual = info
+            .model_messages
+            .as_ref()
+            .and_then(|m| m.instructions_template.as_deref());
+        eprintln!(
+            "{name}: expected={expected:?}, tools={:?}",
+            info.experimental_supported_tools
+        );
+        if expected.is_empty() {
+            assert_eq!(
+                a.received_requests()
+                    .await
+                    .expect("requests after discovery-off")
+                    .len(),
+                requests_before
+            );
+            eprintln!("discovery-off: no catalog request");
+            if actual == Some("catalog-a")
+                || info.experimental_supported_tools == vec!["catalog-a".to_string()]
+            {
+                failures.push(name);
+            }
+        } else if actual != Some(expected)
+            || info.experimental_supported_tools != vec![expected.to_string()]
+        {
+            failures.push(name);
+        }
+        if name == "original" || name == "equal-definition-alias" {
+            assert!(Arc::ptr_eq(
+                &started.thread.session.services.models_manager,
+                &process_manager
+            ));
+        }
+    }
+    let mut override_config = config.clone();
+    override_config.model_catalog = Some(catalog("explicit-manager"));
+    let override_manager =
+        build_models_manager(&override_config, Arc::clone(&manager.state.auth_manager));
+    let mut options = StartThreadOptions::new(config);
+    options.config.model_provider.base_url = Some(b.uri());
+    options.environments = Some(Vec::new());
+    options
+        .thread_extension_init
+        .insert(Arc::clone(&override_manager));
+    let explicit = manager
+        .start_thread(options)
+        .await
+        .expect("explicit manager thread");
+    assert!(Arc::ptr_eq(
+        &explicit.thread.session.services.models_manager,
+        &override_manager
+    ));
+    let info = explicit
+        .thread
+        .session
+        .services
+        .thread_extension_data
+        .get::<codex_protocol::openai_models::ModelInfo>()
+        .expect("explicit metadata");
+    assert_eq!(
+        info.experimental_supported_tools,
+        vec!["explicit-manager".to_string()]
+    );
+    assert!(Arc::ptr_eq(&manager.get_models_manager(), &process_manager));
+    for (server, credential) in [(&a, "Bearer credential-a"), (&b, "Bearer credential-b")] {
+        let requests = server.received_requests().await.expect("catalog requests");
+        assert!(!requests.is_empty(), "catalog must be fetched");
+        for request in requests {
+            assert_eq!(
+                request
+                    .headers
+                    .get("authorization")
+                    .expect("scoped credential"),
+                credential
+            );
+        }
+    }
+    assert!(failures.is_empty(), "wrong session metadata: {failures:?}");
+}
+
+#[tokio::test]
 async fn new_uses_active_provider_for_model_refresh() {
     let server = MockServer::start().await;
     let models_mock = mount_models_once(&server, ModelsResponse { models: vec![] }).await;
@@ -2839,6 +3027,7 @@ async fn new_uses_active_provider_for_model_refresh() {
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");
     config.model_catalog = None;
     config.model_provider.base_url = Some(server.uri());
+    config.model_provider.requires_openai_auth = true;
 
     let auth_manager =
         AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
@@ -2882,6 +3071,7 @@ async fn injected_models_manager_controls_refresh_policy() {
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");
     config.model_catalog = None;
     config.model_provider.base_url = Some(server.uri());
+    config.model_provider.requires_openai_auth = true;
 
     let auth_manager =
         AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());

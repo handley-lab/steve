@@ -13,23 +13,22 @@ use uuid::Uuid;
 
 impl AppServerSession {
     pub(crate) fn set_available_models(&mut self, models: Vec<ModelPreset>) {
-        if let Some(default) = models
-            .iter()
-            .find(|model| model.is_default)
-            .or(models.first())
-        {
-            self.default_model = Some(default.model.clone());
-        }
         self.available_models = models;
     }
 
-    pub(crate) fn fetch_models(&self, request_id: Uuid, app_event_tx: AppEventSender) {
+    pub(crate) fn fetch_models(
+        &self,
+        request_id: Uuid,
+        thread_id: Option<codex_protocol::ThreadId>,
+        app_event_tx: AppEventSender,
+    ) {
         let request_handle = self.request_handle();
         tokio::spawn(async move {
             let result = request_handle
                 .request_typed::<ModelListResponse>(ClientRequest::ModelList {
                     request_id: RequestId::String(format!("model-list-{request_id}")),
                     params: ModelListParams {
+                        thread_id: thread_id.map(|id| id.to_string()),
                         cursor: None,
                         limit: None,
                         include_hidden: Some(true),

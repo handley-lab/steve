@@ -20,6 +20,8 @@ from steve_sdk.generated.v2_all import (
     AuthRecoveryNotification,
     CommandGuardianApprovalReviewAction,
     GetAccountResponse,
+    ModelListParams,
+    ModelListResponse,
     PlanType,
     ReasoningEffort,
     ReasoningEffortOption,
@@ -692,3 +694,38 @@ def test_turn_notification_router_routes_unknown_turn_notifications() -> None:
     second = client.next_turn_notification("turn-2")
 
     assert [first.method, second.method] == ["unknown/direct", "unknown/nested"]
+
+
+@pytest.mark.parametrize("thread_id", [None, "selected-thread"])
+def test_model_list_passes_optional_thread_scope(monkeypatch, thread_id) -> None:
+    client = CodexClient()
+    calls = []
+    sentinel = object()
+
+    def request(method, params, *, response_model):
+        calls.append((method, params, response_model.__name__))
+        return sentinel
+
+    monkeypatch.setattr(client, "request", request)
+    assert client.model_list(include_hidden=True, thread_id=thread_id) is sentinel
+    expected = {"includeHidden": True}
+    if thread_id is not None:
+        expected["threadId"] = thread_id
+    assert calls == [("model/list", expected, "ModelListResponse")]
+    typed = ModelListParams.model_validate(expected)
+    assert typed.thread_id == thread_id
+    assert typed.model_dump(mode="json", by_alias=True, exclude_none=True) == expected
+
+
+@pytest.mark.parametrize("enabled", [None, False, True])
+def test_model_list_retains_optional_forwarding_snapshot(enabled) -> None:
+    payload = {"data": [], "nextCursor": None}
+    if enabled is not None:
+        payload["cyberAccessProgramsEnabled"] = enabled
+    response = ModelListResponse.model_validate(payload)
+    assert response.cyber_access_programs_enabled is enabled
+    serialized = response.model_dump(mode="json", by_alias=True, exclude_none=True)
+    if enabled is None:
+        assert "cyberAccessProgramsEnabled" not in serialized
+    else:
+        assert serialized["cyberAccessProgramsEnabled"] is enabled

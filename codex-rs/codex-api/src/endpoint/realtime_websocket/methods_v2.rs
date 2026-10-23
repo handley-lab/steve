@@ -34,7 +34,6 @@ const REALTIME_V2_BACKGROUND_AGENT_TOOL_NAME: &str = "background_agent";
 const REALTIME_V2_BACKGROUND_AGENT_TOOL_DESCRIPTION: &str = "Send a user request to the background agent. Use this as the default action. Do not rephrase the user's ask or rewrite it in your own words; pass along the user's own words. If the background agent is idle, this starts a new task and returns the final result to the user. If the background agent is already working on a task, this sends the request as guidance to steer that previous task. If the user asks to do something next, later, after this, or once current work finishes, call this tool so the work is actually queued instead of merely promising to do it later.";
 const REALTIME_V2_SILENCE_TOOL_NAME: &str = "remain_silent";
 const REALTIME_V2_SILENCE_TOOL_DESCRIPTION: &str = "Call this when the best response is to say nothing. Use it instead of speaking after hidden system/control messages, after background agent updates in silent modes, or whenever acknowledging aloud would be distracting. This tool has no user-visible effect.";
-const REALTIME_V2_INPUT_TRANSCRIPTION_MODEL: &str = "gpt-4o-mini-transcribe";
 
 pub(super) fn conversation_item_create_message(
     text: String,
@@ -77,6 +76,7 @@ pub(super) fn session_update_session(
     session_mode: RealtimeSessionMode,
     output_modality: RealtimeOutputModality,
     voice: RealtimeVoice,
+    transcription_model: Option<String>,
 ) -> SessionUpdateSession {
     match session_mode {
         RealtimeSessionMode::Conversational => SessionUpdateSession {
@@ -94,9 +94,8 @@ pub(super) fn session_update_session(
                     noise_reduction: Some(SessionNoiseReduction {
                         r#type: NoiseReductionType::NearField,
                     }),
-                    transcription: Some(SessionInputAudioTranscription {
-                        model: REALTIME_V2_INPUT_TRANSCRIPTION_MODEL.to_string(),
-                    }),
+                    transcription: transcription_model
+                        .map(|model| SessionInputAudioTranscription { model }),
                     turn_detection: Some(SessionTurnDetection {
                         r#type: TurnDetectionType::ServerVad,
                         interrupt_response: true,
@@ -155,9 +154,8 @@ pub(super) fn session_update_session(
                         rate: REALTIME_AUDIO_SAMPLE_RATE,
                     },
                     noise_reduction: None,
-                    transcription: Some(SessionInputAudioTranscription {
-                        model: REALTIME_V2_INPUT_TRANSCRIPTION_MODEL.to_string(),
-                    }),
+                    transcription: transcription_model
+                        .map(|model| SessionInputAudioTranscription { model }),
                     turn_detection: None,
                 },
                 output: None,

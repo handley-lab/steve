@@ -2216,7 +2216,7 @@ async fn slash_copy_picker_remains_available_from_parent_owned_threads() {
 }
 
 #[tokio::test]
-async fn slash_daybreak_offers_an_application_when_unavailable() {
+async fn slash_daybreak_describes_the_catalog_when_unavailable() {
     let (mut chat, mut rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.has_chatgpt_account = true;
     chat.config.model_provider_id = "openai".into();
@@ -2240,6 +2240,9 @@ async fn slash_daybreak_offers_an_application_when_unavailable() {
     chat.dispatch_command(SlashCommand::Daybreak);
 
     let cells = drain_insert_history(&mut rx);
+    let rendered = lines_to_single_string(&cells[0]);
+    assert!(rendered.contains("model catalog does not advertise a Daybreak program"));
+    assert!(!rendered.contains("https://"));
     assert_chatwidget_snapshot!(
         "slash_daybreak_unavailable",
         lines_to_single_string(&cells[0])
@@ -2256,10 +2259,7 @@ async fn slash_daybreak_offers_an_application_when_unavailable() {
     chat.has_chatgpt_account = false;
     chat.dispatch_command(SlashCommand::Daybreak);
     let cells = drain_insert_history(&mut rx);
-    assert_chatwidget_snapshot!(
-        "slash_daybreak_signed_out",
-        lines_to_single_string(&cells[0])
-    );
+    assert!(lines_to_single_string(&cells[0]).contains("availability could not be determined"));
     chat.has_chatgpt_account = true;
 
     model
@@ -2290,14 +2290,8 @@ async fn slash_daybreak_offers_an_application_when_unavailable() {
         .set_composer_text(String::new(), Vec::new(), Vec::new());
     chat.bottom_pane
         .set_composer_text("/daybreak".to_string(), Vec::new(), Vec::new());
-    insta::assert_snapshot!(
-        render_bottom_popup(&chat, /*width*/ 80)
-            .lines()
-            .filter(|line| line.contains("broader access"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        @""
-    );
+    assert!(chat.daybreak_enabled);
+    assert!(render_bottom_popup(&chat, /*width*/ 80).contains("Disable broader access"));
     chat.has_chatgpt_account = true;
     chat.status_account_display = None;
     for (enabled, name) in [

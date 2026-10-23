@@ -553,8 +553,6 @@ pub(crate) fn resolve_multi_agent_version(
 
 pub(crate) const INITIAL_SUBMIT_ID: &str = "";
 pub(crate) const SUBMISSION_CHANNEL_CAPACITY: usize = 512;
-const CYBER_VERIFY_URL: &str = "https://chatgpt.com/cyber";
-const CYBER_SAFETY_URL: &str = "https://developers.openai.com/codex/concepts/cyber-safety";
 
 impl Session {
     /// Spawn and initialize a new session.
@@ -642,6 +640,11 @@ impl Session {
             git_enrichment_policy,
             windows_sandbox_proxy_settings_mode,
         } = args;
+        // A host-selected provider can carry its existing catalog manager into this thread.
+        let models_manager = thread_extension_init
+            .get::<SharedModelsManager>()
+            .map(|manager| Arc::clone(manager.as_ref()))
+            .unwrap_or(models_manager);
         let (tx_sub, rx_sub) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
         let (tx_event, rx_event) = async_channel::unbounded();
 
@@ -803,7 +806,6 @@ impl Session {
         let model_info = models_manager
             .get_model_info(model.as_str(), &config.to_models_manager_config())
             .await;
-        let auth = auth_manager.auth_cached();
         // Forked subagents keep their parent's activation with the copied history.
         // Fresh children restore configured preferences before applying startup defaults.
         let inherits_token_budget = matches!(&conversation_history, InitialHistory::Forked(_))
@@ -815,7 +817,6 @@ impl Session {
             // Resolve activation for this runtime, including when resuming saved history.
             token_budget::apply_experimental_context(
                 Arc::make_mut(&mut config),
-                auth.as_ref(),
                 &model_info,
             )?;
             token_budget::apply_model_defaults(Arc::make_mut(&mut config), &model_info);
@@ -1862,9 +1863,19 @@ impl Session {
             .zip(metadata)
             .map(|(item, metadata)| ResponseItemEnvelope { item, metadata })
             .collect();
-        let context = crate::guardian::GuardianReviewContext::from(turn_context);
-        let (_, reviewer) = crate::guardian::resolve_review_model(self, &context).await;
-        let reviewer_compaction_hash = reviewer.comp_hash.clone();
+        let reviewer_compaction_hash = if turn_context
+            .config
+            .features
+            .enabled(Feature::GuardianApproval)
+        {
+            let context = crate::guardian::GuardianReviewContext::from(turn_context);
+            crate::guardian::resolve_review_model(self, &context)
+                .await
+                .ok()
+                .and_then(|(_, reviewer, _)| reviewer.comp_hash.clone())
+        } else {
+            None
+        };
         {
             let mut state = self.state.lock().await;
             state.replace_annotated_history(
@@ -4142,7 +4153,7 @@ impl Session {
         warn!("server reported model {server_model} while requested model was {requested_model}");
 
         let warning_message = format!(
-            "Your account was flagged for potentially high-risk cyber activity and this request was routed to gpt-5.2 as a fallback. To regain access to gpt-5.3-codex, apply for trusted access: {CYBER_VERIFY_URL} or learn more: {CYBER_SAFETY_URL}"
+            "The configured provider reported model {server_model} for a request using {requested_model}. Check the provider's routing configuration."
         );
 
         self.send_event(

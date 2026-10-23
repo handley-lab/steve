@@ -13,7 +13,6 @@ use crate::compact_remote_v2::run_inline_remote_auto_compact_task as run_inline_
 use crate::connectors;
 use crate::context::ContextualUserFragment;
 use crate::context::UserVerificationNotice;
-use crate::cyber_access_program;
 use crate::environment_selection::TurnEnvironmentSnapshot;
 use crate::feedback_tags;
 use crate::hook_runtime::drain_async_hook_results;
@@ -1052,7 +1051,12 @@ async fn required_mcp_servers_for_input(
                 .mcp_runtime
                 .current_binding()
                 .await
-                .map(|binding| connectors::accessible_connectors_from_mcp_tools(binding.tools()))
+                .map(|binding| {
+                    connectors::accessible_connectors_from_mcp_tools(
+                        &turn_context.config.chatgpt_base_url,
+                        binding.tools(),
+                    )
+                })
                 .unwrap_or_default(),
         };
         let connector_ids = current_config
@@ -1061,6 +1065,7 @@ async fn required_mcp_servers_for_input(
             .map(|connector_id| connector_id.0.clone());
         build_connector_slug_counts(
             &codex_connectors::merge::merge_plugin_connectors_with_accessible(
+                &turn_context.config.chatgpt_base_url,
                 connector_ids,
                 accessible_connectors,
             ),
@@ -1128,11 +1133,15 @@ async fn build_skills_and_plugins(
     };
     let available_connectors = if turn_context.apps_enabled() {
         let connectors = codex_connectors::merge::merge_plugin_connectors_with_accessible(
+            &turn_context.config.chatgpt_base_url,
             connector_snapshot
                 .connector_ids()
                 .iter()
                 .map(|connector_id| connector_id.0.clone()),
-            connectors::accessible_connectors_from_mcp_tools(mcp_tools),
+            connectors::accessible_connectors_from_mcp_tools(
+                &turn_context.config.chatgpt_base_url,
+                mcp_tools,
+            ),
         );
         AppToolPolicyEvaluator::new(&turn_context.config.config_layer_stack)
             .apply_app_enabled_state(connectors)
@@ -1437,10 +1446,7 @@ async fn maybe_run_previous_model_inline_compact(
     // turn's program so compaction uses the same model/cyber_access_program pair as that turn.
     // Combining the previous model with the current turn's program can produce a pair
     // that the server rejects.
-    previous_model_turn_context.cyber_access_program = cyber_access_program::for_provider(
-        &previous_model_turn_context.config.model_provider_id,
-        previous_turn_settings.cyber_access_program,
-    );
+    previous_model_turn_context.cyber_access_program = previous_turn_settings.cyber_access_program;
     let previous_model_turn_context = Arc::new(previous_model_turn_context);
 
     let reason = if should_compact_for_comp_hash_change {
@@ -1902,8 +1908,12 @@ pub(crate) async fn built_tools(
     let connector_snapshot = mcp.config().connector_snapshot.clone();
 
     let apps_enabled = turn_context.apps_enabled();
-    let accessible_connectors =
-        apps_enabled.then(|| connectors::accessible_connectors_from_mcp_tools(all_mcp_tools));
+    let accessible_connectors = apps_enabled.then(|| {
+        connectors::accessible_connectors_from_mcp_tools(
+            &turn_context.config.chatgpt_base_url,
+            all_mcp_tools,
+        )
+    });
     let tool_suggest_is_enabled = tool_suggest_enabled(turn_context);
     let PreparedToolRecommendations {
         auth,
@@ -2659,8 +2669,7 @@ async fn try_run_sampling_request(
     let uses_sequential_cutoff_reasoning_summaries = turn_context
         .config
         .features
-        .enabled(Feature::ConcurrentReasoningSummaries)
-        && turn_context.provider.info().is_openai();
+        .enabled(Feature::ConcurrentReasoningSummaries);
     let mut preempt = step_context.preempt.clone().unwrap_or_default();
     let effort = sess
         .reasoning_effort_for_request(&step_context.settings, super::RequestEffortUsage::Sampling)

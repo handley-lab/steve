@@ -46,7 +46,8 @@ async fn embedded_transports_stay_blocked_until_the_same_policy_is_published() -
     config.chatgpt_base_url = server.uri();
     let cloud_endpoint = format!("{}/api/codex/config/bundle", server.uri());
     let policy = EmbeddedNetworkPolicy::load(&overrides).await;
-    let bootstrap_auth = policy.bind_bootstrap_auth(config.auth_config());
+    let bootstrap_auth =
+        policy.bind_bootstrap_auth(config.auth_config(), config.chatgpt_path_style);
     let bootstrap = bootstrap_auth
         .auth_route_config
         .http_client_factory()
@@ -59,7 +60,9 @@ async fn embedded_transports_stay_blocked_until_the_same_policy_is_published() -
     policy.activate(&mut config);
     let caller_factory = config.http_client_factory();
     let caller_client = caller_factory.build_client(&server.uri(), ClientRouteClass::Other)?;
-    let worktree_bootstrap = policy.clone().bind_bootstrap_auth(config.auth_config());
+    let worktree_bootstrap = policy
+        .clone()
+        .bind_bootstrap_auth(config.auth_config(), config.chatgpt_path_style);
     let worktree_client = worktree_bootstrap
         .auth_route_config
         .http_client_factory()

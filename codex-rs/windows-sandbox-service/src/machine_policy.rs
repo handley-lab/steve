@@ -8,6 +8,7 @@ use codex_cloud_config::cloud_config_bundle_loader_for_storage_without_cache;
 use codex_config::ConfigLoadOptions;
 use codex_config::ConfigRequirementsToml;
 use codex_config::WindowsSandboxImplementationToml;
+use codex_core::config::bootstrap_account_path_style;
 use codex_core::config::bootstrap_auth_config;
 use codex_core::config::load_config_toml_with_layer_stack;
 use codex_windows_sandbox::WindowsSandboxProvisioningSettings;
@@ -74,10 +75,12 @@ pub(crate) fn validate_provisioning_request(
                 .await
                 .context("load bootstrap configuration")?;
                 // Use the default cloud-policy endpoint unless managed requirements override it.
+                let path_style = bootstrap_account_path_style(&bootstrap_config);
                 bootstrap_config.config_toml.chatgpt_base_url = None;
                 let cloud_config_bundle = cloud_config_bundle_loader_for_storage_without_cache(
                     bootstrap_auth_config(codex_home, &bootstrap_config)
                         .context("resolve cloud configuration authentication")?,
+                    path_style,
                     /*enable_codex_api_key_env*/ false,
                 )
                 .await

@@ -79,6 +79,12 @@ pub struct ModelProvider {
     pub supports_standalone_web_search: bool,
     #[prost(string, optional, tag = "19")]
     pub model_catalog_url: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(bool, tag = "20")]
+    pub accepts_response_continuation: bool,
+    #[prost(bool, tag = "21")]
+    pub include_internal_metadata: bool,
+    #[prost(enumeration = "RemoteCompaction", optional, tag = "22")]
+    pub remote_compaction: ::core::option::Option<i32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StringMap {
@@ -98,6 +104,35 @@ pub struct ModelProviderAuthInfo {
     pub refresh_interval_ms: u64,
     #[prost(string, tag = "5")]
     pub cwd: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum RemoteCompaction {
+    Unspecified = 0,
+    Unsupported = 1,
+    V2 = 2,
+}
+impl RemoteCompaction {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "REMOTE_COMPACTION_UNSPECIFIED",
+            Self::Unsupported => "REMOTE_COMPACTION_UNSUPPORTED",
+            Self::V2 => "REMOTE_COMPACTION_V2",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "REMOTE_COMPACTION_UNSPECIFIED" => Some(Self::Unspecified),
+            "REMOTE_COMPACTION_UNSUPPORTED" => Some(Self::Unsupported),
+            "REMOTE_COMPACTION_V2" => Some(Self::V2),
+            _ => None,
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

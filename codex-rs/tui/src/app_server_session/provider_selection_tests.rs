@@ -148,22 +148,34 @@ async fn required_provider_overrides_oss_history_selection() -> Result<()> {
         home.path().join("requirements.toml"),
         "model_provider = 'openai'",
     )?;
+    let loader_overrides = codex_config::LoaderOverrides::with_managed_config_path_for_tests(
+        home.path().join("managed_config.toml"),
+    );
     let config = ConfigBuilder::default()
         .codex_home(home.path().to_path_buf())
-        .loader_overrides(
-            codex_config::LoaderOverrides::with_managed_config_path_for_tests(
-                home.path().join("managed_config.toml"),
-            ),
-        )
+        .loader_overrides(loader_overrides.clone())
         .harness_overrides(ConfigOverrides {
             model_provider: Some("ollama".into()),
             ..Default::default()
         })
         .build()
         .await?;
-    let mut server = crate::start_embedded_app_server_for_picker(&config).await?;
+    let mut server = crate::start_app_server_for_picker(
+        &config,
+        &crate::AppServerTarget::Embedded,
+        Vec::new(),
+        loader_overrides,
+        None,
+        Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
+    )
+    .await?;
     server.model_provider_override = Some("ollama".into());
     assert_eq!(config.model_provider_id, "openai");
+    assert_eq!(
+        server.history_model_provider(&config).await?,
+        Some("openai".into())
+    );
+    server.model_provider_override = None;
     assert_eq!(
         server.history_model_provider(&config).await?,
         Some("openai".into())

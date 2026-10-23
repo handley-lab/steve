@@ -20,6 +20,35 @@ use crate::create_model_provider;
 
 struct Routing(WorkspaceRouting);
 
+#[test]
+fn discovered_backend_cannot_replace_configured_provider_origin() {
+    for backend in [
+        "https://other.example",
+        "https://configured.example:8443",
+        "https://api.openai.com",
+    ] {
+        let mut provider = ModelProviderInfo::create_openai_provider(Some(
+            "https://configured.example/backend-api/codex".into(),
+        ))
+        .to_api_provider(None)
+        .unwrap();
+        let result = crate::workspace_routing::apply_workspace_routing(
+            &mut provider,
+            WorkspaceRouting {
+                chatgpt_account_id: "account_id".into(),
+                backend_origin: backend.into(),
+                account_routing_override: "us_cr".into(),
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            provider.base_url,
+            "https://configured.example/backend-api/codex"
+        );
+        assert!(!provider.headers.contains_key(ACCOUNT_ROUTING_HEADER));
+    }
+}
+
 struct ChangedBootstrap {
     first_lookup: std::sync::atomic::AtomicBool,
     release_first: tokio::sync::Notify,
@@ -62,10 +91,11 @@ async fn concurrent_discovery_cannot_forget_established_routing() {
     auth.set_workspace_routing_resolver(Arc::downgrade(
         &(resolver.clone() as Arc<dyn WorkspaceRoutingResolver>),
     ));
-    let provider = create_model_provider(
-        ModelProviderInfo::create_openai_provider(/*base_url*/ None),
-        Some(auth),
-    );
+    let mut info = ModelProviderInfo::create_openai_provider(Some(
+        "https://gov.chatgpt.com/backend-api/codex".into(),
+    ));
+    info.requires_openai_auth = true;
+    let provider = create_model_provider(info, Some(auth));
     let mut first = provider.responses_api_provider(&context);
     let classifier_context = context.clone();
     let mut second = provider.responses_api_provider(&classifier_context);
@@ -106,7 +136,8 @@ impl WorkspaceRoutingResolver for Routing {
 
 #[tokio::test]
 async fn workspace_routing_preserves_paths_and_excludes_other_providers() {
-    let routing_context = WorkspaceRoutingContext::new("https://chatgpt.com/backend-api".into());
+    let routing_context =
+        WorkspaceRoutingContext::new("https://gov.chatgpt.com:8443/backend-api".into());
     let auth =
         AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
     let resolver: Arc<dyn WorkspaceRoutingResolver> = Arc::new(Routing(WorkspaceRouting {
@@ -115,7 +146,10 @@ async fn workspace_routing_preserves_paths_and_excludes_other_providers() {
         account_routing_override: "us_cr".into(),
     }));
     auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
-    let info = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+    let mut info = ModelProviderInfo::create_openai_provider(Some(
+        "https://gov.chatgpt.com:8443/backend-api/codex".into(),
+    ));
+    info.requires_openai_auth = true;
     let provider = create_model_provider(info.clone(), Some(auth.clone()));
     let routed = provider
         .responses_api_provider(&routing_context)
@@ -155,18 +189,73 @@ async fn workspace_routing_preserves_paths_and_excludes_other_providers() {
             (
                 ordinary.base_url,
                 ordinary.headers,
-                ClientRedirectPolicy::Default
+                ClientRedirectPolicy::Reject
             )
         );
     }
     let api_auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("api-key"));
     api_auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
-    let api = create_model_provider(info, Some(api_auth))
+    let mut api_info = info;
+    api_info.base_url = Some("https://api.openai.com/v1".into());
+    let api = create_model_provider(api_info, Some(api_auth))
         .responses_api_provider(&routing_context)
         .await
         .unwrap();
     assert_eq!(api.provider.base_url, "https://api.openai.com/v1");
     assert!(!api.provider.headers.contains_key(ACCOUNT_ROUTING_HEADER));
+}
+
+#[tokio::test]
+async fn codex_suffix_routes_by_path_and_auth_not_by_display_name() {
+    let routing_context =
+        WorkspaceRoutingContext::new("https://configured.example/backend-api".into());
+    let auth =
+        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let resolver: Arc<dyn WorkspaceRoutingResolver> = Arc::new(Routing(WorkspaceRouting {
+        chatgpt_account_id: "account_id".into(),
+        backend_origin: "https://configured.example".into(),
+        account_routing_override: "us".into(),
+    }));
+    auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
+    let mut codex_path = ModelProviderInfo::create_openai_provider(Some(
+        "https://configured.example/backend-api/codex".into(),
+    ));
+    codex_path.requires_openai_auth = true;
+    let mut decisions = Vec::new();
+    for name in ["OpenAI", "Cambridge"] {
+        codex_path.name = name.to_string();
+        let routed = create_model_provider(codex_path.clone(), Some(auth.clone()))
+            .responses_api_provider(&routing_context)
+            .await
+            .unwrap();
+        decisions.push((
+            routed.provider.base_url,
+            routed.provider.headers[ACCOUNT_ROUTING_HEADER]
+                .to_str()
+                .unwrap()
+                .to_string(),
+            routed.redirect_policy,
+        ));
+    }
+    assert_eq!(decisions[0], decisions[1]);
+    assert_eq!(
+        decisions[0].0.as_str(),
+        "https://configured.example/backend-api/codex"
+    );
+    assert_eq!(decisions[0].1, "us");
+
+    let mut other_path = codex_path;
+    other_path.name = "OpenAI".to_string();
+    other_path.base_url = Some("https://configured.example/v1".into());
+    let unrouted = create_model_provider(other_path, Some(auth))
+        .responses_api_provider(&routing_context)
+        .await
+        .unwrap();
+    assert_eq!(
+        unrouted.provider.base_url,
+        "https://configured.example/v1"
+    );
+    assert!(!unrouted.provider.headers.contains_key(ACCOUNT_ROUTING_HEADER));
 }
 
 #[tokio::test]
@@ -180,10 +269,11 @@ async fn missing_routing_owner_and_wrong_workspace_fail_closed() {
         account_routing_override: "NO_CONSTRAINT".into(),
     }));
     auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
-    let provider = create_model_provider(
-        ModelProviderInfo::create_openai_provider(/*base_url*/ None),
-        Some(auth),
-    );
+    let mut info = ModelProviderInfo::create_openai_provider(Some(
+        "https://chatgpt.com/backend-api/codex".into(),
+    ));
+    info.requires_openai_auth = true;
+    let provider = create_model_provider(info, Some(auth));
     assert!(
         provider
             .responses_api_provider(&routing_context)

@@ -435,7 +435,7 @@ fn codex_apps_mcp_url_for_base_url_uses_plugin_service_paths() {
     );
     assert_eq!(
         codex_apps_mcp_url_for_base_url("https://chat.openai.com"),
-        "https://chat.openai.com/backend-api/ps/mcp"
+        "https://chat.openai.com/api/codex/ps/mcp"
     );
     assert_eq!(
         codex_apps_mcp_url_for_base_url("http://localhost:8080/api/codex"),
@@ -459,7 +459,7 @@ fn codex_apps_server_config_uses_plugin_service_path() {
         _ => panic!("expected streamable http transport for codex apps"),
     };
 
-    assert_eq!(url, "https://chatgpt.com/backend-api/ps/mcp");
+    assert_eq!(url, "https://chatgpt.com/api/codex/ps/mcp");
 }
 
 #[test]
@@ -725,8 +725,74 @@ async fn effective_mcp_servers_preserve_runtime_servers() {
     }
     match &codex_apps.transport {
         McpServerTransportConfig::StreamableHttp { url, .. } => {
-            assert_eq!(url, "https://chatgpt.com/backend-api/ps/mcp");
+            assert_eq!(url, "https://chatgpt.com/api/codex/ps/mcp");
         }
         other => panic!("expected streamable http transport, got {other:?}"),
     }
+}
+
+#[test]
+fn effective_mcp_auth_uses_the_configured_backend_origin() {
+    let mut observations = Vec::new();
+    for (backend, server_url, expected) in [
+        (
+            "http://127.0.0.1:43210/backend-api",
+            "http://127.0.0.1:43210",
+            McpServerAuth::ChatGpt,
+        ),
+        (
+            "https://gateway.example/backend-api",
+            "https://gateway.example",
+            McpServerAuth::ChatGpt,
+        ),
+        (
+            "https://chatgpt.com/backend-api",
+            "https://chatgpt.com",
+            McpServerAuth::ChatGpt,
+        ),
+        (
+            "https://preview.chatgpt-staging.com/backend-api",
+            "https://preview.chatgpt-staging.com",
+            McpServerAuth::ChatGpt,
+        ),
+        ("", "https://chatgpt.com", McpServerAuth::OAuth),
+        (
+            "http://127.0.0.1:43210/backend-api",
+            "https://chatgpt.com",
+            McpServerAuth::OAuth,
+        ),
+        (
+            "http://127.0.0.1:43210/backend-api",
+            "http://127.0.0.1:43211",
+            McpServerAuth::OAuth,
+        ),
+    ] {
+        let mut config = test_mcp_config(PathBuf::new());
+        config.chatgpt_base_url = backend.to_string();
+        let server = codex_apps_mcp_server_config(server_url, None, None);
+        let mut catalog = ResolvedMcpCatalog::builder();
+        catalog.register(McpServerRegistration::from_config(
+            "fixture".into(),
+            server.clone(),
+        ));
+        config.mcp_server_catalog = catalog.build();
+        let effective = effective_mcp_servers_from_configured(
+            HashMap::from([("fixture".into(), server)]),
+            &config,
+            None,
+        );
+        observations.push((
+            backend,
+            server_url,
+            effective["fixture"].config().auth.clone(),
+            expected,
+        ));
+    }
+    eprintln!("configured MCP auth observations: {observations:?}");
+    assert!(
+        observations
+            .iter()
+            .all(|(_, _, actual, expected)| actual == expected),
+        "backend, server, actual auth, expected auth: {observations:?}"
+    );
 }

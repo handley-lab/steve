@@ -86,6 +86,7 @@ async fn readiness_does_not_block_cached_requests_or_overwrite_newer_credentials
         .await
         .unwrap()
         .unwrap();
+    assert_eq!(manager.cached_access_token().as_deref(), Some("old"));
     // The status read has captured the old encrypted file and is blocked in keyring I/O.
     assert_eq!(
         tokio::time::timeout(
@@ -125,6 +126,7 @@ async fn readiness_does_not_block_cached_requests_or_overwrite_newer_credentials
         crate::GatewayAuthStatus::Succeeded
     );
     assert_eq!(manager.resolve_access_token().await.unwrap(), "replacement");
+    assert_eq!(manager.cached_access_token().as_deref(), Some("replacement"));
 }
 
 #[tokio::test]

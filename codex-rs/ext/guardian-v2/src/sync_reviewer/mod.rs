@@ -47,7 +47,12 @@ impl ThreadLifecycleContributor<Config> for GuardianExtension {
         input: ThreadStartInput<'a, Config>,
     ) -> ExtensionFuture<'a, ()> {
         Box::pin(async move {
-            if input.session_source.is_internal() {
+            if input.session_source.is_internal()
+                || !input
+                    .config
+                    .features
+                    .enabled(codex_features::Feature::GuardianApproval)
+            {
                 return;
             }
             input
@@ -91,12 +96,10 @@ impl ThreadLifecycleContributor<Config> for GuardianExtension {
                             options.thread_source = Some(ThreadSource::GuardianReview);
                             // This is the backend reviewer model, independent of current login.
                             // Core checks the selected model and auth on each request attempt.
-                            let provider = codex_model_provider::create_model_provider(
-                                options.config.model_provider.clone(),
-                                /*auth_manager*/ None,
-                            );
                             options.thread_extension_init.insert(CodexResponsesHeaders {
-                                model: provider.approval_review_preferred_model().to_owned(),
+                                model: options.config.model.clone().ok_or_else(|| {
+                                    anyhow::anyhow!("Guardian reviewer model is not configured")
+                                })?,
                                 headers: http::HeaderMap::from_iter([(
                                     http::HeaderName::from_static("x-codex-guardian"),
                                     http::HeaderValue::from_static("reviewer"),

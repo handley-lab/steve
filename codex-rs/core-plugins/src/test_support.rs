@@ -329,7 +329,7 @@ pub(crate) struct RecordingHttpClientSelector {
 impl RecordingHttpClientSelector {
     pub(crate) fn new() -> (Arc<Self>, Arc<Mutex<Vec<String>>>) {
         let selected_urls = Arc::new(Mutex::new(Vec::new()));
-        let delegate = RouteAwareClientPool::with_chatgpt_cloudflare_cookies(
+        let delegate = RouteAwareClientPool::new(
             test_http_client_factory(),
             ClientRouteClass::Api,
         );
@@ -363,6 +363,8 @@ pub(crate) fn recording_remote_plugin_service_config(
     (
         RemotePluginServiceConfig {
             chatgpt_base_url,
+            archive_origins: Vec::new(),
+            file_upload_origins: Vec::new(),
             product_sku: crate::remote::CODEX_PRODUCT_SKU.to_string(),
             http_clients,
         },
@@ -511,13 +513,13 @@ pub(crate) async fn load_plugins_config(codex_home: &Path, cwd: &Path) -> Plugin
         .and_then(toml::Value::as_str)
         .unwrap_or_default()
         .to_string();
+    let config = effective_config
+        .clone()
+        .try_into::<codex_config::config_toml::ConfigToml>()
+        .unwrap();
     PluginsConfigInput::new(
         config_layer_stack,
-        effective_config
-            .clone()
-            .try_into::<codex_config::config_toml::ConfigToml>()
-            .unwrap()
-            .plugins,
+        config.plugins,
         model_provider_id,
         feature_enabled(&effective_config, "plugins", /*default_enabled*/ true),
         feature_enabled(
@@ -528,6 +530,7 @@ pub(crate) async fn load_plugins_config(codex_home: &Path, cwd: &Path) -> Plugin
         "https://chatgpt.com/backend-api/".to_string(),
         test_http_client_factory(),
         /*product_sku*/ None,
+        config.file_upload_origins.unwrap_or_default(),
     )
 }
 

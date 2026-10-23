@@ -14,10 +14,6 @@ from steve_sdk import (
     SteveConfig,
     ApprovalMode,
     Sandbox,
-    ChatgptLoginHandle,
-    DeviceCodeLoginHandle,
-    AsyncChatgptLoginHandle,
-    AsyncDeviceCodeLoginHandle,
     Thread,
     AsyncThread,
     TurnHandle,
@@ -63,8 +59,6 @@ Properties/methods:
 - `metadata -> InitializeResponse`
 - `close() -> None`
 - `login_api_key(api_key: str) -> None`
-- `login_chatgpt() -> ChatgptLoginHandle`
-- `login_chatgpt_device_code() -> DeviceCodeLoginHandle`
 - `account(*, refresh_token: bool = False) -> GetAccountResponse`
 - `logout() -> None`
 - `thread_start(*, approval_mode=ApprovalMode.auto_review, base_instructions=None, config=None, cwd=None, developer_instructions=None, ephemeral=None, model=None, model_provider=None, personality=None, sandbox: Sandbox | None = None) -> Thread`
@@ -131,8 +125,6 @@ Properties/methods:
 - `metadata -> InitializeResponse`
 - `close() -> Awaitable[None]`
 - `login_api_key(api_key: str) -> Awaitable[None]`
-- `login_chatgpt() -> Awaitable[AsyncChatgptLoginHandle]`
-- `login_chatgpt_device_code() -> Awaitable[AsyncDeviceCodeLoginHandle]`
 - `account(*, refresh_token: bool = False) -> Awaitable[GetAccountResponse]`
 - `logout() -> Awaitable[None]`
 - `thread_start(*, approval_mode=ApprovalMode.auto_review, base_instructions=None, config=None, cwd=None, developer_instructions=None, ephemeral=None, model=None, model_provider=None, personality=None, sandbox: Sandbox | None = None) -> Awaitable[AsyncThread]`
@@ -152,30 +144,6 @@ Async context manager:
 async with AsyncSteve() as codex:
     ...
 ```
-
-## Login handles
-
-### ChatgptLoginHandle / AsyncChatgptLoginHandle
-
-- `login_id: str`
-- `auth_url: str`
-- `wait() -> AccountLoginCompletedNotification`
-- `cancel() -> CancelLoginAccountResponse`
-
-Async handle methods return awaitables.
-
-### DeviceCodeLoginHandle / AsyncDeviceCodeLoginHandle
-
-- `login_id: str`
-- `verification_url: str`
-- `user_code: str`
-- `wait() -> AccountLoginCompletedNotification`
-- `cancel() -> CancelLoginAccountResponse`
-
-Async handle methods return awaitables.
-
-`wait()` consumes only the completion notification for its matching login
-attempt. API-key login completes synchronously and does not return a handle.
 
 ## Thread / AsyncThread
 

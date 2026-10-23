@@ -413,7 +413,7 @@ approvals_reviewer = "user"
                         "is_auth_failure": true,
                         "connector_id": "calendar",
                         "connector_name": "Calendar",
-                        "install_url": "https://chatgpt.com/apps/calendar/calendar",
+                        "install_url": format!("{}/apps/calendar/calendar", server.uri()),
                         "auth_reason": "reauthentication_required",
                         "link_id": "link_123",
                         "error_code": "UNAUTHORIZED",
@@ -424,7 +424,7 @@ approvals_reviewer = "user"
             })),
             message: "Reconnect Calendar on ChatGPT to restore access for this request."
                 .to_string(),
-            url: "https://chatgpt.com/apps/calendar/calendar".to_string(),
+            url: format!("{}/apps/calendar/calendar", server.uri()),
             elicitation_id: format!("codex_apps_auth_{CALL_ID}"),
         })
     } else {
@@ -510,7 +510,7 @@ approvals_reviewer = "user"
     }
     let target_payload = serde_json::to_string(&(mcp_events, app_used_events))?;
     assert!(!target_payload.contains(PRIVATE_SENTINEL));
-    assert!(!target_payload.contains("https://chatgpt.com/apps/"));
+    assert!(!target_payload.contains(&format!("{}/apps/", server.uri())));
 
     Ok(())
 }

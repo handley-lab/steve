@@ -48,7 +48,6 @@ fn hide_private_items_after_voice_handoff(items: &mut Vec<ThreadItem>, delegated
 pub(super) struct FeedbackThreadEvent {
     pub(super) category: FeedbackCategory,
     pub(super) include_logs: bool,
-    pub(super) feedback_audience: FeedbackAudience,
     pub(super) result: Result<String, String>,
 }
 

@@ -9,9 +9,9 @@ async fn terminal_size_telemetry_respects_reloaded_exporter_and_consent() -> Res
     let cwd = app.config.cwd.to_path_buf();
     let mut enabled = Vec::new();
     for config in [
-        "[otel]\nmetrics_exporter = \"statsig\"\n",
+        "",
         "[otel]\nmetrics_exporter = \"none\"\n",
-        "[otel]\nmetrics_exporter = \"statsig\"\n[analytics]\nenabled = false\n",
+        "[analytics]\nenabled = false\n",
         "analytics.enabled = false\n[otel.metrics_exporter.otlp-http]\nendpoint = \"http://127.0.0.1:4318/v1/metrics\"\nprotocol = \"json\"\n",
     ] {
         std::fs::write(app.config.codex_home.join("config.toml"), config)?;
@@ -21,6 +21,6 @@ async fn terminal_size_telemetry_respects_reloaded_exporter_and_consent() -> Res
         app.local_settings = local_settings;
         enabled.push(crate::terminal_size_telemetry::enabled(&app.config));
     }
-    assert_eq!(enabled, vec![true, false, false, true]);
+    assert_eq!(enabled, vec![false, false, false, true]);
     Ok(())
 }

@@ -8,7 +8,6 @@ use std::fmt;
 use crate::default_client::create_default_auth_client;
 use crate::outbound_proxy::AuthRouteConfig;
 
-const PROD_AUTHAPI_BASE_URL: &str = "https://auth.openai.com/api/accounts";
 const CODEX_AUTHAPI_BASE_URL_ENV_VAR: &str = "STEVE_AUTHAPI_BASE_URL";
 const WHOAMI_PATH: &str = "/v1/user-auth-credential/whoami";
 
@@ -45,7 +44,12 @@ impl PersonalAccessTokenAuth {
             .ok()
             .map(|base_url| base_url.trim().trim_end_matches('/').to_string())
             .filter(|base_url| !base_url.is_empty())
-            .unwrap_or_else(|| PROD_AUTHAPI_BASE_URL.to_string());
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "personal access token metadata requires STEVE_AUTHAPI_BASE_URL",
+                )
+            })?;
         let endpoint = whoami_endpoint(&authapi_base_url);
         let client = create_default_auth_client(&endpoint, auth_route_config)?;
         hydrate_personal_access_token(&client, &endpoint, access_token).await

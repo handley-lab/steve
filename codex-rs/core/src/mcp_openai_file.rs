@@ -239,6 +239,7 @@ async fn build_uploaded_argument_value(
     let upload_auth = codex_model_provider::auth_provider_from_auth(auth);
     let uploaded = upload_openai_file(
         turn_context.config.chatgpt_base_url.trim_end_matches('/'),
+        &turn_context.config.file_upload_origins,
         upload_auth.as_ref(),
         &sess.services.openai_file_upload_client_pool,
         file_name,
@@ -296,6 +297,101 @@ mod tests {
         primary.selection.cwd = PathUri::from_abs_path(&cwd);
         primary.selection.workspace_roots.clear();
         primary.config_mut().workspace_roots.clear();
+    }
+
+    #[tokio::test]
+    async fn private_file_upload_does_not_follow_redirects() {
+        use wiremock::Mock;
+        use wiremock::MockServer;
+        use wiremock::ResponseTemplate;
+        use wiremock::matchers::method;
+        use wiremock::matchers::path;
+
+        let mut leaked_stages = Vec::new();
+        for redirect_stage in ["create", "blob", "finalize"] {
+            let configured = MockServer::start().await;
+            let receiver = MockServer::start().await;
+            let routes = [
+                (
+                    "create",
+                    "POST",
+                    "/backend-api/files",
+                    serde_json::json!({
+                        "file_id": "file_private",
+                        "upload_url": format!("{}/upload/file_private", configured.uri()),
+                    }),
+                ),
+                ("blob", "PUT", "/upload/file_private", serde_json::json!({})),
+                (
+                    "finalize",
+                    "POST",
+                    "/backend-api/files/file_private/uploaded",
+                    serde_json::json!({
+                        "status": "success",
+                        "download_url": format!("{}/download/file_private", configured.uri()),
+                    }),
+                ),
+            ];
+            for (stage, verb, request_path, payload) in &routes {
+                Mock::given(method(*verb))
+                    .and(path(*request_path))
+                    .respond_with(if *stage == redirect_stage {
+                        ResponseTemplate::new(307)
+                            .insert_header("location", format!("{}{request_path}", receiver.uri()))
+                    } else {
+                        ResponseTemplate::new(200).set_body_json(payload)
+                    })
+                    .mount(&configured)
+                    .await;
+                Mock::given(method(*verb))
+                    .and(path(*request_path))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(payload))
+                    .mount(&receiver)
+                    .await;
+            }
+            let (session, mut turn_context) = make_session_and_context().await;
+            let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
+            let dir = tempdir().expect("temp dir");
+            tokio::fs::write(dir.path().join("private.txt"), b"synthetic private file")
+                .await
+                .expect("write file");
+            set_primary_environment_cwd(&mut turn_context, dir.path());
+            let mut config = (*turn_context.config).clone();
+            config.chatgpt_base_url = format!("{}/backend-api", configured.uri());
+            turn_context.config = Arc::new(config);
+            let step_context = StepContext::for_test(Arc::new(turn_context));
+            let rewritten = rewrite_argument_value_for_openai_files(
+                &session,
+                &step_context,
+                Some(&auth),
+                "file",
+                &[],
+                &serde_json::json!("private.txt"),
+                None,
+            )
+            .await;
+            let configured_requests = configured.received_requests().await.unwrap();
+            let redirect_path = routes
+                .iter()
+                .find(|(stage, _, _, _)| *stage == redirect_stage)
+                .unwrap()
+                .2;
+            assert!(
+                configured_requests
+                    .iter()
+                    .any(|request| request.url.path() == redirect_path),
+                "{redirect_stage}: upload did not reach the redirect fixture: {rewritten:?}"
+            );
+            let received = receiver.received_requests().await.unwrap();
+            eprintln!("{redirect_stage}: result={rewritten:?}; redirected requests={received:?}");
+            if rewritten.is_ok() || !received.is_empty() {
+                leaked_stages.push((redirect_stage, rewritten.is_ok(), received.len()));
+            }
+        }
+        assert!(
+            leaked_stages.is_empty(),
+            "redirected upload stages: {leaked_stages:?}"
+        );
     }
 
     #[tokio::test]

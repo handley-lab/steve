@@ -11,6 +11,7 @@ use crate::browser_use::BrowserUseConfigToml;
 use crate::computer_use::ComputerUseConfigToml;
 use crate::permissions_toml::PermissionsToml;
 use crate::profile_toml::ConfigProfile;
+use crate::types::AccountPathStyle;
 use crate::types::AnalyticsConfigToml;
 use crate::types::ApprovalsReviewer;
 use crate::types::AppsConfigToml;
@@ -170,9 +171,13 @@ pub struct ConfigToml {
     pub daybreak: Option<bool>,
     /// Review model override used by the `/review` feature.
     pub review_model: Option<String>,
+    /// Model used by the standalone image-generation tool.
+    pub image_generation_model: Option<String>,
 
     /// Provider to use from the model_providers map.
     pub model_provider: Option<String>,
+    /// Model selected for automatic usage-limit recovery. Omission disables automatic switching.
+    pub fallback_model: Option<String>,
 
     /// Size of the context window for the model, in tokens.
     pub model_context_window: Option<i64>,
@@ -415,6 +420,13 @@ pub struct ConfigToml {
     /// Base URL for requests to ChatGPT (as opposed to the OpenAI API).
     pub chatgpt_base_url: Option<String>,
 
+    /// Path dialect for the account backend. Omission selects `codex_api`.
+    pub chatgpt_path_style: Option<AccountPathStyle>,
+
+    /// Additional HTTP(S) origins permitted to receive file uploads from the backend.
+    /// The configured backend's own origin is already permitted.
+    pub file_upload_origins: Option<Vec<String>>,
+
     /// Optional product SKU forwarded on host-owned Codex Apps MCP requests.
     pub apps_mcp_product_sku: Option<String>,
 
@@ -446,6 +458,8 @@ pub struct ConfigToml {
     /// Experimental / do not use. Selects the realtime websocket model/snapshot
     /// used for the `Op::RealtimeConversation` connection.
     pub experimental_realtime_ws_model: Option<String>,
+    /// Explicit model for realtime input transcription; omission disables transcription.
+    pub experimental_realtime_transcription_model: Option<String>,
     /// Experimental / do not use. Realtime websocket session selection.
     /// `version` controls v1/v2 and `type` controls conversational/transcription.
     #[serde(default)]
@@ -548,6 +562,10 @@ pub struct ConfigToml {
     #[serde(default)]
     pub desktop: Option<HashMap<String, JsonValue>>,
 
+    /// Explicit desktop update feed URL. Unset or blank disables its network probe.
+    /// Existing desktop bootstrap settings control appcast query parameters.
+    pub desktop_update_url: Option<String>,
+
     /// OTEL configuration.
     pub otel: Option<OtelConfigToml>,
 
@@ -577,6 +595,10 @@ pub enum ThreadStoreToml {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, JsonSchema)]
 pub struct AutoReviewToml {
+    /// Named provider for synchronous automatic review. Omission uses the action's provider.
+    pub model_provider: Option<String>,
+    /// Explicit model for synchronous automatic review.
+    pub model: Option<String>,
     /// Controls whether circuit-breaker interruptions include a structured error.
     /// Strict mode writes structured errors that older clients may not
     /// recognize when reading shared history. Defaults to `default`.

@@ -1,4 +1,4 @@
-//! Exercises curated Git requirements across discovery, installation, cached loading, and sync.
+//! Exercises curated Git requirements across discovery, installation, and cached loading.
 
 use super::*;
 use pretty_assertions::assert_eq;
@@ -88,10 +88,6 @@ host_pattern = '^github[.]com$'
                 permitted
             );
         }
-        manager.maybe_start_curated_repo_sync_for_config(
-            &blocked, /*on_effective_plugins_changed*/ None,
-        );
-        assert!(!CURATED_REPO_SYNC_STARTED.load(std::sync::atomic::Ordering::SeqCst));
     }
 }
 

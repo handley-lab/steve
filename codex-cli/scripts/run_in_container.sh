@@ -2,7 +2,7 @@
 set -e
 
 # Usage:
-#   ./run_in_container.sh [--work_dir directory] "COMMAND"
+#   ./run_in_container.sh [--work_dir directory] [--env NAME[=VALUE]]... "COMMAND"
 #
 #   Examples:
 #     ./run_in_container.sh --work_dir project/code "ls -la"
@@ -10,18 +10,34 @@ set -e
 
 # Default the work directory to WORKSPACE_ROOT_DIR if not provided.
 WORK_DIR="${WORKSPACE_ROOT_DIR:-$(pwd)}"
-# Default allowed domains - can be overridden with OPENAI_ALLOWED_DOMAINS env var
-OPENAI_ALLOWED_DOMAINS="${OPENAI_ALLOWED_DOMAINS:-api.openai.com}"
+# Require explicit allowed domains through OPENAI_ALLOWED_DOMAINS
+OPENAI_ALLOWED_DOMAINS="${OPENAI_ALLOWED_DOMAINS:-}"
 
-# Parse optional flag.
-if [ "$1" = "--work_dir" ]; then
-  if [ -z "$2" ]; then
-    echo "Error: --work_dir flag provided but no directory specified."
-    exit 1
-  fi
-  WORK_DIR="$2"
-  shift 2
+if [ -z "$OPENAI_ALLOWED_DOMAINS" ]; then
+  echo "Error: OPENAI_ALLOWED_DOMAINS is empty."
+  exit 1
 fi
+
+# Parse leading options; pass selected environment arguments directly to Docker.
+ENV_ARGS=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --work_dir|--env)
+      if [ "$#" -lt 2 ] || [ -z "$2" ] || [[ "$2" == --* ]]; then
+        echo "Error: $1 requires a value."
+        exit 1
+      fi
+      if [ "$1" = "--work_dir" ]; then
+        WORK_DIR="$2"
+      else
+        ENV_ARGS+=(--env "$2")
+      fi
+      shift 2
+      ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
 
 WORK_DIR=$(realpath "$WORK_DIR")
 
@@ -37,7 +53,7 @@ trap cleanup EXIT
 
 # Ensure a command is provided.
 if [ "$#" -eq 0 ]; then
-  echo "Usage: $0 [--work_dir directory] \"COMMAND\""
+  echo "Usage: $0 [--work_dir directory] [--env NAME[=VALUE]]... \"COMMAND\""
   exit 1
 fi
 
@@ -47,18 +63,12 @@ if [ -z "$WORK_DIR" ]; then
   exit 1
 fi
 
-# Verify that OPENAI_ALLOWED_DOMAINS is not empty
-if [ -z "$OPENAI_ALLOWED_DOMAINS" ]; then
-  echo "Error: OPENAI_ALLOWED_DOMAINS is empty."
-  exit 1
-fi
-
 # Kill any existing container for the working directory using cleanup(), centralizing removal logic.
 cleanup
 
 # Run the container with the specified directory mounted at the same path inside the container.
 docker run --name "$CONTAINER_NAME" -d \
-  -e OPENAI_API_KEY \
+  "${ENV_ARGS[@]}" \
   --cap-add=NET_ADMIN \
   --cap-add=NET_RAW \
   -v "$WORK_DIR:/app$WORK_DIR" \

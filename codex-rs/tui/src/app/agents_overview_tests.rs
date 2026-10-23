@@ -3082,3 +3082,86 @@ async fn command_center_new_actions_use_selection_and_leave_metadata_text_alone(
     disabled.handle_key_event(KeyCode::Char('w').into());
     assert!(rx.try_recv().is_err());
 }
+
+#[tokio::test]
+async fn omitted_server_provider_does_not_select_openai() -> Result<()> {
+    use crate::app::tests::session_lifecycle_requests::HistoryCapabilities;
+    use crate::app::tests::session_lifecycle_requests::start_recording_app_server_with_history;
+
+    for omit_provider in [false, true] {
+        let home = tempfile::tempdir()?;
+        std::fs::write(
+            home.path().join("config.toml"),
+            format!(
+                r#"
+model_provider = "cambridge"
+model = "test-model"
+[model_providers.cambridge]
+name = "Cambridge"
+base_url = "http://127.0.0.1:9/v1"
+[projects."{}"]
+trust_level = "trusted"
+"#,
+                home.path().display()
+            ),
+        )?;
+        let mut app = Box::pin(make_test_app()).await;
+        app.config = ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+            .harness_overrides(ConfigOverrides {
+                cwd: Some(home.path().to_path_buf()),
+                ..Default::default()
+            })
+            .build()
+            .await?;
+        app.local_settings = crate::local_settings::LocalSettings::from(&app.config);
+        let (mut server, requests, proxy) = start_recording_app_server_with_history(
+            &app.config,
+            if omit_provider {
+                HistoryCapabilities::ConfigReadWithoutProvider
+            } else {
+                HistoryCapabilities::Current
+            },
+            None,
+            None,
+            crate::app_server_session::ThreadParamsMode::Embedded,
+            LoaderOverrides::without_managed_config_for_tests(),
+        )
+        .await?;
+        let history_provider = server.history_model_provider(&app.config).await?;
+        let mut tui = crate::tui::test_support::make_test_tui()?;
+        let (overview_config, _) = Box::pin(app.agents_overview_session_config(
+            &mut tui,
+            &mut server,
+            Some(AbsolutePathBuf::try_from(home.path().to_path_buf())?),
+            None,
+        ))
+        .await
+        .expect("overview settings");
+        let overview_provider = overview_config.model_provider_id;
+        assert!(
+            requests
+                .lock()
+                .expect("request recorder")
+                .iter()
+                .filter(|request| request.method == "config/read")
+                .count()
+                >= 2
+        );
+        server.shutdown().await?;
+        proxy.await??;
+        println!(
+            "omit_provider={omit_provider} history={history_provider:?} overview={}",
+            overview_provider
+        );
+        assert_eq!(
+            (history_provider, overview_provider),
+            (
+                (!omit_provider).then(|| "cambridge".to_string()),
+                "cambridge".to_string()
+            )
+        );
+    }
+    Ok(())
+}

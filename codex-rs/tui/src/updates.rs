@@ -76,7 +76,7 @@ async fn check_for_update(
     action: Option<UpdateAction>,
     http_client_factory: HttpClientFactory,
 ) -> anyhow::Result<()> {
-    let client_pool = RouteAwareClientPool::with_chatgpt_cloudflare_cookies(
+    let client_pool = RouteAwareClientPool::new(
         http_client_factory,
         ClientRouteClass::Other,
     )

@@ -17,7 +17,6 @@ use codex_history::RolloutLine;
 use codex_login::AuthKeyringBackendKind;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
-use codex_login::auth::AgentIdentityAuthPolicy;
 use codex_login::auth::BedrockApiKeyAuth;
 use codex_login::default_client::originator;
 use codex_model_provider_info::AMAZON_BEDROCK_PROVIDER_ID;
@@ -1718,6 +1717,7 @@ async fn send_provider_auth_request(server: &MockServer, auth: ModelProviderAuth
         supports_websockets: false,
         supports_standalone_web_search: false,
         capabilities: None,
+        accepts_response_continuation: false,
         include_internal_metadata: false,
     };
 
@@ -1755,7 +1755,6 @@ async fn send_request_with_provider(provider: ModelProviderInfo) {
         Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
             "unused-api-key",
         ))),
-        AgentIdentityAuthPolicy::JwtOnly,
         thread_id,
         provider,
         SessionSource::Exec,
@@ -3224,6 +3223,7 @@ async fn azure_responses_request_does_not_store_and_preserves_prefixed_item_ids(
         supports_websockets: false,
         supports_standalone_web_search: false,
         capabilities: None,
+        accepts_response_continuation: false,
         include_internal_metadata: false,
     };
 
@@ -3256,7 +3256,6 @@ async fn azure_responses_request_does_not_store_and_preserves_prefixed_item_ids(
 
     let client = ModelClient::new(
         /*auth_manager*/ None,
-        AgentIdentityAuthPolicy::JwtOnly,
         thread_id,
         provider.clone(),
         SessionSource::Exec,
@@ -4072,6 +4071,7 @@ async fn azure_overrides_assign_properties_used_for_responses_url() {
         supports_websockets: false,
         supports_standalone_web_search: false,
         capabilities: None,
+        accepts_response_continuation: false,
         include_internal_metadata: false,
     };
 
@@ -4160,6 +4160,7 @@ async fn env_var_overrides_loaded_auth() {
         supports_websockets: false,
         supports_standalone_web_search: false,
         capabilities: None,
+        accepts_response_continuation: false,
         include_internal_metadata: false,
     };
 

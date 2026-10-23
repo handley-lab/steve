@@ -136,6 +136,7 @@ async fn test_config(temp_home: &TempDir) -> Config {
     let mut config = ConfigBuilder::default()
         .codex_home(temp_home.path().to_path_buf())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+        .cli_overrides(vec![("model_provider".into(), "openai".into())])
         .build()
         .await
         .expect("load config");
@@ -750,7 +751,167 @@ async fn status_snapshot_shows_active_user_defined_profile() {
 }
 
 #[tokio::test]
-async fn status_uses_server_provider_id_and_auth_requirement() {
+async fn status_account_metadata_does_not_hide_local_tokens_or_invent_login() {
+    let mut failures = Vec::new();
+    let usage = TokenUsage {
+        input_tokens: 50_000,
+        cached_input_tokens: 10_000,
+        output_tokens: 20_000,
+        reasoning_output_tokens: 0,
+        total_tokens: 70_000,
+    };
+    let token_info = TokenUsageInfo {
+        total_token_usage: usage.clone(),
+        last_token_usage: TokenUsage {
+            total_tokens: 20_000,
+            ..TokenUsage::default()
+        },
+        model_context_window: Some(100_000),
+    };
+    let now = chrono::Local
+        .with_ymd_and_hms(2024, 1, 2, 3, 4, 5)
+        .single()
+        .unwrap();
+    for (provider_id, provider_name) in [
+        ("test-provider", "Configured provider"),
+        ("second-provider", "OpenAI"),
+    ] {
+        let home = TempDir::new().unwrap();
+        std::fs::write(home.path().join("config.toml"), format!(
+            "model_provider = \"{provider_id}\"\n[model_providers.{provider_id}]\nname = \"{provider_name}\"\nbase_url = \"http://127.0.0.1:9/v1\"\nwire_api = \"responses\"\n"
+        )).unwrap();
+        let config = ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+            .build()
+            .await
+            .unwrap();
+        for (label, mode, supplied_display, expected_account) in [
+            (
+                "API key",
+                Some(codex_app_server_protocol::AuthMode::ApiKey),
+                None,
+                Some("API key configured"),
+            ),
+            (
+                "account",
+                Some(codex_app_server_protocol::AuthMode::Chatgpt),
+                None,
+                Some("Account credentials configured"),
+            ),
+            (
+                "supplied tokens",
+                Some(codex_app_server_protocol::AuthMode::ChatgptAuthTokens),
+                None,
+                Some("Account credentials configured"),
+            ),
+            (
+                "agent",
+                Some(codex_app_server_protocol::AuthMode::AgentIdentity),
+                None,
+                Some("Account credentials configured"),
+            ),
+            (
+                "PAT",
+                Some(codex_app_server_protocol::AuthMode::PersonalAccessToken),
+                None,
+                Some("Account credentials configured"),
+            ),
+            (
+                "headers",
+                Some(codex_app_server_protocol::AuthMode::Headers),
+                None,
+                None,
+            ),
+            (
+                "Bedrock key",
+                Some(codex_app_server_protocol::AuthMode::BedrockApiKey),
+                None,
+                None,
+            ),
+            (
+                "Bedrock access",
+                Some(codex_app_server_protocol::AuthMode::BedrockAccessKeys),
+                None,
+                None,
+            ),
+            ("absent", None, None, None),
+            (
+                "email and plan",
+                None,
+                Some(StatusAccountDisplay::ChatGpt {
+                    email: Some("user@test.invalid".into()),
+                    plan: Some("Supplied plan".into()),
+                }),
+                Some("user@test.invalid (Supplied plan)"),
+            ),
+            (
+                "email",
+                None,
+                Some(StatusAccountDisplay::ChatGpt {
+                    email: Some("user@test.invalid".into()),
+                    plan: None,
+                }),
+                Some("user@test.invalid"),
+            ),
+            (
+                "plan",
+                None,
+                Some(StatusAccountDisplay::ChatGpt {
+                    email: None,
+                    plan: Some("Supplied plan".into()),
+                }),
+                Some("Supplied plan"),
+            ),
+        ] {
+            let account = supplied_display.or_else(|| {
+                crate::app_server_session::status_account_display_from_auth_mode(mode, None)
+            });
+            for width in [42, 120] {
+                let (card, _) = new_status_output_with_rate_limits_handle(
+                    &config,
+                    config.model_provider.requires_openai_auth,
+                    Some(provider_id),
+                    None,
+                    account.as_ref(),
+                    Some(&token_info),
+                    &usage,
+                    &None,
+                    None,
+                    None,
+                    &[],
+                    None,
+                    now,
+                    "configured-model",
+                    None,
+                    None,
+                    "<none>".to_string(),
+                    false,
+                );
+                let rendered = render_lines(&card.display_lines(width)).join("\n");
+                println!(
+                    "{}",
+                    serde_json::json!({"case":label,"provider_id":provider_id,"provider_name":provider_name,"width":width,"account":format!("{account:?}"),"rendered":rendered})
+                );
+                let normalized = rendered.split_whitespace().collect::<Vec<_>>().join(" ");
+                let tokens_ok = normalized.contains("60K total (40K input + 20K output)");
+                let context_ok = normalized.contains("91% left (20K used / 100K)");
+                let account_ok = expected_account
+                    .map_or(!normalized.contains("Account:"), |expected| {
+                        normalized.contains(expected)
+                    });
+                let login_ok = !normalized.contains("login") && !normalized.contains("ChatGPT");
+                if !(tokens_ok && context_ok && account_ok && login_ok) {
+                    failures.push(format!("{label}/{provider_id}/{width}: tokens={tokens_ok} context={context_ok} account={account_ok} login={login_ok}"));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[tokio::test]
+async fn provider_neutral_status_uses_server_metadata_without_a_usage_destination() {
     let temp_home = TempDir::new().expect("temp home");
     let mut config = test_config(&temp_home).await;
     config.model = Some("gpt-5.6-sol".to_string());
@@ -844,16 +1005,8 @@ async fn status_uses_server_provider_id_and_auth_requirement() {
                 destinations.push(link.destination);
             }
         }
-        assert_eq!(
-            fragments, "https://chatgpt.com/settings/usage",
-            "width {width}"
-        );
-        assert!(!destinations.is_empty());
-        assert!(
-            destinations
-                .iter()
-                .all(|destination| destination == "https://chatgpt.com/settings/usage")
-        );
+        assert!(fragments.is_empty(), "width {width}: {fragments}");
+        assert!(destinations.is_empty(), "width {width}: {destinations:?}");
     }
 }
 

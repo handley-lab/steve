@@ -32,7 +32,6 @@ use codex_exec_server::ExecServerRuntimeOptions;
 use codex_protocol::ThreadId;
 use codex_utils_cli::CliConfigOverrides;
 use codex_utils_home_dir::find_codex_home;
-use codex_utils_oss::get_default_model_for_oss_provider;
 use color_eyre::eyre::Result;
 use color_eyre::eyre::WrapErr;
 use color_eyre::eyre::eyre;
@@ -252,7 +251,7 @@ pub(super) async fn start_app_server_for_session_command(
 
     if let Some(endpoint) = explicit_remote_endpoint {
         // Validate config before connecting, but leave authentication and execution
-        // to the selected server even when this caller has workload identity set.
+        // to the selected server.
         launch_loader_overrides.ignore_login_requirements = true;
         ConfigBuilder::default()
             .codex_home(codex_home)
@@ -269,9 +268,7 @@ pub(super) async fn start_app_server_for_session_command(
         .with_remote_cwd_override(cli.cwd.clone()));
     }
 
-    let workload_identity_selected = codex_login::is_workload_identity_selected();
     let reuse_implicit_local_daemon = !cli.no_daemon
-        && !workload_identity_selected
         && super::daemon_startup::config_exclusion(
             &cli_kv_overrides,
             &launch_loader_overrides,
@@ -288,7 +285,6 @@ pub(super) async fn start_app_server_for_session_command(
         explicit_remote_endpoint,
         default_daemon,
         reuse_implicit_local_daemon,
-        workload_identity_selected,
         std::env::var_os(codex_exec_server::CODEX_EXEC_SERVER_URL_ENV_VAR).as_deref(),
     )?;
     let remote_cwd_override = cli
@@ -349,12 +345,7 @@ pub(super) async fn start_app_server_for_session_command(
     } else {
         None
     };
-    let model = cli.model.clone().or_else(|| {
-        model_provider
-            .as_deref()
-            .and_then(get_default_model_for_oss_provider)
-            .map(ToOwned::to_owned)
-    });
+    let model = cli.model.clone();
     let cwd = cli.cwd.clone();
     let config = ConfigBuilder::default()
         .cli_overrides(cli_kv_overrides.clone())

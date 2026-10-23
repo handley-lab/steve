@@ -346,7 +346,7 @@ async fn legacy_custom_ca_fallback_is_limited_to_reqwest_default() {
         "respect-system-proxy" => OutboundProxyPolicy::RespectSystemProxy,
         _ => panic!("unexpected test proxy policy: {policy_name}"),
     };
-    let pool = RouteAwareClientPool::with_chatgpt_cloudflare_cookies(
+    let pool = RouteAwareClientPool::new(
         HttpClientFactory::new(outbound_proxy_policy),
         ClientRouteClass::Other,
     )
@@ -462,11 +462,7 @@ async fn cached_tls_backend_only_changes_its_destination_and_route() {
     ]));
     let fallback_client = HttpClientBuilder::new()
         .with_rustls_tls()
-        .build_for_resolved_route(
-            &HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-            ClientRouteClass::Api,
-            &OutboundProxyRoute::Direct,
-        )
+        .build_for_resolved_route(ClientRouteClass::Api, &OutboundProxyRoute::Direct)
         .expect("rustls client should build without proxy autodiscovery");
     pool.rustls_clients
         .as_ref()

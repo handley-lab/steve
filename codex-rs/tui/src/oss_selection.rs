@@ -16,8 +16,6 @@ use crate::render::renderable::RenderableExt as _;
 use crate::render::renderable::RenderableItem;
 use codex_http_client::HttpClient;
 use codex_http_client::HttpClientBuilder;
-use codex_model_provider_info::DEFAULT_LMSTUDIO_PORT;
-use codex_model_provider_info::DEFAULT_OLLAMA_PORT;
 use codex_model_provider_info::LMSTUDIO_OSS_PROVIDER_ID;
 use codex_model_provider_info::OLLAMA_OSS_PROVIDER_ID;
 use crossterm::event::Event;
@@ -66,13 +64,13 @@ static OSS_SELECT_OPTIONS: LazyLock<Vec<SelectOption>> = LazyLock::new(|| {
     vec![
         SelectOption {
             label: Line::from(vec!["L".underlined(), "M Studio".into()]),
-            description: "Local LM Studio server (default port 1234)",
+            description: "Configured LM Studio server",
             key: KeyCode::Char('l'),
             provider_id: LMSTUDIO_OSS_PROVIDER_ID,
         },
         SelectOption {
             label: Line::from(vec!["O".underlined(), "llama".into()]),
-            description: "Local Ollama server (Responses API, default port 11434)",
+            description: "Configured Ollama server (Responses API)",
             key: KeyCode::Char('o'),
             provider_id: OLLAMA_OSS_PROVIDER_ID,
         },
@@ -168,7 +166,7 @@ impl OssSelectionWidget<'_> {
             KeyEvent {
                 code: KeyCode::Esc, ..
             } => {
-                self.send_decision(LMSTUDIO_OSS_PROVIDER_ID.to_string());
+                self.send_decision("__CANCELLED__".to_string());
             }
             KeyEvent {
                 code: KeyCode::Char('1' | '2'),
@@ -254,7 +252,7 @@ impl WidgetRef for &OssSelectionWidget<'_> {
                 key_hint::plain(KeyCode::Enter).into(),
                 " select · ".dim(),
                 key_hint::plain(KeyCode::Esc).into(),
-                " LM Studio · ".dim(),
+                " exit · ".dim(),
                 key_hint::ctrl(KeyCode::Char('c')).into(),
                 " exit".dim(),
             ]))
@@ -276,47 +274,17 @@ pub(crate) struct OssProviderSelection {
     pub(crate) manually_selected: bool,
 }
 
-pub(crate) enum OssProviderDetection {
-    AutoSelected(OssProviderSelection),
-    NeedsSelection {
-        lmstudio_status: ProviderStatus,
-        ollama_status: ProviderStatus,
-    },
-}
-
-/// Probe local providers without suspending the interactive startup composer.
-pub(crate) async fn detect_oss_provider() -> OssProviderDetection {
-    // These probes intentionally bypass proxy discovery because both targets are
-    // hardcoded plaintext loopback endpoints. Preserve the legacy custom-CA fallback so an
-    // invalid inherited certificate bundle cannot prevent best-effort provider detection.
+/// Probe only operator-configured provider URLs; choosing a provider remains interactive.
+pub(crate) async fn detect_oss_provider(
+    lmstudio_base_url: Option<&str>,
+    ollama_base_url: Option<&str>,
+) -> (ProviderStatus, ProviderStatus) {
     #[allow(deprecated)]
     let client = HttpClientBuilder::new().build_direct_with_custom_ca_fallback();
-
-    // Check provider statuses first
-    let lmstudio_status = check_lmstudio_status(&client).await;
-    let ollama_status = check_ollama_status(&client).await;
-
-    // Autoselect if only one is running
-    match (&lmstudio_status, &ollama_status) {
-        (ProviderStatus::Running, ProviderStatus::NotRunning) => {
-            let provider = LMSTUDIO_OSS_PROVIDER_ID.to_string();
-            OssProviderDetection::AutoSelected(OssProviderSelection {
-                provider,
-                manually_selected: false,
-            })
-        }
-        (ProviderStatus::NotRunning, ProviderStatus::Running) => {
-            let provider = OLLAMA_OSS_PROVIDER_ID.to_string();
-            OssProviderDetection::AutoSelected(OssProviderSelection {
-                provider,
-                manually_selected: false,
-            })
-        }
-        _ => OssProviderDetection::NeedsSelection {
-            lmstudio_status,
-            ollama_status,
-        },
-    }
+    (
+        check_provider_status(&client, lmstudio_base_url).await,
+        check_provider_status(&client, ollama_base_url).await,
+    )
 }
 
 /// Run the actionable provider picker after provider discovery requires a user decision.
@@ -361,33 +329,14 @@ pub(crate) async fn select_oss_provider(
     result
 }
 
-async fn check_lmstudio_status(client: &HttpClient) -> ProviderStatus {
-    match check_port_status(client, DEFAULT_LMSTUDIO_PORT).await {
-        Ok(true) => ProviderStatus::Running,
-        Ok(false) => ProviderStatus::NotRunning,
+async fn check_provider_status(client: &HttpClient, base_url: Option<&str>) -> ProviderStatus {
+    let Some(url) = base_url.filter(|url| !url.trim().is_empty()) else {
+        return ProviderStatus::Unknown;
+    };
+    match client.get(url).timeout(Duration::from_secs(2)).send().await {
+        Ok(response) if response.status().is_success() => ProviderStatus::Running,
+        Ok(_) => ProviderStatus::NotRunning,
         Err(_) => ProviderStatus::Unknown,
-    }
-}
-
-async fn check_ollama_status(client: &HttpClient) -> ProviderStatus {
-    match check_port_status(client, DEFAULT_OLLAMA_PORT).await {
-        Ok(true) => ProviderStatus::Running,
-        Ok(false) => ProviderStatus::NotRunning,
-        Err(_) => ProviderStatus::Unknown,
-    }
-}
-
-async fn check_port_status(client: &HttpClient, port: u16) -> io::Result<bool> {
-    let url = format!("http://localhost:{port}");
-
-    match client
-        .get(&url)
-        .timeout(Duration::from_secs(2))
-        .send()
-        .await
-    {
-        Ok(response) => Ok(response.status().is_success()),
-        Err(_) => Ok(false), // Connection failed = not running
     }
 }
 
@@ -449,11 +398,10 @@ mod tests {
 
         #[allow(deprecated)]
         let client = HttpClientBuilder::new().build_direct_with_custom_ca_fallback();
-        assert!(
-            check_port_status(&client, server.address().port())
-                .await
-                .expect("localhost provider probe should complete")
-        );
+        assert!(matches!(
+            check_provider_status(&client, Some(&server.uri())).await,
+            ProviderStatus::Running
+        ));
     }
 }
 

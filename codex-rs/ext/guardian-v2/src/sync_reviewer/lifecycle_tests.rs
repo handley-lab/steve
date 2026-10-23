@@ -21,6 +21,41 @@ use std::time::Duration;
 
 struct StaleDenials(ModelInfo);
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn guardian_off_does_not_install_reviewer_runtime() -> anyhow::Result<()> {
+    for enabled in [true, false] {
+        let server = start_mock_server().await;
+        let test = test_codex()
+            .with_config(move |config| {
+                if enabled {
+                    config
+                        .features
+                        .enable(codex_features::Feature::GuardianApproval)
+                        .unwrap();
+                } else {
+                    config
+                        .features
+                        .disable(codex_features::Feature::GuardianApproval)
+                        .unwrap();
+                }
+            })
+            .build_with_auto_env(&server)
+            .await?;
+        let data = test.codex.thread_extension_data();
+        assert_eq!(
+            data.get::<codex_guardian_reviewer::ReviewerConfig<Config>>()
+                .is_some(),
+            enabled,
+        );
+        assert_eq!(
+            data.get::<ReviewerPool<GuardianReviewSession>>().is_some(),
+            enabled,
+        );
+        test.codex.shutdown_and_wait().await?;
+    }
+    Ok(())
+}
+
 impl TurnLifecycleContributor for StaleDenials {
     fn on_turn_start<'a>(&'a self, input: TurnStartInput<'a>) -> ExtensionFuture<'a, ()> {
         Box::pin(async move {

@@ -38,7 +38,6 @@ use codex_core_api::ModelAvailabilityNuxConfig;
 use codex_core_api::MultiAgentV2Config;
 use codex_core_api::NewThread;
 use codex_core_api::Notice;
-use codex_core_api::OPENAI_PROVIDER_ID;
 use codex_core_api::OtelConfig;
 use codex_core_api::PermissionProfile;
 use codex_core_api::Permissions;
@@ -228,11 +227,19 @@ async fn new_config(
             .feature_requirements
             .as_ref(),
     )?;
-    let model_provider_id = OPENAI_PROVIDER_ID.to_string();
-    let model_providers = built_in_model_providers(/*openai_base_url*/ None);
+    let model_provider_id = bootstrap
+        .config_toml
+        .model_provider
+        .clone()
+        .context("Set model_provider in config.toml")?;
+    let model_providers = codex_core_api::merge_configured_model_providers(
+        built_in_model_providers(bootstrap.config_toml.openai_base_url.clone()),
+        bootstrap.config_toml.model_providers.clone(),
+    )
+    .map_err(anyhow::Error::msg)?;
     let model_provider = model_providers
         .get(&model_provider_id)
-        .context("OpenAI model provider should be available")?
+        .context("Configured model provider should be available")?
         .clone();
 
     let mut config = Config {
@@ -246,12 +253,14 @@ async fn new_config(
         daybreak_enabled: false,
         service_tier: None,
         review_model: None,
+        image_generation_model: bootstrap.config_toml.image_generation_model.clone(),
         model_context_window: None,
         model_auto_compact_token_limit: None,
         model_auto_compact_token_limit_scope: AutoCompactTokenLimitScope::Total,
         model_post_turn_compact_threshold_percent: 0,
         async_compaction_threshold_percent: 65,
         model_provider_id,
+        fallback_model: None,
         model_provider,
         personality: None,
         permissions: Permissions::from_approval_and_profile(
@@ -267,6 +276,8 @@ async fn new_config(
         base_instructions: None,
         base_instructions_provenance: None,
         developer_instructions: None,
+        guardian_model_provider: None,
+        guardian_model: None,
         guardian_policy_config: None,
         guardian_extra_policy: None,
         guardian_policy_template: None,
@@ -305,6 +316,7 @@ async fn new_config(
         tui_theme: None,
         tui_raw_output_mode: false,
         tui_pet: None,
+        tui_pet_asset_base_url: None,
         tui_pet_anchor: TuiPetAnchor::Composer,
         terminal_resize_reflow: TerminalResizeReflowConfig::default(),
         tui_keymap: TuiKeymap::default(),
@@ -352,10 +364,9 @@ async fn new_config(
         model_reasoning_summary: None,
         model_catalog: None,
         model_verbosity: None,
-        chatgpt_base_url: auth_config
-            .chatgpt_base_url
-            .clone()
-            .unwrap_or_else(|| "https://chatgpt.com/backend-api/".to_string()),
+        chatgpt_base_url: auth_config.chatgpt_base_url.clone().unwrap_or_default(),
+        file_upload_origins: Vec::new(),
+        desktop_update_url: None,
         respect_system_proxy,
         apps_mcp_product_sku: None,
         responses_api_metadata: BTreeMap::new(),
@@ -363,6 +374,7 @@ async fn new_config(
         experimental_realtime_ws_base_url: None,
         experimental_realtime_webrtc_call_base_url: None,
         experimental_realtime_ws_model: None,
+        experimental_realtime_transcription_model: None,
         realtime: RealtimeConfig::default(),
         experimental_realtime_ws_backend_prompt: None,
         experimental_realtime_ws_startup_context: None,
@@ -397,6 +409,7 @@ async fn new_config(
         disable_paste_burst: false,
         analytics_enabled: Some(false),
         feedback_enabled: false,
+        feedback_dsn: None,
         tool_suggest: ToolSuggestConfig::default(),
         otel: OtelConfig::default(),
     };

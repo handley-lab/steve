@@ -4,7 +4,7 @@ use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_login::default_client::RESIDENCY_HEADER_NAME;
-use codex_login::default_client::create_client_with_chatgpt_cookies;
+use codex_login::default_client::create_client_without_redirects_or_request_logging;
 use codex_login::default_client::default_headers;
 
 use anyhow::Context;
@@ -26,7 +26,7 @@ struct CachedChatGptClient {
 static CHATGPT_CLIENT: LazyLock<Mutex<Option<CachedChatGptClient>>> =
     LazyLock::new(|| Mutex::new(None));
 
-/// Reuse the client and cookies without changing the caller's captured account policy.
+/// Reuse the client without changing the caller's captured account policy.
 fn chatgpt_client(factory: HttpClientFactory) -> HttpClient {
     let residency = default_headers()
         .get(RESIDENCY_HEADER_NAME)
@@ -41,7 +41,7 @@ fn chatgpt_client(factory: HttpClientFactory) -> HttpClient {
         return cached_client.client.clone();
     }
 
-    let client = create_client_with_chatgpt_cookies(&factory);
+    let client = create_client_without_redirects_or_request_logging(&factory);
     *cached = Some(CachedChatGptClient {
         factory,
         residency,
@@ -82,7 +82,7 @@ pub(crate) async fn chatgpt_get_request_with_timeout<T: DeserializeOwned>(
     );
     anyhow::ensure!(
         auth.get_account_id().is_some(),
-        "ChatGPT account ID not available, please re-run `codex login`"
+        "ChatGPT account ID not available; supply credentials with an account ID"
     );
     let url = format!(
         "{}/{}",
@@ -135,7 +135,7 @@ pub(crate) async fn chatgpt_post_request_with_timeout<
     );
     anyhow::ensure!(
         auth.get_account_id().is_some(),
-        "ChatGPT account ID not available, please re-run codex login"
+        "ChatGPT account ID not available; supply credentials with an account ID"
     );
 
     let url = format!(

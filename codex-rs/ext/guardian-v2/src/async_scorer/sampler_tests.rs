@@ -1,13 +1,11 @@
 use anyhow::Result;
 use codex_api::ApiError;
 use codex_context_fragments::RenderedFragment;
-use codex_core::cyber_access_program::ApiKeyCyberAccessPrograms;
 use codex_extension_api::ContextualUserFragment;
 use codex_extension_api::ExtensionMetrics;
 use codex_guardian_context::PreviousReviews;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
-use codex_login::AgentIdentityAuthPolicy;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_login::ExternalAuth;
@@ -21,8 +19,8 @@ use codex_protocol::ThreadId;
 use codex_protocol::TranscriptFormat;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort;
-use codex_protocol::protocol::SessionSource;
 use codex_protocol::turn_input::CyberAccessProgram;
 use core_test_support::responses;
 use core_test_support::responses::WebSocketConnectionConfig;
@@ -51,6 +49,7 @@ use super::LunaSamplerConfig;
 use super::LunaSamplerError;
 use super::LunaSamplingRequest;
 use super::MAX_CONCURRENT_REQUESTS;
+pub(super) const MODEL: &str = "gpt-5.6-luna";
 
 #[path = "request_tests.rs"]
 mod request;
@@ -58,6 +57,8 @@ mod request;
 mod retained;
 #[path = "sampler_routing_tests.rs"]
 mod routing;
+#[path = "sampler_protocol_tests.rs"]
+mod protocol;
 
 impl LunaSampler {
     /// Waits for warm sockets to enter the client pool, beyond the server handshake.
@@ -206,27 +207,44 @@ pub(in crate::async_scorer) async fn proxy_websocket_servers_with_http(
     Ok(format!("http://{address}/v1"))
 }
 
+fn sampler_model_info() -> ModelInfo {
+    let mut model = codex_models_manager::bundled_models_response()
+        .unwrap()
+        .models
+        .remove(0);
+    model.slug = MODEL.to_owned();
+    model.use_responses_lite = true;
+    model.comp_hash = None;
+    model
+}
+
 pub(in crate::async_scorer) fn sampler_config(base_url: String) -> LunaSamplerConfig {
     LunaSamplerConfig {
-        api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::Disabled,
+        model: MODEL.to_owned(),
+        api_key_cyber_access_programs: false,
+        content_item_kinds: true,
         workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
             "https://chatgpt.com/backend-api".into(),
         ),
         provider: create_model_provider(
-            ModelProviderInfo::create_openai_provider(Some(base_url)),
+            ModelProviderInfo {
+                requires_openai_auth: true,
+                supports_websockets: true,
+                accepts_response_continuation: true,
+                include_internal_metadata: true,
+                ..ModelProviderInfo::create_openai_provider(Some(base_url))
+            },
             Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
                 "test-api-key",
             ))),
         ),
         http_client_factory: HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-        agent_identity_policy: AgentIdentityAuthPolicy::JwtOnly,
-        session_source: SessionSource::Exec,
         session_id: "session-1".to_owned(),
         thread_id: "thread-1".to_owned(),
         originator: Some("guardian-v2-test".to_owned()),
 
         service_tier: None,
-        luna_compaction_hash: None,
+        model_info: Some(sampler_model_info()),
         max_input_tokens: codex_guardian_context::DEFAULT_MAX_INPUT_TOKENS,
         metrics: None,
     }
@@ -291,54 +309,73 @@ pub(in crate::async_scorer) fn sample_request(parent_turn_id: &str) -> LunaSampl
 #[tokio::test]
 async fn classifier_preserves_api_key_cyber_program_policy() -> Result<()> {
     skip_if_no_network!(Ok(()));
-    for policy in [
-        ApiKeyCyberAccessPrograms::Enabled,
-        ApiKeyCyberAccessPrograms::Disabled,
-        ApiKeyCyberAccessPrograms::UnsupportedProvider,
-    ] {
-        let server = responses::start_mock_server().await;
-        let response = responses::mount_sse_once(
-            &server,
-            responses::sse(vec![
-                ev_assistant_message("score", "low"),
-                ev_completed("score"),
-            ]),
-        )
-        .await;
-        let mut config = sampler_config(server.uri());
-        config.api_key_cyber_access_programs = policy;
-        let sampler = LunaSampler::new(config);
-        let mut request = sample_request("parent");
-        request.cyber_access_program = Some(CyberAccessProgram::DaybreakRed);
-        let result = sampler.sample(request).await;
-        match policy {
-            ApiKeyCyberAccessPrograms::Disabled => {
-                assert!(
-                    result
-                        .unwrap_err()
-                        .to_string()
-                        .contains("Cyber access programs are disabled for this API-key session.")
-                );
-                assert!(response.requests().is_empty());
-            }
-            ApiKeyCyberAccessPrograms::Enabled | ApiKeyCyberAccessPrograms::UnsupportedProvider => {
-                assert_eq!(result?, "low");
-                let expected = match policy {
-                    ApiKeyCyberAccessPrograms::Enabled => Some(json!({"cyber": "daybreak_blue"})),
-                    ApiKeyCyberAccessPrograms::UnsupportedProvider => None,
-                    ApiKeyCyberAccessPrograms::Disabled => unreachable!(),
-                };
-                assert_eq!(
-                    response
-                        .single_request()
-                        .body_json()
-                        .get("access_programs")
-                        .cloned(),
-                    expected,
-                );
+    let mut failures = Vec::new();
+    for backend_auth in [true, false] {
+        for name in ["OpenAI", "Cambridge"] {
+            for enabled in [true, false] {
+                for program in [Some(CyberAccessProgram::DaybreakRed), None] {
+                    let server = responses::start_mock_server().await;
+                    let response = responses::mount_sse_once(
+                        &server,
+                        responses::sse(vec![
+                            ev_assistant_message("score", "low"),
+                            ev_completed("score"),
+                        ]),
+                    )
+                    .await;
+                    let mut config = sampler_config(server.uri());
+                    config.api_key_cyber_access_programs = enabled;
+                    let mut provider =
+                        ModelProviderInfo::create_openai_provider(Some(server.uri()));
+                    provider.name = name.to_string();
+                    provider.requires_openai_auth = backend_auth;
+                    provider.experimental_bearer_token =
+                        (!backend_auth).then(|| "classifier-key".into());
+                    config.provider = create_model_provider(
+                        provider,
+                        Some(AuthManager::from_auth_for_testing(if backend_auth {
+                            CodexAuth::create_dummy_chatgpt_auth_for_testing()
+                        } else {
+                            CodexAuth::from_api_key("unused-global-key")
+                        })),
+                    );
+                    let sampler = LunaSampler::new(config);
+                    let mut request = sample_request("parent");
+                    request.cyber_access_program = program;
+                    let result = sampler.sample(request).await;
+                    let captured = response.requests();
+                    let valid = if !enabled && program.is_some() {
+                        result.as_ref().is_err_and(|error| {
+                            error
+                                .to_string()
+                                .contains("Cyber access programs are disabled")
+                        }) && captured.is_empty()
+                    } else {
+                        result.as_ref().is_ok_and(|score| score == "low")
+                            && captured.len() == 1
+                            && captured[0].body_json().get("access_programs").cloned()
+                                == program.map(|_| json!({"cyber": "daybreak_blue"}))
+                            && captured[0].header("authorization").as_deref()
+                                == Some(if backend_auth {
+                                    "Bearer Access Token"
+                                } else {
+                                    "Bearer classifier-key"
+                                })
+                    };
+                    eprintln!(
+                        "classifier backend_auth={backend_auth} name={name} enabled={enabled} program={program:?} valid={valid}"
+                    );
+                    if !valid {
+                        failures.push((backend_auth, name, enabled, program));
+                    }
+                }
             }
         }
     }
+    assert!(
+        failures.is_empty(),
+        "classifier forwarding failures: {failures:?}"
+    );
     Ok(())
 }
 
@@ -470,70 +507,156 @@ impl ExternalAuth for RefreshableAuth {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn classifier_sends_guardian_header_only_with_codex_backend_auth() -> Result<()> {
+async fn classifier_role_preserves_configured_tier_lineage_and_credentials() -> Result<()> {
     skip_if_no_network!(Ok(()));
-
-    for (auth, base_path, expected_header, expected_service_tier) in [
-        (
-            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
-            "/backend-api/codex",
-            Some("classifier"),
-            None,
-        ),
-        (
-            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
-            "/v1",
-            None,
-            Some("priority"),
-        ),
-        (
-            CodexAuth::from_api_key("test-api-key"),
-            "/v1",
-            None,
-            Some("priority"),
-        ),
-    ] {
-        let events = vec![
-            ev_assistant_message("classification", "low"),
-            ev_completed("response-1"),
-        ];
-        let mut connections = vec![Vec::new(); INITIAL_WEBSOCKET_CONNECTIONS - 1];
-        connections.push(vec![events]);
-        let server = responses::start_websocket_server(connections).await;
-        let base_url = format!(
-            "http://{}{base_path}",
-            server.uri().trim_start_matches("ws://")
-        );
-        let mut config = sampler_config(base_url.clone());
-        config.provider = create_model_provider(
-            ModelProviderInfo::create_openai_provider(Some(base_url)),
-            Some(AuthManager::from_auth_for_testing(auth)),
-        );
-        config.service_tier = Some("priority".to_owned());
-        let sampler = connect_sampler(config).await?;
-
-        assert_eq!(sampler.sample(sample_request("turn-1")).await?, "low");
-        for handshake in server.handshakes() {
-            assert_eq!(handshake.uri(), format!("{base_path}/responses"));
-            assert_eq!(
-                handshake.header("x-codex-guardian").as_deref(),
-                expected_header
-            );
-            assert_eq!(handshake.header("x-codex-routing-hint"), None);
+    let mut failures = Vec::new();
+    for websocket in [false, true] {
+        for (credential, auth, shared, bearer) in [
+            ("anonymous", None, false, None),
+            (
+                "api-key",
+                Some(CodexAuth::from_api_key("selected-api")),
+                true,
+                None,
+            ),
+            (
+                "account",
+                Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
+                true,
+                None,
+            ),
+            ("bearer", None, false, Some("selected-provider")),
+            (
+                "bearer-unused-account",
+                Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
+                false,
+                Some("selected-provider"),
+            ),
+        ] {
+            for name in ["OpenAI", "Cambridge"] {
+                for base_path in ["/backend-api/codex", "/v1"] {
+                    let events = vec![
+                        ev_assistant_message("classification", "low"),
+                        ev_completed("response-1"),
+                    ];
+                    let ws = if websocket {
+                        let mut connections = vec![Vec::new(); INITIAL_WEBSOCKET_CONNECTIONS - 1];
+                        connections.push(vec![events.clone()]);
+                        Some(responses::start_websocket_server(connections).await)
+                    } else {
+                        None
+                    };
+                    let http = if websocket {
+                        None
+                    } else {
+                        Some(responses::start_mock_server().await)
+                    };
+                    let response = if let Some(server) = &http {
+                        Some(responses::mount_sse_once(server, responses::sse(events)).await)
+                    } else {
+                        None
+                    };
+                    let origin = ws
+                        .as_ref()
+                        .map(|server| server.uri().replacen("ws://", "http://", 1))
+                        .unwrap_or_else(|| http.as_ref().unwrap().uri());
+                    let base_url = format!("{origin}{base_path}");
+                    let mut config = sampler_config(base_url.clone());
+                    let mut provider = ModelProviderInfo::create_openai_provider(Some(base_url));
+                    provider.name = name.into();
+                    provider.requires_openai_auth = shared;
+                    provider.experimental_bearer_token = bearer.map(Into::into);
+                    provider.supports_websockets = websocket;
+                    config.provider = create_model_provider(
+                        provider,
+                        auth.clone().map(AuthManager::from_auth_for_testing),
+                    );
+                    config.service_tier = Some("priority".into());
+                    let expected_authorization =
+                        bearer.map(|token| format!("Bearer {token}")).or_else(|| {
+                            if shared {
+                                auth.as_ref()
+                                    .map(|auth| format!("Bearer {}", auth.get_token().unwrap()))
+                            } else {
+                                None
+                            }
+                        });
+                    let expected_account = if shared {
+                        auth.as_ref().and_then(CodexAuth::get_account_id)
+                    } else {
+                        None
+                    };
+                    let sampler = if websocket {
+                        connect_sampler(config).await?
+                    } else {
+                        LunaSampler::new(config)
+                    };
+                    let mut request = sample_request("turn-1");
+                    request.parent_response_id = Some("parent-owned-response".into());
+                    let result = sampler.sample(request).await;
+                    let mut headers = Vec::new();
+                    let body;
+                    let request_count;
+                    if let Some(server) = &ws {
+                        let requests = server
+                            .connections()
+                            .into_iter()
+                            .flatten()
+                            .collect::<Vec<_>>();
+                        request_count = requests.len();
+                        body = requests
+                            .first()
+                            .map(|request| request.body_json())
+                            .unwrap_or(serde_json::Value::Null);
+                        for handshake in server.handshakes() {
+                            headers.push(json!({"uri": handshake.uri(), "role": handshake.header("x-codex-guardian"),
+                                "authorization": handshake.header("authorization"), "account": handshake.header("chatgpt-account-id"),
+                                "hint": handshake.header("x-codex-routing-hint")}));
+                        }
+                    } else {
+                        let requests = response.as_ref().unwrap().requests();
+                        request_count = requests.len();
+                        body = requests
+                            .first()
+                            .map(|request| request.body_json())
+                            .unwrap_or(serde_json::Value::Null);
+                        for request in requests {
+                            headers.push(json!({"role": request.header("x-codex-guardian"),
+                                "authorization": request.header("authorization"), "account": request.header("chatgpt-account-id"),
+                                "hint": request.header("x-codex-routing-hint")}));
+                        }
+                    }
+                    eprintln!(
+                        "T19_EVIDENCE {}",
+                        json!({"kind": "classifier-role-wire", "websocket": websocket,
+                        "credential": credential, "name": name, "base_path": base_path,
+                        "result": format!("{result:?}"), "request_count": request_count, "headers": &headers, "body": &body})
+                    );
+                    let valid = result.as_ref().is_ok_and(|value| value == "low")
+                        && request_count == 1
+                        && !headers.is_empty()
+                        && headers.iter().all(|h| {
+                            h["role"] == "classifier"
+                                && h["authorization"].as_str() == expected_authorization.as_deref()
+                                && h["account"].as_str() == expected_account.as_deref()
+                                && h["hint"].is_null()
+                        })
+                        && body["service_tier"] == "priority"
+                        && body["client_metadata"]["parent_response_id"] == "parent-owned-response";
+                    if !valid {
+                        failures.push(format!(
+                            "{websocket}/{credential}/{name}/{base_path}: captured fields differ"
+                        ));
+                    }
+                    drop(sampler);
+                    if let Some(server) = ws {
+                        server.shutdown().await;
+                    }
+                }
+            }
         }
-        let request = server
-            .wait_for_request(
-                /*connection_index*/ INITIAL_WEBSOCKET_CONNECTIONS - 1,
-                /*request_index*/ 0,
-            )
-            .await
-            .body_json();
-        assert_eq!(request["service_tier"].as_str(), expected_service_tier);
-
-        drop(sampler);
-        server.shutdown().await;
     }
-
+    assert!(failures.is_empty(), "{failures:#?}");
     Ok(())
 }
 
@@ -577,25 +700,31 @@ async fn preconnected_sampler_reuses_authenticated_websocket_for_classifications
         ))))
         .await?;
     let provider = create_model_provider(
-        ModelProviderInfo::create_openai_provider(Some(base_url)),
+        ModelProviderInfo {
+            requires_openai_auth: true,
+            supports_websockets: true,
+            accepts_response_continuation: true,
+            include_internal_metadata: true,
+            ..ModelProviderInfo::create_openai_provider(Some(base_url))
+        },
         Some(manager.clone()),
     );
 
     let sampler = connect_sampler(LunaSamplerConfig {
-        api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::Disabled,
+        model: MODEL.to_owned(),
+        api_key_cyber_access_programs: false,
+        content_item_kinds: true,
         workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
             "https://chatgpt.com/backend-api".into(),
         ),
         provider,
         http_client_factory: HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-        agent_identity_policy: AgentIdentityAuthPolicy::JwtOnly,
-        session_source: SessionSource::Exec,
         session_id: "session-1".to_owned(),
         thread_id: "thread-1".to_owned(),
         originator: Some("guardian-v2-test".to_owned()),
 
         service_tier: None,
-        luna_compaction_hash: None,
+        model_info: Some(sampler_model_info()),
         max_input_tokens: codex_guardian_context::DEFAULT_MAX_INPUT_TOKENS,
         metrics: None,
     })
@@ -766,7 +895,7 @@ async fn sampler_reuses_parent_compaction_only_for_matching_model_hashes() -> Re
             "http://{}/v1",
             server.uri().trim_start_matches("ws://")
         ));
-        config.luna_compaction_hash = luna_hash.map(str::to_owned);
+        config.model_info.as_mut().unwrap().comp_hash = luna_hash.map(str::to_owned);
         let sampler = connect_sampler(config).await?;
         let parent_compaction = ResponseItem::Compaction {
             id: Some(ResponseItemId::from_server("cmp_parent".to_owned())),
@@ -844,26 +973,29 @@ async fn sampler_returns_classification_token_before_terminal_response_events() 
     let server = responses::start_websocket_server_with_headers(vec![config]).await;
     let base_url = proxy_websocket_servers(&[&idle_server, &server]).await?;
     let provider = create_model_provider(
-        ModelProviderInfo::create_openai_provider(Some(base_url)),
+        ModelProviderInfo {
+            supports_websockets: true,
+            ..ModelProviderInfo::create_openai_provider(Some(base_url))
+        },
         Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
             "test-api-key",
         ))),
     );
     let sampler = connect_sampler(LunaSamplerConfig {
-        api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::Disabled,
+        model: MODEL.to_owned(),
+        api_key_cyber_access_programs: false,
+        content_item_kinds: true,
         workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
             "https://chatgpt.com/backend-api".into(),
         ),
         provider,
         http_client_factory: HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-        agent_identity_policy: AgentIdentityAuthPolicy::JwtOnly,
-        session_source: SessionSource::Exec,
         session_id: "session-1".to_owned(),
         thread_id: "thread-1".to_owned(),
         originator: None,
 
         service_tier: None,
-        luna_compaction_hash: None,
+        model_info: Some(sampler_model_info()),
         max_input_tokens: codex_guardian_context::DEFAULT_MAX_INPUT_TOKENS,
         metrics: None,
     })
@@ -1338,10 +1470,14 @@ async fn parent_response_id_survives_classifier_transport_retry() -> Result<()> 
         let mut config = sampler_config(base_url.clone());
         if uses_codex_backend {
             config.provider = create_model_provider(
-                ModelProviderInfo::create_openai_provider(Some(format!(
-                    "{}/backend-api/codex",
-                    base_url.trim_end_matches("/v1")
-                ))),
+                ModelProviderInfo {
+                    requires_openai_auth: true,
+                    supports_websockets: true,
+                    ..ModelProviderInfo::create_openai_provider(Some(format!(
+                        "{}/backend-api/codex",
+                        base_url.trim_end_matches("/v1")
+                    )))
+                },
                 Some(AuthManager::from_auth_for_testing(
                     CodexAuth::create_dummy_chatgpt_auth_for_testing(),
                 )),
@@ -1368,7 +1504,7 @@ async fn parent_response_id_survives_classifier_transport_retry() -> Result<()> 
                     body["client_metadata"].get("parent_response_id").cloned(),
                     body["client_metadata"].get("guardian_credits_requested"),
                 ),
-                (uses_codex_backend.then(|| json!(parent_response_id)), None)
+                (Some(json!(parent_response_id)), None)
             );
             assert!(!body["input"].to_string().contains(parent_response_id));
         }

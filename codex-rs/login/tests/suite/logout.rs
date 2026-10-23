@@ -5,18 +5,13 @@ use codex_config::types::AuthCredentialsStoreMode;
 use codex_login::AuthDotJson;
 use codex_login::AuthKeyringBackendKind;
 use codex_login::AuthManager;
-use codex_login::CLIENT_ID;
-use codex_login::CLIENT_ID_OVERRIDE_ENV_VAR;
 use codex_login::CODEX_ACCESS_TOKEN_ENV_VAR;
-use codex_login::REVOKE_TOKEN_URL_OVERRIDE_ENV_VAR;
-use codex_login::logout_with_revoke;
+use codex_login::logout_all_stores;
 use codex_login::save_auth;
 use codex_login::token_data::IdTokenInfo;
 use codex_login::token_data::TokenData;
 use codex_protocol::auth::AuthMode;
 use core_test_support::skip_if_no_network;
-use pretty_assertions::assert_eq;
-use serde_json::Value;
 use serde_json::json;
 use std::ffi::OsString;
 use tempfile::TempDir;
@@ -31,21 +26,20 @@ const REFRESH_TOKEN: &str = "refresh-token";
 
 #[serial_test::serial(auth_env)]
 #[tokio::test]
-async fn logout_with_revoke_revokes_refresh_token_then_removes_auth() -> Result<()> {
+async fn logout_removes_auth_without_contacting_authority() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
-    let _client_id_guard = EnvGuard::set(CLIENT_ID_OVERRIDE_ENV_VAR, "staging-client".to_string());
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/oauth/revoke"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "message": "success"
         })))
-        .expect(1)
+        .expect(0)
         .mount(&server)
         .await;
     let _env_guard = EnvGuard::set(
-        REVOKE_TOKEN_URL_OVERRIDE_ENV_VAR,
+        "STEVE_REVOKE_TOKEN_URL_OVERRIDE",
         format!("{}/oauth/revoke", server.uri()),
     );
 
@@ -57,13 +51,11 @@ async fn logout_with_revoke_revokes_refresh_token_then_removes_auth() -> Result<
         AuthKeyringBackendKind::default(),
     )?;
 
-    let removed = logout_with_revoke(
+    let removed = logout_all_stores(
         codex_home.path(),
         AuthCredentialsStoreMode::File,
         AuthKeyringBackendKind::default(),
-        &codex_login::test_support::transport_default_auth_route_config(),
-    )
-    .await?;
+    )?;
 
     assert!(removed);
     assert!(!codex_home.path().join("auth.json").exists());
@@ -72,35 +64,25 @@ async fn logout_with_revoke_revokes_refresh_token_then_removes_auth() -> Result<
         .received_requests()
         .await
         .context("failed to fetch revoke requests")?;
-    assert_eq!(requests.len(), 1);
-    assert_eq!(
-        requests[0]
-            .body_json::<Value>()
-            .context("revoke request should be JSON")?,
-        json!({
-            "token": REFRESH_TOKEN,
-            "token_type_hint": "refresh_token",
-            "client_id": "staging-client",
-        })
-    );
+    assert!(requests.is_empty());
     server.verify().await;
     Ok(())
 }
 
 #[serial_test::serial(auth_env)]
 #[tokio::test]
-async fn logout_with_revoke_uses_stored_auth_when_access_token_env_is_set() -> Result<()> {
+async fn logout_clears_stored_auth_without_hydrating_environment_token() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/oauth/revoke"))
         .respond_with(ResponseTemplate::new(200))
-        .expect(1)
+        .expect(0)
         .mount(&server)
         .await;
     let _revoke_env_guard = EnvGuard::set(
-        REVOKE_TOKEN_URL_OVERRIDE_ENV_VAR,
+        "STEVE_REVOKE_TOKEN_URL_OVERRIDE",
         format!("{}/oauth/revoke", server.uri()),
     );
     let _access_token_env_guard = EnvGuard::set(
@@ -116,13 +98,11 @@ async fn logout_with_revoke_uses_stored_auth_when_access_token_env_is_set() -> R
         AuthKeyringBackendKind::default(),
     )?;
 
-    let removed = logout_with_revoke(
+    let removed = logout_all_stores(
         codex_home.path(),
         AuthCredentialsStoreMode::File,
         AuthKeyringBackendKind::default(),
-        &codex_login::test_support::transport_default_auth_route_config(),
-    )
-    .await?;
+    )?;
 
     assert!(removed);
     assert!(!codex_home.path().join("auth.json").exists());
@@ -132,7 +112,7 @@ async fn logout_with_revoke_uses_stored_auth_when_access_token_env_is_set() -> R
 
 #[serial_test::serial(auth_env)]
 #[tokio::test]
-async fn logout_with_revoke_removes_auth_when_revoke_fails() -> Result<()> {
+async fn logout_clears_auth_without_using_failing_revocation_endpoint() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = MockServer::start().await;
@@ -143,11 +123,11 @@ async fn logout_with_revoke_removes_auth_when_revoke_fails() -> Result<()> {
                 "message": "revoke failed"
             }
         })))
-        .expect(1)
+        .expect(0)
         .mount(&server)
         .await;
     let _env_guard = EnvGuard::set(
-        REVOKE_TOKEN_URL_OVERRIDE_ENV_VAR,
+        "STEVE_REVOKE_TOKEN_URL_OVERRIDE",
         format!("{}/oauth/revoke", server.uri()),
     );
 
@@ -159,13 +139,11 @@ async fn logout_with_revoke_removes_auth_when_revoke_fails() -> Result<()> {
         AuthKeyringBackendKind::default(),
     )?;
 
-    let removed = logout_with_revoke(
+    let removed = logout_all_stores(
         codex_home.path(),
         AuthCredentialsStoreMode::File,
         AuthKeyringBackendKind::default(),
-        &codex_login::test_support::transport_default_auth_route_config(),
-    )
-    .await?;
+    )?;
 
     assert!(removed);
     assert!(!codex_home.path().join("auth.json").exists());
@@ -176,7 +154,7 @@ async fn logout_with_revoke_removes_auth_when_revoke_fails() -> Result<()> {
 
 #[serial_test::serial(auth_env)]
 #[tokio::test]
-async fn auth_manager_logout_with_revoke_uses_cached_auth() -> Result<()> {
+async fn auth_manager_logout_clears_cached_and_stored_auth_without_revocation() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = MockServer::start().await;
@@ -185,11 +163,11 @@ async fn auth_manager_logout_with_revoke_uses_cached_auth() -> Result<()> {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "message": "success"
         })))
-        .expect(1)
+        .expect(0)
         .mount(&server)
         .await;
     let _env_guard = EnvGuard::set(
-        REVOKE_TOKEN_URL_OVERRIDE_ENV_VAR,
+        "STEVE_REVOKE_TOKEN_URL_OVERRIDE",
         format!("{}/oauth/revoke", server.uri()),
     );
 
@@ -216,28 +194,34 @@ async fn auth_manager_logout_with_revoke_uses_cached_auth() -> Result<()> {
         AuthCredentialsStoreMode::File,
         AuthKeyringBackendKind::default(),
     )?;
+    let mut external_auth = chatgpt_auth_with_refresh_token("");
+    external_auth.auth_mode = Some(AuthMode::ChatgptAuthTokens);
+    save_auth(
+        codex_home.path(),
+        &external_auth,
+        AuthCredentialsStoreMode::Ephemeral,
+        AuthKeyringBackendKind::default(),
+    )?;
 
-    let removed = manager.logout_with_revoke().await?;
+    let removed = manager.logout().await?;
 
     assert!(removed);
     assert!(manager.auth_cached().is_none());
     assert!(!codex_home.path().join("auth.json").exists());
+    assert!(
+        codex_login::load_auth_dot_json(
+            codex_home.path(),
+            AuthCredentialsStoreMode::Ephemeral,
+            AuthKeyringBackendKind::default(),
+        )?
+        .is_none()
+    );
 
     let requests = server
         .received_requests()
         .await
         .context("failed to fetch revoke requests")?;
-    assert_eq!(requests.len(), 1);
-    assert_eq!(
-        requests[0]
-            .body_json::<Value>()
-            .context("revoke request should be JSON")?,
-        json!({
-            "token": REFRESH_TOKEN,
-            "token_type_hint": "refresh_token",
-            "client_id": CLIENT_ID,
-        })
-    );
+    assert!(requests.is_empty());
     server.verify().await;
     Ok(())
 }

@@ -69,6 +69,21 @@ pub(crate) async fn decide_approval(
             .approvals_reviewer
             .can_set(&codex_protocol::config_types::ApprovalsReviewer::User)
             .is_err();
+    if !turn
+        .config
+        .features
+        .enabled(codex_features::Feature::GuardianApproval)
+    {
+        return if history_reset.is_cancelled() || cancellation.is_cancelled() {
+            Some(ReviewDecision::Abort)
+        } else if require_guardian {
+            Some(ReviewDecision::denied(
+                "Automatic approval review is required, but Guardian is disabled.",
+            ))
+        } else {
+            None
+        };
+    }
     let full_access = context.environments().has_full_access(
         context.approval_policy,
         &turn.config.permissions.effective_permission_profile(),

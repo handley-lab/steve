@@ -7,7 +7,7 @@ fn security_setup_rejects_unsafe_actions_and_terminal_controls() {
     let value = json!({"title":"Keep using Daybreak mode","description":"Set up security.",
         "action":{"label":"Set up security","url":"https://chatgpt.com/cyber"}});
     let notice: Notice = serde_json::from_value(value.clone()).unwrap();
-    assert!(notice.valid());
+    assert!(notice.valid("https://chatgpt.com/backend-api"));
     for url in [
         "http://chatgpt.com/cyber",
         "https://chatgpt.com.evil.test/cyber",
@@ -19,11 +19,13 @@ fn security_setup_rejects_unsafe_actions_and_terminal_controls() {
         let mut invalid = value.clone();
         invalid["action"]["url"] = json!(url);
         assert!(
-            !serde_json::from_value::<Notice>(invalid).unwrap().valid(),
+            !serde_json::from_value::<Notice>(invalid)
+                .unwrap()
+                .valid("https://chatgpt.com/backend-api"),
             "{url}"
         );
     }
     let mut invalid = notice;
     invalid.title = "untrusted\u{1b}[31m".into();
-    assert_eq!(invalid.valid(), false);
+    assert_eq!(invalid.valid("https://chatgpt.com/backend-api"), false);
 }

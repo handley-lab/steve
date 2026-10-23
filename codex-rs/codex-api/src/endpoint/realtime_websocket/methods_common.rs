@@ -119,6 +119,7 @@ pub(super) fn session_update_message(
     output_modality: RealtimeOutputModality,
     voice: RealtimeVoice,
     delegation_ack_filler: Option<bool>,
+    transcription_model: Option<String>,
 ) -> RealtimeOutboundMessage {
     let session_mode = normalized_session_mode(wire_adapter, session_mode);
     match wire_adapter {
@@ -132,7 +133,13 @@ pub(super) fn session_update_message(
             delegation_ack_filler,
         ),
         RealtimeWireAdapter::RealtimeV2 => RealtimeOutboundMessage::SessionUpdate {
-            session: v2_session_update_session(instructions, session_mode, output_modality, voice),
+            session: v2_session_update_session(
+                instructions,
+                session_mode,
+                output_modality,
+                voice,
+                transcription_model,
+            ),
         },
     }
 }
@@ -149,6 +156,7 @@ pub fn session_update_session_json(config: RealtimeSessionConfig) -> JsonResult<
                     config.session_mode,
                     config.output_modality,
                     config.voice,
+                    config.transcription_model,
                 ),
                 RealtimeWireAdapter::FramelessBidi => unreachable!(),
             };

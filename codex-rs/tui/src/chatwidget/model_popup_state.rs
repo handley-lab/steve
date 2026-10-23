@@ -7,11 +7,6 @@ use super::*;
 
 impl ChatWidget {
     pub(super) fn refresh_account_scoped_models(&mut self) {
-        if self.status_account_display == Some(StatusAccountDisplay::ApiKey) {
-            for model in &mut Arc::make_mut(&mut self.model_catalog).models {
-                model.available_access_programs = None;
-            }
-        }
         let request_id = uuid::Uuid::new_v4();
         self.model_popup_request_id = Some(request_id);
         self.app_event_tx.send(AppEvent::FetchModels { request_id });
@@ -43,9 +38,7 @@ impl ChatWidget {
         let Ok(presets) = result else {
             return false;
         };
-        if presets.is_empty()
-            || self.model_catalog.try_list_models().ok().as_ref() == Some(&presets)
-        {
+        if self.model_catalog.try_list_models().ok().as_ref() == Some(&presets) {
             return false;
         }
         Arc::make_mut(&mut self.model_catalog).models = presets;

@@ -75,7 +75,6 @@ const MAX_STREAM_MAX_RETRIES: u64 = 100;
 const MAX_REQUEST_MAX_RETRIES: u64 = 100;
 
 const OPENAI_PROVIDER_NAME: &str = "OpenAI";
-const OPENAI_ACTOR_AUTHORIZATION_HEADER: &str = "x-openai-actor-authorization";
 pub const OPENAI_PROVIDER_ID: &str = "openai";
 pub const CHATGPT_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const AMAZON_BEDROCK_PROVIDER_NAME: &str = "Amazon Bedrock";
@@ -93,8 +92,6 @@ pub const AMAZON_BEDROCK_GPT_5_6_LUNA_MODEL_ID: &str = "openai.gpt-5.6-luna";
 pub const AMAZON_BEDROCK_RUNTIME_GLOBAL_GPT_5_6_TERRA_MODEL_ID: &str =
     "global.openai.gpt-5.6-terra";
 pub const AMAZON_BEDROCK_RUNTIME_GLOBAL_GPT_5_6_LUNA_MODEL_ID: &str = "global.openai.gpt-5.6-luna";
-pub const AMAZON_BEDROCK_DEFAULT_BASE_URL: &str =
-    "https://bedrock-mantle.us-east-1.api.aws/openai/v1";
 const AMAZON_BEDROCK_MANTLE_CLIENT_AGENT_HEADER: &str = "x-amzn-mantle-client-agent";
 const AMAZON_BEDROCK_MANTLE_CLIENT_AGENT_VALUE: &str = "codex";
 const CHAT_WIRE_API_REMOVED_ERROR: &str = "`wire_api = \"chat\"` is no longer supported.\nHow to fix: set `wire_api = \"responses\"` in your provider config.\nMore info: https://github.com/openai/codex/discussions/7782";
@@ -142,8 +139,7 @@ pub struct ModelProviderInfo {
     pub name: String,
     /// Base URL for the provider's OpenAI-compatible API.
     pub base_url: Option<String>,
-    /// Optional full URL for a Codex-native model catalog. When unset, OpenAI discovery
-    /// uses the Codex backend unless `base_url` overrides the inference endpoint.
+    /// Optional full URL for a Codex-native model catalog.
     pub model_catalog_url: Option<RedactedString>,
     /// Environment variable that stores the user's API key for this provider.
     pub env_key: Option<String>,
@@ -187,7 +183,7 @@ pub struct ModelProviderInfo {
     /// Maximum time (in milliseconds) to wait for a websocket connection attempt before treating
     /// it as failed.
     pub websocket_connect_timeout_ms: Option<u64>,
-    /// Does this provider require an OpenAI API key or ChatGPT login token? If true,
+    /// Does this provider require a stored API key or supplied account token? If true,
     /// the user is presented with a login screen on first run, and credentials are
     /// stored using the backend selected by `cli_auth_credentials_store`.
     /// If false (the default), the login screen is skipped, and the API key
@@ -200,10 +196,20 @@ pub struct ModelProviderInfo {
     /// Whether this provider supports the standalone web-search endpoint.
     #[serde(default)]
     pub supports_standalone_web_search: bool,
-    /// Runtime-only opt-in for internal metadata, independent of the destination check.
-    /// This cannot be loaded from or written to serialized provider configuration.
-    #[serde(skip)]
-    #[schemars(skip)]
+    /// Whether stored continuation items are sent to this provider.
+    ///
+    /// When false, the request drops the internal chat-message passthrough
+    /// container, encrypted function arguments, and encrypted content on items
+    /// other than reasoning and compaction. Tool-result metadata lives inside
+    /// that container, so this field removes it as well. MCP attribution is
+    /// controlled separately by `include_internal_metadata`.
+    #[serde(default)]
+    pub accepts_response_continuation: bool,
+    /// Consent to send nested tool-result metadata and MCP attribution.
+    ///
+    /// Nested tool-result metadata is sent only when the passthrough container
+    /// is still present. MCP attribution is attached separately.
+    #[serde(default)]
     pub include_internal_metadata: bool,
 }
 
@@ -424,25 +430,15 @@ other non-default provider fields are not supported"
     }
 
     /// Builds an API provider with managed residency taking precedence over configured headers.
-    pub fn to_api_provider(&self, auth_mode: Option<AuthMode>) -> CodexResult<ApiProvider> {
-        let default_base_url = if matches!(
-            auth_mode,
-            Some(
-                AuthMode::Chatgpt
-                    | AuthMode::ChatgptAuthTokens
-                    | AuthMode::Headers
-                    | AuthMode::AgentIdentity
-                    | AuthMode::PersonalAccessToken
-            )
-        ) {
-            CHATGPT_CODEX_BASE_URL
-        } else {
-            "https://api.openai.com/v1"
-        };
+    pub fn to_api_provider(&self, _auth_mode: Option<AuthMode>) -> CodexResult<ApiProvider> {
         let base_url = self
             .base_url
-            .clone()
-            .unwrap_or_else(|| default_base_url.to_string());
+            .as_ref()
+            .filter(|url| !url.trim().is_empty())
+            .ok_or_else(|| {
+                CodexErr::InvalidRequest("model provider requires an explicit base_url".to_string())
+            })?
+            .clone();
 
         let mut headers = self.build_header_map()?;
         if let Some(requirement) = read_managed_residency_requirement() {
@@ -541,27 +537,18 @@ other non-default provider fields are not supported"
                     .into_iter()
                     .collect(),
             ),
-            env_http_headers: Some(
-                [
-                    (
-                        "OpenAI-Organization".to_string(),
-                        "OPENAI_ORGANIZATION".to_string(),
-                    ),
-                    ("OpenAI-Project".to_string(), "OPENAI_PROJECT".to_string()),
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            env_http_headers: None,
             // Use global defaults for retry/timeout unless overridden in config.toml.
             request_max_retries: None,
             stream_max_retries: None,
             stream_idle_timeout_ms: None,
             websocket_connect_timeout_ms: None,
-            requires_openai_auth: true,
-            supports_websockets: true,
-            supports_standalone_web_search: true,
+            requires_openai_auth: false,
+            supports_websockets: false,
+            supports_standalone_web_search: false,
             capabilities: None,
-            include_internal_metadata: true,
+            accepts_response_continuation: false,
+            include_internal_metadata: false,
         }
     }
 
@@ -570,9 +557,6 @@ other non-default provider fields are not supported"
     ) -> ModelProviderInfo {
         ModelProviderInfo {
             name: AMAZON_BEDROCK_PROVIDER_NAME.into(),
-            // The runtime provider derives the regional Mantle endpoint when
-            // this is unset. A configured value is therefore unambiguously an
-            // endpoint override.
             base_url: None,
             model_catalog_url: None,
             env_key: None,
@@ -601,6 +585,7 @@ other non-default provider fields are not supported"
             supports_websockets: false,
             supports_standalone_web_search: false,
             capabilities: None,
+            accepts_response_continuation: false,
             include_internal_metadata: false,
         }
     }
@@ -618,22 +603,11 @@ other non-default provider fields are not supported"
     }
 
     pub fn supports_codex_backend_routes(&self) -> bool {
-        self.is_openai()
-            && self.base_url.as_deref().is_none_or(|base_url| {
-                base_url
-                    .trim_end_matches('/')
-                    .ends_with("/backend-api/codex")
-            })
-    }
-
-    pub fn uses_openai_actor_authorization(&self) -> bool {
-        !self.requires_openai_auth
-            && self.http_headers.as_ref().is_some_and(|headers| {
-                headers.iter().any(|(name, value)| {
-                    name.eq_ignore_ascii_case(OPENAI_ACTOR_AUTHORIZATION_HEADER)
-                        && !value.trim().is_empty()
-                })
-            })
+        self.base_url.as_deref().is_none_or(|base_url| {
+            base_url
+                .trim_end_matches('/')
+                .ends_with("/backend-api/codex")
+        })
     }
 
     pub fn is_amazon_bedrock(&self) -> bool {
@@ -650,8 +624,6 @@ other non-default provider fields are not supported"
     }
 }
 
-pub const DEFAULT_LMSTUDIO_PORT: u16 = 1234;
-pub const DEFAULT_OLLAMA_PORT: u16 = 11434;
 
 pub const LMSTUDIO_OSS_PROVIDER_ID: &str = "lmstudio";
 pub const OLLAMA_OSS_PROVIDER_ID: &str = "ollama";
@@ -679,11 +651,11 @@ pub fn built_in_model_providers(
         ),
         (
             OLLAMA_OSS_PROVIDER_ID,
-            create_oss_provider(DEFAULT_OLLAMA_PORT, WireApi::Responses),
+            create_oss_provider(WireApi::Responses),
         ),
         (
             LMSTUDIO_OSS_PROVIDER_ID,
-            create_oss_provider(DEFAULT_LMSTUDIO_PORT, WireApi::Responses),
+            create_oss_provider(WireApi::Responses),
         ),
     ]
     .into_iter()
@@ -733,23 +705,13 @@ pub fn merge_configured_model_providers(
     Ok(model_providers)
 }
 
-pub fn create_oss_provider(default_provider_port: u16, wire_api: WireApi) -> ModelProviderInfo {
-    // These STEVE_OSS_ environment variables are experimental: we may
-    // switch to reading values from config.toml instead.
-    let default_codex_oss_base_url = format!(
-        "http://localhost:{codex_oss_port}/v1",
-        codex_oss_port = std::env::var("STEVE_OSS_PORT")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .and_then(|value| value.parse::<u16>().ok())
-            .unwrap_or(default_provider_port)
-    );
-
-    let codex_oss_base_url = std::env::var("STEVE_OSS_BASE_URL")
+pub fn create_oss_provider(wire_api: WireApi) -> ModelProviderInfo {
+    let base_url = std::env::var("STEVE_OSS_BASE_URL")
         .ok()
-        .filter(|v| !v.trim().is_empty())
-        .unwrap_or(default_codex_oss_base_url);
-    create_oss_provider_with_base_url(&codex_oss_base_url, wire_api)
+        .filter(|value| !value.trim().is_empty());
+    let mut provider = create_oss_provider_with_base_url("", wire_api);
+    provider.base_url = base_url;
+    provider
 }
 
 pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> ModelProviderInfo {
@@ -775,6 +737,7 @@ pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> M
         supports_websockets: false,
         supports_standalone_web_search: false,
         capabilities: None,
+        accepts_response_continuation: false,
         include_internal_metadata: false,
     }
 }

@@ -854,6 +854,7 @@ interrupt_message = false
             feedback: Some(Sourced::new(
                 FeedbackConfigToml {
                     enabled: Some(false),
+                    dsn: None,
                 },
                 RequirementSource::LegacyManagedConfigTomlFromMdm,
             )),
@@ -957,6 +958,7 @@ interrupt_message = false
             allow_login_shell: Some(false),
             feedback: Some(FeedbackConfigToml {
                 enabled: Some(false),
+                dsn: None,
             }),
             allowed_approval_policies: Some(vec![AskForApproval::OnRequest.to_core()]),
             allowed_approvals_reviewers: Some(vec![ApprovalsReviewer::AutoReview]),

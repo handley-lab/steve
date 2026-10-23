@@ -1402,6 +1402,9 @@ async fn conversation_webrtc_live_reconnects_sideband_after_unclean_disconnect(
     });
 
     let mut builder = test_codex().with_config(move |config| {
+        if attaches_existing_call {
+            config.model_provider.base_url = None;
+        }
         config.experimental_realtime_ws_backend_prompt = Some("backend prompt".to_string());
         config.experimental_realtime_ws_model = Some("realtime-test-model".to_string());
         config.experimental_realtime_ws_startup_context = Some(String::new());
@@ -1782,8 +1785,11 @@ async fn conversation_webrtc_default_v1_rejects_explicit_v2_voice() -> Result<()
     Ok(())
 }
 
+#[test_matrix([None, Some(""), Some(" \t")])]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn conversation_webrtc_start_uses_configured_call_base_url_for_avas() -> Result<()> {
+async fn conversation_webrtc_start_uses_configured_call_base_url_for_avas(
+    inference_base_url: Option<&'static str>,
+) -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = start_mock_server().await;
@@ -1815,6 +1821,7 @@ async fn conversation_webrtc_start_uses_configured_call_base_url_for_avas() -> R
     let realtime_ws_base_url = realtime_server.uri().to_string();
     let realtime_call_base_url = format!("{}/v1", server.uri());
     let mut builder = test_codex().with_config(move |config| {
+        config.model_provider.base_url = inference_base_url.map(str::to_string);
         config.experimental_realtime_ws_backend_prompt = Some("backend prompt".to_string());
         config.experimental_realtime_ws_base_url = Some(realtime_ws_base_url);
         config.experimental_realtime_webrtc_call_base_url = Some(realtime_call_base_url);
@@ -2443,6 +2450,73 @@ async fn conversation_start_preflight_failure_emits_realtime_error_only() -> Res
     Ok(())
 }
 
+#[test_matrix([None, Some(""), Some(" \t")])]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn conversation_start_without_a_destination_fails_before_connecting(
+    inference_base_url: Option<&'static str>,
+) -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let server = start_websocket_server(vec![]).await;
+    let mut builder = test_codex()
+        .with_auth(CodexAuth::from_api_key("test-key"))
+        .with_config(move |config| {
+            config.model_provider.base_url = inference_base_url.map(str::to_string);
+            config.experimental_realtime_ws_base_url = None;
+            config.experimental_realtime_webrtc_call_base_url = None;
+        });
+    let test = builder.build_with_websocket_server(&server).await?;
+
+    test.codex
+        .submit(Op::RealtimeConversationStart(ConversationStartParams {
+            client_managed_handoffs: false,
+            delegation_ack_filler: None,
+            flush_transcript_tail_on_session_end: false,
+            codex_responses_as_items: false,
+            codex_response_item_prefix: None,
+            codex_response_handoff_mode:
+                codex_protocol::protocol::CodexResponseHandoffMode::Thinking,
+            backend_reasoning_status: false,
+            codex_response_handoff_channel_prefixes: None,
+            model: None,
+            output_modality: RealtimeOutputModality::Audio,
+            include_startup_context: true,
+            initial_items: Vec::new(),
+            realtime_start_instructions: None,
+            realtime_end_instructions: None,
+            prompt: Some(Some("backend prompt".to_string())),
+            realtime_session_id: None,
+            voice_session_id: None,
+            transport: None,
+            version: None,
+            voice: None,
+        }))
+        .await?;
+
+    let err = wait_for_event_match(&test.codex, |msg| match msg {
+        EventMsg::RealtimeConversationRealtime(RealtimeConversationRealtimeEvent {
+            payload: RealtimeEvent::Error(message),
+        }) => Some(message.clone()),
+        _ => None,
+    })
+    .await;
+    assert!(err.contains("model provider requires an explicit base_url"));
+
+    let closed = timeout(Duration::from_millis(200), async {
+        wait_for_event_match(&test.codex, |msg| match msg {
+            EventMsg::RealtimeConversationClosed(closed) => Some(closed.clone()),
+            _ => None,
+        })
+        .await
+    })
+    .await;
+    assert!(closed.is_err(), "preflight failure should not emit closed");
+
+    assert!(server.connections().is_empty());
+    server.shutdown().await;
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn conversation_start_connect_failure_emits_realtime_error_only() -> Result<()> {
     skip_if_no_network!(Ok(()));
@@ -2693,8 +2767,11 @@ async fn conversation_second_start_replaces_runtime() -> Result<()> {
     Ok(())
 }
 
+#[test_matrix([None, Some(""), Some(" \t")])]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn conversation_uses_experimental_realtime_ws_base_url_override() -> Result<()> {
+async fn conversation_uses_experimental_realtime_ws_base_url_override(
+    inference_base_url: Option<&'static str>,
+) -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let startup_server = start_websocket_server(vec![vec![]]).await;
@@ -2707,16 +2784,12 @@ async fn conversation_uses_experimental_realtime_ws_base_url_override() -> Resul
     let mut builder = test_codex().with_config({
         let realtime_base_url = realtime_server.uri().to_string();
         move |config| {
+            config.model_provider.base_url = inference_base_url.map(str::to_string);
             config.experimental_realtime_ws_base_url = Some(realtime_base_url);
             config.realtime.version = RealtimeWsVersion::V1;
         }
     });
     let test = builder.build_with_websocket_server(&startup_server).await?;
-    assert!(
-        startup_server
-            .wait_for_handshakes(/*expected*/ 1, Duration::from_secs(2))
-            .await
-    );
 
     test.codex
         .submit(Op::RealtimeConversationStart(ConversationStartParams {
@@ -2758,7 +2831,7 @@ async fn conversation_uses_experimental_realtime_ws_base_url_override() -> Resul
     assert_eq!(session_updated, "sess_override");
 
     let startup_connections = startup_server.connections();
-    assert_eq!(startup_connections.len(), 1);
+    assert_eq!(startup_connections.len(), 0);
 
     let realtime_connections = realtime_server.connections();
     assert_eq!(realtime_connections.len(), 1);

@@ -4,10 +4,10 @@
 
 export type GetAccountParams = {
 /**
- * When `true`, requests a proactive token refresh before returning.
+ * When `true`, reloads credentials and asks the configured external credential
+ * owner to refresh them before returning. Built-in account renewal is unavailable.
  *
- * In managed auth mode this triggers the normal refresh-token flow. In
- * external auth mode this flag is ignored. Clients should refresh tokens
- * themselves and call `account/login/start` with `chatgptAuthTokens`.
+ * For client-supplied `chatgptAuthTokens`, this flag is ignored. Clients should
+ * supply replacement tokens through `account/login/start` instead.
  */
 refreshToken?: boolean, };

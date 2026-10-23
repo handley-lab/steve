@@ -3,6 +3,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use codex_backend_client::Client as BackendClient;
+use codex_backend_client::PathStyle;
 use codex_extension_api::ExtensionData;
 use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
@@ -52,6 +53,7 @@ pub(super) const POLICY_RETRY_DELAY: Duration = Duration::from_secs(30);
 pub(super) async fn resolve_attribution_policy(
     auth_manager: &Arc<AuthManager>,
     base_url: &str,
+    path_style: PathStyle,
     http_client_factory: &HttpClientFactory,
 ) -> Result<Option<GitAttributionPolicy>, tokio::time::error::Elapsed> {
     timeout(POLICY_RESOLUTION_TIMEOUT, async {
@@ -70,7 +72,8 @@ pub(super) async fn resolve_attribution_policy(
             let enabled = match auth {
                 Some(auth) if auth.uses_codex_backend() => {
                     let client =
-                        BackendClient::from_auth(base_url, &auth, http_client_factory.clone());
+                        BackendClient::from_auth(base_url, &auth, http_client_factory.clone())
+                            .with_path_style(path_style);
                     let settings = client.get_user_settings().await;
                     if auth_generation(auth_manager) != auth_generation_at_start {
                         continue;

@@ -540,7 +540,6 @@ impl App {
                 self.chat_widget.security_setup_request_id,
             );
         }
-        self.feedback_audience = bootstrap.feedback_audience;
         if displayed.is_some_and(|id| !self.thread_unavailable(id)) {
             self.chat_widget.maybe_send_next_queued_input();
         }

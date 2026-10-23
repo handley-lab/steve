@@ -6,10 +6,19 @@
 
 use super::sampler::LunaSampler;
 use super::sampler::LunaSamplingRequest;
+use codex_api::Provider;
+use codex_api::SharedAuthProvider;
 use codex_context_fragments::RenderedFragment;
 use codex_guardian_context::TrustedTool;
 use codex_history::ResponseItemEnvelope;
-use codex_http_client::HttpClient;
+use codex_http_client::ClientRouteClass;
+use codex_http_client::HttpClientBuilder;
+use codex_http_client::HttpClientFactory;
+use codex_http_client::HttpTransport;
+use codex_http_client::RequestBody;
+use codex_http_client::ReqwestTransport;
+use codex_http_client::TransportError;
+use codex_model_provider::SharedModelProvider;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ImageReference;
 use codex_protocol::models::ResponseItem;
@@ -27,8 +36,6 @@ use tokio::task::AbortHandle;
 use tokio::task::JoinHandle;
 
 const MAX_CONCURRENT_REQUESTS: usize = 16;
-pub(super) const URL: &str = "https://api.openai.com/v1/decisions";
-const MODEL: &str = "gpt-6-luna";
 // Provisional local rollout budgets, not Decisions API limits or model context limits.
 // Guardian owns the text/context budget; bound HTTP lifetime, image bytes and response buffering here.
 // Oversized images skip the complete request; transport failures never affect approvals.
@@ -38,7 +45,9 @@ const MAX_RESPONSE_BYTES: usize = 16 * 1024;
 
 #[derive(Clone, Copy, Debug, Error, PartialEq)]
 pub(super) enum DecisionsError {
-    #[error("Decisions credentials are missing or empty")]
+    #[error("Decisions comparison requires comparison_model_provider and comparison_model")]
+    Configuration,
+    #[error("Decisions provider authentication could not be resolved")]
     Credentials,
     #[error("Decisions HTTP client setup failed")]
     ClientSetup,
@@ -59,10 +68,11 @@ pub(super) enum DecisionsError {
 }
 
 pub(super) struct DecisionsSampler {
-    client: HttpClient,
+    transport: ReqwestTransport,
+    provider: Provider,
     // No Debug implementation: credentials must not reach diagnostics.
-    api_key: String,
-    url: String,
+    auth: SharedAuthProvider,
+    model: String,
     slots: Semaphore,
     active_requests: Mutex<VecDeque<AbortHandle>>,
 }
@@ -96,18 +106,33 @@ impl DecisionsTask {
 }
 
 impl DecisionsSampler {
-    pub(super) fn new(
-        client: HttpClient,
-        api_key: String,
-        url: String,
+    pub(super) async fn new(
+        factory: HttpClientFactory,
+        model_provider: SharedModelProvider,
+        model: String,
     ) -> Result<Self, DecisionsError> {
-        if api_key.trim().is_empty() {
-            return Err(DecisionsError::Credentials);
-        }
+        let provider = model_provider
+            .api_provider()
+            .await
+            .map_err(|_| DecisionsError::ClientSetup)?;
+        let auth = model_provider
+            .api_auth()
+            .await
+            .map_err(|_| DecisionsError::Credentials)?;
+        let client = HttpClientBuilder::new()
+            .without_redirects()
+            .without_request_logging()
+            .build_respecting_outbound_proxy_policy(
+                &factory,
+                &provider.url_for_path("decisions"),
+                ClientRouteClass::Api,
+            )
+            .map_err(|_| DecisionsError::ClientSetup)?;
         Ok(Self {
-            client,
-            api_key,
-            url,
+            transport: ReqwestTransport::from_http_client(client),
+            provider,
+            auth,
+            model,
             // Keep HTTP concurrency bounded while evicted tasks release their permits.
             slots: Semaphore::new(MAX_CONCURRENT_REQUESTS),
             active_requests: Mutex::new(VecDeque::new()),
@@ -125,6 +150,7 @@ impl DecisionsSampler {
             &request.instructions,
             &request.input,
             request.parent_compaction.as_ref(),
+            &self.model,
         )
         .and_then(|body| {
             // Reuse Guardian's complete budget without changing its sampling path.
@@ -181,31 +207,29 @@ impl DecisionsSampler {
     }
 
     async fn request(&self, body: Value) -> Result<&'static str, DecisionsError> {
+        let mut request = self.provider.build_request(http::Method::POST, "decisions");
+        request.body = Some(RequestBody::Json(body));
+        request.response_body_limit_bytes = Some(MAX_RESPONSE_BYTES);
+        let request = request
+            .into_prepared()
+            .map_err(|_| DecisionsError::ClientSetup)?;
         let request = self
-            .client
-            .post(&self.url)
-            .bearer_auth(&self.api_key)
-            .json(&body);
-        drop(body);
-        let mut response = request
-            .send()
+            .auth
+            .apply_auth(request)
             .await
-            .map_err(|_| DecisionsError::Transport)?;
-        if !response.status().is_success() {
-            return Err(DecisionsError::Http(response.status().as_u16()));
-        }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
+            .map_err(|_| DecisionsError::Credentials)?;
+        let response = self
+            .transport
+            .execute(request)
             .await
-            .map_err(|_| DecisionsError::Transport)?
-        {
-            if bytes.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
-                return Err(DecisionsError::ResponseTooLarge);
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        parse_answer(&serde_json::from_slice(&bytes).map_err(|_| DecisionsError::InvalidResponse)?)
+            .map_err(|error| match error {
+                TransportError::Http { status, .. } => DecisionsError::Http(status.as_u16()),
+                TransportError::ResponseTooLarge { .. } => DecisionsError::ResponseTooLarge,
+                _ => DecisionsError::Transport,
+            })?;
+        parse_answer(
+            &serde_json::from_slice(&response.body).map_err(|_| DecisionsError::InvalidResponse)?,
+        )
     }
 }
 
@@ -213,6 +237,7 @@ fn request_body(
     instructions: &RenderedFragment,
     evidence: &[ResponseItem],
     parent_compaction: Option<&ResponseItem>,
+    model: &str,
 ) -> Result<Value, DecisionsError> {
     if parent_compaction.is_some() {
         return Err(DecisionsError::UnsupportedEvidence);
@@ -282,7 +307,7 @@ fn request_body(
         messages.push(message);
     }
     let mut body = json!({
-        "model": MODEL,
+        "model": model,
         "questions": [{"type": "choice", "name": "guardian_risk",
                        "choices": [{"value": "low"}, {"value": "high"}]}]
     });
@@ -311,4 +336,4 @@ fn parse_answer(body: &Value) -> Result<&'static str, DecisionsError> {
 
 #[cfg(test)]
 #[path = "decisions_tests.rs"]
-mod tests;
+pub(super) mod tests;

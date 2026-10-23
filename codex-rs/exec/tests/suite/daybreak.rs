@@ -64,37 +64,59 @@ async fn exec_resolves_daybreak_for_api_keys_and_allows_an_off_override() -> any
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "Cyber access programs are disabled for this API-key session.",
+            "Cyber access programs are disabled for this session.",
         ));
     assert!(response.requests().is_empty());
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn exec_rejects_daybreak_for_non_openai_provider() -> anyhow::Result<()> {
-    let test = test_codex_exec();
-    let server = responses::start_mock_server().await;
-    std::fs::write(
-        test.home_path().join("config.toml"),
-        "daybreak = true\nfeatures.cli_daybreak = true\n",
-    )?;
+async fn exec_resolves_daybreak_for_a_configured_custom_provider() -> anyhow::Result<()> {
+    let (test, server) = configured_daybreak_exec().await?;
+    std::fs::remove_file(test.home_path().join("auth.json"))?;
+    let config = test.home_path().join("config.toml");
+    let configured = std::fs::read_to_string(&config)?;
+    std::fs::write(&config, format!(
+        "{}\n[model_providers.local]\nname = 'Local program provider'\nbase_url = '{}/v1'\nexperimental_bearer_token = 'local-program-token'\n",
+        configured.replace("model_provider = 'openai'", "model_provider = 'local'"),
+        server.uri(),
+    ))?;
     let response = responses::mount_sse_once(&server, responses::sse_completed("response")).await;
-
     test.cmd_with_server(&server)
         .env_remove("STEVE_ACCESS_TOKEN")
-        .args([
-            "--oss",
-            "--local-provider",
-            "ollama",
-            "--skip-git-repo-check",
-            "hello",
-        ])
+        .env_remove("STEVE_API_KEY")
+        .env_remove("OPENAI_API_KEY")
+        .args(["--skip-git-repo-check", "hello"])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(
-            "Daybreak requires the OpenAI model provider",
-        ));
-    assert!(response.requests().is_empty());
+        .success();
+    assert_eq!(response.single_request().body_json()["access_programs"],
+        json!({"cyber": "daybreak_blue"}));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn exec_resolves_daybreak_with_an_explicit_oss_endpoint() -> anyhow::Result<()> {
+    let (test, server) = configured_daybreak_exec().await?;
+    std::fs::remove_file(test.home_path().join("auth.json"))?;
+    for (path, body) in [
+        ("/v1/models", json!({"data": [{"id": "gpt-test"}]})),
+        ("/api/tags", json!({"models": [{"name": "gpt-test"}]})),
+        ("/api/version", json!({"version": "0.14.1"})),
+    ] {
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path(path))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server).await;
+    }
+    let response = responses::mount_sse_once(&server, responses::sse_completed("oss-response")).await;
+    test.cmd_with_server(&server)
+        .env_remove("STEVE_ACCESS_TOKEN")
+        .env_remove("STEVE_API_KEY")
+        .env_remove("OPENAI_API_KEY")
+        .env("STEVE_OSS_BASE_URL", format!("{}/v1", server.uri()))
+        .args(["--oss", "--local-provider", "ollama", "--skip-git-repo-check", "hello"])
+        .assert().success();
+    assert_eq!(response.single_request().body_json()["access_programs"], json!({"cyber": "daybreak_blue"}));
     Ok(())
 }
 
@@ -131,7 +153,7 @@ async fn configured_daybreak_exec() -> anyhow::Result<(TestCodexExecBuilder, wir
     std::fs::write(
         test.home_path().join("config.toml"),
         format!(
-            "cli_auth_credentials_store = 'file'\nchatgpt_base_url = '{}/backend-api'\nmodel_catalog_json = '{}'\nmodel = 'gpt-test'\ndaybreak = true\nfeatures.cli_daybreak = true\n",
+            "model_provider = 'openai'\nchatgpt_path_style = 'chatgpt_api'\ncli_auth_credentials_store = 'file'\nchatgpt_base_url = '{}/backend-api'\nmodel_catalog_json = '{}'\nmodel = 'gpt-test'\ndaybreak = true\nfeatures.cli_daybreak = true\n",
             server.uri(),
             catalog.display()
         ),
@@ -175,7 +197,7 @@ async fn exec_resumes_and_forks_the_saved_daybreak_choice() -> anyhow::Result<()
     std::fs::write(
         test.home_path().join("config.toml"),
         format!(
-            "cli_auth_credentials_store = 'file'\nchatgpt_base_url = '{}/backend-api'\nmodel_catalog_json = '{}'\nmodel = 'gpt-test'\nfeatures.cli_daybreak = true\n",
+            "model_provider = 'openai'\nchatgpt_path_style = 'chatgpt_api'\ncli_auth_credentials_store = 'file'\nchatgpt_base_url = '{}/backend-api'\nmodel_catalog_json = '{}'\nmodel = 'gpt-test'\nfeatures.cli_daybreak = true\n",
             server.uri(),
             test.home_path().join("catalog.json").display()
         ),

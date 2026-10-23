@@ -514,6 +514,10 @@ async fn guardian_review_recovers_after_compaction(with_parent_checkpoint: bool)
     let summary = "Guardian retained the user's standing authorization.";
     let store = Arc::new(codex_thread_store::InMemoryThreadStore::default());
     let mut builder = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("explicit test provider");
+        })
         .with_thread_store(store.clone())
         .with_history_mode(codex_protocol::protocol::ThreadHistoryMode::Legacy)
         .with_model_info_override("gpt-5.5", move |model| {
@@ -535,6 +539,9 @@ async fn guardian_review_recovers_after_compaction(with_parent_checkpoint: bool)
         })
         .with_config(move |config| {
             config.model_context_window = Some(100_000);
+            config.model_provider.accepts_response_continuation = true;
+            config.model_provider.capabilities.get_or_insert_default().remote_compaction =
+                Some(codex_model_provider_info::RemoteCompactionSupport::V2);
             config.model_auto_compact_token_limit = Some(50_000);
             config.permissions.approval_policy = Constrained::allow_any(AskForApproval::OnRequest);
             config.approvals_reviewer = ApprovalsReviewer::AutoReview;

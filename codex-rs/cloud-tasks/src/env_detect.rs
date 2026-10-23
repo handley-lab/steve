@@ -1,3 +1,4 @@
+use codex_cloud_tasks_client::PathStyle;
 use codex_git_utils::SanitizedGitUrl;
 use codex_http_client::RouteAwareClientPool;
 use http::StatusCode;
@@ -27,12 +28,14 @@ pub struct AutodetectSelection {
 pub async fn autodetect_environment_id(
     http: &RouteAwareClientPool,
     base_url: &str,
+    path_style: PathStyle,
     headers: &HeaderMap,
     desired_label: Option<String>,
 ) -> anyhow::Result<AutodetectSelection> {
     autodetect_environment_id_with_origins(
         http,
         base_url,
+        path_style,
         headers,
         desired_label,
         &get_git_origins(),
@@ -40,9 +43,31 @@ pub async fn autodetect_environment_id(
     .await
 }
 
+fn environment_by_repo_url(
+    base_url: &str,
+    path_style: PathStyle,
+    owner: &str,
+    repo: &str,
+) -> String {
+    let prefix = match path_style {
+        PathStyle::CodexApi => "api/codex",
+        PathStyle::ChatGptApi => "wham",
+    };
+    format!("{base_url}/{prefix}/environments/by-repo/github/{owner}/{repo}")
+}
+
+fn environment_list_url(base_url: &str, path_style: PathStyle) -> String {
+    let prefix = match path_style {
+        PathStyle::CodexApi => "api/codex",
+        PathStyle::ChatGptApi => "wham",
+    };
+    format!("{base_url}/{prefix}/environments")
+}
+
 async fn autodetect_environment_id_with_origins(
     http: &impl EnvironmentHttp,
     base_url: &str,
+    path_style: PathStyle,
     headers: &HeaderMap,
     desired_label: Option<String>,
     origins: &[SanitizedGitUrl],
@@ -52,17 +77,7 @@ async fn autodetect_environment_id_with_origins(
     let mut by_repo_envs: Vec<CodeEnvironment> = Vec::new();
     for origin in origins {
         if let Some((owner, repo)) = parse_owner_repo(origin.as_str()) {
-            let url = if base_url.contains("/backend-api") {
-                format!(
-                    "{}/wham/environments/by-repo/{}/{}/{}",
-                    base_url, "github", owner, repo
-                )
-            } else {
-                format!(
-                    "{}/api/codex/environments/by-repo/{}/{}/{}",
-                    base_url, "github", owner, repo
-                )
-            };
+            let url = environment_by_repo_url(base_url, path_style, &owner, &repo);
             crate::append_error_log(format!("env: GET {url}"));
             match get_json::<Vec<CodeEnvironment>>(http, &url, headers).await {
                 Ok(mut list) => {
@@ -86,11 +101,7 @@ async fn autodetect_environment_id_with_origins(
     }
 
     // 2) Fallback to the full list
-    let list_url = if base_url.contains("/backend-api") {
-        format!("{base_url}/wham/environments")
-    } else {
-        format!("{base_url}/api/codex/environments")
-    };
+    let list_url = environment_list_url(base_url, path_style);
     crate::append_error_log(format!("env: GET {list_url}"));
     // Fetch and log the full environments JSON for debugging
     let response = http.get(&list_url, headers).await?;
@@ -309,14 +320,16 @@ fn parse_owner_repo(url: &str) -> Option<(String, String)> {
 pub async fn list_environments(
     http: &RouteAwareClientPool,
     base_url: &str,
+    path_style: PathStyle,
     headers: &HeaderMap,
 ) -> anyhow::Result<Vec<crate::app::EnvironmentRow>> {
-    list_environments_with_origins(http, base_url, headers, &get_git_origins()).await
+    list_environments_with_origins(http, base_url, path_style, headers, &get_git_origins()).await
 }
 
 async fn list_environments_with_origins(
     http: &impl EnvironmentHttp,
     base_url: &str,
+    path_style: PathStyle,
     headers: &HeaderMap,
     origins: &[SanitizedGitUrl],
 ) -> anyhow::Result<Vec<crate::app::EnvironmentRow>> {
@@ -325,17 +338,7 @@ async fn list_environments_with_origins(
     // 1) By-repo lookup for each parsed GitHub origin
     for origin in origins {
         if let Some((owner, repo)) = parse_owner_repo(origin.as_str()) {
-            let url = if base_url.contains("/backend-api") {
-                format!(
-                    "{}/wham/environments/by-repo/{}/{}/{}",
-                    base_url, "github", owner, repo
-                )
-            } else {
-                format!(
-                    "{}/api/codex/environments/by-repo/{}/{}/{}",
-                    base_url, "github", owner, repo
-                )
-            };
+            let url = environment_by_repo_url(base_url, path_style, &owner, &repo);
             match get_json::<Vec<CodeEnvironment>>(http, &url, headers).await {
                 Ok(list) => {
                     info!("env_tui: by-repo {}:{} -> {} envs", owner, repo, list.len());
@@ -369,11 +372,7 @@ async fn list_environments_with_origins(
     }
 
     // 2) Fallback to the full list; on error return what we have if any.
-    let list_url = if base_url.contains("/backend-api") {
-        format!("{base_url}/wham/environments")
-    } else {
-        format!("{base_url}/api/codex/environments")
-    };
+    let list_url = environment_list_url(base_url, path_style);
     match get_json::<Vec<CodeEnvironment>>(http, &list_url, headers).await {
         Ok(list) => {
             info!("env_tui: global list -> {} envs", list.len());

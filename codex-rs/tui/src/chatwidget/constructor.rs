@@ -84,7 +84,7 @@ impl ChatWidget {
             .as_ref()
             .map(|keymap| keymap.chat.clone())
             .unwrap_or_else(|| default_keymap.chat.clone());
-        let pet_http_client = codex_http_client::RouteAwareClientPool::new(
+        let pet_http_client = codex_http_client::RouteAwareClientPool::new_without_redirects(
             config.http_client_factory(),
             codex_http_client::ClientRouteClass::Other,
         );
