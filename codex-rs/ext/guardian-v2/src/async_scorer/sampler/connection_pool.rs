@@ -25,7 +25,6 @@ use codex_api::SharedAuthProvider;
 use codex_api::TransportError;
 use codex_api::build_session_headers;
 use codex_http_client::ClientRouteClass;
-use codex_login::CodexAuth;
 use codex_login::default_client::ClientRedirectPolicy;
 use codex_login::default_client::add_originator_header;
 use codex_login::default_client::create_client_for_route_async;
@@ -54,12 +53,6 @@ const MAX_CONCURRENT_OPENS: usize = 4;
 const REFILL_LOW_WATERMARK: usize = INITIAL_WEBSOCKET_CONNECTIONS / 2;
 const RESPONSES_WEBSOCKETS_BETA: &str = "responses_websockets=2026-02-06";
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum RequestMode {
-    Regular,
-    GuardianClassifier,
-}
-
 pub(super) struct ConnectionPool {
     config: Arc<LunaSamplerConfig>,
     pub(super) idle_connections: Mutex<Vec<PooledConnection>>,
@@ -80,7 +73,6 @@ struct HttpTransport {
 
 pub(super) struct PooledConnection {
     connection: ResponsesWebsocketConnection,
-    request_kind: RequestMode,
     // The bridge routes by thread ID, so each socket needs its own identity.
     pub(super) thread_id: String,
     pub(super) expires_at: Instant,
@@ -104,7 +96,6 @@ enum Connection {
 
 pub(super) struct ConnectionLease {
     pub(super) thread_id: String,
-    pub(super) request_kind: RequestMode,
     connection: Connection,
     pool: Arc<ConnectionPool>,
     _permit: OwnedSemaphorePermit,
@@ -243,7 +234,7 @@ impl ConnectionPool {
                 None => break None,
             }
         };
-        let (connection, thread_id, request_kind) = match connection {
+        let (connection, thread_id) = match connection {
             Some(connection) => {
                 if self
                     .idle_connections
@@ -255,14 +246,12 @@ impl ConnectionPool {
                     self.replenish();
                 }
                 let thread_id = connection.thread_id.clone();
-                let request_kind = connection.request_kind;
-                (Connection::Websocket(connection), thread_id, request_kind)
+                (Connection::Websocket(connection), thread_id)
             }
             None => {
                 self.replenish();
                 // Sampling owns the retry budget across both transports.
                 provider.retry.max_attempts = 0;
-                let request_kind = self.responses_request_kind().await;
                 let url = provider.url_for_path("/responses");
                 let redirect_policy = if provider.headers.contains_key(ACCOUNT_ROUTING_HEADER) {
                     ClientRedirectPolicy::Reject
@@ -309,11 +298,7 @@ impl ConnectionPool {
                     .await?
                     .clone();
                 let client = ResponsesClient::new(transport, provider, auth);
-                (
-                    Connection::Http(client),
-                    ThreadId::new().to_string(),
-                    request_kind,
-                )
+                (Connection::Http(client), ThreadId::new().to_string())
             }
         };
         if auth_changes
@@ -343,7 +328,6 @@ impl ConnectionPool {
         }
         Ok(ConnectionLease {
             thread_id,
-            request_kind,
             connection,
             pool: Arc::clone(self),
             _permit: permit,
@@ -391,18 +375,12 @@ impl ConnectionPool {
         })
     }
 
-    fn headers(
-        &self,
-        thread_id: &str,
-        request_kind: RequestMode,
-    ) -> Result<HeaderMap, LunaSamplerError> {
+    fn headers(&self, thread_id: &str) -> Result<HeaderMap, LunaSamplerError> {
         let mut headers = build_session_headers(
             Some(self.config.session_id.clone()),
             Some(thread_id.to_owned()),
         );
-        if request_kind == RequestMode::GuardianClassifier {
-            headers.insert("x-codex-guardian", HeaderValue::from_static("classifier"));
-        }
+        headers.insert("x-codex-guardian", HeaderValue::from_static("classifier"));
         headers.insert("x-openai-subagent", HeaderValue::from_static("guardian"));
         headers.insert(
             "x-codex-window-id",
@@ -424,28 +402,6 @@ impl ConnectionPool {
         }
         Ok(headers)
     }
-    async fn responses_request_kind(&self) -> RequestMode {
-        let provider = self.config.provider.info();
-        if self
-            .config
-            .provider
-            .auth()
-            .await
-            .as_ref()
-            .is_some_and(CodexAuth::uses_codex_backend)
-            && provider.supports_codex_backend_routes()
-            && provider.requires_openai_auth
-            && provider.env_key.is_none()
-            && provider.experimental_bearer_token.is_none()
-            && provider.auth.is_none()
-            && provider.aws.is_none()
-        {
-            RequestMode::GuardianClassifier
-        } else {
-            RequestMode::Regular
-        }
-    }
-
     async fn open_connection(
         &self,
         permit: OwnedSemaphorePermit,
@@ -458,8 +414,7 @@ impl ConnectionPool {
             auth_changes,
         } = self.client_setup().await?;
         let thread_id = ThreadId::new().to_string();
-        let request_kind = self.responses_request_kind().await;
-        let mut headers = self.headers(&thread_id, request_kind)?;
+        let mut headers = self.headers(&thread_id)?;
         headers.insert(
             "openai-beta",
             HeaderValue::from_static(RESPONSES_WEBSOCKETS_BETA),
@@ -521,7 +476,6 @@ impl ConnectionPool {
 
         Ok(PooledConnection {
             connection,
-            request_kind,
             thread_id,
             expires_at: Instant::now() + MAX_WEBSOCKET_AGE,
             auth_changes,
@@ -558,7 +512,7 @@ impl ConnectionLease {
                             thread_id: Some(self.thread_id.clone()),
                             extra_headers: self
                                 .pool
-                                .headers(&self.thread_id, self.request_kind)
+                                .headers(&self.thread_id)
                                 .map_err(|error| ApiError::Stream(error.to_string()))?,
                             ..Default::default()
                         },

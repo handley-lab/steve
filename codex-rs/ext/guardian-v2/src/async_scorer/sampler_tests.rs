@@ -212,7 +212,10 @@ pub(in crate::async_scorer) fn sampler_config(base_url: String) -> LunaSamplerCo
             "https://chatgpt.com/backend-api".into(),
         ),
         provider: create_model_provider(
-            ModelProviderInfo::create_openai_provider(Some(base_url)),
+            ModelProviderInfo {
+                requires_openai_auth: true,
+                ..ModelProviderInfo::create_openai_provider(Some(base_url))
+            },
             Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
                 "test-api-key",
             ))),
@@ -486,70 +489,156 @@ impl ExternalAuth for RefreshableAuth {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn classifier_sends_guardian_header_only_with_codex_backend_auth() -> Result<()> {
+async fn classifier_role_preserves_configured_tier_lineage_and_credentials() -> Result<()> {
     skip_if_no_network!(Ok(()));
-
-    for (auth, base_path, expected_header, expected_service_tier) in [
-        (
-            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
-            "/backend-api/codex",
-            Some("classifier"),
-            None,
-        ),
-        (
-            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
-            "/v1",
-            None,
-            Some("priority"),
-        ),
-        (
-            CodexAuth::from_api_key("test-api-key"),
-            "/v1",
-            None,
-            Some("priority"),
-        ),
-    ] {
-        let events = vec![
-            ev_assistant_message("classification", "low"),
-            ev_completed("response-1"),
-        ];
-        let mut connections = vec![Vec::new(); INITIAL_WEBSOCKET_CONNECTIONS - 1];
-        connections.push(vec![events]);
-        let server = responses::start_websocket_server(connections).await;
-        let base_url = format!(
-            "http://{}{base_path}",
-            server.uri().trim_start_matches("ws://")
-        );
-        let mut config = sampler_config(base_url.clone());
-        config.provider = create_model_provider(
-            ModelProviderInfo::create_openai_provider(Some(base_url)),
-            Some(AuthManager::from_auth_for_testing(auth)),
-        );
-        config.service_tier = Some("priority".to_owned());
-        let sampler = connect_sampler(config).await?;
-
-        assert_eq!(sampler.sample(sample_request("turn-1")).await?, "low");
-        for handshake in server.handshakes() {
-            assert_eq!(handshake.uri(), format!("{base_path}/responses"));
-            assert_eq!(
-                handshake.header("x-codex-guardian").as_deref(),
-                expected_header
-            );
-            assert_eq!(handshake.header("x-codex-routing-hint"), None);
+    let mut failures = Vec::new();
+    for websocket in [false, true] {
+        for (credential, auth, shared, bearer) in [
+            ("anonymous", None, false, None),
+            (
+                "api-key",
+                Some(CodexAuth::from_api_key("selected-api")),
+                true,
+                None,
+            ),
+            (
+                "account",
+                Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
+                true,
+                None,
+            ),
+            ("bearer", None, false, Some("selected-provider")),
+            (
+                "bearer-unused-account",
+                Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
+                false,
+                Some("selected-provider"),
+            ),
+        ] {
+            for name in ["OpenAI", "Cambridge"] {
+                for base_path in ["/backend-api/codex", "/v1"] {
+                    let events = vec![
+                        ev_assistant_message("classification", "low"),
+                        ev_completed("response-1"),
+                    ];
+                    let ws = if websocket {
+                        let mut connections = vec![Vec::new(); INITIAL_WEBSOCKET_CONNECTIONS - 1];
+                        connections.push(vec![events.clone()]);
+                        Some(responses::start_websocket_server(connections).await)
+                    } else {
+                        None
+                    };
+                    let http = if websocket {
+                        None
+                    } else {
+                        Some(responses::start_mock_server().await)
+                    };
+                    let response = if let Some(server) = &http {
+                        Some(responses::mount_sse_once(server, responses::sse(events)).await)
+                    } else {
+                        None
+                    };
+                    let origin = ws
+                        .as_ref()
+                        .map(|server| server.uri().replacen("ws://", "http://", 1))
+                        .unwrap_or_else(|| http.as_ref().unwrap().uri());
+                    let base_url = format!("{origin}{base_path}");
+                    let mut config = sampler_config(base_url.clone());
+                    let mut provider = ModelProviderInfo::create_openai_provider(Some(base_url));
+                    provider.name = name.into();
+                    provider.requires_openai_auth = shared;
+                    provider.experimental_bearer_token = bearer.map(Into::into);
+                    provider.supports_websockets = websocket;
+                    config.provider = create_model_provider(
+                        provider,
+                        auth.clone().map(AuthManager::from_auth_for_testing),
+                    );
+                    config.service_tier = Some("priority".into());
+                    let expected_authorization =
+                        bearer.map(|token| format!("Bearer {token}")).or_else(|| {
+                            if shared {
+                                auth.as_ref()
+                                    .map(|auth| format!("Bearer {}", auth.get_token().unwrap()))
+                            } else {
+                                None
+                            }
+                        });
+                    let expected_account = if shared {
+                        auth.as_ref().and_then(CodexAuth::get_account_id)
+                    } else {
+                        None
+                    };
+                    let sampler = if websocket {
+                        connect_sampler(config).await?
+                    } else {
+                        LunaSampler::new(config)
+                    };
+                    let mut request = sample_request("turn-1");
+                    request.parent_response_id = Some("parent-owned-response".into());
+                    let result = sampler.sample(request).await;
+                    let mut headers = Vec::new();
+                    let body;
+                    let request_count;
+                    if let Some(server) = &ws {
+                        let requests = server
+                            .connections()
+                            .into_iter()
+                            .flatten()
+                            .collect::<Vec<_>>();
+                        request_count = requests.len();
+                        body = requests
+                            .first()
+                            .map(|request| request.body_json())
+                            .unwrap_or(serde_json::Value::Null);
+                        for handshake in server.handshakes() {
+                            headers.push(json!({"uri": handshake.uri(), "role": handshake.header("x-codex-guardian"),
+                                "authorization": handshake.header("authorization"), "account": handshake.header("chatgpt-account-id"),
+                                "hint": handshake.header("x-codex-routing-hint")}));
+                        }
+                    } else {
+                        let requests = response.as_ref().unwrap().requests();
+                        request_count = requests.len();
+                        body = requests
+                            .first()
+                            .map(|request| request.body_json())
+                            .unwrap_or(serde_json::Value::Null);
+                        for request in requests {
+                            headers.push(json!({"role": request.header("x-codex-guardian"),
+                                "authorization": request.header("authorization"), "account": request.header("chatgpt-account-id"),
+                                "hint": request.header("x-codex-routing-hint")}));
+                        }
+                    }
+                    eprintln!(
+                        "T19_EVIDENCE {}",
+                        json!({"kind": "classifier-role-wire", "websocket": websocket,
+                        "credential": credential, "name": name, "base_path": base_path,
+                        "result": format!("{result:?}"), "request_count": request_count, "headers": &headers, "body": &body})
+                    );
+                    let valid = result.as_ref().is_ok_and(|value| value == "low")
+                        && request_count == 1
+                        && !headers.is_empty()
+                        && headers.iter().all(|h| {
+                            h["role"] == "classifier"
+                                && h["authorization"].as_str() == expected_authorization.as_deref()
+                                && h["account"].as_str() == expected_account.as_deref()
+                                && h["hint"].is_null()
+                        })
+                        && body["service_tier"] == "priority"
+                        && body["client_metadata"]["parent_response_id"] == "parent-owned-response";
+                    if !valid {
+                        failures.push(format!(
+                            "{websocket}/{credential}/{name}/{base_path}: captured fields differ"
+                        ));
+                    }
+                    drop(sampler);
+                    if let Some(server) = ws {
+                        server.shutdown().await;
+                    }
+                }
+            }
         }
-        let request = server
-            .wait_for_request(
-                /*connection_index*/ INITIAL_WEBSOCKET_CONNECTIONS - 1,
-                /*request_index*/ 0,
-            )
-            .await
-            .body_json();
-        assert_eq!(request["service_tier"].as_str(), expected_service_tier);
-
-        drop(sampler);
-        server.shutdown().await;
     }
-
+    assert!(failures.is_empty(), "{failures:#?}");
     Ok(())
 }
 
@@ -593,7 +682,10 @@ async fn preconnected_sampler_reuses_authenticated_websocket_for_classifications
         ))))
         .await?;
     let provider = create_model_provider(
-        ModelProviderInfo::create_openai_provider(Some(base_url)),
+        ModelProviderInfo {
+            requires_openai_auth: true,
+            ..ModelProviderInfo::create_openai_provider(Some(base_url))
+        },
         Some(manager.clone()),
     );
 
@@ -1352,10 +1444,13 @@ async fn parent_response_id_survives_classifier_transport_retry() -> Result<()> 
         let mut config = sampler_config(base_url.clone());
         if uses_codex_backend {
             config.provider = create_model_provider(
-                ModelProviderInfo::create_openai_provider(Some(format!(
-                    "{}/backend-api/codex",
-                    base_url.trim_end_matches("/v1")
-                ))),
+                ModelProviderInfo {
+                    requires_openai_auth: true,
+                    ..ModelProviderInfo::create_openai_provider(Some(format!(
+                        "{}/backend-api/codex",
+                        base_url.trim_end_matches("/v1")
+                    )))
+                },
                 Some(AuthManager::from_auth_for_testing(
                     CodexAuth::create_dummy_chatgpt_auth_for_testing(),
                 )),
@@ -1382,7 +1477,7 @@ async fn parent_response_id_survives_classifier_transport_retry() -> Result<()> 
                     body["client_metadata"].get("parent_response_id").cloned(),
                     body["client_metadata"].get("guardian_credits_requested"),
                 ),
-                (uses_codex_backend.then(|| json!(parent_response_id)), None)
+                (Some(json!(parent_response_id)), None)
             );
             assert!(!body["input"].to_string().contains(parent_response_id));
         }

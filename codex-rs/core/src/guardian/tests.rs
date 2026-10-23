@@ -3676,7 +3676,9 @@ async fn guardian_review_does_not_retry_valid_denial() -> anyhow::Result<()> {
         ])],
     )
     .await;
-    let (session, turn) = guardian_test_session_and_turn(&server).await;
+    let (session, mut turn) = guardian_test_session_and_turn(&server).await;
+    let reviewer_model = turn.model_info().slug.clone();
+    Arc::make_mut(&mut Arc::get_mut(&mut turn).unwrap().config).guardian_model = Some(reviewer_model);
     seed_guardian_parent_history(&session, &turn).await;
 
     let decision = review_approval_request(

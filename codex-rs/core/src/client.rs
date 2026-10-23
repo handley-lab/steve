@@ -211,7 +211,6 @@ struct ModelClientState {
     beta_features_header: Option<String>,
     concurrent_reasoning_summaries_enabled: bool,
     output_token_replay_enabled: bool,
-    include_attestation: bool,
     attestation_provider: Option<Arc<dyn AttestationProvider>>,
     disable_websockets: AtomicBool,
     cached_websocket_session: StdMutex<WebsocketSession>,
@@ -561,7 +560,6 @@ impl ModelClient {
             .is_some_and(|manager| manager.codex_api_key_env_enabled());
         let auth_env_telemetry =
             collect_auth_env_telemetry(model_provider.info(), codex_api_key_env_enabled);
-        let include_attestation = model_provider.supports_attestation();
         // Fixed-effort workers use request-level effort even when managed requirements
         // pin the feature on. Share this decision with update injection and pinning.
         let memory_consolidation = matches!(
@@ -588,7 +586,6 @@ impl ModelClient {
                 beta_features_header,
                 concurrent_reasoning_summaries_enabled,
                 output_token_replay_enabled,
-                include_attestation,
                 attestation_provider,
                 disable_websockets: AtomicBool::new(false),
                 cached_websocket_session: StdMutex::new(WebsocketSession::default()),
@@ -895,10 +892,6 @@ impl ModelClient {
     }
 
     async fn generate_attestation_header_for(&self) -> Option<HeaderValue> {
-        if !self.state.include_attestation {
-            return None;
-        }
-
         self.state
             .attestation_provider
             .as_ref()?
@@ -1052,17 +1045,7 @@ impl ModelClient {
             prompt.output_schema_strict,
         );
         let prompt_cache_key = Some(self.prompt_cache_key(responses_metadata));
-        let service_tier = model_info
-            .service_tier_for_request(service_tier)
-            .filter(|tier| {
-                // Bedrock requires an advertised tier, including for flex, which the
-                // generic OpenAI resolver permits without catalog support.
-                !self.state.provider.info().is_amazon_bedrock()
-                    || model_info
-                        .service_tiers
-                        .iter()
-                        .any(|supported| supported.id == *tier)
-            });
+        let service_tier = self.service_tier_for_request(model_info, service_tier);
         if !include_internal {
             for item in &mut input {
                 item.clear_tool_result_metadata();
@@ -1173,14 +1156,28 @@ impl ModelClient {
         }
     }
 
-    fn responses_headers(&self, auth: Option<&CodexAuth>, model: &str) -> ApiHeaderMap {
+    fn service_tier_for_request(
+        &self,
+        model_info: &ModelInfo,
+        service_tier: Option<String>,
+    ) -> Option<String> {
+        model_info
+            .service_tier_for_request(service_tier)
+            .filter(|tier| {
+                // Bedrock requires an advertised tier, including for flex, which the
+                // generic OpenAI resolver permits without catalog support.
+                !self.state.provider.info().is_amazon_bedrock()
+                    || model_info
+                        .service_tiers
+                        .iter()
+                        .any(|supported| supported.id == *tier)
+            })
+    }
+
+    fn responses_headers(&self, model: &str) -> ApiHeaderMap {
         self.codex_responses_headers
             .as_ref()
-            .filter(|config| {
-                config.model == model
-                    && self.uses_codex_backend(auth)
-                    && self.state.provider.info().supports_codex_backend_routes()
-            })
+            .filter(|config| config.model == model)
             .map(|config| config.headers.clone())
             .unwrap_or_default()
     }
@@ -1230,12 +1227,11 @@ impl ModelClient {
 
     fn build_routing_hint_header(
         &self,
-        auth: Option<&CodexAuth>,
         responses_headers: &ApiHeaderMap,
         model: &str,
         service_tier: Option<&str>,
     ) -> Option<HeaderValue> {
-        if !self.uses_codex_backend(auth) || is_guardian_reviewer(responses_headers) {
+        if is_guardian_reviewer(responses_headers) {
             return None;
         }
 
@@ -1578,14 +1574,13 @@ impl ModelClientSession {
             );
             let responses_headers = self
                 .client
-                .responses_headers(client_setup.auth.as_ref(), &model_info.slug);
+                .responses_headers(&model_info.slug);
             let mut websocket_metadata = responses_metadata.clone();
             websocket_metadata.routing_hint = self.client.build_routing_hint_header(
-                client_setup.auth.as_ref(),
                 &responses_headers,
                 &model_info.slug,
-                model_info
-                    .service_tier_for_request(service_tier.clone())
+                self.client
+                    .service_tier_for_request(model_info, service_tier.clone())
                     .as_deref(),
             );
             match self
@@ -1779,7 +1774,7 @@ impl ResponsesHttpExecutor<'_> {
                 .include_internal_metadata(&client_setup.api_provider);
             let responses_headers = self
                 .client
-                .responses_headers(client_setup.auth.as_ref(), &model_info.slug);
+                .responses_headers(&model_info.slug);
             tracing::Span::current().record("api.path", "/responses");
             let transport = self.client.build_api_transport(
                 &client_setup.api_provider,
@@ -1823,11 +1818,7 @@ impl ResponsesHttpExecutor<'_> {
                 client_setup.auth.as_ref(),
                 &responses_headers,
             );
-            if is_guardian_reviewer(&responses_headers) {
-                request.service_tier = None;
-            }
             if let Some(header_value) = self.client.build_routing_hint_header(
-                client_setup.auth.as_ref(),
                 &responses_headers,
                 &request.model,
                 request.service_tier.as_deref(),
@@ -1977,7 +1968,7 @@ impl ModelClientSession {
                 .include_internal_metadata(&client_setup.api_provider);
             let responses_headers = self
                 .client
-                .responses_headers(client_setup.auth.as_ref(), &model_info.slug);
+                .responses_headers(&model_info.slug);
             tracing::Span::current().record("api.path", "/responses");
             let request_auth_context = AuthRequestTelemetryContext::new(
                 client_setup.auth.as_ref().map(CodexAuth::auth_mode),
@@ -1994,16 +1985,12 @@ impl ModelClientSession {
                 responses_metadata,
                 include_internal,
             )?;
-            if is_guardian_reviewer(&responses_headers) {
-                request.service_tier = None;
-            }
             request.access_programs = cyber_access_program::for_request(
                 prompt.cyber_access_program,
                 self.client.api_key_cyber_access_programs,
             )?;
             let mut websocket_metadata = responses_metadata.clone();
             websocket_metadata.routing_hint = self.client.build_routing_hint_header(
-                client_setup.auth.as_ref(),
                 &responses_headers,
                 &request.model,
                 request.service_tier.as_deref(),

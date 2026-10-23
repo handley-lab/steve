@@ -142,6 +142,7 @@ async fn rollout_reconstruction_skips_guardian_metadata_when_disabled() {
             codex_login::CodexAuth::from_api_key("synthetic-key"),
             Vec::new(),
             |config| {
+                config.guardian_model = Some("configured-reviewer".into());
                 if enabled {
                     config.features.enable(Feature::GuardianApproval).unwrap();
                 } else {

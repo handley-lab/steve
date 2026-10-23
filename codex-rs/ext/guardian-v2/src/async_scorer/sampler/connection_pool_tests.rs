@@ -8,6 +8,7 @@ use super::super::tests::sampler_config;
 use super::*;
 use anyhow::Result;
 use codex_login::AuthManager;
+use codex_login::CodexAuth;
 use codex_login::WorkspaceRouting;
 use codex_login::WorkspaceRoutingRequest;
 use codex_login::WorkspaceRoutingResolver;
@@ -200,7 +201,10 @@ async fn cold_pool_uses_http_during_open_timeout_then_recovers_after_cooldown() 
         let base_url = format!("{}{base_path}", gateway.url);
         let mut config = sampler_config(base_url.clone());
         config.provider = create_model_provider(
-            ModelProviderInfo::create_openai_provider(Some(base_url)),
+            ModelProviderInfo {
+                requires_openai_auth: true,
+                ..ModelProviderInfo::create_openai_provider(Some(base_url))
+            },
             Some(AuthManager::from_auth_for_testing(if uses_codex_backend {
                 CodexAuth::create_dummy_chatgpt_auth_for_testing()
             } else {
@@ -257,21 +261,17 @@ async fn cold_pool_uses_http_during_open_timeout_then_recovers_after_cooldown() 
         assert_eq!(first.path(), expected_path);
         assert_eq!(
             first.header("x-codex-guardian").as_deref(),
-            uses_codex_backend.then_some("classifier")
+            Some("classifier")
         );
         assert!(first.header("authorization").is_some());
         let body = first.body_json();
         assert_eq!(
             body["service_tier"].as_str(),
-            if uses_codex_backend {
-                None
-            } else {
-                Some("priority")
-            }
+            Some("priority")
         );
         assert_eq!(
             body["client_metadata"]["parent_response_id"].as_str(),
-            uses_codex_backend.then_some("resp-parent")
+            Some("resp-parent")
         );
 
         gateway.allowed_opens.store(usize::MAX, Ordering::SeqCst);
@@ -503,7 +503,10 @@ async fn http_cache_preserves_no_constraint_redirect_policy_and_configured_heade
     auth.set_workspace_routing_resolver(Arc::downgrade(&routing_owner));
     let mut config = sampler_config(base_url.clone());
     config.provider = create_model_provider(
-        ModelProviderInfo::create_openai_provider(Some(base_url)),
+        ModelProviderInfo {
+            requires_openai_auth: true,
+            ..ModelProviderInfo::create_openai_provider(Some(base_url))
+        },
         Some(auth),
     );
     let pool = ConnectionPool::new(Arc::new(config));

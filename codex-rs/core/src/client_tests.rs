@@ -2042,7 +2042,10 @@ fn model_client_with_counting_attestation(
             Some(AuthManager::from_auth_for_testing(
                 CodexAuth::create_dummy_chatgpt_auth_for_testing(),
             )),
-            ModelProviderInfo::create_openai_provider(Some(CHATGPT_CODEX_BASE_URL.to_string())),
+            ModelProviderInfo {
+                requires_openai_auth: true,
+                ..ModelProviderInfo::create_openai_provider(Some(CHATGPT_CODEX_BASE_URL.to_string()))
+            },
         )
     } else {
         (
@@ -2077,9 +2080,8 @@ fn model_client_with_counting_attestation(
 }
 
 #[test]
-fn thread_responses_headers_are_scoped_to_model_and_backend_auth() {
-    let (mut model_client, _) =
-        model_client_with_counting_attestation(/*include_attestation*/ true);
+fn thread_responses_headers_follow_the_host_model_scope() {
+    let (mut model_client, _) = model_client_with_counting_attestation(true);
     let headers = http::HeaderMap::from_iter([(
         http::HeaderName::from_static("x-custom-request"),
         http::HeaderValue::from_static("example"),
@@ -2090,29 +2092,300 @@ fn thread_responses_headers_are_scoped_to_model_and_backend_auth() {
     }));
     let chatgpt_auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
     let api_key_auth = CodexAuth::from_api_key("test-api-key");
+    let mut observations = Vec::new();
     for (auth, model, expected) in [
-        (Some(&chatgpt_auth), "selected-model", headers),
+        (Some(&chatgpt_auth), "selected-model", headers.clone()),
         (Some(&chatgpt_auth), "other-model", http::HeaderMap::new()),
-        (
-            Some(&api_key_auth),
-            "selected-model",
-            http::HeaderMap::new(),
-        ),
-        (None, "selected-model", http::HeaderMap::new()),
+        (Some(&api_key_auth), "selected-model", headers.clone()),
+        (None, "selected-model", headers.clone()),
     ] {
-        assert_eq!(model_client.responses_headers(auth, model), expected);
+        let actual = model_client.responses_headers(model);
+        eprintln!(
+            "T19_EVIDENCE {}",
+            json!({"kind": "host-model-headers",
+                "auth": auth.map(CodexAuth::api_auth_mode), "model": model,
+                "header": actual.get("x-custom-request").map(|v| v.to_str().unwrap()),
+            })
+        );
+        observations.push((actual, expected));
     }
-
-    Arc::get_mut(&mut model_client.state)
-        .expect("test client should have unique session state")
-        .provider = create_model_provider(
+    Arc::get_mut(&mut model_client.state).unwrap().provider = create_model_provider(
         ModelProviderInfo::create_openai_provider(Some("https://proxy.example.com/v1".to_owned())),
         Some(AuthManager::from_auth_for_testing(chatgpt_auth.clone())),
     );
-    assert_eq!(
-        model_client.responses_headers(Some(&chatgpt_auth), "selected-model"),
+    observations.push((
+        model_client.responses_headers("selected-model"),
+        headers,
+    ));
+    let (other_thread, _) = model_client_with_counting_attestation(false);
+    observations.push((
+        other_thread.responses_headers("selected-model"),
         http::HeaderMap::new(),
-    );
+    ));
+    for (actual, expected) in observations {
+        assert_eq!(actual, expected);
+    }
+}
+
+#[tokio::test]
+async fn configured_response_roles_preserve_lineage_tiers_and_credentials() -> anyhow::Result<()> {
+    use core_test_support::responses;
+    let mut failures = Vec::new();
+    for websocket in [false, true] {
+        for credential in [
+            "anonymous",
+            "shared-api",
+            "account",
+            "bearer-unused-account",
+            "bedrock",
+        ] {
+            let names: &[&str] = if credential == "bedrock" {
+                &["Amazon Bedrock"]
+            } else {
+                &["OpenAI", "Cambridge"]
+            };
+            for &name in names {
+                for base_path in ["/v1", "/backend-api/codex"] {
+                    for role in ["reviewer", "ordinary", "model-mismatch"] {
+                        let events = |id| {
+                            vec![
+                                responses::ev_response_created(id),
+                                responses::ev_completed(id),
+                            ]
+                        };
+                        let ws = if websocket {
+                            Some(
+                                responses::start_websocket_server(vec![vec![
+                                    events("role-1"),
+                                    events("role-2"),
+                                ]])
+                                .await,
+                            )
+                        } else {
+                            None
+                        };
+                        let http = if websocket {
+                            None
+                        } else {
+                            Some(MockServer::start().await)
+                        };
+                        if let Some(server) = &http {
+                            Mock::given(method("POST"))
+                                .and(path(format!("{base_path}/responses")))
+                                .respond_with(
+                                    ResponseTemplate::new(200)
+                                        .insert_header("content-type", "text/event-stream")
+                                        .set_body_string(responses::sse(events("role-http"))),
+                                )
+                                .expect(2)
+                                .mount(server)
+                                .await;
+                        }
+                        let base = ws
+                            .as_ref()
+                            .map(|server| server.uri().replacen("ws://", "http://", 1))
+                            .unwrap_or_else(|| http.as_ref().unwrap().uri());
+                        let mut provider = if credential == "bedrock" {
+                            ModelProviderInfo::create_amazon_bedrock_provider(None)
+                        } else {
+                            ModelProviderInfo::create_openai_provider(None)
+                        };
+                        provider.base_url = Some(format!("{base}{base_path}"));
+                        provider.name = name.into();
+                        provider.supports_websockets = websocket;
+                        let mut expected_auth = None;
+                        let mut expected_account = None;
+                        let auth = match credential {
+                            "anonymous" => None,
+                            "shared-api" => {
+                                provider.requires_openai_auth = true;
+                                expected_auth = Some("Bearer selected-api".to_owned());
+                                Some(CodexAuth::from_api_key("selected-api"))
+                            }
+                            "account" => {
+                                provider.requires_openai_auth = true;
+                                let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
+                                expected_auth = Some(format!("Bearer {}", auth.get_token()?));
+                                expected_account = auth.get_account_id();
+                                Some(auth)
+                            }
+                            "bearer-unused-account" => {
+                                provider.experimental_bearer_token =
+                                    Some("selected-provider".into());
+                                expected_auth = Some("Bearer selected-provider".to_owned());
+                                Some(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+                            }
+                            "bedrock" => {
+                                expected_auth = Some("Bearer selected-bedrock".to_owned());
+                                Some(CodexAuth::BedrockApiKey(
+                                    codex_login::auth::BedrockApiKeyAuth {
+                                        api_key: "selected-bedrock".into(),
+                                        region: "us-east-1".into(),
+                                    },
+                                ))
+                            }
+                            _ => unreachable!(),
+                        };
+                        let mut client = test_model_client(SessionSource::Cli);
+                        let state = Arc::get_mut(&mut client.state).unwrap();
+                        state.provider = create_model_provider(
+                            provider,
+                            auth.map(AuthManager::from_auth_for_testing),
+                        );
+                        state.workspace_routing =
+                            codex_model_provider::WorkspaceRoutingContext::new(String::new());
+                        let mut host_headers = http::HeaderMap::from_iter([(
+                            http::HeaderName::from_static("x-host-scope"),
+                            http::HeaderValue::from_static("selected-thread"),
+                        )]);
+                        if role != "ordinary" {
+                            host_headers.insert(
+                                "x-codex-guardian",
+                                http::HeaderValue::from_static("reviewer"),
+                            );
+                        }
+                        client.codex_responses_headers =
+                            Some(Arc::new(crate::CodexResponsesHeaders {
+                                model: if role == "model-mismatch" {
+                                    "another-model".into()
+                                } else {
+                                    "gpt-test".into()
+                                },
+                                headers: host_headers,
+                            }));
+                        let mut model = test_model_info();
+                        model.service_tiers =
+                            vec![codex_protocol::openai_models::ModelServiceTier {
+                                id: "priority".into(),
+                                name: "Priority".into(),
+                                description: "Configured test tier".into(),
+                            }];
+                        let mut metadata = test_responses_metadata_for_client(
+                            &client,
+                            None,
+                            format!("{}:0", client.state.thread_id),
+                            None,
+                            TestCodexResponsesRequestKind::Turn,
+                        );
+                        metadata.parent_response_id = Some("parent-owned-response".into());
+                        let requested_tier = if credential == "bedrock" {
+                            "flex"
+                        } else {
+                            "priority"
+                        };
+                        let expected_tier = (credential != "bedrock").then_some("priority");
+                        let telemetry = test_session_telemetry();
+                        let mut session = client.new_session();
+                        if websocket {
+                            session
+                                .preconnect_websocket(
+                                    &model,
+                                    Some(requested_tier.into()),
+                                    &telemetry,
+                                    &metadata,
+                                )
+                                .await?;
+                        }
+                        for _ in 0..2 {
+                            let mut stream = session
+                                .stream(
+                                    &Prompt {
+                                        input: vec![responses::user_message_item(
+                                            "Controlled request role check",
+                                        )],
+                                        base_instructions: BaseInstructions {
+                                            text: String::new(),
+                                            ..Default::default()
+                                        },
+                                        ..Default::default()
+                                    },
+                                    &model,
+                                    &telemetry,
+                                    None,
+                                    codex_protocol::config_types::ReasoningSummary::None,
+                                    Some(requested_tier.into()),
+                                    &metadata,
+                                    &InferenceTraceContext::disabled(),
+                                )
+                                .await?;
+                            let mut complete = false;
+                            while let Some(event) = stream.next().await {
+                                if matches!(event?, ResponseEvent::Completed { .. }) {
+                                    complete = true;
+                                }
+                            }
+                            if !complete {
+                                failures.push(format!("{websocket}/{credential}/{name}/{base_path}/{role}: no completion"));
+                            }
+                        }
+                        let expected_role = (role == "reviewer").then_some("reviewer");
+                        let expected_hint =
+                            (role != "reviewer").then_some(if credential == "bedrock" {
+                                "model=gpt-test"
+                            } else {
+                                "model=gpt-test;tier=priority"
+                            });
+                        let expected_host = (role != "model-mismatch").then_some("selected-thread");
+                        let expected_parent =
+                            (role == "reviewer").then_some("parent-owned-response");
+                        let mut bodies = Vec::new();
+                        let mut headers = Vec::new();
+                        if let Some(server) = ws {
+                            for i in 0..2 {
+                                bodies.push(server.wait_for_request(0, i).await.body_json());
+                            }
+                            for request in server.handshakes() {
+                                headers.push(json!({"uri": request.uri(), "role": request.header("x-codex-guardian"),
+                                    "hint": request.header("x-codex-routing-hint"), "host": request.header("x-host-scope"),
+                                    "authorization": request.header("authorization"), "account": request.header("chatgpt-account-id")}));
+                            }
+                            server.shutdown().await;
+                        } else {
+                            for request in http.as_ref().unwrap().received_requests().await.unwrap()
+                            {
+                                bodies.push(serde_json::from_slice(&request.body)?);
+                                let header = |key: &str| {
+                                    request
+                                        .headers
+                                        .get(key)
+                                        .map(|v| v.to_str().unwrap().to_owned())
+                                };
+                                headers.push(json!({"uri": request.url.as_str(), "role": header("x-codex-guardian"),
+                                    "hint": header("x-codex-routing-hint"), "host": header("x-host-scope"),
+                                    "authorization": header("authorization"), "account": header("chatgpt-account-id")}));
+                            }
+                        }
+                        eprintln!(
+                            "T19_EVIDENCE {}",
+                            json!({"kind": "response-role-wire", "websocket": websocket,
+                            "credential": credential, "name": name, "base_path": base_path, "role": role,
+                            "requested_tier": requested_tier, "headers": &headers, "bodies": &bodies})
+                        );
+                        let valid = !headers.is_empty()
+                            && bodies.len() == 2
+                            && headers.iter().all(|h| {
+                                h["role"].as_str() == expected_role
+                                    && h["hint"].as_str() == expected_hint
+                                    && h["host"].as_str() == expected_host
+                                    && h["authorization"].as_str() == expected_auth.as_deref()
+                                    && h["account"].as_str() == expected_account.as_deref()
+                            })
+                            && bodies.iter().all(|b| {
+                                b["model"] == "gpt-test"
+                                    && b["service_tier"].as_str() == expected_tier
+                                    && b["client_metadata"]["parent_response_id"].as_str()
+                                        == expected_parent
+                            });
+                        if !valid {
+                            failures.push(format!("{websocket}/{credential}/{name}/{base_path}/{role}: captured fields differ"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+    Ok(())
 }
 
 #[test_case::test_case(/*cache_key*/ None; "own_cache")]
@@ -2173,36 +2446,60 @@ async fn existing_call_sideband_headers_include_attestation() {
 }
 
 #[tokio::test]
-async fn non_chatgpt_codex_endpoints_omit_attestation_generation() {
+async fn host_attestation_is_independent_of_cached_account_auth() {
     let (model_client, attestation_calls) =
         model_client_with_counting_attestation(/*include_attestation*/ false);
-    let mut response_headers = http::HeaderMap::new();
+    let metadata = test_responses_metadata_for_client(
+        &model_client,
+        None,
+        format!("{}:0", model_client.state.thread_id),
+        None,
+        TestCodexResponsesRequestKind::WebsocketConnection,
+    );
+    let websocket = model_client.build_websocket_headers(&metadata).await;
+    let sideband = model_client
+        .realtime_sideband_headers(
+            http::HeaderMap::new(),
+            model_client.state.provider.api_provider().await.unwrap(),
+        )
+        .await
+        .unwrap();
+    let actual: Vec<_> = [&websocket, &sideband]
+        .into_iter()
+        .map(|headers| {
+            headers
+                .get(crate::attestation::X_OAI_ATTESTATION_HEADER)
+                .map(|value| value.to_str().unwrap().to_owned())
+        })
+        .collect();
+    eprintln!(
+        "T19_EVIDENCE {}",
+        json!({
+            "kind": "host-attestation-no-account", "headers": &actual,
+            "provider": &model_client.state.provider.info().base_url,
+            "calls": attestation_calls.load(Ordering::Relaxed),
+        })
+    );
+    assert_eq!(
+        actual,
+        vec![Some("v1.header-1".into()), Some("v1.header-2".into())]
+    );
+    assert_eq!(attestation_calls.load(Ordering::Relaxed), 2);
+}
 
-    if let Some(header_value) = model_client.generate_attestation_header_for().await {
-        response_headers.insert(crate::attestation::X_OAI_ATTESTATION_HEADER, header_value);
-    }
-    let mut compaction_headers = http::HeaderMap::new();
-    if let Some(header_value) = model_client.generate_attestation_header_for().await {
-        compaction_headers.insert(crate::attestation::X_OAI_ATTESTATION_HEADER, header_value);
-    }
-    let mut realtime_headers = http::HeaderMap::new();
-    if let Some(header_value) = model_client.generate_attestation_header_for().await {
-        realtime_headers.insert(crate::attestation::X_OAI_ATTESTATION_HEADER, header_value);
-    }
-
-    assert_eq!(
-        response_headers.get(crate::attestation::X_OAI_ATTESTATION_HEADER),
-        None,
+#[tokio::test]
+async fn absent_host_attestation_provider_produces_no_header() {
+    let (mut model_client, calls) = model_client_with_counting_attestation(true);
+    Arc::get_mut(&mut model_client.state)
+        .unwrap()
+        .attestation_provider = None;
+    assert!(
+        model_client
+            .generate_attestation_header_for()
+            .await
+            .is_none()
     );
-    assert_eq!(
-        compaction_headers.get(crate::attestation::X_OAI_ATTESTATION_HEADER),
-        None,
-    );
-    assert_eq!(
-        realtime_headers.get(crate::attestation::X_OAI_ATTESTATION_HEADER),
-        None,
-    );
-    assert_eq!(attestation_calls.load(Ordering::Relaxed), 0);
+    assert_eq!(calls.load(Ordering::Relaxed), 0);
 }
 
 #[tokio::test]

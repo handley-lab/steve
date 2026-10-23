@@ -9,7 +9,6 @@ use super::ConnectionPool;
 use super::LunaSamplerConfig;
 use super::LunaSamplerError;
 use super::MAX_OUTPUT_BYTES;
-use super::connection_pool::RequestMode;
 use super::response::PendingResponse;
 use codex_api::ApiError;
 use codex_api::ResponseEvent;
@@ -271,11 +270,7 @@ impl SamplingExecution {
             )
             .map_err(LunaSamplerError::Provider)?;
             ensure_account_owner()?;
-            self.request.service_tier = if lease.request_kind == RequestMode::GuardianClassifier {
-                None
-            } else {
-                self.config.service_tier.clone()
-            };
+            self.request.service_tier = self.config.service_tier.clone();
             let thread_id = &lease.thread_id;
             let mut turn_metadata = json!({
                 "session_id": self.config.session_id,
@@ -301,9 +296,7 @@ impl SamplingExecution {
                 turn_metadata["root_turn_id"] = json!(root_turn_id);
             }
             client_metadata.insert(TURN_METADATA_KEY.to_owned(), turn_metadata.to_string());
-            if lease.request_kind == RequestMode::GuardianClassifier
-                && let Some(parent_response_id) = &self.parent_response_id
-            {
+            if let Some(parent_response_id) = &self.parent_response_id {
                 client_metadata.insert("parent_response_id".to_owned(), parent_response_id.clone());
             }
             self.request.client_metadata = Some(client_metadata);
