@@ -43,16 +43,21 @@ fn workspace_roots_profile() -> PermissionProfile {
 }
 
 async fn workspace_roots_test(server: &MockServer) -> Result<TestCodex> {
-    let mut builder = test_codex().with_config(|config| {
-        #[cfg(windows)]
-        {
-            config.cwd = dunce::canonicalize(config.cwd.as_path())
-                .expect("test workspace should be canonicalizable")
-                .abs();
-        }
-        config.workspace_roots = vec![config.cwd.clone()];
-        config.set_windows_sandbox_enabled(/*value*/ true);
-    });
+    let mut builder = test_codex()
+        .with_model_info_override("gpt-5.5", |model| {
+            model.apply_patch_tool_type =
+                Some(codex_protocol::openai_models::ApplyPatchToolType::Freeform);
+        })
+        .with_config(|config| {
+            #[cfg(windows)]
+            {
+                config.cwd = dunce::canonicalize(config.cwd.as_path())
+                    .expect("test workspace should be canonicalizable")
+                    .abs();
+            }
+            config.workspace_roots = vec![config.cwd.clone()];
+            config.set_windows_sandbox_enabled(/*value*/ true);
+        });
     builder.build_with_auto_env(server).await
 }
 
@@ -215,6 +220,10 @@ async fn workspace_roots_allow_file_and_command_writes_in_secondary_root(
 
     let server = start_mock_server().await;
     let mut builder = test_codex()
+        .with_model_info_override("gpt-5.5", |model| {
+            model.apply_patch_tool_type =
+                Some(codex_protocol::openai_models::ApplyPatchToolType::Freeform);
+        })
         .with_config(move |config| {
             #[cfg(windows)]
             {

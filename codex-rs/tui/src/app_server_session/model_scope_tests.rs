@@ -61,10 +61,7 @@ async fn model_scope_fixture(process_forwarding: bool) -> Result<()> {
     let b = MockServer::start().await;
     let oauth = MockServer::start().await;
     let catalog = |name: &str, program| {
-        let mut visible = codex_models_manager::bundled_models_response()
-            .expect("bundled catalog")
-            .models
-            .remove(0);
+        let mut visible = codex_models_manager::test_support::model_info("test-model");
         visible.slug = "scope-model".into();
         visible.display_name = name.into();
         visible.visibility = ModelVisibility::List;

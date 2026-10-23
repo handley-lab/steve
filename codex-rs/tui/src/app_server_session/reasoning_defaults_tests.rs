@@ -82,12 +82,14 @@ stream_max_retries = 0
             .codex_home(home.path().to_path_buf())
             .build()
             .await?;
-        let mut catalog = codex_models_manager::bundled_models_response()?;
+        let mut catalog = codex_protocol::openai_models::ModelsResponse {
+            models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+        };
         catalog
             .models
             .iter_mut()
             .find(|model| model.slug == "gpt-5.5")
-            .expect("bundled model")
+            .expect("test model")
             .default_reasoning_summary = codex_protocol::config_types::ReasoningSummary::Concise;
         server_config.model_catalog = Some(catalog);
         let client_home = tempfile::tempdir()?;

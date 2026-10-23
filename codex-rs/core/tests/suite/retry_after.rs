@@ -8,7 +8,6 @@ use codex_http_client::Request;
 use codex_http_client::RetryAfter;
 use codex_http_client::TransportError;
 use codex_login::CodexAuth;
-use codex_models_manager::bundled_models_response;
 use codex_protocol::protocol::CodexErrorInfo;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::Op;
@@ -1522,8 +1521,9 @@ async fn websocket_streamed_flex_unavailable_is_terminal() -> Result<()> {
         let test = test_codex()
             .with_config(|config| {
                 config.service_tier = Some("flex".to_string());
-                config.model_catalog =
-                    Some(bundled_models_response().expect("bundled models.json should parse"));
+                config.model_catalog = Some(codex_protocol::openai_models::ModelsResponse {
+                    models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+                });
                 config.model_provider.request_max_retries = Some(2);
                 config.model_provider.stream_max_retries = Some(2);
             })
@@ -1565,7 +1565,9 @@ async fn websocket_usage_limit_with_malformed_nested_headers_is_terminal() -> Re
     .await;
     let test = test_codex()
         .with_config(|config| {
-            config.model_catalog = Some(bundled_models_response().expect("bundled models"));
+            config.model_catalog = Some(codex_protocol::openai_models::ModelsResponse {
+                models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+            });
             config.model_provider.request_max_retries = Some(2);
             config.model_provider.stream_max_retries = Some(2);
         })
@@ -1836,7 +1838,9 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
     .await;
     let test = test_codex()
         .with_config(|config| {
-            config.model_catalog = Some(bundled_models_response().expect("bundled models"));
+            config.model_catalog = Some(codex_protocol::openai_models::ModelsResponse {
+                models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+            });
             config.model_provider.supports_websockets = true;
             config.model_provider.request_max_retries = Some(0);
             config.model_provider.stream_max_retries = Some(1);
@@ -1901,7 +1905,9 @@ async fn websocket_error_uses_nested_retry_after() -> Result<()> {
     .await;
     let test = test_codex()
         .with_config(|config| {
-            config.model_catalog = Some(bundled_models_response().expect("bundled models"));
+            config.model_catalog = Some(codex_protocol::openai_models::ModelsResponse {
+                models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+            });
             config.model_provider.request_max_retries = Some(0);
             config.model_provider.stream_max_retries = Some(1);
         })
@@ -2061,8 +2067,9 @@ async fn websocket_overload_retries_only_while_it_has_retry_after() -> Result<()
     let test = test_codex()
         .with_config(|config| {
             // Capture inference retries without unrelated startup model-discovery retries.
-            config.model_catalog =
-                Some(bundled_models_response().expect("bundled models.json should parse"));
+            config.model_catalog = Some(codex_protocol::openai_models::ModelsResponse {
+                models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+            });
             config.model_provider.request_max_retries = Some(2);
             config.model_provider.stream_max_retries = Some(3);
         })
@@ -2158,8 +2165,9 @@ async fn websocket_overload_without_retry_after_is_terminal() -> Result<()> {
     let test = test_codex()
         .with_config(|config| {
             // Capture inference retries without unrelated startup model-discovery retries.
-            config.model_catalog =
-                Some(bundled_models_response().expect("bundled models.json should parse"));
+            config.model_catalog = Some(codex_protocol::openai_models::ModelsResponse {
+                models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+            });
             config.model_provider.request_max_retries = Some(2);
             config.model_provider.stream_max_retries = Some(2);
         })

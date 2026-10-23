@@ -208,10 +208,7 @@ pub(in crate::async_scorer) async fn proxy_websocket_servers_with_http(
 }
 
 fn sampler_model_info() -> ModelInfo {
-    let mut model = codex_models_manager::bundled_models_response()
-        .unwrap()
-        .models
-        .remove(0);
+    let mut model = codex_models_manager::test_support::model_info("test-model");
     model.slug = MODEL.to_owned();
     model.use_responses_lite = true;
     model.comp_hash = None;

@@ -1037,9 +1037,9 @@ async fn mcp_invalidation_refreshes_threads_that_are_still_starting() {
     let temp_dir = tempdir().expect("tempdir");
     let mut config = test_config().await;
     // Resolve the model locally before waiting for the MCP lifecycle hook.
-    config.model_catalog = Some(
-        codex_models_manager::bundled_models_response().expect("bundled model catalog should load"),
-    );
+    config.model_catalog = Some(codex_protocol::openai_models::ModelsResponse {
+        models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+    });
     config.codex_home = temp_dir.path().join("codex-home").abs();
     config.cwd = config.codex_home.abs();
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");
@@ -2832,10 +2832,7 @@ async fn thread_metadata_follows_manager_construction_inputs() {
     let a = MockServer::start().await;
     let b = MockServer::start().await;
     let catalog = |marker: &str| {
-        let mut model = codex_models_manager::bundled_models_response()
-            .expect("bundled catalog")
-            .models
-            .remove(0);
+        let mut model = codex_models_manager::test_support::model_info("test-model");
         model.slug = "scope-test-model".to_string();
         model.model_messages = Some(codex_protocol::openai_models::ModelMessages {
             instructions_template: Some(marker.to_string()),

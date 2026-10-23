@@ -33,7 +33,6 @@ use codex_extension_api::ExtensionRegistryBuilder;
 use codex_features::Feature;
 use codex_history::RolloutItem;
 use codex_login::CodexAuth;
-use codex_models_manager::bundled_models_response;
 use codex_protocol::capabilities::CapabilityRootLocation;
 use codex_protocol::capabilities::SelectedCapabilityRoot;
 use codex_protocol::dynamic_tools::DynamicToolCallOutputContentItem;
@@ -45,7 +44,6 @@ use codex_protocol::items::TurnItem;
 use codex_protocol::models::ImageReference;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::CodeModeToolMessages;
-use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::openai_models::ToolMessage;
 use codex_protocol::openai_models::ToolMode;
 use codex_protocol::protocol::EnvironmentConfigState;
@@ -289,7 +287,9 @@ fn configure_scenario_catalog(config: &mut Config) {
         stack.requirements_toml().clone(),
     )
     .expect("fixture config layers");
-    config.model_catalog = Some(bundled_models_response().expect("bundled model catalog"));
+    config.model_catalog = Some(codex_protocol::openai_models::ModelsResponse {
+        models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+    });
     config.cloud_skill_enabled = false;
 }
 

@@ -526,19 +526,7 @@ pub(super) fn portable_tool_schema(tool: &Value) -> Value {
 }
 
 pub(super) fn is_bundled_model_instructions(text: &str) -> bool {
-    static PROMPTS: OnceLock<Vec<String>> = OnceLock::new();
     text == codex_models_manager::model_info::BASE_INSTRUCTIONS
-        || PROMPTS
-            .get_or_init(|| {
-                codex_models_manager::bundled_models_response()
-                    .expect("bundled model catalog")
-                    .models
-                    .into_iter()
-                    .filter_map(|model| model.model_messages?.instructions_template)
-                    .collect()
-            })
-            .iter()
-            .any(|prompt| prompt == text)
 }
 
 // Only complete, balanced wrappers identify guidance. Adjacent or malformed wrappers remain text.

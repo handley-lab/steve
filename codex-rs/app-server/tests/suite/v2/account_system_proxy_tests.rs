@@ -88,7 +88,9 @@ async fn supplied_token_bootstraps_through_system_proxy() -> Result<()> {
     let proxy = MockServer::start().await;
     let provider = MockServer::start().await;
     let codex_home = TempDir::new()?;
-    let model_catalog = codex_models_manager::bundled_models_response()?;
+    let model_catalog = codex_protocol::openai_models::ModelsResponse {
+        models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+    };
     let model_catalog_path = codex_home.path().join("models.json");
     std::fs::write(&model_catalog_path, serde_json::to_vec(&model_catalog)?)?;
     MockResponsesConfig::new(&provider.uri())

@@ -26,7 +26,6 @@ use codex_extension_api::UserInstructionsProvider;
 use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
 use codex_models_manager::ModelsManagerConfig;
-use codex_models_manager::bundled_models_response;
 use codex_models_manager::manager::ModelsManager;
 use codex_models_manager::manager::ModelsManagerFuture;
 use codex_models_manager::manager::RefreshStrategy;
@@ -287,12 +286,7 @@ async fn thread_instruction_refresh_serializes_reads_and_releases_on_cancellatio
 }
 
 fn activation_models() -> Vec<ModelInfo> {
-    let model = bundled_models_response()
-        .expect("bundled models")
-        .models
-        .into_iter()
-        .find(|model| model.slug == "gpt-5.5")
-        .expect("bundled gpt-5.5");
+    let model = codex_models_manager::test_support::model_info("gpt-5.5");
     [MODEL_A, MODEL_B]
         .into_iter()
         .map(|slug| ModelInfo {

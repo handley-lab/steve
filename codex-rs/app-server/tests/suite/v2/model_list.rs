@@ -44,7 +44,7 @@ const INVALID_REQUEST_ERROR_CODE: i64 = -32600;
 #[test_case(None, Some(true), true; "app rollout")]
 #[test_case(Some(false), Some(true), true; "user opt out")]
 #[test_case(Some(true), Some(false), true; "user opt in")]
-#[test_case(Some(true), Some(false), false; "base URL without catalog opt in")]
+#[test_case(Some(true), Some(false), false; "base URL without catalog URL")]
 #[tokio::test]
 async fn api_key_model_discovery_startup_enablement_respects_user_config(
     user_enablement: Option<bool>,
@@ -52,9 +52,7 @@ async fn api_key_model_discovery_startup_enablement_respects_user_config(
     catalog_opt_in: bool,
 ) -> Result<()> {
     let server = MockServer::start().await;
-    let mut remote_model = codex_models_manager::bundled_models_response()?
-        .models
-        .remove(0);
+    let mut remote_model = codex_models_manager::test_support::model_info("test-model");
     remote_model.slug = "rollout-model".into();
     remote_model.visibility = codex_protocol::openai_models::ModelVisibility::List;
     remote_model.supported_in_api = true;
@@ -102,10 +100,6 @@ requires_openai_auth = true
         .with_env_overrides(&[("OPENAI_API_KEY", None), ("STEVE_API_KEY", None)])
         .build_initialized()
         .await?;
-    let mut bundled = codex_models_manager::bundled_models_response()?.models;
-    bundled.sort_by_key(|model| model.priority);
-    let mut bundled: Vec<ModelPreset> = bundled.into_iter().map(Into::into).collect();
-    ModelPreset::mark_default_by_picker_visibility(&mut bundled);
     let mut remote = vec![ModelPreset::from(remote_model)];
     ModelPreset::mark_default_by_picker_visibility(&mut remote);
     let _: ExperimentalFeatureEnablementSetResponse = mcp
@@ -132,16 +126,8 @@ requires_openai_auth = true
             },
         })
         .await?;
-    let enabled = user_enablement.or(app_enablement).unwrap_or(true) && catalog_opt_in;
-    let expected: &[ModelPreset] = if enabled {
-        &remote
-    } else if catalog_opt_in {
-        // The rollout gate suppresses discovery, but an explicit catalog still
-        // prevents bundled models from being advertised for this provider.
-        &[]
-    } else {
-        &bundled
-    };
+    let enabled = user_enablement.or(app_enablement).unwrap_or(true);
+    let expected: &[ModelPreset] = if enabled { &remote } else { &[] };
     assert_eq!(
         response,
         ModelListResponse {
@@ -150,16 +136,20 @@ requires_openai_auth = true
             cyber_access_programs_enabled: None,
         }
     );
+    let requests = server
+        .received_requests()
+        .await
+        .expect("request recording is enabled");
+    let model_requests: Vec<_> = requests
+        .iter()
+        .filter(|request| request.url.path() == "/v1/models")
+        .collect();
     // Only startup opt-outs prevent fetches before the app sends its enablement.
-    if user_enablement == Some(false) || !catalog_opt_in {
-        assert!(
-            server
-                .received_requests()
-                .await
-                .expect("request recording is enabled")
-                .iter()
-                .all(|request| request.url.path() != "/v1/models")
-        );
+    if user_enablement == Some(false) {
+        assert!(model_requests.is_empty());
+    } else if enabled {
+        assert!(!model_requests.is_empty());
+        assert!(model_requests.iter().all(|request| request.method == "GET"));
     }
     Ok(())
 }
@@ -213,7 +203,7 @@ fn model_from_preset(preset: &ModelPreset) -> Model {
 }
 
 fn expected_visible_models() -> Vec<Model> {
-    let mut presets = codex_core::test_support::all_model_presets().clone();
+    let mut presets = vec![ModelPreset::from(app_test_support::cached_model())];
 
     // Mirror `ModelsManager::build_available_models()` default selection.
     ModelPreset::mark_default_by_picker_visibility(&mut presets);
@@ -260,7 +250,9 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
 #[tokio::test]
 async fn list_models_includes_hidden_models() -> Result<()> {
     let codex_home = TempDir::new()?;
-    write_models_cache(codex_home.path()).await?;
+    let mut hidden = codex_models_manager::test_support::model_info("hidden-model");
+    hidden.visibility = codex_protocol::openai_models::ModelVisibility::Hide;
+    app_test_support::write_models_cache_with_models(codex_home.path(), vec![hidden]).await?;
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .without_auto_env()
@@ -463,14 +455,20 @@ model_catalog_url = "{server_uri}/v1/models"
 #[tokio::test]
 async fn list_models_pagination_works() -> Result<()> {
     let codex_home = TempDir::new()?;
-    write_models_cache(codex_home.path()).await?;
+    let models = vec![
+        app_test_support::cached_model(),
+        codex_models_manager::test_support::model_info("second-model"),
+    ];
+    app_test_support::write_models_cache_with_models(codex_home.path(), models.clone()).await?;
+    let mut presets: Vec<ModelPreset> = models.into_iter().map(Into::into).collect();
+    ModelPreset::mark_default_by_picker_visibility(&mut presets);
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .without_auto_env()
         .build_initialized()
         .await?;
 
-    let expected_models = expected_visible_models();
+    let expected_models: Vec<Model> = presets.iter().map(model_from_preset).collect();
     let mut cursor = None;
     let mut items = Vec::new();
 

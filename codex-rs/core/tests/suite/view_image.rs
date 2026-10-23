@@ -845,7 +845,14 @@ async fn view_image_tool_can_preserve_original_resolution_when_requested_on_gpt5
     skip_if_no_network!(Ok(()));
 
     let server = start_mock_server().await;
-    let mut builder = test_codex().with_model("gpt-5.5");
+    let mut builder = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("write explicit test provider");
+        })
+        .with_model_info_override("gpt-5.5", |model| {
+            model.supports_image_detail_original = true;
+        });
     let test = builder.build_with_auto_env(&server).await?;
     let TestCodex {
         codex,
@@ -1293,7 +1300,14 @@ async fn view_image_tool_does_not_force_original_resolution_with_capability_only
     skip_if_no_network!(Ok(()));
 
     let server = start_mock_server().await;
-    let mut builder = test_codex().with_model("gpt-5.5");
+    let mut builder = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("write explicit test provider");
+        })
+        .with_model_info_override("gpt-5.5", |model| {
+            model.supports_image_detail_original = true;
+        });
     let test = builder.build_with_auto_env(&server).await?;
     let TestCodex {
         codex,

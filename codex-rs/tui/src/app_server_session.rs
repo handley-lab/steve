@@ -2669,7 +2669,9 @@ mod tests {
             "model_provider = \"openai\"\n",
         )?;
         let mut config = build_config(&codex_home).await;
-        let mut catalog = codex_models_manager::bundled_models_response()?;
+        let mut catalog = codex_protocol::openai_models::ModelsResponse {
+            models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+        };
         for model in &mut catalog.models {
             model.available_access_programs = Some(ModelAccessPrograms {
                 cyber: vec![

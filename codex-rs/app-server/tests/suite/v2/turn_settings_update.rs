@@ -1,4 +1,3 @@
-use anyhow::Context;
 use anyhow::Result;
 use app_test_support::MockResponsesConfig;
 use app_test_support::TestAppServer;
@@ -22,7 +21,6 @@ use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::UserInput;
 use codex_features::Feature;
-use codex_models_manager::bundled_models_response;
 use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::openai_models::ModelsResponse;
 use codex_protocol::openai_models::ReasoningEffort;
@@ -554,11 +552,7 @@ async fn start_turn(app: &mut TestAppServer, thread_id: &str) -> Result<String> 
 }
 
 fn mock_config(codex_home: &Path, server_uri: &str) -> Result<MockResponsesConfig> {
-    let model = bundled_models_response()?
-        .models
-        .into_iter()
-        .find(|model| model.slug == "gpt-5.5")
-        .context("bundled catalog should include gpt-5.5")?;
+    let model = codex_models_manager::test_support::model_info("gpt-5.5");
     let models = [MODEL_A, MODEL_B]
         .into_iter()
         .map(|slug| {

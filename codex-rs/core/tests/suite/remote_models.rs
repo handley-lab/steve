@@ -5,7 +5,6 @@ use codex_features::Feature;
 use codex_login::CodexAuth;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::built_in_model_providers;
-use codex_models_manager::bundled_models_response;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_models_manager::manager::SharedModelsManager;
 use codex_models_manager::model_info::BASE_INSTRUCTIONS;
@@ -74,7 +73,9 @@ async fn disabled_update_plan_preserves_custom_catalog_instructions() -> Result<
         sse(vec![ev_response_created("resp-1"), ev_completed("resp-1")]),
     )
     .await;
-    let mut catalog = bundled_models_response()?;
+    let mut catalog = codex_protocol::openai_models::ModelsResponse {
+        models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+    };
     let model = catalog
         .models
         .iter_mut()
@@ -1142,13 +1143,13 @@ async fn remote_models_merge_adds_new_high_priority_first() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
+async fn remote_models_preserve_endpoint_metadata() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
 
     let server = MockServer::start().await;
-    let slug = bundled_model_slug();
-    let mut remote_model = test_remote_model(&slug, ModelVisibility::List, /*priority*/ 0);
+    let slug = "configured-model";
+    let mut remote_model = test_remote_model(slug, ModelVisibility::List, /*priority*/ 0);
     remote_model.display_name = "Overridden".to_string();
     remote_model.description = Some("Overridden description".to_string());
     let models_mock = mount_models_once(
@@ -1181,7 +1182,7 @@ async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
     let overridden = available
         .iter()
         .find(|model| model.model == slug)
-        .expect("overlapping model should be listed");
+        .expect("remote model should be listed");
     assert_eq!(overridden.display_name, remote_model.display_name);
     assert_eq!(
         overridden.description,
@@ -1201,7 +1202,7 @@ async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn remote_models_merge_preserves_bundled_models_on_empty_response() -> Result<()> {
+async fn empty_remote_catalog_remains_empty() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
 
@@ -1227,11 +1228,7 @@ async fn remote_models_merge_preserves_bundled_models_on_empty_response() -> Res
             codex_core::test_support::default_http_client_factory(),
         )
         .await;
-    let bundled_slug = bundled_model_slug();
-    assert!(
-        available.iter().any(|model| model.model == bundled_slug),
-        "bundled models should remain available after empty remote response"
-    );
+    assert!(available.is_empty());
     // Keep the mock server alive until after async assertions complete.
     drop(server);
 
@@ -1269,23 +1266,19 @@ async fn remote_models_request_times_out_after_5s() -> Result<()> {
     );
 
     let start = Instant::now();
-    let model = timeout(
+    let models = timeout(
         Duration::from_secs(7),
-        manager.get_default_model(
-            &None,
-            /*allow_provider_model_fallback*/ false,
+        manager.list_models(
             RefreshStrategy::OnlineIfUncached,
             codex_core::test_support::default_http_client_factory(),
         ),
     )
     .await;
     let elapsed = start.elapsed();
-    // get_model should return a default model even when refresh times out
-    let default_model = model.expect("get_model should finish and return default model");
-    let expected_default = bundled_default_model_slug();
+    let available = models.expect("model refresh should finish after its request timeout");
     assert!(
-        default_model == expected_default,
-        "get_model should return default model when refresh times out, got: {default_model}"
+        available.is_empty(),
+        "a failed refresh must not invent models"
     );
     let _ = server
         .received_requests()
@@ -1351,7 +1344,7 @@ async fn remote_models_hide_picker_only_models() -> Result<()> {
             codex_core::test_support::default_http_client_factory(),
         )
         .await;
-    assert_eq!(selected, bundled_default_model_slug());
+    assert!(selected.is_empty());
 
     let available = manager
         .list_models(
@@ -1394,25 +1387,6 @@ async fn wait_for_model_available(manager: &SharedModelsManager, slug: &str) -> 
         }
         sleep(Duration::from_millis(25)).await;
     }
-}
-
-fn bundled_model_slug() -> String {
-    let response = bundled_models_response().expect("bundled models.json should parse");
-    response
-        .models
-        .first()
-        .expect("bundled models.json should include at least one model")
-        .slug
-        .clone()
-}
-
-fn bundled_default_model_slug() -> String {
-    codex_core::test_support::all_model_presets()
-        .iter()
-        .find(|preset| preset.is_default)
-        .expect("bundled models should include a default")
-        .model
-        .clone()
 }
 
 fn test_remote_model(slug: &str, visibility: ModelVisibility, priority: i32) -> ModelInfo {
@@ -1534,7 +1508,7 @@ async fn model_catalog_url_supplies_conversation_model_and_instructions() -> Res
     skip_if_no_network!(Ok(()));
     let server = MockServer::start().await;
     let instructions = "Use the gateway's reviewed conversation instructions.";
-    let mut model = codex_models_manager::model_info::model_info_from_slug("gateway-conversation");
+    let mut model = codex_models_manager::test_support::model_info("gateway-conversation");
     model.visibility = ModelVisibility::List;
     model.supported_in_api = true;
     model.support_verbosity = false;

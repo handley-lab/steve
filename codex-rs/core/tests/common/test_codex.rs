@@ -42,7 +42,6 @@ use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::built_in_model_providers;
-use codex_models_manager::bundled_models_response;
 use codex_models_manager::manager::SharedModelsManager;
 use codex_protocol::config_types::CollaborationMode;
 use codex_protocol::config_types::ModeKind;
@@ -493,22 +492,15 @@ impl TestCodexBuilder {
     {
         let model = model.to_string();
         self.with_config(move |config| {
-            let model_catalog = config.model_catalog.get_or_insert_with(|| {
-                bundled_models_response().expect("test model catalog should parse")
-            });
+            let model_catalog = config
+                .model_catalog
+                .get_or_insert_with(ModelsResponse::default);
             if !model_catalog
                 .models
                 .iter()
                 .any(|candidate| candidate.slug == model)
             {
-                let mut fixture = bundled_models_response()
-                    .expect("bundled model catalog should parse")
-                    .models
-                    .into_iter()
-                    .find(|candidate| candidate.slug == "gpt-5.5")
-                    .expect("missing bundled model gpt-5.5");
-                fixture.slug = model.clone();
-                fixture.display_name = model.clone();
+                let fixture = codex_models_manager::test_support::model_info(&model);
                 model_catalog.models.push(fixture);
             }
             let model_info = model_catalog
@@ -1035,13 +1027,8 @@ fn ensure_test_model_catalog(config: &mut Config) -> Result<()> {
         return Ok(());
     }
 
-    let bundled_models = bundled_models_response().expect("test model catalog should parse");
-    let mut model = bundled_models
-        .models
-        .iter()
-        .find(|candidate| candidate.slug == "gpt-5.5")
-        .cloned()
-        .expect("missing bundled model gpt-5.5");
+    let mut model =
+        codex_models_manager::test_support::model_info(TEST_MODEL_WITH_EXPERIMENTAL_TOOLS);
     model.slug = TEST_MODEL_WITH_EXPERIMENTAL_TOOLS.to_string();
     model.display_name = TEST_MODEL_WITH_EXPERIMENTAL_TOOLS.to_string();
     model.experimental_supported_tools = vec!["test_sync_tool".to_string()];

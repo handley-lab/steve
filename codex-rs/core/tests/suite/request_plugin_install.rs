@@ -17,7 +17,6 @@ use codex_extension_api::McpServerContributionContext;
 use codex_extension_api::McpServerContributor;
 use codex_features::Feature;
 use codex_login::CodexAuth;
-use codex_models_manager::bundled_models_response;
 use codex_protocol::approvals::ElicitationAction;
 use codex_protocol::approvals::ElicitationRequest;
 use codex_protocol::approvals::ElicitationRequestEvent;
@@ -138,13 +137,14 @@ fn configure_apps_without_search_tool(config: &mut Config, apps_base_url: &str) 
             .enable(feature)
             .expect("test config should allow feature update");
     }
-    let mut model_catalog = bundled_models_response()
-        .unwrap_or_else(|err| panic!("bundled models.json should parse: {err}"));
+    let mut model_catalog = codex_protocol::openai_models::ModelsResponse {
+        models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+    };
     let model = model_catalog
         .models
         .iter_mut()
         .find(|model| model.slug == "gpt-5.5")
-        .expect("gpt-5.5 exists in bundled models.json");
+        .expect("test model exists in the catalogue");
     config.chatgpt_base_url = apps_base_url.to_string();
     config.model = Some("gpt-5.5".to_string());
     config.tool_suggest.discoverables = vec![ToolSuggestDiscoverable {

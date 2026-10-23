@@ -16,7 +16,6 @@ use codex_login::ExternalAuth;
 use codex_login::ExternalAuthFuture;
 use codex_login::ExternalAuthRefreshContext;
 use codex_login::login_with_api_key;
-use codex_models_manager::bundled_models_response;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_protocol::AgentPath;
 use codex_protocol::openai_models::ModelVisibility;
@@ -111,13 +110,15 @@ async fn auth_rotation_refreshes_before_turn_with_best_effort(
     outcome: RefreshOutcome,
 ) -> Result<()> {
     let server = MockServer::start().await;
-    let catalog = bundled_models_response()?;
+    let catalog = codex_protocol::openai_models::ModelsResponse {
+        models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+    };
     let mut model = catalog
         .models
         .iter()
         .find(|model| model.slug == "gpt-5.5")
         .cloned()
-        .expect("bundled model");
+        .expect("test model");
     let fallback_context_window = model.usable_context_window();
     responses::mount_models_once(&server, catalog).await;
     let test = test_codex()
@@ -160,7 +161,13 @@ async fn auth_rotation_refreshes_before_turn_with_best_effort(
         .auth_manager()
         .set_external_auth(Arc::new(SelectedAuth(header_auth("Bearer other"))))
         .await?;
-    responses::mount_models_once(&server, bundled_models_response()?).await;
+    responses::mount_models_once(
+        &server,
+        codex_protocol::openai_models::ModelsResponse {
+            models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+        },
+    )
+    .await;
     test.thread_manager
         .get_models_manager()
         .raw_model_catalog(
@@ -244,11 +251,7 @@ async fn auth_rotation_refreshes_before_turn_with_best_effort(
 async fn auth_and_provider_switches_do_not_reuse_chatgpt_catalog() -> Result<()> {
     let server = wiremock::MockServer::start().await;
     let home = Arc::new(TempDir::new()?);
-    let mut model = bundled_models_response()?
-        .models
-        .into_iter()
-        .find(|model| model.slug == "gpt-5.5")
-        .unwrap();
+    let mut model = codex_models_manager::test_support::model_info("gpt-5.5");
     model.visibility = ModelVisibility::List;
     model.default_service_tier = Some("priority".into());
     let models_mock = responses::mount_models_once(
@@ -281,7 +284,7 @@ async fn auth_and_provider_switches_do_not_reuse_chatgpt_catalog() -> Result<()>
     )?;
     assert!(chatgpt.thread_manager.auth_manager().reload().await);
     let manager = chatgpt.thread_manager.get_models_manager();
-    let bundled = bundled_models_response()?.models;
+    let bundled: Vec<codex_protocol::openai_models::ModelInfo> = Vec::new();
     assert_eq!(manager.get_remote_models().await, bundled);
     assert_eq!(
         manager

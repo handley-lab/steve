@@ -4,7 +4,6 @@ use anyhow::Result;
 use codex_features::Feature;
 use codex_http_client::cache_system_proxy_route_for_test;
 use codex_login::CodexAuth;
-use codex_models_manager::bundled_models_response;
 use codex_protocol::protocol::CodexResponseHandoffMode;
 use codex_protocol::protocol::ConversationStartParams;
 use codex_protocol::protocol::ConversationStartTransport;
@@ -115,8 +114,9 @@ async fn webrtc_sideband_honors_configured_system_proxy() -> Result<()> {
     let mut builder = test_codex()
         .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
         .with_config(move |config| {
-            config.model_catalog =
-                Some(bundled_models_response().expect("bundled models.json should parse"));
+            config.model_catalog = Some(codex_protocol::openai_models::ModelsResponse {
+                models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+            });
             config.model_provider.base_url = Some(backend_base_url);
             config.experimental_realtime_ws_base_url =
                 Some("ws://realtime-system-proxy.invalid:8765".to_string());

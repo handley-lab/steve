@@ -999,14 +999,12 @@ async fn review_uses_custom_review_model_from_config() {
     let codex = Arc::clone(&test.codex);
     std::fs::remove_file(codex_home.path().join("models_cache.json"))
         .expect("initial empty model catalog should be cached");
-    let mut models = codex_models_manager::bundled_models_response()
-        .expect("bundled model catalog should parse");
-    let model = models
-        .models
-        .iter_mut()
-        .find(|model| model.slug == "gpt-5.6-sol")
-        .expect("bundled model should exist");
-    model.slug = "custom-review-model".to_string();
+    let mut models = codex_protocol::openai_models::ModelsResponse {
+        models: vec![codex_models_manager::test_support::model_info(
+            "custom-review-model",
+        )],
+    };
+    let model = &mut models.models[0];
     model.node_repl_auto_review_required = true;
     model.node_repl_disabled = true;
     let models_mock = responses::mount_models_once(&server, models).await;

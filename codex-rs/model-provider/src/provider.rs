@@ -246,9 +246,7 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
         &self,
         config_model_catalog: Option<ModelsResponse>,
     ) -> SharedModelsManager {
-        let model_catalog = config_model_catalog
-            .or_else(|| codex_models_manager::bundled_models_response().ok())
-            .unwrap_or_default();
+        let model_catalog = config_model_catalog.unwrap_or_default();
         Arc::new(StaticModelsManager::new(self.auth_manager(), model_catalog))
     }
 
@@ -1118,111 +1116,37 @@ printf '%s\n' '{"AccessKeyId":"exported","SecretAccessKey":"secret"}'
     }
 
     #[tokio::test]
-    async fn amazon_bedrock_provider_creates_static_models_manager() {
-        let provider = create_model_provider(
-            ModelProviderInfo::create_amazon_bedrock_provider(/*aws*/ None),
-            /*auth_manager*/ None,
-        );
-        let manager =
-            provider.models_manager(test_codex_home(), /*config_model_catalog*/ None);
-        let uncached_manager =
-            provider.models_manager_without_cache(/*config_model_catalog*/ None);
-
-        let catalog = manager
-            .raw_model_catalog(
-                RefreshStrategy::Online,
-                HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-            )
-            .await;
-        let uncached_catalog = uncached_manager
-            .raw_model_catalog(
-                RefreshStrategy::Online,
-                HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-            )
-            .await;
-        assert_eq!(uncached_catalog, catalog);
-        for slug in [
-            "openai.gpt-6.1-sol",
-            "openai.gpt-6-sol",
-            "openai.gpt-6-luna",
-            "openai.gpt-5.6-sol",
-            "openai.gpt-6-astra",
+    async fn amazon_bedrock_provider_without_catalog_is_empty() {
+        for info in [
+            ModelProviderInfo::create_amazon_bedrock_provider(None),
+            ModelProviderInfo::create_amazon_bedrock_runtime_provider(None),
         ] {
-            let model_info = manager
-                .get_model_info(
-                    slug,
-                    &ModelsManagerConfig {
-                        model_context_window: Some(1_000_000),
-                        ..Default::default()
-                    },
-                )
-                .await;
-            let mut expected_model_info = manager
-                .get_model_info(slug, &ModelsManagerConfig::default())
-                .await;
-            expected_model_info.context_window = Some(872_000);
-            assert_eq!(model_info, expected_model_info);
+            let provider = create_model_provider(info, None);
+            for manager in [
+                provider.models_manager(test_codex_home(), None),
+                provider.models_manager_without_cache(None),
+            ] {
+                assert!(
+                    manager
+                        .list_models(
+                            RefreshStrategy::Offline,
+                            HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault)
+                        )
+                        .await
+                        .is_empty()
+                );
+                let metadata = manager
+                    .get_model_info("configured-model", &ModelsManagerConfig::default())
+                    .await;
+                assert_eq!(metadata.slug, "configured-model");
+                assert!(metadata.used_fallback_model_metadata);
+            }
         }
-
-        let models = catalog
-            .models
-            .iter()
-            .map(|model| (model.slug.as_str(), model.display_name.as_str()))
-            .collect::<Vec<_>>();
-
-        assert_eq!(
-            models,
-            vec![
-                ("openai.gpt-6.1-sol", "GPT-6.1 Sol"),
-                ("openai.gpt-6-astra", "GPT-6-Astra"),
-                ("openai.gpt-6-sol", "GPT-6 Sol"),
-                ("openai.gpt-6-luna", "GPT-6 Luna"),
-                ("openai.gpt-5.6-sol", "GPT-5.6 Sol"),
-                ("openai.gpt-5.6-terra", "GPT-5.6 Terra"),
-                ("openai.gpt-5.6-luna", "GPT-5.6 Luna"),
-                ("openai.gpt-5.5", "GPT-5.5"),
-            ]
-        );
-
-        let available_models = manager
-            .list_models(
-                RefreshStrategy::Online,
-                HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-            )
-            .await;
-        assert_eq!(
-            available_models
-                .iter()
-                .map(|preset| preset.model.as_str())
-                .collect::<Vec<_>>(),
-            vec![
-                "openai.gpt-6.1-sol",
-                "openai.gpt-6-astra",
-                "openai.gpt-6-sol",
-                "openai.gpt-6-luna",
-                "openai.gpt-5.6-sol",
-                "openai.gpt-5.6-terra",
-                "openai.gpt-5.6-luna",
-                "openai.gpt-5.5",
-            ]
-        );
-
-        let default_model = available_models
-            .iter()
-            .find(|preset| preset.is_default)
-            .expect("Bedrock catalog should have a default model");
-
-        assert_eq!(default_model.model, "openai.gpt-6.1-sol");
     }
 
     #[tokio::test]
     async fn configured_bedrock_catalog_preserves_service_tiers() {
-        let mut configured_model = codex_models_manager::bundled_models_response()
-            .expect("bundled models should parse")
-            .models
-            .into_iter()
-            .find(|model| model.slug == "gpt-5.5")
-            .expect("bundled models should include GPT-5.5");
+        let mut configured_model = codex_models_manager::test_support::model_info("gpt-5.5");
         configured_model.service_tiers = vec![codex_protocol::openai_models::ModelServiceTier {
             id: "custom-tier".to_string(),
             name: "Custom tier".to_string(),
@@ -1536,10 +1460,7 @@ printf '%s\n' '{"AccessKeyId":"exported","SecretAccessKey":"secret"}'
                                 "models": catalog.models.iter().map(|m| &m.slug).collect::<Vec<_>>(),
                             })
                         );
-                        assert!(!catalog.models.iter().any(|m| m.slug == model.slug));
-                        if explicit {
-                            assert!(catalog.models.is_empty());
-                        }
+                        assert!(catalog.models.is_empty());
                         assert_eq!(count, 1);
                     }
                 }
@@ -1597,10 +1518,7 @@ printf '%s\n' '{"AccessKeyId":"exported","SecretAccessKey":"secret"}'
                 "response_body": response, "request_count": count, "models": models.models.iter().map(|m| &m.slug).collect::<Vec<_>>() })
             );
             assert_eq!(count, 1);
-            assert!(!models.models.iter().any(|m| m.slug == "id-only-provider"));
-            if explicit {
-                assert!(models.models.is_empty());
-            }
+            assert!(models.models.is_empty());
         }
     }
 

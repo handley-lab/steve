@@ -8,7 +8,6 @@ use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
 use codex_login::CodexAuth;
-use codex_models_manager::bundled_models_response;
 use core_test_support::responses::ev_completed;
 use core_test_support::responses::ev_response_created;
 use core_test_support::responses::mount_models_once;
@@ -113,7 +112,13 @@ X-Managed = "required"
         local_config
     };
     let managed = CloudConfigBundleFixture::loader_with_enterprise_requirement(requirements);
-    let models = mount_models_once(&gateway, bundled_models_response()?).await;
+    let models = mount_models_once(
+        &gateway,
+        codex_protocol::openai_models::ModelsResponse {
+            models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+        },
+    )
+    .await;
     let responses = mount_sse_once(
         &gateway,
         sse(vec![

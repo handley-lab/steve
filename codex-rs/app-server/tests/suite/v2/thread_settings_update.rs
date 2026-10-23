@@ -31,7 +31,6 @@ use codex_app_server_protocol::ThreadUnsubscribeStatus;
 use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::UserInput as V2UserInput;
-use codex_core::test_support::all_model_presets;
 use codex_protocol::config_types::CollaborationMode;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
@@ -689,11 +688,8 @@ async fn received_response_bodies(server: &wiremock::MockServer) -> Result<Vec<V
 }
 
 fn service_tier_model_and_tier_id() -> Result<(String, String)> {
-    let model = all_model_presets()
-        .iter()
-        .find(|preset| preset.show_in_picker && !preset.service_tiers.is_empty())
-        .context("bundled model catalog should include a picker model with service tiers")?;
-    Ok((model.id.clone(), model.service_tiers[0].id.clone()))
+    let model = app_test_support::cached_model();
+    Ok((model.slug, model.service_tiers[0].id.clone()))
 }
 
 fn create_config_toml(codex_home: &std::path::Path, server_uri: &str) -> std::io::Result<()> {

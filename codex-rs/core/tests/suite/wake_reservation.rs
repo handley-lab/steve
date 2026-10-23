@@ -16,7 +16,6 @@ use codex_extension_items::sleep::SleepItem;
 use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
 use codex_models_manager::ModelsManagerConfig;
-use codex_models_manager::bundled_models_response;
 use codex_models_manager::manager::ModelsManager;
 use codex_models_manager::manager::ModelsManagerFuture;
 use codex_models_manager::manager::RefreshStrategy;
@@ -145,7 +144,12 @@ async fn interrupt_during_wake_context_construction_does_not_start_turn() -> any
     let server = responses::start_mock_server().await;
     let requests = responses::mount_sse_once(&server, responses::sse_completed("initial")).await;
     let models = Arc::new(GatedModelsManager {
-        inner: StaticModelsManager::new(/*auth_manager*/ None, bundled_models_response()?),
+        inner: StaticModelsManager::new(
+            /*auth_manager*/ None,
+            codex_protocol::openai_models::ModelsResponse {
+                models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+            },
+        ),
         gate_next_lookup: AtomicBool::new(/*v*/ false),
         context_build: Gate::default(),
     });

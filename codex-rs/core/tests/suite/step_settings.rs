@@ -20,7 +20,6 @@ use codex_extension_api::TurnContextContributionInput;
 use codex_features::Feature;
 use codex_history::RolloutItem;
 use codex_login::CodexAuth;
-use codex_models_manager::bundled_models_response;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_protocol::config_types::ApprovalsReviewer;
 use codex_protocol::config_types::ReasoningSummary;
@@ -128,12 +127,7 @@ const MODEL_C: &str = "step-settings-c";
 const TURN_STATE_HEADER: &str = "x-codex-turn-state";
 
 fn step_settings_models() -> Vec<ModelInfo> {
-    let model = bundled_models_response()
-        .expect("bundled models should parse")
-        .models
-        .into_iter()
-        .find(|model| model.slug == "gpt-5.5")
-        .expect("bundled gpt-5.5 model");
+    let model = codex_models_manager::test_support::model_info("gpt-5.5");
     [MODEL_A, MODEL_B, MODEL_C]
         .into_iter()
         .map(|slug| {
@@ -1410,10 +1404,7 @@ async fn mcp_confirmation_policy_follows_step_model_changes() -> Result<()> {
                 models.push(model);
             }
             for model in models {
-                let messages = model
-                    .model_messages
-                    .as_mut()
-                    .expect("bundled model messages");
+                let messages = model.model_messages.as_mut().expect("test model messages");
                 messages.confirmation_policies = match model.slug.as_str() {
                     MODEL_A => Some(ConfirmationPolicies {
                         browser_use: Some(BROWSER_POLICY_A.to_string()),

@@ -114,7 +114,7 @@ wire_api = "responses"
 ```
 
 Set the reviewer model explicitly. A user-supplied local model catalogue may also
-provide an `auto_review_model_override`; bundled or downloaded model metadata does
+provide an `auto_review_model_override`; downloaded model metadata does
 not choose a reviewer. The selected provider supplies model capabilities and prompt
 metadata. Choosing a provider does not establish model or tool compatibility.
 

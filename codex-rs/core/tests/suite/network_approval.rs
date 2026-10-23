@@ -3280,12 +3280,7 @@ async fn agent_started_proxy_denies_brokered_provider_alias() -> Result<()> {
 }
 
 pub(super) fn guardian_parent_catalog() -> ModelsResponse {
-    let template = codex_models_manager::bundled_models_response()
-        .expect("bundled model catalog")
-        .models
-        .into_iter()
-        .find(|model| model.slug == "gpt-5.5")
-        .expect("gpt-5.5 in bundled catalog");
+    let template = codex_models_manager::test_support::model_info("gpt-5.5");
     // Keep safety settings compatible so active publication can switch A to B.
     ModelsResponse {
         models: ["guardian-parent-a", "guardian-parent-b"]

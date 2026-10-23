@@ -4,6 +4,7 @@ use codex_protocol::openai_models::ConfigShellToolType;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelMessages;
 use codex_protocol::openai_models::ModelPreset;
+use codex_protocol::openai_models::ModelServiceTier;
 use codex_protocol::openai_models::ModelVisibility;
 use codex_protocol::openai_models::TruncationPolicyConfig;
 use codex_protocol::openai_models::default_input_modalities;
@@ -79,29 +80,20 @@ fn preset_to_info(preset: &ModelPreset, priority: i32) -> ModelInfo {
     }
 }
 
-/// Write a models_cache.json file to the codex home directory.
-/// This prevents ModelsManager from making network requests to refresh models.
-/// The cache will be treated as fresh (within TTL) and used instead of fetching from the network.
-/// Uses bundled-catalog-derived presets, converted to ModelInfo format.
-pub async fn write_models_cache(codex_home: &Path) -> std::io::Result<()> {
-    // Get a stable bundled-catalog-derived preset list and filter for picker-visible entries.
-    let presets: Vec<&ModelPreset> = all_model_presets()
-        .iter()
-        .filter(|preset| preset.show_in_picker)
-        .collect();
-    // Convert presets to ModelInfo, assigning priorities (lower = earlier in list).
-    // Priority is used for sorting, so the first model gets the lowest priority.
-    let models: Vec<ModelInfo> = presets
-        .iter()
-        .enumerate()
-        .map(|(idx, preset)| {
-            // Lower priority = earlier in list.
-            let priority = idx as i32;
-            preset_to_info(preset, priority)
-        })
-        .collect();
+/// The single test-owned row used by the default cache fixture.
+pub fn cached_model() -> ModelInfo {
+    let mut model = preset_to_info(&all_model_presets()[0], 0);
+    model.service_tiers = vec![ModelServiceTier {
+        id: "priority".to_string(),
+        name: "Priority".to_string(),
+        description: "Test service tier".to_string(),
+    }];
+    model
+}
 
-    write_models_cache_with_models(codex_home, models).await
+/// Store the default test-owned model in the fresh model cache.
+pub async fn write_models_cache(codex_home: &Path) -> std::io::Result<()> {
+    write_models_cache_with_models(codex_home, vec![cached_model()]).await
 }
 
 /// Write a models_cache.json file with specific models.

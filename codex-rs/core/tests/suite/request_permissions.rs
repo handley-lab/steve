@@ -2040,26 +2040,33 @@ async fn denied_child_permissions_require_fresh_approval(
         Ok(()),
         "this regression exercises POSIX split-policy enforcement; a disabled Windows sandbox can independently prompt for the command"
     );
-    let harness =
-        TestCodexHarness::with_auto_env_builder(test_codex().with_config(move |config| {
-            config.permissions.approval_policy = Constrained::allow_any(AskForApproval::OnRequest);
-            config.approvals_reviewer = ApprovalsReviewer::User;
-            config
-                .permissions
-                .set_permission_profile(CorePermissionProfile::read_only())
-                .expect("set permission profile");
-            let inline_permissions = if mode == ApprovalMode::InlineFeatureDisabled {
-                config.features.disable(Feature::ExecPermissionApprovals)
-            } else {
-                config.features.enable(Feature::ExecPermissionApprovals)
-            };
-            inline_permissions.expect("configure inline permissions");
-            config
-                .features
-                .enable(Feature::RequestPermissionsTool)
-                .expect("enable request_permissions");
-        }))
-        .await?;
+    let harness = TestCodexHarness::with_auto_env_builder(
+        test_codex()
+            .with_model_info_override("gpt-5.5", |model| {
+                model.apply_patch_tool_type =
+                    Some(codex_protocol::openai_models::ApplyPatchToolType::Freeform);
+            })
+            .with_config(move |config| {
+                config.permissions.approval_policy =
+                    Constrained::allow_any(AskForApproval::OnRequest);
+                config.approvals_reviewer = ApprovalsReviewer::User;
+                config
+                    .permissions
+                    .set_permission_profile(CorePermissionProfile::read_only())
+                    .expect("set permission profile");
+                let inline_permissions = if mode == ApprovalMode::InlineFeatureDisabled {
+                    config.features.disable(Feature::ExecPermissionApprovals)
+                } else {
+                    config.features.enable(Feature::ExecPermissionApprovals)
+                };
+                inline_permissions.expect("configure inline permissions");
+                config
+                    .features
+                    .enable(Feature::RequestPermissionsTool)
+                    .expect("enable request_permissions");
+            }),
+    )
+    .await?;
     harness.write_file(SENTINEL_PATH, SENTINEL_CONTENT).await?;
     let test = harness.test();
     let root = test

@@ -392,9 +392,7 @@ async fn independent_classifier_keeps_its_own_workspace_binding() -> Result<()> 
     )
     .await;
     let home = tempfile::tempdir()?;
-    let mut model = codex_models_manager::bundled_models_response()?
-        .models
-        .remove(0);
+    let mut model = codex_models_manager::test_support::model_info("test-model");
     model.slug = "scope-model".into();
     std::fs::write(
         home.path().join("catalog.json"),

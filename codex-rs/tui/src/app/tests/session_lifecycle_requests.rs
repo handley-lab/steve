@@ -65,7 +65,9 @@ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
     use codex_protocol::turn_input::CyberAccessProgram;
 
     let (mut app, mut events, mut ops) = make_test_app_with_channels().await;
-    let mut catalog = codex_models_manager::bundled_models_response()?;
+    let mut catalog = codex_protocol::openai_models::ModelsResponse {
+        models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+    };
     let mut model = catalog.models.remove(0);
     model.slug = app.chat_widget.current_model().to_string();
     app.config.model = Some(model.slug.clone());
@@ -2091,7 +2093,9 @@ async fn check_dynamic_tool_requests(
     app.config.model_provider.base_url = Some(api_url.clone());
     app.config.codex_home = codex_home.path().to_path_buf().abs();
     app.config.sqlite = SqliteConfig::new_for_testing(codex_home.path().abs());
-    let mut catalog = codex_models_manager::bundled_models_response()?;
+    let mut catalog = codex_protocol::openai_models::ModelsResponse {
+        models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+    };
     for model in &mut catalog.models {
         model.available_access_programs =
             Some(codex_protocol::openai_models::ModelAccessPrograms {

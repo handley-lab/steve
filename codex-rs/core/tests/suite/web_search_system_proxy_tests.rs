@@ -6,7 +6,6 @@ use codex_extension_api::ExtensionRegistryBuilder;
 use codex_features::Feature;
 use codex_http_client::cache_system_proxy_route_for_test;
 use codex_login::CodexAuth;
-use codex_models_manager::bundled_models_response;
 use codex_protocol::config_types::WebSearchMode;
 use codex_web_search_extension::install as install_web_search_extension;
 use core_test_support::responses;
@@ -115,8 +114,9 @@ async fn standalone_web_search_resolves_redirect_routes() -> Result<()> {
         .with_auth(auth)
         .with_extensions(Arc::new(extension_builder.build()))
         .with_config(|config| {
-            config.model_catalog =
-                Some(bundled_models_response().expect("bundled models.json should parse"));
+            config.model_catalog = Some(codex_protocol::openai_models::ModelsResponse {
+                models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+            });
             config.model_provider.base_url = Some(API_BASE_URL.to_string());
             for feature in [Feature::RespectSystemProxy, Feature::StandaloneWebSearch] {
                 config

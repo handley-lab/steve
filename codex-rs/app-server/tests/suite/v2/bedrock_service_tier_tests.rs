@@ -77,11 +77,7 @@ async fn bedrock_model_list_preserves_custom_service_tiers(
     model_id: &str,
 ) -> anyhow::Result<()> {
     let home = TempDir::new()?;
-    let mut model = codex_models_manager::bundled_models_response()?
-        .models
-        .into_iter()
-        .find(|model| model.slug == "gpt-6-astra")
-        .expect("bundled Astra model");
+    let mut model = codex_models_manager::test_support::model_info("gpt-6-astra");
     model.slug = model_id.to_string();
     model.additional_speed_tiers = vec!["fast".to_string()];
     model.service_tiers = vec![codex_protocol::openai_models::ModelServiceTier {

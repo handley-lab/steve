@@ -17,7 +17,6 @@ use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_model_provider::create_model_provider;
 use codex_model_provider_info::ModelProviderInfo;
-use codex_models_manager::bundled_models_response;
 use codex_models_manager::collaboration_mode_presets;
 use codex_models_manager::manager::SharedModelsManager;
 use codex_models_manager::test_support::construct_model_info_offline_for_tests;
@@ -41,10 +40,8 @@ use crate::thread_manager;
 use crate::unified_exec;
 
 static TEST_MODEL_PRESETS: Lazy<Vec<ModelPreset>> = Lazy::new(|| {
-    let mut response = bundled_models_response()
-        .unwrap_or_else(|err| panic!("bundled models.json should parse: {err}"));
-    response.models.sort_by_key(|model| model.priority);
-    let mut presets: Vec<ModelPreset> = response.models.into_iter().map(Into::into).collect();
+    let model = codex_models_manager::test_support::model_info("gpt-5.5");
+    let mut presets = vec![ModelPreset::from(model)];
     ModelPreset::mark_default_by_picker_visibility(&mut presets);
     presets
 });
