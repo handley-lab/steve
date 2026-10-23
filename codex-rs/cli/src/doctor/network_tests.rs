@@ -19,11 +19,8 @@ async fn provider_reachability_rejects_proxy_authentication_challenges() {
     let plan = provider_reachability_plan_from_parts(
         ProviderAuthReachabilityMode::Chatgpt,
         "openai",
-        "OpenAI",
-        /*provider_base_url*/ None,
+        Some(&proxy.uri()),
         /*provider_query_params*/ None,
-        /*is_amazon_bedrock*/ false,
-        &format!("{}/backend-api/", proxy.uri()),
     );
 
     let check = provider_reachability_check(plan).await;
@@ -50,18 +47,15 @@ async fn provider_reachability_does_not_follow_redirects() {
     let direct_plan = provider_reachability_plan_from_parts(
         ProviderAuthReachabilityMode::NotRequired,
         "fixture",
-        "Fixture",
         Some(&destination.uri()),
         None,
-        false,
-        "",
     );
     assert_eq!(
         provider_reachability_check(direct_plan).await.status,
         CheckStatus::Ok
     );
     let direct_requests = destination.received_requests().await.unwrap().len();
-    assert_eq!(direct_requests, 2);
+    assert_eq!(direct_requests, 1);
 
     let redirect = MockServer::start().await;
     for probe_method in ["HEAD", "GET"] {
@@ -73,18 +67,62 @@ async fn provider_reachability_does_not_follow_redirects() {
     let redirect_plan = provider_reachability_plan_from_parts(
         ProviderAuthReachabilityMode::NotRequired,
         "fixture",
-        "Fixture",
         Some(&redirect.uri()),
         None,
-        false,
-        "",
     );
     assert_eq!(
         provider_reachability_check(redirect_plan).await.status,
-        CheckStatus::Warning
+        CheckStatus::Ok
     );
     assert_eq!(
         destination.received_requests().await.unwrap().len(),
         direct_requests
     );
+}
+
+#[tokio::test]
+async fn provider_reachability_http_response_needs_no_catalog_route() {
+    for status in [404, 405] {
+        let server = MockServer::start().await;
+        Mock::given(method("HEAD"))
+            .and(wiremock::matchers::path("/v1/responses"))
+            .and(wiremock::matchers::query_param("api-version", "fixture"))
+            .respond_with(ResponseTemplate::new(status))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let query =
+            std::collections::HashMap::from([("api-version".to_string(), "fixture".to_string())]);
+        let plan = provider_reachability_plan_from_parts(
+            ProviderAuthReachabilityMode::ApiKey,
+            "configured-provider",
+            Some(&format!("{}/v1", server.uri())),
+            Some(&query),
+        );
+        assert_eq!(
+            provider_reachability_check(plan).await.status,
+            CheckStatus::Ok
+        );
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].method, "HEAD");
+        assert_eq!(requests[0].url.path(), "/v1/responses");
+        server.verify().await;
+    }
+}
+
+#[tokio::test]
+async fn provider_reachability_reports_transport_failure() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    drop(listener);
+    let plan = provider_reachability_plan_from_parts(
+        ProviderAuthReachabilityMode::ApiKey,
+        "configured-provider",
+        Some(&format!("http://{address}/v1")),
+        None,
+    );
+    let check = provider_reachability_check(plan).await;
+    assert_eq!(check.status, CheckStatus::Fail);
+    assert!(check.details.iter().any(|detail| detail.contains("connect failed")));
 }
