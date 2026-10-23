@@ -2380,12 +2380,6 @@ fn should_show_bedrock_setup_wizard(
     matches!(app_server_target, AppServerTarget::Embedded)
         && should_show_login_screen(login_status, requires_openai_auth)
         && config.features.enabled(Feature::BedrockSetupWizard)
-        && config.model_provider_id == "openai"
-        && config
-            .config_layer_stack
-            .effective_config()
-            .get("model_provider")
-            .is_none()
         && config
             .auth_config()
             .is_login_method_allowed(ForcedLoginMethod::Api)
@@ -2443,24 +2437,37 @@ pub(crate) mod tests {
                 home.path().join("config.toml"),
                 format!(
                     r#"
-model_provider = "test-provider"
-[model_providers.test-provider]
-name = "Test provider"
-base_url = "http://example.test/v1"
-wire_api = "responses"
-requires_openai_auth = {requires_openai_auth}
-"#
+    model_provider = "test-provider"
+    [model_providers.test-provider]
+    name = "Test provider"
+    base_url = "http://127.0.0.1:9/v1"
+    wire_api = "responses"
+    requires_openai_auth = {requires_openai_auth}
+    [features]
+    bedrock_setup_wizard = true
+    "#
                 ),
             )?;
             let server_config = build_config(&home).await?;
             let mut server = AppServerSession::new(
-                AppServerClient::InProcess(start_test_embedded_app_server(server_config).await?),
+                AppServerClient::InProcess(
+                    start_test_embedded_app_server(server_config.clone()).await?,
+                ),
                 ThreadParamsMode::Embedded,
             );
             let (login_status, account) = get_login_status(&mut server).await?;
             assert_eq!(account.requires_openai_auth, requires_openai_auth);
             assert_eq!(
                 should_show_login_screen(login_status, account.requires_openai_auth),
+                requires_openai_auth
+            );
+            assert_eq!(
+                should_show_bedrock_setup_wizard(
+                    login_status,
+                    account.requires_openai_auth,
+                    &server_config,
+                    &AppServerTarget::Embedded,
+                ),
                 requires_openai_auth
             );
             assert!(!should_show_login_screen(
@@ -2480,76 +2487,131 @@ requires_openai_auth = {requires_openai_auth}
         };
         let enabled = "[features]\nbedrock_setup_wizard = true\n";
 
-        for (label, config_toml, login_status, target, expected) in [
-            (
-                "disabled by default",
-                "",
-                LoginStatus::NotAuthenticated,
-                AppServerTarget::Embedded,
-                false,
-            ),
-            (
-                "enabled for the default provider",
-                enabled,
-                LoginStatus::NotAuthenticated,
-                AppServerTarget::Embedded,
-                true,
-            ),
-            (
-                "explicit provider",
-                "model_provider = \"openai\"\n[features]\nbedrock_setup_wizard = true\n",
-                LoginStatus::NotAuthenticated,
-                AppServerTarget::Embedded,
-                false,
-            ),
-            (
-                "forced ChatGPT login",
-                "forced_login_method = \"chatgpt\"\n[features]\nbedrock_setup_wizard = true\n",
-                LoginStatus::NotAuthenticated,
-                AppServerTarget::Embedded,
-                false,
-            ),
-            (
-                "existing authentication",
-                enabled,
-                LoginStatus::AuthMode(AuthMode::Chatgpt),
-                AppServerTarget::Embedded,
-                false,
-            ),
-            (
-                "shared local daemon",
-                enabled,
-                LoginStatus::NotAuthenticated,
-                AppServerTarget::LocalDaemon {
-                    allow_embedded_fallback: true,
-                    endpoint: shared_endpoint.clone(),
-                },
-                false,
-            ),
-            (
-                "remote app server",
-                enabled,
-                LoginStatus::NotAuthenticated,
-                AppServerTarget::Remote {
-                    endpoint: shared_endpoint,
-                },
-                false,
-            ),
-        ] {
-            let codex_home = TempDir::new()?;
-            std::fs::write(codex_home.path().join("config.toml"), config_toml)?;
-            let config = build_config(&codex_home).await?;
-
-            assert_eq!(
-                should_show_bedrock_setup_wizard(
-                    login_status,
-                    /*requires_openai_auth*/ true,
-                    &config,
-                    &target
+        for display_name in ["Configured API", "OpenAI"] {
+            for (label, provider_id, requires_auth, config_toml, login_status, target, expected) in [
+                (
+                    "disabled by default",
+                    "test-provider",
+                    true,
+                    "",
+                    LoginStatus::NotAuthenticated,
+                    AppServerTarget::Embedded,
+                    false,
                 ),
-                expected,
-                "{label}"
-            );
+                (
+                    "explicit provider",
+                    "test-provider",
+                    true,
+                    enabled,
+                    LoginStatus::NotAuthenticated,
+                    AppServerTarget::Embedded,
+                    true,
+                ),
+                (
+                    "another provider id",
+                    "another-provider",
+                    true,
+                    enabled,
+                    LoginStatus::NotAuthenticated,
+                    AppServerTarget::Embedded,
+                    true,
+                ),
+                (
+                    "built-in OpenAI uses its resolved auth requirement",
+                    "openai",
+                    true,
+                    enabled,
+                    LoginStatus::NotAuthenticated,
+                    AppServerTarget::Embedded,
+                    false,
+                ),
+                (
+                    "auth not needed",
+                    "test-provider",
+                    false,
+                    enabled,
+                    LoginStatus::NotAuthenticated,
+                    AppServerTarget::Embedded,
+                    false,
+                ),
+                (
+                    "forced ChatGPT login",
+                    "test-provider",
+                    true,
+                    "forced_login_method = \"chatgpt\"\n[features]\nbedrock_setup_wizard = true\n",
+                    LoginStatus::NotAuthenticated,
+                    AppServerTarget::Embedded,
+                    false,
+                ),
+                (
+                    "existing authentication",
+                    "test-provider",
+                    true,
+                    enabled,
+                    LoginStatus::AuthMode(AuthMode::Chatgpt),
+                    AppServerTarget::Embedded,
+                    false,
+                ),
+                (
+                    "shared local daemon",
+                    "test-provider",
+                    true,
+                    enabled,
+                    LoginStatus::NotAuthenticated,
+                    AppServerTarget::LocalDaemon {
+                        allow_embedded_fallback: true,
+                        endpoint: shared_endpoint.clone(),
+                    },
+                    false,
+                ),
+                (
+                    "remote app server",
+                    "test-provider",
+                    true,
+                    enabled,
+                    LoginStatus::NotAuthenticated,
+                    AppServerTarget::Remote {
+                        endpoint: shared_endpoint.clone(),
+                    },
+                    false,
+                ),
+            ] {
+                let codex_home = TempDir::new()?;
+                let provider_config = if provider_id == "openai" {
+                    String::new()
+                } else {
+                    format!(
+                        r#"[model_providers.{provider_id}]
+    name = "{display_name}"
+    base_url = "http://127.0.0.1:9/v1"
+    wire_api = "responses"
+    requires_openai_auth = {requires_auth}
+    "#
+                    )
+                };
+                std::fs::write(
+                    codex_home.path().join("config.toml"),
+                    format!(
+                        r#"model_provider = "{provider_id}"
+    openai_base_url = "http://127.0.0.1:9/v1"
+    {config_toml}
+    {provider_config}
+    "#
+                    ),
+                )?;
+                let config = build_config(&codex_home).await?;
+
+                assert_eq!(
+                    should_show_bedrock_setup_wizard(
+                        login_status,
+                        config.model_provider.requires_openai_auth,
+                        &config,
+                        &target,
+                    ),
+                    expected,
+                    "{label}: {display_name}"
+                );
+            }
         }
 
         Ok(())
