@@ -1,46 +1,17 @@
-//! API-key discovery opt-outs must gate network requests and cached catalog authority.
+//! Model discovery opt-outs must gate network requests and cached catalog authority.
 
 use super::*;
 use pretty_assertions::assert_eq;
 
 #[tokio::test]
-async fn api_key_discovery_disabled_preserves_command_auth_discovery_and_merging() {
-    let models = vec![remote_model(
-        "command-auth",
-        "Command Auth",
-        /*priority*/ 0,
-    )];
-    let endpoint = Arc::new(TestModelsEndpoint {
-        has_command_auth: true,
-        responses: Mutex::new(vec![Ok(models.clone())].into()),
-        ..TestModelsEndpoint::default()
-    });
-    let manager = OpenAiModelsManager::new_without_cache(
-        endpoint.clone(),
-        Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
-            "test-key",
-        ))),
-    );
-    let mut merged = load_remote_models_from_file().unwrap();
-    merged.extend(models.clone());
-    assert_eq!(
-        manager
-            .raw_model_catalog(RefreshStrategy::Online, DEFAULT_HTTP_CLIENT_FACTORY)
-            .await
-            .models,
-        merged
-    );
-    assert_eq!(endpoint.fetch_count(), 1);
-}
-
-#[tokio::test]
-async fn api_key_discovery_flag_controls_fetches_and_cached_catalogs() {
+async fn model_discovery_flag_controls_fetches_and_cached_catalogs() {
     let home = tempdir().unwrap();
     let models = vec![remote_model("dynamic", "Dynamic", /*priority*/ 0)];
-    let endpoint = TestModelsEndpoint::without_refresh(vec![models.clone()]);
+    let endpoint = TestModelsEndpoint::new(vec![models.clone()]);
     let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("test-key"));
     let manager =
         OpenAiModelsManager::new(home.path().into(), endpoint.clone(), Some(auth.clone()));
+    manager.set_api_key_model_discovery_enabled(/*enabled*/ false);
     let bundled = load_remote_models_from_file().unwrap();
 
     for strategy in [

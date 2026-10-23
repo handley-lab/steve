@@ -158,6 +158,19 @@ impl GatewayAuthManager {
         })
     }
 
+    /// Reads the current usable credential without waiting or performing credential I/O.
+    pub fn cached_access_token(&self) -> Option<String> {
+        let cached = self.state.cached_token.try_lock().ok()?;
+        if cached.pending.is_some() || cached.login_required == cached.token {
+            return None;
+        }
+        cached
+            .token
+            .as_ref()
+            .filter(|token| token_is_usable(token))
+            .map(|token| token.access_token.clone())
+    }
+
     /// Returns a usable token, refreshing or starting browser login according to the host policy.
     pub async fn resolve_access_token(&self) -> io::Result<String> {
         self.resolve_with_browser(RefreshPolicy::WhenExpired, login::open_browser)

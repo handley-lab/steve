@@ -95,7 +95,7 @@ impl Stage {
 pub enum Feature {
     /// Preview consumer five-hour and weekly allowance history.
     AnalyticsPlanHistory,
-    /// Discover model catalogs for OpenAI API-key authentication.
+    /// Discover model catalogs at configured provider destinations.
     ApiKeyModelDiscovery,
     /// Forward explicit access programs on compatible provider requests.
     ApiKeyCyberAccessPrograms,

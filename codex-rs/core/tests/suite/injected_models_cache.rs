@@ -145,13 +145,6 @@ impl ModelsEndpointClient for TestModelsEndpoint {
         Some("test-provider".to_string())
     }
 
-    fn has_command_auth(&self) -> bool {
-        false
-    }
-
-    fn uses_codex_backend(&self) -> ModelsEndpointFuture<'_, bool> {
-        Box::pin(async { true })
-    }
 
     fn list_models<'a>(
         &'a self,

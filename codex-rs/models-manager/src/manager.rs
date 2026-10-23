@@ -8,7 +8,6 @@ use chrono::DateTime;
 use chrono::Utc;
 use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
-use codex_protocol::auth::AuthMode;
 use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::error::Result as CoreResult;
 use codex_protocol::openai_models::ModelInfo;
@@ -46,21 +45,10 @@ pub trait ModelsEndpointClient: fmt::Debug + Send + Sync {
     /// Return `None` when identity is unavailable; cached catalog reuse is then disabled.
     fn identity(&self) -> Option<String>;
 
-    /// Returns whether this provider can authenticate command-scoped requests.
-    fn has_command_auth(&self) -> bool;
-
-    /// Returns whether the currently resolved auth can use Codex backend-only models.
-    fn uses_codex_backend(&self) -> ModelsEndpointFuture<'_, bool>;
-
-    /// Returns whether this provider supports an authoritative catalog with OpenAI API keys.
-    fn supports_api_key_models(&self) -> bool {
-        false
-    }
-
-    /// Returns whether explicit provider configuration supplies API-key authentication.
-    /// This takes precedence over any unrelated first-party login used by the picker.
-    fn has_provider_api_key(&self) -> bool {
-        false
+    /// Prepare current credential identity before catalog cache comparisons.
+    /// This must not fetch a catalog or start browser authorization.
+    fn prepare_catalog_identity(&self) -> ModelsEndpointFuture<'_, CoreResult<()>> {
+        Box::pin(std::future::ready(Ok(())))
     }
 
     /// Fetches the latest remote model catalog and optional ETag.
@@ -114,7 +102,7 @@ type SharedModelsEndpointClient = Arc<dyn ModelsEndpointClient>;
 
 /// Coordinates model discovery plus cached metadata on disk.
 pub trait ModelsManager: fmt::Debug + Send + Sync {
-    /// Supply startup API-key discovery policy; live changes require a new session.
+    /// Supply remote model discovery policy.
     /// Static catalogs ignore this setting.
     fn set_api_key_model_discovery_enabled(&self, _enabled: bool) {}
 
@@ -338,7 +326,7 @@ impl OpenAiModelsManager {
                 models: load_remote_models_from_file().unwrap_or_default(),
             }),
             cache,
-            api_key_model_discovery_enabled: AtomicBool::new(false),
+            api_key_model_discovery_enabled: AtomicBool::new(true),
             endpoint_client,
             catalog_source: CatalogSource::Default,
             auth_manager,
@@ -388,10 +376,11 @@ impl ModelsManager for OpenAiModelsManager {
     ) -> ModelsManagerFuture<'_, ()> {
         Box::pin(async move {
             let refresh = async {
-                // Resolve lazy command credentials before comparing catalog identities.
-                if !self.should_refresh_models().await {
+                // Resolve current credentials before comparing catalog identities.
+                if self.model_discovery_disabled() {
                     return Ok(());
                 }
+                self.endpoint_client.prepare_catalog_identity().await?;
                 let identity = self.endpoint_client.identity();
                 if identity.is_some() && self.remote_models.read().await.identity == identity {
                     return Ok(());
@@ -415,7 +404,7 @@ impl ModelsManager for OpenAiModelsManager {
     fn get_remote_models(&self) -> ModelsManagerFuture<'_, Vec<ModelInfo>> {
         Box::pin(async move {
             let entry = self.remote_models.read().await;
-            if !self.api_key_discovery_disabled()
+            if !self.model_discovery_disabled()
                 && entry.identity.is_some()
                 && entry.identity == self.endpoint_client.identity()
             {
@@ -429,7 +418,7 @@ impl ModelsManager for OpenAiModelsManager {
     fn try_get_remote_models(&self) -> Result<Vec<ModelInfo>, TryLockError> {
         let entry = self.remote_models.try_read()?;
         Ok(
-            if !self.api_key_discovery_disabled()
+            if !self.model_discovery_disabled()
                 && entry.identity.is_some()
                 && entry.identity == self.endpoint_client.identity()
             {
@@ -500,7 +489,14 @@ impl OpenAiModelsManager {
     }
 
     async fn refresh_if_new_etag(&self, etag: String, http_client_factory: HttpClientFactory) {
+        if self.model_discovery_disabled() {
+            return;
+        }
         let refresh_guard = self.catalog_source.refresh_lock().await;
+        if let Err(err) = self.endpoint_client.prepare_catalog_identity().await {
+            error!("failed to prepare model catalog identity: {err}");
+            return;
+        }
         let (identity, current_etag) = {
             let entry = self.remote_models.read().await;
             (entry.identity.clone(), entry.etag.clone())
@@ -534,21 +530,10 @@ impl OpenAiModelsManager {
         http_client_factory: &HttpClientFactory,
     ) -> CoreResult<()> {
         let _refresh_guard = self.catalog_source.refresh_lock().await;
-        // API-key discovery must be enabled and supported before reusing a remote catalog.
-        // Otherwise even a matching cache from an earlier run would bypass bundled-only behavior.
-        // Command-auth providers retain their existing discovery behavior.
-        if self.api_key_discovery_disabled() {
+        if self.model_discovery_disabled() {
             return Ok(());
         }
-        if !self.should_refresh_models().await {
-            if matches!(
-                refresh_strategy,
-                RefreshStrategy::Offline | RefreshStrategy::OnlineIfUncached
-            ) {
-                self.try_load_cache().await;
-            }
-            return Ok(());
-        }
+        self.endpoint_client.prepare_catalog_identity().await?;
         match refresh_strategy {
             RefreshStrategy::Offline => {
                 self.try_load_cache().await;
@@ -636,32 +621,8 @@ impl OpenAiModelsManager {
         Ok(())
     }
 
-    fn supports_api_key_discovery(&self) -> bool {
-        self.endpoint_client.supports_api_key_models()
-            && !self.endpoint_client.has_command_auth()
-            && self.uses_api_key_auth()
-    }
-
-    // A runtime opt-out must hide catalogs fetched before the flag was disabled, too.
-    fn api_key_discovery_disabled(&self) -> bool {
-        self.uses_api_key_auth()
-            && !self.endpoint_client.has_command_auth()
-            && (!self.endpoint_client.supports_api_key_models()
-                || !self.api_key_model_discovery_enabled.load(Ordering::SeqCst))
-    }
-
-    fn uses_api_key_auth(&self) -> bool {
-        self.endpoint_client.has_provider_api_key()
-            || self
-                .auth_manager
-                .as_ref()
-                .is_some_and(|auth_manager| auth_manager.auth_mode() == Some(AuthMode::ApiKey))
-    }
-
-    async fn should_refresh_models(&self) -> bool {
-        self.endpoint_client.uses_codex_backend().await
-            || self.endpoint_client.has_command_auth()
-            || self.supports_api_key_discovery()
+    fn model_discovery_disabled(&self) -> bool {
+        !self.api_key_model_discovery_enabled.load(Ordering::SeqCst)
     }
 
     /// Publish only while the request identity still matches, including after async storage.
@@ -673,13 +634,7 @@ impl OpenAiModelsManager {
         let remote_only = entry
             .models
             .iter()
-            .any(|model| model.visibility == ModelVisibility::List)
-            && (self.supports_api_key_discovery()
-                || self.auth_manager.as_ref().is_some_and(|auth_manager| {
-                    auth_manager
-                        .auth_mode()
-                        .is_some_and(AuthMode::has_chatgpt_account)
-                }));
+            .any(|model| model.visibility == ModelVisibility::List);
         if !remote_only && let Some(mut models) = self.catalog_source.fallback_models() {
             for model in entry.models {
                 if let Some(index) = models

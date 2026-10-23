@@ -59,13 +59,6 @@ impl ModelsEndpointClient for TestModelsEndpoint {
         Some("test-provider".to_string())
     }
 
-    fn has_command_auth(&self) -> bool {
-        true
-    }
-
-    fn uses_codex_backend(&self) -> ModelsEndpointFuture<'_, bool> {
-        Box::pin(async { false })
-    }
 
     fn list_models<'a>(
         &'a self,
@@ -153,6 +146,7 @@ async fn refreshes_immediately_periodically_and_stops_when_dropped() {
 async fn background_refresh_blocks_changed_and_invalid_requirements_then_recovers()
 -> anyhow::Result<()> {
     let home = tempdir()?;
+    std::fs::write(home.path().join("config.toml"), "model_provider = 'openai'")?;
     let config = Arc::new(
         crate::config_manager::ConfigManager::without_managed_config_for_tests(
             home.path().to_path_buf(),

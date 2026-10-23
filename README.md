@@ -80,6 +80,13 @@ removed; supplied API keys and configured authentication commands remain availab
 Every inference provider needs an explicit `base_url`, including OpenAI providers.
 Set `model_provider` and `model` explicitly; catalogue defaults do not select them.
 
+Model discovery uses `models` at the configured provider base, or the full
+`model_catalog_url` when supplied. It expects a Codex-native `ModelsResponse`
+catalog; a list of model IDs is not enough. Set
+`features.api_key_model_discovery = false` to disable remote catalog discovery
+for every provider. `model_catalog_json` supplies a local catalog and bypasses
+remote discovery.
+
 The native provider transport uses the Responses API. A provider exposing another
 protocol needs a compatible gateway; changing its URL or token alone does not
 translate Anthropic Messages or Chat Completions requests.

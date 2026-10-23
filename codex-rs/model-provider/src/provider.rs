@@ -515,6 +515,7 @@ mod tests {
     use std::num::NonZeroU64;
     use std::task::Context;
     use std::task::Waker;
+    use std::time::Duration;
 
     use codex_http_client::HttpClientFactory;
     use codex_http_client::OutboundProxyPolicy;
@@ -1331,6 +1332,361 @@ printf '%s\n' '{"AccessKeyId":"exported","SecretAccessKey":"secret"}'
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    async fn catalog_discovery_uses_configured_services_for_each_credential() {
+        // Give environment-based credentials their own process without changing other tests' env.
+        if std::env::var_os("STEVE_CATALOG_MATRIX_CHILD").is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "provider::tests::catalog_discovery_uses_configured_services_for_each_credential",
+                    "--nocapture",
+                ])
+                .env("STEVE_CATALOG_MATRIX_CHILD", "1")
+                .env("STEVE_CATALOG_MATRIX_KEY", "environment-key")
+                .env("STEVE_CATALOG_MATRIX_HEADER", "environment-header")
+                .status()
+                .unwrap();
+            assert!(status.success());
+            return;
+        }
+        let server = MockServer::start().await;
+        let factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
+        let mut model = remote_model("selected-catalog-model");
+        model
+            .model_messages
+            .get_or_insert_default()
+            .instructions_template = Some("Selected catalog instructions".into());
+        let body = serde_json::to_vec(&ModelsResponse {
+            models: vec![model.clone()],
+        })
+        .unwrap();
+        for credential in [
+            "anonymous",
+            "unused-account",
+            "unused-api",
+            "bearer",
+            "bearer-openai",
+            "bearer-override",
+            "env-key",
+            "headers",
+            "env-headers",
+            "shared-api",
+            "shared-account",
+            "shared-headers",
+        ] {
+            for explicit in [false, true] {
+                let home = tempfile::tempdir().unwrap();
+                let base = format!("{}/{credential}/{explicit}", server.uri());
+                let request_path = format!(
+                    "/{credential}/{explicit}/{}",
+                    if explicit { "catalog" } else { "models" }
+                );
+                Mock::given(method("GET"))
+                    .and(path(request_path.clone()))
+                    .respond_with(ResponseTemplate::new(200).set_body_bytes(body.clone()))
+                    .expect(1)
+                    .mount(&server)
+                    .await;
+                let mut info = provider_for(base.clone());
+                info.name = (if credential == "bearer-openai" {
+                    "OpenAI"
+                } else {
+                    "Selected provider"
+                })
+                .into();
+                info.model_catalog_url =
+                    explicit.then(|| format!("{base}/catalog?scope=fixture").into());
+                info.query_params = Some(std::collections::HashMap::from([(
+                    "api-version".into(),
+                    "fixture-version".into(),
+                )]));
+                info.http_headers = Some(std::collections::HashMap::from([
+                    ("x-common".into(), "retained".into()),
+                    (
+                        codex_login::default_client::RESIDENCY_HEADER_NAME.into(),
+                        "us".into(),
+                    ),
+                ]));
+                let mut expected_auth = None;
+                let mut expected_account = None;
+                let mut expected_header = None;
+                let auth = match credential {
+                    "anonymous" => None,
+                    "unused-account" => Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
+                    "unused-api" => Some(CodexAuth::from_api_key("unused-key")),
+                    "bearer" | "bearer-openai" | "bearer-override" => {
+                        info.experimental_bearer_token = Some("provider-key".into());
+                        expected_auth = Some("Bearer provider-key".to_string());
+                        if credential == "bearer-override" {
+                            info.requires_openai_auth = true;
+                            Some(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+                        } else {
+                            None
+                        }
+                    }
+                    "env-key" => {
+                        info.env_key = Some("STEVE_CATALOG_MATRIX_KEY".into());
+                        expected_auth = Some("Bearer environment-key".to_string());
+                        None
+                    }
+                    "headers" => {
+                        info.http_headers
+                            .as_mut()
+                            .unwrap()
+                            .insert("x-catalog-auth".into(), "static-header".into());
+                        expected_header = Some("static-header");
+                        None
+                    }
+                    "env-headers" => {
+                        info.env_http_headers = Some(std::collections::HashMap::from([(
+                            "x-catalog-auth".into(),
+                            "STEVE_CATALOG_MATRIX_HEADER".into(),
+                        )]));
+                        expected_header = Some("environment-header");
+                        None
+                    }
+                    "shared-api" => {
+                        info.requires_openai_auth = true;
+                        expected_auth = Some("Bearer shared-key".to_string());
+                        Some(CodexAuth::from_api_key("shared-key"))
+                    }
+                    "shared-account" => {
+                        info.requires_openai_auth = true;
+                        let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
+                        expected_auth = Some(format!("Bearer {}", auth.get_token().unwrap()));
+                        expected_account = auth.get_account_id();
+                        Some(auth)
+                    }
+                    "shared-headers" => {
+                        info.requires_openai_auth = true;
+                        expected_auth = Some("Bearer supplied-header".to_string());
+                        Some(CodexAuth::Headers(codex_login::AuthHeaders::new(
+                            http::HeaderMap::from_iter([(
+                                http::header::AUTHORIZATION,
+                                http::HeaderValue::from_static("Bearer supplied-header"),
+                            )]),
+                        )))
+                    }
+                    _ => unreachable!(),
+                };
+                let provider =
+                    create_model_provider(info.clone(), auth.map(AuthManager::from_auth_for_testing));
+                let manager = provider.models_manager(home.path().into(), None);
+                let before = server.received_requests().await.unwrap().len();
+                let catalog = manager
+                    .raw_model_catalog(RefreshStrategy::Online, factory.clone())
+                    .await;
+                let requests = server.received_requests().await.unwrap();
+                let requests = &requests[before..];
+                eprintln!(
+                    "T18_EVIDENCE {}",
+                    json!({
+                        "kind": "credential-matrix", "credential": credential, "explicit": explicit,
+                        "provider": &info, "response_body": String::from_utf8_lossy(&body),
+                        "actual_models": &catalog.models,
+                        "requests": requests.iter().map(|request| json!({
+                            "url": request.url.as_str(), "method": request.method.to_string(),
+                            "headers": request.headers.iter().map(|(name, value)| (name.to_string(), String::from_utf8_lossy(value.as_bytes()).into_owned())).collect::<Vec<_>>(),
+                            "body": String::from_utf8_lossy(&request.body),
+                        })).collect::<Vec<_>>(),
+                    })
+                );
+                assert_eq!(catalog.models, vec![model.clone()]);
+                assert_eq!(requests.len(), 1);
+                let request = &requests[0];
+                assert_eq!(request.url.path(), request_path);
+                assert_eq!(
+                    request
+                        .headers
+                        .get("authorization")
+                        .map(|v| v.to_str().unwrap()),
+                    expected_auth.as_deref()
+                );
+                assert_eq!(
+                    request
+                        .headers
+                        .get("chatgpt-account-id")
+                        .map(|v| v.to_str().unwrap()),
+                    expected_account.as_deref()
+                );
+                assert_eq!(
+                    request
+                        .headers
+                        .get("x-catalog-auth")
+                        .map(|v| v.to_str().unwrap()),
+                    expected_header
+                );
+                assert_eq!(request.headers["x-common"], "retained");
+                let query = request
+                    .url
+                    .query_pairs()
+                    .collect::<std::collections::HashMap<_, _>>();
+                assert_eq!(
+                    query.get("api-version").map(|v| v.as_ref()),
+                    Some("fixture-version")
+                );
+                assert_eq!(
+                    query.get("scope").map(|v| v.as_ref()),
+                    explicit.then_some("fixture")
+                );
+
+                manager.set_api_key_model_discovery_enabled(false);
+                let restarted = provider.models_manager(home.path().into(), None);
+                restarted.set_api_key_model_discovery_enabled(false);
+                for (label, models) in [("warm", manager), ("restart", restarted)] {
+                    for strategy in [RefreshStrategy::OnlineIfUncached, RefreshStrategy::Offline] {
+                        let catalog = models.raw_model_catalog(strategy, factory.clone()).await;
+                        let count = server.received_requests().await.unwrap().len() - before;
+                        eprintln!(
+                            "T18_EVIDENCE {}",
+                            json!({
+                                "kind": "discovery-off", "credential": credential, "explicit": explicit,
+                                "state": label, "strategy": strategy.to_string(), "request_count": count,
+                                "models": catalog.models.iter().map(|m| &m.slug).collect::<Vec<_>>(),
+                            })
+                        );
+                        assert!(!catalog.models.iter().any(|m| m.slug == model.slug));
+                        if explicit {
+                            assert!(catalog.models.is_empty());
+                        }
+                        assert_eq!(count, 1);
+                    }
+                }
+            }
+        }
+        let mut info = provider_for(format!("{}/metadata-only", server.uri()));
+        info.model_catalog_url = Some(format!("{}/metadata-only/catalog", server.uri()).into());
+        info.base_url = None;
+        Mock::given(method("GET"))
+            .and(path("/metadata-only/catalog"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.clone()))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let provider = create_model_provider(info.clone(), None);
+        let manager = provider.models_manager_without_cache(None);
+        assert_eq!(
+            manager
+                .raw_model_catalog(RefreshStrategy::Online, factory.clone())
+                .await
+                .models,
+            vec![model.clone()]
+        );
+        let static_manager = provider.models_manager_without_cache(Some(ModelsResponse {
+            models: vec![model.clone()],
+        }));
+        static_manager.set_api_key_model_discovery_enabled(false);
+        assert_eq!(
+            static_manager
+                .raw_model_catalog(RefreshStrategy::Online, factory.clone())
+                .await
+                .models,
+            vec![model.clone()]
+        );
+        for explicit in [false, true] {
+            let base = format!("{}/unsupported/{explicit}", server.uri());
+            let response = json!({"object": "list", "data": [{"id": "id-only-provider"}]}).to_string();
+            Mock::given(method("GET"))
+                .and(path(format!("/unsupported/{explicit}/models")))
+                .respond_with(ResponseTemplate::new(200).set_body_string(response.clone()))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let mut info = provider_for(base.clone());
+            info.model_catalog_url = explicit.then(|| format!("{base}/models").into());
+            let before = server.received_requests().await.unwrap().len();
+            let models = create_model_provider(info, None)
+                .models_manager_without_cache(None)
+                .raw_model_catalog(RefreshStrategy::Online, factory.clone())
+                .await;
+            let count = server.received_requests().await.unwrap().len() - before;
+            eprintln!(
+                "T18_EVIDENCE {}",
+                json!({"kind": "unsupported-schema", "explicit": explicit,
+                "response_body": response, "request_count": count, "models": models.models.iter().map(|m| &m.slug).collect::<Vec<_>>() })
+            );
+            assert_eq!(count, 1);
+            assert!(!models.models.iter().any(|m| m.slug == "id-only-provider"));
+            if explicit {
+                assert!(models.models.is_empty());
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn catalog_command_credentials_refresh_before_cache_comparison() {
+        let server = MockServer::start().await;
+        let home = tempfile::tempdir().unwrap();
+        let token_file = home.path().join("token");
+        std::fs::write(&token_file, "command-a").unwrap();
+        let mut info = provider_for(server.uri());
+        info.auth = Some(ModelProviderAuthInfo {
+            command: "cat".into(),
+            args: vec![token_file.to_string_lossy().into_owned().into()],
+            timeout_ms: NonZeroU64::new(5_000).unwrap(),
+            refresh_interval_ms: 1,
+            cwd: home.path().to_path_buf().try_into().unwrap(),
+        });
+        let provider = create_model_provider(info, None);
+        let auth = provider.auth_manager().unwrap();
+        let models = provider.models_manager(home.path().into(), None);
+        let factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
+        models.set_api_key_model_discovery_enabled(false);
+        models
+            .raw_model_catalog(RefreshStrategy::Online, factory.clone())
+            .await;
+        assert!(auth.auth_cached().is_none());
+        assert!(server.received_requests().await.unwrap().is_empty());
+        models.set_api_key_model_discovery_enabled(true);
+        for token in ["command-a", "command-b"] {
+            std::fs::write(&token_file, token).unwrap();
+            tokio::time::sleep(Duration::from_millis(2)).await;
+            Mock::given(method("GET"))
+                .and(path("/models"))
+                .and(wiremock::matchers::header(
+                    "authorization",
+                    format!("Bearer {token}"),
+                ))
+                .respond_with(ResponseTemplate::new(200).set_body_json(ModelsResponse {
+                    models: vec![remote_model(token)],
+                }))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let catalog = models
+                .raw_model_catalog(RefreshStrategy::OnlineIfUncached, factory.clone())
+                .await;
+            assert_eq!(
+                catalog
+                    .models
+                    .iter()
+                    .map(|m| m.slug.as_str())
+                    .collect::<Vec<_>>(),
+                vec![token]
+            );
+        }
+        models.set_api_key_model_discovery_enabled(false);
+        std::fs::write(&token_file, "command-c").unwrap();
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        models.refresh_after_auth_change(factory).await;
+        assert_eq!(
+            auth.auth_cached().unwrap().get_token().unwrap(),
+            "command-b"
+        );
+        let requests = server.received_requests().await.unwrap();
+        eprintln!(
+            "T18_EVIDENCE {}",
+            json!({"kind": "command-rotation",
+                "requests": requests.iter().map(|request| json!({"url": request.url.as_str(),
+                    "headers": request.headers.iter().map(|(name, value)| (name.to_string(), String::from_utf8_lossy(value.as_bytes()).into_owned())).collect::<Vec<_>>() })).collect::<Vec<_>>(),
+                "cached_token_after_discovery_off": auth.auth_cached().unwrap().get_token().unwrap(),
+            })
+        );
+        assert_eq!(requests.len(), 2);
     }
 
     #[tokio::test]

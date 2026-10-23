@@ -255,7 +255,10 @@ async fn gateway_refresh_preserves_primary_auth_and_hides_issuer_errors() {
 }
 
 #[tokio::test]
-async fn models_cache_is_reused_only_for_matching_gateway_configuration() {
+async fn models_cache_follows_gateway_credentials_and_configuration() {
+    use codex_models_manager::manager::ModelsEndpointClient;
+    use codex_models_manager::manager::ModelsManager;
+
     let server = MockServer::start().await;
     let home = tempfile::tempdir().unwrap();
     let primary = AuthManager::from_auth_for_testing_with_home(
@@ -287,29 +290,61 @@ async fn models_cache_is_reused_only_for_matching_gateway_configuration() {
         .unwrap()
         .models
         .remove(0);
-    for resource in ["first", "second"] {
+    let mut live_models: Vec<codex_models_manager::manager::SharedModelsManager> = Vec::new();
+    for (resource, token) in [("first", "first"), ("first", "replacement"), ("second", "second")] {
         info.gateway_oauth.as_mut().unwrap().resource =
             Some(format!("{}/{resource}", server.uri()));
-        model.slug = format!("catalog-{resource}");
+        model.slug = format!("catalog-{resource}-{token}");
         let _gateway = seed_gateway_auth(
             &info,
             &primary,
-            json!({"access_token": resource, "refresh_token": "refresh-secret", "expires_at": i64::MAX}),
+            json!({"access_token": token, "refresh_token": "refresh-secret", "expires_at": i64::MAX}),
         );
         Mock::given(method("GET"))
             .and(path("/models"))
             .and(wiremock::matchers::header(
                 "x-gateway-auth",
-                format!("Bearer {resource}"),
+                format!("Bearer {token}"),
             ))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": [&model]})))
+            .respond_with(ResponseTemplate::new(200).insert_header("etag", "stable-gateway").set_body_json(json!({"models": [&model]})))
             .expect(1)
             .mount(&server)
             .await;
 
-        // Recreate the provider and models manager to exercise the shared disk cache.
-        // The first call for each resource fetches; the second must reuse its catalog.
-        for _ in 0..2 {
+        if token == "replacement" {
+            let provider = create_model_provider(info.clone(), Some(primary.clone()));
+            let owner = provider.gateway_auth_manager().unwrap().unwrap();
+            let cache_path = home.path().join("models_cache.json");
+            let before = std::fs::read(&cache_path).unwrap();
+            let requests_before = server.received_requests().await.unwrap().len();
+            live_models[0].set_api_key_model_discovery_enabled(false);
+            live_models[0].refresh_if_new_etag("stable-gateway".into(), factory.clone()).await;
+            let off_cache = std::fs::read(&cache_path).unwrap();
+            eprintln!("T18_EVIDENCE {}", json!({"kind": "gateway-etag-off",
+                "token": owner.cached_access_token(), "cache_before": String::from_utf8_lossy(&before),
+                "cache_after": String::from_utf8_lossy(&off_cache),
+                "request_count": server.received_requests().await.unwrap().len(),
+            }));
+            assert_eq!(owner.cached_access_token().as_deref(), Some("first"));
+            assert_eq!(off_cache, before);
+            assert_eq!(server.received_requests().await.unwrap().len(), requests_before);
+            assert!(live_models[0].get_remote_models().await.is_empty());
+            live_models[0].set_api_key_model_discovery_enabled(true);
+            live_models[0].refresh_if_new_etag("stable-gateway".into(), factory.clone()).await;
+            let after = live_models[0].get_remote_models().await;
+            let cache_after: serde_json::Value = serde_json::from_slice(&std::fs::read(&cache_path).unwrap()).unwrap();
+            eprintln!("T18_EVIDENCE {}", json!({"kind": "gateway-etag-replacement",
+                "token": owner.cached_access_token(), "models": &after, "cache_after": &cache_after,
+                "request_count": server.received_requests().await.unwrap().len(),
+            }));
+            assert_eq!(after, vec![model.clone()]);
+            let cache_before: serde_json::Value = serde_json::from_slice(&before).unwrap();
+            assert_ne!(cache_before["identity"], cache_after["identity"]);
+            assert_eq!(server.received_requests().await.unwrap().len(), requests_before + 1);
+            assert!(live_models[1].get_remote_models().await.is_empty());
+        }
+        // Keep earlier managers alive so a stored replacement must update the shared owner.
+        for pass in 0..2 {
             let provider = create_model_provider(info.clone(), Some(primary.clone()));
             let models = provider.models_manager(
                 home.path().to_path_buf(),
@@ -319,9 +354,56 @@ async fn models_cache_is_reused_only_for_matching_gateway_configuration() {
             let catalog = models
                 .raw_model_catalog(RefreshStrategy::OnlineIfUncached, factory.clone())
                 .await;
+            eprintln!("T18_EVIDENCE {}", json!({
+                "kind": "gateway-disk", "resource": resource, "token": token,
+                "response_body": json!({"models": [&model]}).to_string(),
+                "actual_models": &catalog.models,
+                "requests": server.received_requests().await.unwrap().iter().map(|request| json!({
+                    "url": request.url.as_str(), "method": request.method.to_string(),
+                    "headers": request.headers.iter().map(|(name, value)|
+                        (name.to_string(), String::from_utf8_lossy(value.as_bytes()).into_owned())
+                    ).collect::<Vec<_>>(),
+                    "body": String::from_utf8_lossy(&request.body),
+                })).collect::<Vec<_>>(),
+            }));
             assert_eq!(catalog.models, vec![model.clone()]);
+            if resource == "first" && token == "first" && pass == 0 {
+                let before = server.received_requests().await.unwrap().len();
+                models.refresh_if_new_etag("stable-gateway".into(), factory.clone()).await;
+                assert_eq!(server.received_requests().await.unwrap().len(), before);
+                let cold_owner = seed_gateway_auth(&info, &primary,
+                    json!({"access_token": token, "refresh_token": "refresh-secret", "expires_at": i64::MAX}));
+                let endpoint = Arc::new(crate::models_endpoint::OpenAiModelsEndpoint::new(
+                    info.clone(), Some(primary.clone()), Some(Ok(cold_owner)),
+                ));
+                assert!(endpoint.identity().is_none());
+                let cold = codex_models_manager::manager::OpenAiModelsManager::new(
+                    home.path().into(), endpoint.clone(), Some(primary.clone()),
+                ).with_provider_catalog();
+                let offline = cold.raw_model_catalog(RefreshStrategy::Offline, factory.clone()).await;
+                eprintln!("T18_EVIDENCE {}", json!({"kind": "gateway-cold-offline",
+                    "identity_after": endpoint.identity(), "models": &offline.models,
+                    "request_count": server.received_requests().await.unwrap().len(),
+                }));
+                assert_eq!(offline.models, vec![model.clone()]);
+                assert!(endpoint.identity().is_some());
+                assert_eq!(server.received_requests().await.unwrap().len(), before);
+            }
+            live_models.push(models);
         }
     }
+    assert_eq!(server.received_requests().await.unwrap().len(), 3);
+    let mut unavailable_info = info.clone();
+    unavailable_info.gateway_oauth.as_mut().unwrap().resource = Some(format!("{}/unavailable", server.uri()));
+    let unavailable = seed_gateway_auth(&unavailable_info, &primary,
+        json!({"access_token": "expired", "refresh_token": "unused", "expires_at": 0}));
+    let endpoint = crate::models_endpoint::OpenAiModelsEndpoint::new(
+        unavailable_info, Some(primary), Some(Ok(unavailable.clone())),
+    );
+    endpoint.prepare_catalog_identity().await.unwrap();
+    assert!(unavailable.cached_access_token().is_none());
+    assert!(endpoint.identity().is_none());
+    assert_eq!(server.received_requests().await.unwrap().len(), 3);
 }
 
 #[tokio::test]
@@ -340,6 +422,7 @@ enum ProviderInstance {
 }
 
 async fn models_observe_gateway_rotation(instance: ProviderInstance) {
+    let instance_name = match &instance { ProviderInstance::Same => "same", ProviderInstance::Separate => "separate" };
     let server = MockServer::start().await;
     let home = tempfile::tempdir().unwrap();
     let primary = AuthManager::from_auth_for_testing_with_home(
@@ -417,7 +500,7 @@ async fn models_observe_gateway_rotation(instance: ProviderInstance) {
             HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
         )
         .await;
-    assert_eq!(models.get_remote_models().await, vec![first]);
+    assert_eq!(models.get_remote_models().await, vec![first.clone()]);
     Mock::given(method("POST"))
         .and(path("/token"))
         .respond_with(
@@ -446,13 +529,240 @@ async fn models_observe_gateway_rotation(instance: ProviderInstance) {
             ),
         ])
     );
+    let after_rotation = models.get_remote_models().await;
     models
         .raw_model_catalog(
             RefreshStrategy::Online,
             HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
         )
         .await;
-    assert_eq!(models.get_remote_models().await, vec![second]);
+    let after_fetch = models.get_remote_models().await;
+    eprintln!("T18_EVIDENCE {}", json!({
+        "kind": "gateway-memory", "instance": instance_name,
+        "first_response_body": json!({"models": [&first]}).to_string(),
+        "second_response_body": json!({"models": [&second]}).to_string(),
+        "after_rotation": &after_rotation, "after_fetch": &after_fetch,
+        "requests": server.received_requests().await.unwrap().iter().map(|request| json!({
+            "url": request.url.as_str(), "method": request.method.to_string(),
+            "headers": request.headers.iter().map(|(name, value)|
+                (name.to_string(), String::from_utf8_lossy(value.as_bytes()).into_owned())
+            ).collect::<Vec<_>>(),
+            "body": String::from_utf8_lossy(&request.body),
+        })).collect::<Vec<_>>(),
+    }));
+    assert_eq!(after_fetch, vec![second]);
+    assert!(after_rotation.is_empty(), "previous gateway catalog survived credential replacement");
+}
+
+#[tokio::test]
+async fn gateway_catalog_response_is_bound_to_the_credential_sent() {
+    use codex_models_manager::manager::ModelsEndpointClient;
+    use codex_models_manager::manager::ModelsEndpointFuture;
+    use codex_models_manager::manager::ModelsEndpointResponse;
+    use codex_models_manager::manager::ModelsManager;
+    use codex_protocol::error::Result as CoreResult;
+    use tokio::io::AsyncBufReadExt;
+    use tokio::io::AsyncWriteExt;
+
+    #[derive(Debug)]
+    struct ObservedEndpoint {
+        inner: crate::models_endpoint::OpenAiModelsEndpoint,
+        decoded: Arc<std::sync::atomic::AtomicBool>,
+    }
+    impl ModelsEndpointClient for ObservedEndpoint {
+        fn identity(&self) -> Option<String> {
+            self.inner.identity()
+        }
+        fn prepare_catalog_identity(&self) -> ModelsEndpointFuture<'_, CoreResult<()>> {
+            self.inner.prepare_catalog_identity()
+        }
+        fn list_models<'a>(
+            &'a self,
+            version: &'a str,
+            factory: HttpClientFactory,
+        ) -> ModelsEndpointFuture<'a, CoreResult<ModelsEndpointResponse>> {
+            Box::pin(async move {
+                let response =
+                    ModelsEndpointClient::list_models(&self.inner, version, factory).await?;
+                eprintln!(
+                    "T18_EVIDENCE {}",
+                    json!({"kind": "gateway-race-decoded",
+                    "response_identity": &response.identity, "owner_identity": self.inner.identity(),
+                    "models": response.models.iter().map(|m| &m.slug).collect::<Vec<_>>() })
+                );
+                self.decoded
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(response)
+            })
+        }
+    }
+    let token_server = MockServer::start().await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let home = tempfile::tempdir().unwrap();
+    let primary = AuthManager::from_auth_for_testing_with_home(
+        CodexAuth::from_api_key("unused-primary"),
+        home.path().into(),
+    );
+    let info = ModelProviderInfo {
+        model_catalog_url: Some(format!("{base}/models").into()),
+        gateway_oauth: Some(GatewayOAuthConfig {
+            authorization_url: format!("{}/authorize", token_server.uri()),
+            token_url: format!("{}/token", token_server.uri()),
+            client_id: "client".into(),
+            resource: None,
+            scopes: vec![],
+            redirect_port: None,
+            delivery: GatewayOAuthDelivery::Cookie {
+                name: "gateway_session".into(),
+            },
+        }),
+        ..ModelProviderInfo::create_openai_provider(Some(base))
+    };
+    let gateway = seed_gateway_auth(
+        &info,
+        &primary,
+        json!({"access_token": "first", "refresh_token": "refresh", "expires_at": i64::MAX}),
+    );
+    codex_login::GatewayLoginControl::for_runtime(&primary.runtime_config())
+        .require_explicit_login();
+    Mock::given(method("POST"))
+        .and(path("/token"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"access_token": "second", "expires_in": 3600})),
+        )
+        .expect(1)
+        .mount(&token_server)
+        .await;
+    let mut first = codex_models_manager::bundled_models_response()
+        .unwrap()
+        .models
+        .remove(0);
+    first.slug = "gateway-old".into();
+    let mut second = first.clone();
+    second.slug = "gateway-new".into();
+    let first_body = serde_json::to_vec(&codex_protocol::openai_models::ModelsResponse {
+        models: vec![first.clone()],
+    })
+    .unwrap();
+    let second_body = serde_json::to_vec(&codex_protocol::openai_models::ModelsResponse {
+        models: vec![second.clone()],
+    })
+    .unwrap();
+    let (seen, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let (release, wait) = tokio::sync::oneshot::channel();
+    let bodies = [
+        (first_body.clone(), Some(wait)),
+        (second_body.clone(), None),
+    ];
+    let server = tokio::spawn(async move {
+        for (body, gate) in bodies {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut reader = tokio::io::BufReader::new(&mut stream);
+            let mut raw = String::new();
+            loop {
+                let mut line = String::new();
+                assert!(
+                    reader.read_line(&mut line).await.unwrap() > 0,
+                    "incomplete catalog request"
+                );
+                raw.push_str(&line);
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            seen.send(raw).unwrap();
+            if let Some(gate) = gate {
+                gate.await.unwrap();
+            }
+            stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n", body.len()).as_bytes()).await.unwrap();
+            stream.write_all(&body).await.unwrap();
+            stream.shutdown().await.unwrap();
+        }
+    });
+    let decoded = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let endpoint = Arc::new(ObservedEndpoint {
+        inner: crate::models_endpoint::OpenAiModelsEndpoint::new(
+            info,
+            Some(primary.clone()),
+            Some(Ok(gateway.clone())),
+        ),
+        decoded: decoded.clone(),
+    });
+    let models = Arc::new(
+        codex_models_manager::manager::OpenAiModelsManager::new(
+            home.path().into(),
+            endpoint.clone(),
+            Some(primary),
+        )
+        .with_provider_catalog(),
+    );
+    let factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
+    let waiting = models.clone();
+    let first_factory = factory.clone();
+    let fetch = tokio::spawn(async move {
+        waiting
+            .raw_model_catalog(RefreshStrategy::Online, first_factory)
+            .await
+    });
+    let request_a = tokio::time::timeout(std::time::Duration::from_secs(10), received.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let started = std::time::Instant::now();
+    gateway.refresh_access_token("first").await.unwrap();
+    let rotation_millis = started.elapsed().as_millis();
+    release.send(()).unwrap();
+    let after_first = fetch.await.unwrap();
+    eprintln!(
+        "T18_EVIDENCE {}",
+        json!({"kind": "gateway-inflight",
+            "request_a": &request_a, "response_a": String::from_utf8_lossy(&first_body),
+            "rotation_millis": rotation_millis, "decoded": decoded.load(std::sync::atomic::Ordering::SeqCst),
+            "owner_token": gateway.cached_access_token(), "owner_identity": endpoint.identity(),
+            "models": &after_first.models, "cache_exists": home.path().join("models_cache.json").exists(),
+        })
+    );
+    assert!(
+        decoded.load(std::sync::atomic::Ordering::SeqCst),
+        "catalog response did not decode during the controlled race"
+    );
+    assert!(
+        request_a
+            .to_ascii_lowercase()
+            .contains("cookie: gateway_session=first\r\n")
+    );
+    assert!(
+        !request_a
+            .to_ascii_lowercase()
+            .contains("\r\nauthorization:")
+    );
+    assert!(after_first.models.is_empty());
+    assert!(models.get_remote_models().await.is_empty());
+    assert!(!home.path().join("models_cache.json").exists());
+    let after_second = models
+        .raw_model_catalog(RefreshStrategy::OnlineIfUncached, factory)
+        .await;
+    let request_b = tokio::time::timeout(std::time::Duration::from_secs(10), received.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    eprintln!(
+        "T18_EVIDENCE {}",
+        json!({"kind": "gateway-after-race",
+            "request_b": &request_b, "response_b": String::from_utf8_lossy(&second_body),
+            "models": &after_second.models,
+            "cache": std::fs::read_to_string(home.path().join("models_cache.json")).unwrap(),
+        })
+    );
+    assert!(
+        request_b
+            .to_ascii_lowercase()
+            .contains("cookie: gateway_session=second\r\n")
+    );
+    assert_eq!(after_second.models, vec![second]);
+    server.await.unwrap();
 }
 
 #[tokio::test]
