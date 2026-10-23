@@ -1010,6 +1010,10 @@ impl CodexThread {
         self.session.services.models_manager.clone()
     }
 
+    pub fn auth_manager(&self) -> Arc<codex_login::AuthManager> {
+        Arc::clone(&self.session.services.auth_manager)
+    }
+
     /// Observes this thread's published MCP connections that match the requested config.
     pub async fn mcp_connection_statuses(
         &self,

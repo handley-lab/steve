@@ -76,6 +76,8 @@ use crate::async_scorer::authorization::ScoreAuthorization;
 mod conversation;
 #[path = "pending_score_tests.rs"]
 mod pending_score;
+#[path = "policy_catalog_tests.rs"]
+mod policy_catalog;
 use crate::async_scorer::config::CLASSIFICATION_OUTPUT_INSTRUCTIONS;
 use crate::async_scorer::config::DEFAULT_PARENT_COMPACTION_TOKENS;
 use crate::async_scorer::config::GuardianV2Config;
