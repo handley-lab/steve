@@ -4,9 +4,9 @@ expression: "render_bottom_popup(&chat, 80)"
 ---
   Select Model and Effort
 
+  Search models
 
-› 1. Renamed model                  Older balanced model for straightforward
-                                    work.
-  2. Shared display name (current)  Legacy coding model.
+› Renamed model
+  Shared display name (current)
 
   enter select · esc back

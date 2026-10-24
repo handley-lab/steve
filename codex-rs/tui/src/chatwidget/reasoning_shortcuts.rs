@@ -119,13 +119,8 @@ impl ChatWidget {
         if direction == ReasoningShortcutDirection::Raise
             && next_effort == ReasoningEffortConfig::Ultra
         {
-            let model_path = if current_model.starts_with("codex-auto-") {
-                current_model
-            } else {
-                format!("All models → {current_model}")
-            };
             self.add_info_message(
-                format!("Ultra is available under /model → {model_path} → More reasoning…"),
+                format!("Ultra is available under /model → {current_model} → More reasoning…"),
                 /*hint*/ None,
             );
             return true;

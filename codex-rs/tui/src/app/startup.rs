@@ -379,6 +379,7 @@ impl App {
         }
         let mut model = startup_model(&config, &bootstrap, startup_defaults.server_defaults_read);
         let available_models = bootstrap.available_models;
+        let provider_errors = bootstrap.provider_errors;
         let mut remote_connection =
             crate::status::remote_connection::remote_connection_status_value(
                 &app_server_target,
@@ -1078,6 +1079,9 @@ See the Steve keymap documentation for supported actions and examples."
             )));
         }
         let initial_session_ms = initial_session_started_at.elapsed().as_millis();
+        for error in provider_errors {
+            app.chat_widget.add_error_message(format!("{}: {}", error.provider, error.message));
+        }
 
         if let Err(err) = startup_draft.flush_pending_events(tui).await {
             return shutdown_on_startup_error(app_server, err).await;

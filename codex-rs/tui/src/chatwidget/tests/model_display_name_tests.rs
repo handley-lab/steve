@@ -35,13 +35,6 @@ async fn custom_model_display_name_in_pickers_preserves_selection_slug() {
         render_bottom_popup(&chat, /*width*/ 80)
     );
     chat.handle_key_event(KeyCode::Enter.into());
-    assert_matches!(events.try_recv(), Ok(AppEvent::OpenAllModelsPopup));
-    chat.open_all_models_popup();
-    assert_chatwidget_snapshot!(
-        "custom_model_display_name_all_models",
-        render_bottom_popup(&chat, /*width*/ 80)
-    );
-    chat.handle_key_event(KeyCode::Enter.into());
     let selected =
         assert_matches!(events.try_recv(), Ok(AppEvent::OpenReasoningPopup { model }) => model);
     assert_eq!(selected, preset);

@@ -2237,7 +2237,15 @@ impl App {
                     );
                 }
             }
-            AppEvent::ModelsLoaded { request_id, result } => {
+            AppEvent::ModelsLoaded { request_id, result, provider_errors } => {
+                if self.chat_widget.model_popup_request_is_current(request_id) {
+                    for error in provider_errors {
+                        self.chat_widget.add_error_message(format!("{}: {}", error.provider, error.message));
+                    }
+                    if let Err(error) = &result {
+                        self.chat_widget.add_error_message(error.clone());
+                    }
+                }
                 if self.chat_widget.on_models_loaded(request_id, result) {
                     self.model_catalog = self.chat_widget.model_catalog();
                     if self.chat_widget.thread_id().is_none() {
@@ -2307,9 +2315,6 @@ impl App {
             AppEvent::OpenPlanReasoningScopePrompt { model, effort } => {
                 self.chat_widget
                     .open_plan_reasoning_scope_prompt(model, effort);
-            }
-            AppEvent::OpenAllModelsPopup => {
-                self.chat_widget.open_all_models_popup();
             }
             AppEvent::OpenFullAccessConfirmation {
                 preset,

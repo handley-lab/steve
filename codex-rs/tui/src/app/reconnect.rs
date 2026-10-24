@@ -360,6 +360,9 @@ impl App {
             ModelCatalog::new(bootstrap.available_models)
                 .with_collaboration_modes(bootstrap.collaboration_modes),
         );
+        for error in bootstrap.provider_errors {
+            self.chat_widget.add_error_message(format!("{}: {}", error.provider, error.message));
+        }
         self.pending_app_server_requests.clear();
         // The displayed task was resumed above. Keep offscreen selections pending until those
         // tasks can be resumed from the server too; their old confirmations cannot arrive.

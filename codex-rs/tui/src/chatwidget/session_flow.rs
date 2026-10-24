@@ -96,7 +96,6 @@ impl ChatWidget {
             Arc::make_mut(&mut self.model_catalog).models.clear();
             for view_id in [
                 model_popups::MODEL_SELECTION_VIEW_ID,
-                model_popups::ALL_MODELS_SELECTION_VIEW_ID,
                 model_popups::MODEL_REASONING_VIEW_ID,
                 model_popups::MODEL_ADVANCED_REASONING_VIEW_ID,
                 model_popups::MODEL_PLAN_REASONING_VIEW_ID,

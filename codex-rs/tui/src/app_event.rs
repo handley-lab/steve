@@ -1324,6 +1324,7 @@ pub(crate) enum AppEvent {
     ModelsLoaded {
         request_id: uuid::Uuid,
         result: Result<Vec<ModelPreset>, String>,
+        provider_errors: Vec<codex_app_server_protocol::ModelProviderError>,
     },
     FetchPermissionProfiles {
         request_id: uuid::Uuid,
@@ -1355,9 +1356,6 @@ pub(crate) enum AppEvent {
         model: String,
         effort: Option<ReasoningEffort>,
     },
-
-    /// Open the full model picker (non-auto models).
-    OpenAllModelsPopup,
 
     /// Open the confirmation prompt before enabling full access mode.
     OpenFullAccessConfirmation {
