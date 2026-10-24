@@ -33,7 +33,6 @@ use codex_core::config::ConfigBuilder;
 use codex_core_plugins::loader::curated_plugin_cache_version;
 use codex_core_plugins::store::PluginStore;
 use codex_features::Feature;
-use codex_models_manager::bundled_models_response;
 use codex_plugin::PluginId;
 use codex_protocol::openai_models::ModelsResponse;
 use codex_protocol::openai_models::ReasoningEffort;
@@ -861,11 +860,7 @@ async fn assert_plugin_measurement_analytics(remote: bool, background: bool) -> 
     )?;
     let config_path = codex_home.path().join("config.toml");
     let config = std::fs::read_to_string(&config_path)?;
-    let model = bundled_models_response()?
-        .models
-        .into_iter()
-        .find(|model| model.slug == "gpt-5.5")
-        .expect("bundled gpt-5.5 model");
+    let model = codex_models_manager::test_support::model_info("gpt-5.5");
     let models = [
         ("initial-model", ReasoningEffort::Low),
         ("invoking-model", ReasoningEffort::High),

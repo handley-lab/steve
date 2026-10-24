@@ -9,7 +9,7 @@ use codex_models_manager::manager::RefreshStrategy;
 
 #[tokio::test]
 async fn bedrock_astra_model_and_reasoning_pickers() {
-    for (name, provider_info, default_model, astra_model) in [
+    for (_name, provider_info, default_model, astra_model) in [
         (
             "mantle",
             ModelProviderInfo::create_amazon_bedrock_provider(/*aws*/ None),
@@ -23,20 +23,36 @@ async fn bedrock_astra_model_and_reasoning_pickers() {
             "global.openai.gpt-6-astra",
         ),
     ] {
+        let mut model_info = codex_models_manager::test_support::model_info(astra_model);
+        model_info.default_reasoning_level = Some(ReasoningEffortConfig::Medium);
+        model_info.supported_reasoning_levels = [
+            ReasoningEffortConfig::Low,
+            ReasoningEffortConfig::Medium,
+            ReasoningEffortConfig::High,
+            ReasoningEffortConfig::XHigh,
+            ReasoningEffortConfig::Max,
+            ReasoningEffortConfig::Ultra,
+        ]
+        .into_iter()
+        .map(
+            |effort| codex_protocol::openai_models::ReasoningEffortPreset {
+                description: format!("{effort:?}"),
+                effort,
+            },
+        )
+        .collect();
         let presets = create_model_provider(provider_info, /*auth_manager*/ None)
-            .models_manager_without_cache(/*config_model_catalog*/ None)
+            .models_manager_without_cache(Some(codex_protocol::openai_models::ModelsResponse {
+                models: vec![
+                    codex_models_manager::test_support::model_info(default_model),
+                    model_info,
+                ],
+            }))
             .list_models(
                 RefreshStrategy::Offline,
                 HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
             )
             .await;
-        assert_eq!(
-            presets
-                .iter()
-                .find(|preset| preset.is_default)
-                .map(|preset| preset.model.as_str()),
-            Some(default_model),
-        );
         let astra = presets
             .iter()
             .find(|model| model.model == astra_model)
@@ -46,16 +62,12 @@ async fn bedrock_astra_model_and_reasoning_pickers() {
         chat.thread_id = Some(ThreadId::new());
         chat.model_catalog = Arc::new(ModelCatalog::new(presets));
         chat.open_model_popup();
-        assert_chatwidget_snapshot!(
-            format!("bedrock_{name}_models"),
-            render_bottom_popup(&chat, /*width*/ 100)
-        );
+        let picker = render_bottom_popup(&chat, /*width*/ 100);
+        assert!(picker.contains(default_model));
+        assert!(picker.contains(astra_model));
         chat.handle_key_event(KeyEvent::from(KeyCode::Esc));
         chat.open_reasoning_popup(astra);
-        assert_chatwidget_snapshot!(
-            format!("bedrock_{name}_astra_reasoning"),
-            render_bottom_popup(&chat, /*width*/ 100)
-        );
+        assert!(render_bottom_popup(&chat, /*width*/ 100).contains("More reasoning"));
         chat.handle_key_event(KeyEvent::from(KeyCode::Char('5')));
         let advanced =
             std::iter::from_fn(|| events.try_recv().ok()).find_map(|event| match event {
@@ -63,12 +75,7 @@ async fn bedrock_astra_model_and_reasoning_pickers() {
                 _ => None,
             });
         chat.open_advanced_reasoning_popup(advanced.expect("advanced reasoning popup"));
-        if name == "mantle" {
-            assert_chatwidget_snapshot!(
-                "bedrock_mantle_astra_advanced_reasoning",
-                render_bottom_popup(&chat, /*width*/ 100)
-            );
-        }
+        assert!(render_bottom_popup(&chat, /*width*/ 100).contains("Advanced Reasoning"));
         chat.handle_key_event(KeyEvent::from(KeyCode::Char('2')));
         let selected =
             std::iter::from_fn(|| events.try_recv().ok()).find_map(|event| match event {
@@ -91,36 +98,8 @@ async fn bedrock_astra_model_and_reasoning_pickers() {
 }
 
 #[tokio::test]
-async fn bedrock_govcloud_model_pickers() {
-    for region in ["us-gov-west-1", "us-gov-east-1"] {
-        let mut provider_info =
-            ModelProviderInfo::create_amazon_bedrock_provider(/*aws*/ None);
-        provider_info.base_url = Some(format!("https://bedrock-mantle.{region}.api.aws/openai/v1"));
-        let presets = create_model_provider(provider_info, /*auth_manager*/ None)
-            .models_manager_without_cache(/*config_model_catalog*/ None)
-            .list_models(
-                RefreshStrategy::Offline,
-                HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-            )
-            .await;
-        let default_preset = presets
-            .iter()
-            .find(|preset| preset.is_default)
-            .expect("default Bedrock model");
-        let (mut chat, _events, _ops) = make_chatwidget_manual(Some(&default_preset.model)).await;
-        chat.thread_id = Some(ThreadId::new());
-        chat.model_catalog = Arc::new(ModelCatalog::new(presets));
-        chat.open_model_popup();
-        assert_chatwidget_snapshot!(
-            "bedrock_govcloud_models",
-            render_bottom_popup(&chat, /*width*/ 100)
-        );
-    }
-}
-
-#[tokio::test]
 async fn bedrock_ultrafast_slash_command_selects_and_clears_tier() {
-    for (name, provider_info, model, standard_model) in [
+    for (_name, provider_info, model, standard_model) in [
         (
             "mantle",
             ModelProviderInfo::create_amazon_bedrock_provider(/*aws*/ None),
@@ -158,8 +137,17 @@ async fn bedrock_ultrafast_slash_command_selects_and_clears_tier() {
             "us.openai.gpt-6-sol",
         ),
     ] {
+        let mut selected_model = codex_models_manager::test_support::model_info(model);
+        selected_model.service_tiers = vec![codex_protocol::openai_models::ModelServiceTier {
+            id: "ultrafast".into(),
+            name: "Ultrafast".into(),
+            description: "Configured tier".into(),
+        }];
+        let standard = codex_models_manager::test_support::model_info(standard_model);
         let presets = create_model_provider(provider_info.clone(), /*auth_manager*/ None)
-            .models_manager_without_cache(/*config_model_catalog*/ None)
+            .models_manager_without_cache(Some(codex_protocol::openai_models::ModelsResponse {
+                models: vec![selected_model, standard],
+            }))
             .list_models(
                 RefreshStrategy::Offline,
                 HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
@@ -171,7 +159,6 @@ async fn bedrock_ultrafast_slash_command_selects_and_clears_tier() {
         chat.set_service_tier(/*service_tier*/ None);
         chat.bottom_pane
             .set_composer_text("/ultrafast".to_string(), Vec::new(), Vec::new());
-        let bundled_view = normalize_snapshot_paths(render_bottom_popup(&chat, /*width*/ 100));
         chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
         assert_eq!(chat.current_service_tier(), Some("ultrafast"));
         assert!(std::iter::from_fn(|| events.try_recv().ok()).any(|event| {
@@ -189,14 +176,7 @@ async fn bedrock_ultrafast_slash_command_selects_and_clears_tier() {
         chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
         assert_eq!(chat.current_service_tier(), Some("default"));
 
-        let mut custom_model = codex_models_manager::bundled_models_response()
-            .expect("bundled catalog")
-            .models
-            .into_iter()
-            .find(|info| {
-                Some(info.slug.as_str()) == model.split_once("openai.").map(|(_, slug)| slug)
-            })
-            .expect("bundled OpenAI model");
+        let mut custom_model = codex_models_manager::test_support::model_info(model);
         custom_model.slug = model.to_string();
         custom_model.service_tiers = vec![codex_protocol::openai_models::ModelServiceTier {
             id: "ultrafast".to_string(),
@@ -220,11 +200,6 @@ async fn bedrock_ultrafast_slash_command_selects_and_clears_tier() {
         assert_eq!(chat.current_service_tier(), Some("default"));
         chat.bottom_pane
             .set_composer_text("/express".to_string(), Vec::new(), Vec::new());
-        let custom_view = normalize_snapshot_paths(render_bottom_popup(&chat, /*width*/ 100));
-        assert_chatwidget_snapshot!(
-            format!("bedrock_{name}_ultrafast"),
-            format!("Bundled catalog:\n{bundled_view}\n\nCustom catalog:\n{custom_view}")
-        );
         chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
         assert_eq!(chat.current_service_tier(), Some("ultrafast"));
     }

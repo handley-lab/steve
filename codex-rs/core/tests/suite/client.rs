@@ -24,7 +24,6 @@ use codex_model_provider_info::AMAZON_BEDROCK_RUNTIME_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::WireApi;
 use codex_model_provider_info::built_in_model_providers;
-use codex_models_manager::bundled_models_response;
 use codex_otel::SessionTelemetry;
 use codex_otel::TelemetryAuthMode;
 use codex_protocol::ResponseItemId;
@@ -2512,7 +2511,16 @@ async fn includes_default_reasoning_effort_in_request_when_defined_by_model_info
         sse(vec![ev_response_created("resp1"), ev_completed("resp1")]),
     )
     .await;
-    let TestCodex { codex, .. } = test_codex().with_model("gpt-5.5").build(&server).await?;
+    let TestCodex { codex, .. } = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("write explicit test provider");
+        })
+        .with_model_info_override("gpt-5.5", |model| {
+            model.default_reasoning_level = Some(ReasoningEffort::Medium);
+        })
+        .build(&server)
+        .await?;
 
     codex
         .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
@@ -2662,12 +2670,14 @@ async fn model_without_summary_parameter_support_omits_configured_summary() -> a
         sse(vec![ev_response_created("resp1"), ev_completed("resp1")]),
     )
     .await;
-    let mut model_catalog = bundled_models_response().expect("bundled models.json should parse");
+    let mut model_catalog = codex_protocol::openai_models::ModelsResponse {
+        models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+    };
     let model = model_catalog
         .models
         .iter_mut()
         .find(|model| model.slug == "gpt-5.5")
-        .expect("gpt-5.5 exists in bundled models.json");
+        .expect("test model exists in the catalogue");
     model.supports_reasoning_summary_parameter = false;
 
     let TestCodex { codex, .. } = test_codex()
@@ -2796,12 +2806,14 @@ async fn user_turn_explicit_reasoning_summary_overrides_model_catalog_default() 
     )
     .await;
 
-    let mut model_catalog = bundled_models_response().expect("bundled models.json should parse");
+    let mut model_catalog = codex_protocol::openai_models::ModelsResponse {
+        models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+    };
     let model = model_catalog
         .models
         .iter_mut()
         .find(|model| model.slug == "gpt-5.5")
-        .expect("gpt-5.5 exists in bundled models.json");
+        .expect("test model exists in the catalogue");
     model.default_reasoning_summary = ReasoningSummary::Detailed;
 
     let TestCodex {
@@ -2909,12 +2921,14 @@ async fn reasoning_summary_none_overrides_model_catalog_default() -> anyhow::Res
     )
     .await;
 
-    let mut model_catalog = bundled_models_response().expect("bundled models.json should parse");
+    let mut model_catalog = codex_protocol::openai_models::ModelsResponse {
+        models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+    };
     let model = model_catalog
         .models
         .iter_mut()
         .find(|model| model.slug == "gpt-5.5")
-        .expect("gpt-5.5 exists in bundled models.json");
+        .expect("test model exists in the catalogue");
     model.default_reasoning_summary = ReasoningSummary::Detailed;
 
     let TestCodex { codex, .. } = test_codex()
@@ -2957,7 +2971,17 @@ async fn includes_default_verbosity_in_request() -> anyhow::Result<()> {
         sse(vec![ev_response_created("resp1"), ev_completed("resp1")]),
     )
     .await;
-    let TestCodex { codex, .. } = test_codex().with_model("gpt-5.5").build(&server).await?;
+    let TestCodex { codex, .. } = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("write explicit test provider");
+        })
+        .with_model_info_override("gpt-5.5", |model| {
+            model.support_verbosity = true;
+            model.default_verbosity = Some(Verbosity::Low);
+        })
+        .build(&server)
+        .await?;
 
     codex
         .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
@@ -3035,7 +3059,13 @@ async fn configured_verbosity_is_sent() -> anyhow::Result<()> {
     )
     .await;
     let TestCodex { codex, .. } = test_codex()
-        .with_model("gpt-5.5")
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("write explicit test provider");
+        })
+        .with_model_info_override("gpt-5.5", |model| {
+            model.support_verbosity = true;
+        })
         .with_config(|config| {
             config.model_verbosity = Some(Verbosity::High);
         })

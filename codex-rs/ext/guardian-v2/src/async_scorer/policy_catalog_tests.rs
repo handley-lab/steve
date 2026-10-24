@@ -19,9 +19,7 @@ fn reservation_slots(backend: &crate::async_scorer::conversation::ConversationBa
 }
 
 fn policy_model(slug: &str, policy: &str) -> Result<ModelInfo> {
-    let mut model = codex_models_manager::bundled_models_response()?
-        .models
-        .remove(0);
+    let mut model = codex_models_manager::test_support::model_info("test-model");
     model.slug = slug.into();
     model.use_responses_lite = false;
     model.auto_review_model_override = None;

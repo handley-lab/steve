@@ -7,7 +7,6 @@ use codex_core::config::Constrained;
 use codex_features::Feature;
 use codex_history::RolloutItem;
 use codex_login::CodexAuth;
-use codex_models_manager::bundled_models_response;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_prompts::render_model_instructions;
 use codex_protocol::config_types::ApprovalsReviewer;
@@ -201,11 +200,7 @@ async fn first_turn_model_change_appends_model_instructions_developer_message(
     let request = resp_mock.single_request();
     assert_eq!(request.body_json()["model"], next_model);
     let developer_texts = request.message_input_texts("developer");
-    let expected_model = bundled_models_response()?
-        .models
-        .into_iter()
-        .find(|model| model.slug == next_model)
-        .expect("expected target model in bundled catalog");
+    let expected_model = codex_models_manager::test_support::model_info(next_model);
     let expected_instructions = render_model_instructions(&expected_model);
     assert!(
         developer_texts.iter().any(|text| {

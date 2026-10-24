@@ -28,9 +28,7 @@ async fn configured_sampler(
     let models = if let Some(model) = model {
         vec![model]
     } else {
-        let mut other = codex_models_manager::bundled_models_response()?
-            .models
-            .remove(0);
+        let mut other = codex_models_manager::test_support::model_info("test-model");
         other.slug = "different-catalog-model".into();
         vec![other]
     };
@@ -90,9 +88,7 @@ include_internal_metadata = {metadata}
 }
 
 fn model(lite: bool, original: bool) -> Result<ModelInfo> {
-    let mut model = codex_models_manager::bundled_models_response()?
-        .models
-        .remove(0);
+    let mut model = codex_models_manager::test_support::model_info("test-model");
     model.slug = "classifier-test".into();
     model.use_responses_lite = lite;
     model.supports_image_detail_original = original;

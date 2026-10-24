@@ -79,7 +79,6 @@ use codex_model_provider::ProviderCapabilities;
 use codex_model_provider_info::LMSTUDIO_OSS_PROVIDER_ID;
 use codex_model_provider_info::OLLAMA_OSS_PROVIDER_ID;
 use codex_model_provider_info::WireApi;
-use codex_models_manager::bundled_models_response;
 use codex_network_proxy::NetworkMode;
 use codex_prompts::ResolvedMessage;
 use codex_protocol::config_types::ModelProviderAuthInfo;
@@ -9988,8 +9987,9 @@ async fn load_config_rejects_unsafe_agent_role_nickname_candidates() -> std::io:
 async fn model_catalog_json_loads_from_path() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     let catalog_path = codex_home.path().join("catalog.json");
-    let mut catalog = bundled_models_response()
-        .unwrap_or_else(|err| panic!("bundled models.json should parse: {err}"));
+    let mut catalog = codex_protocol::openai_models::ModelsResponse {
+        models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+    };
     catalog.models = catalog.models.into_iter().take(1).collect();
     std::fs::write(
         &catalog_path,
@@ -13642,8 +13642,9 @@ async fn load_with_enterprise_requirement(
 async fn exact_requirements_apply_to_runtime_config() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     let catalog_path = codex_home.path().join("required-models.json");
-    let mut catalog = bundled_models_response()
-        .unwrap_or_else(|err| panic!("bundled models.json should parse: {err}"));
+    let mut catalog = codex_protocol::openai_models::ModelsResponse {
+        models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+    };
     catalog.models = catalog.models.into_iter().take(1).collect();
     std::fs::write(
         &catalog_path,

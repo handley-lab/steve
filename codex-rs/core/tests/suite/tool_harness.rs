@@ -327,7 +327,15 @@ async fn apply_patch_tool_executes_and_emits_patch_events() -> anyhow::Result<()
 
     let server = start_mock_server().await;
 
-    let mut builder = test_codex();
+    let mut builder = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("write explicit test provider");
+        })
+        .with_model_info_override("gpt-5.5", |model| {
+            model.apply_patch_tool_type =
+                Some(codex_protocol::openai_models::ApplyPatchToolType::Freeform);
+        });
     let TestCodex {
         codex,
         cwd,
@@ -467,7 +475,15 @@ async fn apply_patch_reports_parse_diagnostics() -> anyhow::Result<()> {
 
     let server = start_mock_server().await;
 
-    let mut builder = test_codex();
+    let mut builder = test_codex()
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("write explicit test provider");
+        })
+        .with_model_info_override("gpt-5.5", |model| {
+            model.apply_patch_tool_type =
+                Some(codex_protocol::openai_models::ApplyPatchToolType::Freeform);
+        });
     let TestCodex {
         codex,
         cwd,

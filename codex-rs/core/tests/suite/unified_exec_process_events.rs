@@ -1010,7 +1010,12 @@ async fn exec_command_consumes_pushed_remote_process_events(
         Arc::clone(&output_ready),
         Arc::clone(&drain_read_ready),
     ));
-    let mut builder = test_codex().with_exec_server_url(exec_server_url);
+    let mut builder = test_codex()
+        .with_model_info_override("gpt-5.5", |model| {
+            model.apply_patch_tool_type =
+                Some(codex_protocol::openai_models::ApplyPatchToolType::Freeform);
+        })
+        .with_exec_server_url(exec_server_url);
     if managed_network_configured {
         let cloud_config_bundle = match managed_network {
             ManagedNetworkScenario::Enabled {

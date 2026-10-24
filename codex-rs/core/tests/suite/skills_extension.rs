@@ -34,7 +34,6 @@ use codex_history::ResumedHistory;
 use codex_history::RolloutItem;
 use codex_login::CodexAuth;
 use codex_mcp::CODEX_APPS_MCP_SERVER_NAME;
-use codex_models_manager::bundled_models_response;
 use codex_otel::OtelExporter;
 use codex_otel::OtelHttpProtocol;
 use codex_otel::OtelProvider;
@@ -2255,12 +2254,7 @@ async fn assert_catalog_model_switch(max_context_tokens: Option<usize>) -> Resul
                 .expect("model switching");
             config.skill_max_context_tokens =
                 max_context_tokens.and_then(std::num::NonZeroUsize::new);
-            let template = bundled_models_response()
-                .expect("bundled models")
-                .models
-                .into_iter()
-                .find(|model| model.slug == "gpt-5.5")
-                .expect("gpt-5.5");
+            let template = codex_models_manager::test_support::model_info("gpt-5.5");
             config.model_catalog = Some(ModelsResponse {
                 models: [
                     (MODEL_A, Some(10_000), None, false),

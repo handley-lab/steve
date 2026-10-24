@@ -12,7 +12,6 @@ use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::error::Result as CoreResult;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelPreset;
-use codex_protocol::openai_models::ModelVisibility;
 use codex_protocol::openai_models::ModelsResponse;
 use std::fmt;
 use std::future::Future;
@@ -232,7 +231,7 @@ pub type ModelsManagerFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a
 /// Shared model manager handle used across runtime services.
 pub type SharedModelsManager = Arc<dyn ModelsManager>;
 
-/// Only explicit catalogs serialize refresh and suppress bundled fallback. Auth and discovery
+/// Explicit catalogs serialize refresh. Auth and discovery
 /// settings are still evaluated when models are requested.
 #[derive(Debug)]
 enum CatalogSource {
@@ -241,13 +240,6 @@ enum CatalogSource {
 }
 
 impl CatalogSource {
-    fn fallback_models(&self) -> Option<Vec<ModelInfo>> {
-        match self {
-            Self::Default => Some(load_remote_models_from_file().unwrap_or_default()),
-            Self::ExplicitProvider(_) => None,
-        }
-    }
-
     async fn refresh_lock(&self) -> Option<MutexGuard<'_, ()>> {
         match self {
             Self::Default => None,
@@ -256,7 +248,7 @@ impl CatalogSource {
     }
 }
 
-/// OpenAI-compatible model manager backed by bundled models, cache, and `/models`.
+/// OpenAI-compatible model manager backed by cache and `/models`.
 #[derive(Debug)]
 pub struct OpenAiModelsManager {
     remote_models: RwLock<ModelsCacheEntry>,
@@ -323,7 +315,7 @@ impl OpenAiModelsManager {
                 etag: None,
                 client_version: Some(crate::client_version_to_whole()),
                 identity: endpoint_client.identity(),
-                models: load_remote_models_from_file().unwrap_or_default(),
+                models: Vec::new(),
             }),
             cache,
             api_key_model_discovery_enabled: AtomicBool::new(true),
@@ -334,7 +326,7 @@ impl OpenAiModelsManager {
     }
 
     /// Configure a newly constructed manager to use only the provider's explicit catalog.
-    /// Clear the bundled seed before sharing it; the existing auth identity must be retained.
+    /// The existing auth identity must be retained.
     pub fn with_provider_catalog(mut self) -> Self {
         self.catalog_source = CatalogSource::ExplicitProvider(Mutex::new(()));
         self.remote_models.get_mut().models.clear();
@@ -410,7 +402,7 @@ impl ModelsManager for OpenAiModelsManager {
             {
                 entry.models.clone()
             } else {
-                self.catalog_source.fallback_models().unwrap_or_default()
+                Vec::new()
             }
         })
     }
@@ -424,7 +416,7 @@ impl ModelsManager for OpenAiModelsManager {
             {
                 entry.models.clone()
             } else {
-                self.catalog_source.fallback_models().unwrap_or_default()
+                Vec::new()
             },
         )
     }
@@ -626,27 +618,10 @@ impl OpenAiModelsManager {
     }
 
     /// Publish only while the request identity still matches, including after async storage.
-    async fn apply_remote_models(&self, mut entry: ModelsCacheEntry) -> bool {
+    async fn apply_remote_models(&self, entry: ModelsCacheEntry) -> bool {
         let mut current = self.remote_models.write().await;
         if entry.identity != self.endpoint_client.identity() {
             return false;
-        }
-        let remote_only = entry
-            .models
-            .iter()
-            .any(|model| model.visibility == ModelVisibility::List);
-        if !remote_only && let Some(mut models) = self.catalog_source.fallback_models() {
-            for model in entry.models {
-                if let Some(index) = models
-                    .iter()
-                    .position(|existing| existing.slug == model.slug)
-                {
-                    models[index] = model;
-                } else {
-                    models.push(model);
-                }
-            }
-            entry.models = models;
         }
         *current = entry;
         true
@@ -741,10 +716,6 @@ impl ModelsManager for StaticModelsManager {
     ) -> ModelsManagerFuture<'_, ()> {
         Box::pin(async {})
     }
-}
-
-fn load_remote_models_from_file() -> Result<Vec<ModelInfo>, std::io::Error> {
-    Ok(crate::bundled_models_response()?.models)
 }
 
 fn find_model_by_longest_prefix(model: &str, candidates: &[ModelInfo]) -> Option<ModelInfo> {

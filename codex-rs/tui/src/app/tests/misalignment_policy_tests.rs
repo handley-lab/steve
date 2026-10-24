@@ -51,10 +51,15 @@ async fn misalignment_continuation_requires_current_review_and_submits_once() ->
         (false, true, true, true, false),
     ] {
         let (mut app, mut rx, _) = make_test_app_with_channels().await;
-        let mut catalog = codex_models_manager::bundled_models_response()?;
+        let mut catalog = codex_protocol::openai_models::ModelsResponse {
+            models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+        };
         for model in &mut catalog.models {
             model.available_access_programs = Some(ModelAccessPrograms {
-                cyber: vec![CyberAccessProgram::Standard, CyberAccessProgram::DaybreakBlue],
+                cyber: vec![
+                    CyberAccessProgram::Standard,
+                    CyberAccessProgram::DaybreakBlue,
+                ],
             });
         }
         let catalog_path = app.config.codex_home.join("misalignment-models.json");

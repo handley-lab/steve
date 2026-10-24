@@ -7,7 +7,6 @@ use codex_core::config::AgentRoleConfig;
 use codex_core::config::CurrentTimeReminderConfig;
 use codex_features::Feature;
 use codex_history::RolloutItem;
-use codex_models_manager::bundled_models_response;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::items::SubAgentActivityItem;
@@ -1587,21 +1586,26 @@ async fn spawned_full_history_v2_child_uses_model_precedence_without_dropping_co
             .enable(Feature::MultiAgentV2)
             .expect("test config should allow feature update");
         let model_catalog = config.model_catalog.get_or_insert_with(|| {
-            bundled_models_response().expect("bundled models.json should parse")
+            codex_protocol::openai_models::ModelsResponse {
+                models: [INHERITED_MODEL, V2_DEFAULT_MODEL, V2_REQUESTED_MODEL]
+                    .into_iter()
+                    .map(codex_models_manager::test_support::model_info)
+                    .collect(),
+            }
         });
         for model in [INHERITED_MODEL, V2_DEFAULT_MODEL, V2_REQUESTED_MODEL] {
             let model_info = model_catalog
                 .models
                 .iter_mut()
                 .find(|model_info| model_info.slug == model)
-                .unwrap_or_else(|| panic!("{model} should exist in bundled models.json"));
+                .unwrap_or_else(|| panic!("{model} should exist in the test catalogue"));
             if model == INHERITED_MODEL {
                 model_info.comp_hash = None;
             }
             let multi_agent = model_info
                 .model_messages
                 .as_mut()
-                .expect("bundled model should include model messages")
+                .expect("test model should include model messages")
                 .multi_agent
                 .get_or_insert_with(MultiAgentMessages::default);
             multi_agent.role = Some(MultiAgentRoleMessages {
@@ -2073,7 +2077,12 @@ async fn spawned_agent_uses_summary_support_for_final_model(
     skip_if_no_network!(Ok(()));
 
     let server = start_mock_server().await;
-    let mut model_catalog = bundled_models_response().expect("bundled models.json should parse");
+    let mut model_catalog = codex_protocol::openai_models::ModelsResponse {
+        models: [INHERITED_MODEL, REQUESTED_MODEL]
+            .into_iter()
+            .map(codex_models_manager::test_support::model_info)
+            .collect(),
+    };
     for (slug, supports_summary) in [
         (INHERITED_MODEL, parent_supports_summary),
         (REQUESTED_MODEL, child_supports_summary),
@@ -2082,7 +2091,7 @@ async fn spawned_agent_uses_summary_support_for_final_model(
             .models
             .iter_mut()
             .find(|model| model.slug == slug)
-            .unwrap_or_else(|| panic!("{slug} should exist in bundled models.json"));
+            .unwrap_or_else(|| panic!("{slug} should exist in the test catalogue"));
         model.supports_reasoning_summary_parameter = supports_summary;
     }
 

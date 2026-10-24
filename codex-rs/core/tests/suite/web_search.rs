@@ -71,24 +71,16 @@ async fn web_search_mode_cached_sets_external_web_access_false() {
 async fn amazon_bedrock_web_search_uses_text_only_hosted_tools() {
     skip_if_no_network!();
 
-    enum ModelCatalog {
-        BuiltIn,
-        Configured,
-    }
-
-    for (case, configured_web_search_mode, model_catalog) in [
-        ("cached by default", None, ModelCatalog::BuiltIn),
+    for (case, configured_web_search_mode) in [
+        ("cached by default", None),
         (
             "unsupported explicit live search falls back to cached",
             Some(WebSearchMode::Live),
-            ModelCatalog::BuiltIn,
         ),
         (
             "unsupported explicit indexed search falls back to cached",
             Some(WebSearchMode::Indexed),
-            ModelCatalog::BuiltIn,
         ),
-        ("configured model catalog", None, ModelCatalog::Configured),
     ] {
         let server = start_mock_server().await;
         let resp_mock = responses::mount_sse_once(
@@ -104,13 +96,15 @@ async fn amazon_bedrock_web_search_uses_text_only_hosted_tools() {
             api_key: "dummy".to_string(),
             region: "us-east-1".to_string(),
         });
-        let mut builder = test_codex().with_auth(auth);
-        builder = match model_catalog {
-            ModelCatalog::BuiltIn => builder.with_model(AMAZON_BEDROCK_GPT_5_5_MODEL_ID),
-            ModelCatalog::Configured => builder.with_model_info_override("gpt-5.5", |model_info| {
+        let mut builder = test_codex()
+            .with_pre_build_hook(|home| {
+                std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                    .expect("write explicit test provider");
+            })
+            .with_auth(auth)
+            .with_model_info_override("configured-bedrock-model", |model_info| {
                 model_info.web_search_tool_type = WebSearchToolType::TextAndImage;
-            }),
-        };
+            });
         builder = builder.with_config(move |config| {
             let base_url = config.model_provider.base_url.clone();
             config.model_provider_id = AMAZON_BEDROCK_PROVIDER_ID.to_string();

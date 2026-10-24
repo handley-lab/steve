@@ -9,7 +9,6 @@ use codex_core::TurnStartOptions;
 use codex_core::config::Config;
 use codex_features::Feature;
 use codex_history::RolloutItem;
-use codex_models_manager::bundled_models_response;
 use codex_protocol::approvals::ElicitationRequest;
 use codex_protocol::config_types::ApprovalsReviewer;
 use codex_protocol::config_types::CollaborationMode;
@@ -481,12 +480,7 @@ async fn submit_user_turn(
 }
 
 fn attribution_models(model_slugs: [&str; 2]) -> Vec<codex_protocol::openai_models::ModelInfo> {
-    let base_model = bundled_models_response()
-        .expect("bundled models should parse")
-        .models
-        .into_iter()
-        .find(|model| model.slug == "gpt-5.5")
-        .expect("bundled gpt-5.5 model");
+    let base_model = codex_models_manager::test_support::model_info("gpt-5.5");
     model_slugs
         .into_iter()
         .map(|slug| {

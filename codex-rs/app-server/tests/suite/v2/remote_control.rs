@@ -1439,7 +1439,9 @@ async fn configured_remote_control_listener(codex_home: &std::path::Path) -> Res
     let catalog_path = codex_home.join("models.json");
     std::fs::write(
         &catalog_path,
-        serde_json::to_vec(&codex_models_manager::bundled_models_response()?)?,
+        serde_json::to_vec(&codex_protocol::openai_models::ModelsResponse {
+            models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+        })?,
     )?;
     MockResponsesConfig::new(&remote_control_url)
         .with_root_config(&format!("chatgpt_base_url = \"{remote_control_url}\""))

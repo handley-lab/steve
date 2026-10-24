@@ -60,12 +60,10 @@ async fn guardian_reused_reviewer_avoids_stale_catalog_lookup() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = MockServer::start().await;
-    let bundled = codex_models_manager::bundled_models_response()?;
     let catalog = ModelsResponse {
-        models: bundled
-            .models
+        models: ["gpt-5.5", "codex-auto-review"]
             .into_iter()
-            .filter(|model| ["gpt-5.5", "codex-auto-review"].contains(&model.slug.as_str()))
+            .map(codex_models_manager::test_support::model_info)
             .collect(),
     };
     assert_eq!(catalog.models.len(), 2);
@@ -76,6 +74,7 @@ async fn guardian_reused_reviewer_avoids_stale_catalog_lookup() -> Result<()> {
         .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
         .with_model("gpt-5.5");
     builder = builder.with_config(|config| {
+        config.guardian_model = Some("codex-auto-review".to_string());
         config.permissions.approval_policy = Constrained::allow_any(AskForApproval::OnRequest);
         config.approvals_reviewer = ApprovalsReviewer::AutoReview;
         config.model_provider.request_max_retries = Some(0);

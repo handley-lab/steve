@@ -58,7 +58,6 @@ use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::UserInput;
 use codex_config::types::AuthCredentialsStoreMode;
-use codex_core::test_support::all_model_presets;
 use codex_features::Feature;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::CollaborationMode;
@@ -2737,10 +2736,7 @@ async fn inheriting_fork_preserves_parent_config(history_mode: ThreadHistoryMode
         .with_codex_home(codex_home.path())
         .build_initialized()
         .await?;
-    let model = all_model_presets()
-        .iter()
-        .find(|model| model.show_in_picker && !model.service_tiers.is_empty())
-        .expect("a bundled model supports service tiers");
+    let model = codex_protocol::openai_models::ModelPreset::from(app_test_support::cached_model());
     let tier = &model.service_tiers[0].id;
     let parent = mcp
         .start_thread(ThreadStartParams {

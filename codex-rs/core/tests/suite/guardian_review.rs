@@ -873,31 +873,24 @@ async fn guardian_session_prewarms_and_is_reused_for_first_review(
 
     let uses_codex_backend = auth.uses_codex_backend();
     let credits_enabled = uses_codex_backend;
-    let bundled_models = codex_models_manager::bundled_models_response()?.models;
-    let catalog_auto_review = bundled_models
-        .iter()
-        .find(|model| model.slug == expected_model)
-        .and_then(|model| model.model_messages.as_ref())
-        .and_then(|messages| messages.auto_review.as_ref())
-        .expect("bundled auto-review model Guardian policy");
-    let catalog_policy = catalog_auto_review
-        .policy
-        .as_deref()
-        .expect("catalog Guardian policy");
-    let catalog_template = catalog_auto_review
-        .policy_template
-        .as_deref()
-        .expect("catalog Guardian policy template");
+    let mut review_model = codex_models_manager::test_support::model_info(expected_model);
+    review_model.use_responses_lite = expected_model == "gpt-5.6-luna";
+    let catalog_policy = "Test Guardian approval policy.";
+    let catalog_template = "Guardian policy: {{ tenant_policy_config }}";
+    review_model
+        .model_messages
+        .as_mut()
+        .expect("reviewer messages")
+        .auto_review = Some(AutoReviewMessages {
+        policy: Some(catalog_policy.to_string()),
+        policy_template: Some(catalog_template.to_string()),
+        node_repl_policy: None,
+        rejection_instructions: None,
+        timeout_instructions: None,
+    });
     let expected_guardian_policy =
-        catalog_template.replace("{{ tenant_policy_config }}", catalog_policy.trim());
-    let review_model = bundled_models
-        .into_iter()
-        .find(|model| model.slug == expected_model)
-        .expect("bundled Guardian review model");
+        catalog_template.replace("{{ tenant_policy_config }}", catalog_policy);
     let use_responses_lite = review_model.use_responses_lite;
-    if expected_model == "gpt-5.6-luna" {
-        assert!(use_responses_lite, "Luna must use Responses Lite");
-    }
 
     let tool_args = json!({
         "cmd": "true",
@@ -934,6 +927,7 @@ async fn guardian_session_prewarms_and_is_reused_for_first_review(
         thread_ids: Mutex::new(Vec::new()),
     });
     let backend_base_url = format!("{}/backend-api/codex", server.uri());
+    let reviewer_model_id = expected_model.to_string();
     let mut builder = test_codex()
         .with_auth(auth)
         .with_pre_build_hook(move |home| {
@@ -944,6 +938,7 @@ async fn guardian_session_prewarms_and_is_reused_for_first_review(
             .expect("Guardian endpoint configuration should be written");
         })
         .with_config(move |config| {
+            config.guardian_model = Some(reviewer_model_id);
             if uses_codex_backend {
                 config.model_provider.base_url = Some(backend_base_url);
             }

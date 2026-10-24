@@ -1973,6 +1973,10 @@ async fn run_scenario(scenario: &ScenarioSpec) -> Result<()> {
     let thread_store_id = format!("approval-scenario-{}", scenario.name);
 
     let mut builder = test_codex()
+        .with_model_info_override("gpt-5.5", |model| {
+            model.apply_patch_tool_type =
+                Some(codex_protocol::openai_models::ApplyPatchToolType::Freeform);
+        })
         .with_model("gpt-5.5")
         .with_config(move |config| {
             // These scenarios assert tool behavior, not rollout persistence.
@@ -2153,6 +2157,10 @@ async fn approving_apply_patch_for_session_skips_future_prompts_for_same_file() 
     let sandbox_policy_for_config = sandbox_policy.clone();
 
     let mut builder = test_codex()
+        .with_model_info_override("gpt-5.5", |model| {
+            model.apply_patch_tool_type =
+                Some(codex_protocol::openai_models::ApplyPatchToolType::Freeform);
+        })
         .with_model("gpt-5.5")
         .with_config(move |config| {
             config.permissions.approval_policy = Constrained::allow_any(approval_policy);

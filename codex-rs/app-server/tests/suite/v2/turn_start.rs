@@ -74,7 +74,6 @@ use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::TurnSteerParams;
 use codex_app_server_protocol::UserInput as V2UserInput;
 use codex_app_server_protocol::WarningNotification;
-use codex_core::test_support::all_model_presets;
 use codex_exec_server::LOCAL_ENVIRONMENT_ID;
 use codex_features::Feature;
 use codex_login::AuthCredentialsStoreMode;
@@ -1109,10 +1108,8 @@ async fn turn_start_sends_service_tier_id_to_model_request() -> Result<()> {
     let codex_home = TempDir::new()?;
     MockResponsesConfig::new(&server.uri()).write(codex_home.path())?;
     write_models_cache(codex_home.path()).await?;
-    let service_tier_model = all_model_presets()
-        .iter()
-        .find(|preset| preset.show_in_picker && !preset.service_tiers.is_empty())
-        .expect("bundled model catalog should include a picker model with service tiers");
+    let service_tier_model =
+        codex_protocol::openai_models::ModelPreset::from(app_test_support::cached_model());
     let service_tier_id = service_tier_model.service_tiers[0].id.clone();
 
     let mut mcp = TestAppServer::builder()

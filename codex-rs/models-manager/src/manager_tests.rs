@@ -767,19 +767,11 @@ async fn dynamic_manager_preserves_requested_model_when_fallback_is_allowed() {
 
 #[tokio::test]
 async fn get_model_info_tracks_fallback_usage() {
-    let codex_home = tempdir().expect("temp dir");
     let config = ModelsManagerConfig::default();
-    let manager = openai_manager_for_tests(
-        codex_home.path().to_path_buf(),
-        TestModelsEndpoint::new(Vec::new()),
-    );
-    let known_slug = manager
-        .get_remote_models()
-        .await
-        .first()
-        .expect("bundled models should include at least one model")
-        .slug
-        .clone();
+    let manager = static_manager_for_tests(ModelsResponse {
+        models: vec![remote_model("known-model", "Known", 0)],
+    });
+    let known_slug = "known-model".to_string();
 
     let known = manager.get_model_info(known_slug.as_str(), &config).await;
     assert!(!known.used_fallback_model_metadata);
@@ -793,26 +785,23 @@ async fn get_model_info_tracks_fallback_usage() {
 }
 
 #[tokio::test]
-async fn get_model_info_applies_long_context_override_to_bundled_gpt_5_6_models() {
-    let codex_home = tempdir().expect("temp dir");
-    let manager = openai_manager_for_tests(
-        codex_home.path().to_path_buf(),
-        TestModelsEndpoint::new(Vec::new()),
-    );
+async fn get_model_info_caps_configured_context_override() {
+    let mut model = remote_model("long-context", "Long context", 0);
+    model.max_context_window = Some(872_000);
+    let manager = static_manager_for_tests(ModelsResponse {
+        models: vec![model],
+    });
     let config = ModelsManagerConfig {
         model_context_window: Some(1_000_000),
         ..Default::default()
     };
-
-    for slug in ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] {
-        let model_info = manager.get_model_info(slug, &config).await;
-        let mut expected = manager
-            .get_model_info(slug, &ModelsManagerConfig::default())
-            .await;
-        expected.context_window = Some(872_000);
-
-        assert_eq!(model_info, expected);
-    }
+    assert_eq!(
+        manager
+            .get_model_info("long-context", &config)
+            .await
+            .context_window,
+        Some(872_000)
+    );
 }
 
 #[tokio::test]
@@ -870,19 +859,11 @@ async fn get_model_info_matches_hyphenated_provider_namespace_suffix() {
 
 #[tokio::test]
 async fn get_model_info_rejects_multi_segment_namespace_suffix_matching() {
-    let codex_home = tempdir().expect("temp dir");
     let config = ModelsManagerConfig::default();
-    let manager = openai_manager_for_tests(
-        codex_home.path().to_path_buf(),
-        TestModelsEndpoint::new(Vec::new()),
-    );
-    let known_slug = manager
-        .get_remote_models()
-        .await
-        .first()
-        .expect("bundled models should include at least one model")
-        .slug
-        .clone();
+    let manager = static_manager_for_tests(ModelsResponse {
+        models: vec![remote_model("known-model", "Known", 0)],
+    });
+    let known_slug = "known-model".to_string();
     let namespaced_model = format!("ns1/ns2/{known_slug}");
 
     let model_info = manager.get_model_info(&namespaced_model, &config).await;
@@ -991,7 +972,7 @@ async fn refresh_available_models_uses_cached_remote_only_catalog_for_chatgpt_au
 }
 
 #[tokio::test]
-async fn get_model_info_uses_fallback_for_bundled_models_when_chatgpt_remote_is_authoritative() {
+async fn get_model_info_uses_fallback_for_unlisted_model() {
     let remote_models = vec![remote_model(
         "chatgpt-authoritative-model-info",
         "ChatGPT Model Info",
@@ -1000,12 +981,7 @@ async fn get_model_info_uses_fallback_for_bundled_models_when_chatgpt_remote_is_
     let codex_home = tempdir().expect("temp dir");
     let endpoint = TestModelsEndpoint::new(vec![remote_models]);
     let manager = openai_manager_for_tests(codex_home.path().to_path_buf(), endpoint);
-    let bundled_slug = load_remote_models_from_file()
-        .expect("bundled models should parse")
-        .first()
-        .expect("bundled models should contain at least one model")
-        .slug
-        .clone();
+    let bundled_slug = "unlisted-model".to_string();
 
     manager
         .refresh_available_models(
@@ -1024,11 +1000,11 @@ async fn get_model_info_uses_fallback_for_bundled_models_when_chatgpt_remote_is_
 }
 
 #[tokio::test]
-async fn refresh_available_models_preserves_bundled_catalog_for_empty_chatgpt_remote() {
+async fn refresh_available_models_preserves_empty_remote_catalog() {
     let codex_home = tempdir().expect("temp dir");
     let endpoint = TestModelsEndpoint::new(vec![Vec::new()]);
     let manager = openai_manager_for_tests(codex_home.path().to_path_buf(), endpoint);
-    let expected = load_remote_models_from_file().expect("bundled models should parse");
+    let expected: Vec<ModelInfo> = Vec::new();
 
     manager
         .refresh_available_models(
@@ -1042,7 +1018,7 @@ async fn refresh_available_models_preserves_bundled_catalog_for_empty_chatgpt_re
 }
 
 #[tokio::test]
-async fn refresh_available_models_merges_hidden_only_chatgpt_remote_with_bundled_catalog() {
+async fn refresh_available_models_preserves_hidden_only_remote_catalog() {
     let hidden_remote = remote_model_with_visibility(
         "chatgpt-hidden-only",
         "ChatGPT Hidden",
@@ -1052,7 +1028,7 @@ async fn refresh_available_models_merges_hidden_only_chatgpt_remote_with_bundled
     let codex_home = tempdir().expect("temp dir");
     let endpoint = TestModelsEndpoint::new(vec![vec![hidden_remote.clone()]]);
     let manager = openai_manager_for_tests(codex_home.path().to_path_buf(), endpoint);
-    let mut expected = load_remote_models_from_file().expect("bundled models should parse");
+    let mut expected: Vec<ModelInfo> = Vec::new();
     expected.push(hidden_remote);
 
     manager
@@ -1707,22 +1683,22 @@ async fn assert_static_catalog_visibility(auth: Option<CodexAuth>) {
 }
 
 #[test]
-fn bundled_models_json_roundtrips() {
-    let response = crate::bundled_models_response()
-        .unwrap_or_else(|err| panic!("bundled models.json should parse: {err}"));
+fn configured_models_json_roundtrips() {
+    let response = codex_protocol::openai_models::ModelsResponse {
+        models: vec![remote_model("configured-model", "Configured", 0)],
+    };
 
-    let serialized =
-        serde_json::to_string(&response).expect("bundled models.json should serialize");
+    let serialized = serde_json::to_string(&response).expect("configured catalog should serialize");
     let roundtripped: ModelsResponse =
-        serde_json::from_str(&serialized).expect("serialized models.json should deserialize");
+        serde_json::from_str(&serialized).expect("serialized catalog should deserialize");
 
     assert_eq!(
         response, roundtripped,
-        "bundled models.json should round trip through serde"
+        "configured catalog should round trip through serde"
     );
     assert!(
         !response.models.is_empty(),
-        "bundled models.json should contain at least one model"
+        "configured catalog should contain at least one model"
     );
 }
 
@@ -1755,4 +1731,57 @@ async fn missing_model_does_not_select_or_fetch_a_catalog_default() {
         );
     }
     assert_eq!(endpoint.fetch_count(), 0);
+}
+
+#[tokio::test]
+async fn unconfigured_catalog_does_not_seed_models() {
+    let home = tempdir().unwrap();
+    let endpoint = TestModelsEndpoint::new(vec![Vec::new()]);
+    let manager = openai_manager_for_tests(home.path().to_path_buf(), endpoint.clone());
+    assert!(manager.get_remote_models().await.is_empty());
+    assert!(manager.try_list_models().unwrap().is_empty());
+    let selected = Some("google/gemma-4-31b-it".to_string());
+    assert_eq!(
+        manager
+            .get_default_model(
+                &selected,
+                false,
+                RefreshStrategy::Offline,
+                DEFAULT_HTTP_CLIENT_FACTORY
+            )
+            .await,
+        selected.unwrap()
+    );
+    let model = manager
+        .get_model_info("google/gemma-4-31b-it", &ModelsManagerConfig::default())
+        .await;
+    assert_eq!(model.slug, "google/gemma-4-31b-it");
+    assert!(model.used_fallback_model_metadata);
+    assert_eq!(endpoint.fetch_count(), 0);
+}
+
+#[tokio::test]
+async fn cached_catalog_does_not_attach_unconfigured_models() {
+    for models in [
+        Vec::new(),
+        vec![remote_model_with_visibility("hidden", "Hidden", 0, "hide")],
+    ] {
+        let cache = TestModelsCache::with_entry(ModelsCacheEntry {
+            fetched_at: Utc::now(),
+            etag: None,
+            client_version: Some(crate::client_version_to_whole()),
+            identity: Some("test-provider".to_string()),
+            models: models.clone(),
+        });
+        let endpoint = TestModelsEndpoint::new(Vec::new());
+        let manager = OpenAiModelsManager::new_with_cache(cache, endpoint.clone(), None);
+        let actual = manager
+            .raw_model_catalog(
+                RefreshStrategy::OnlineIfUncached,
+                DEFAULT_HTTP_CLIENT_FACTORY,
+            )
+            .await;
+        assert_eq!(actual.models, models);
+        assert_eq!(endpoint.fetch_count(), 0);
+    }
 }

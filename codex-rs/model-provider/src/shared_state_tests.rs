@@ -286,12 +286,13 @@ async fn models_cache_follows_gateway_credentials_and_configuration() {
         ..ModelProviderInfo::create_openai_provider(Some(server.uri()))
     };
     let factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
-    let mut model = codex_models_manager::bundled_models_response()
-        .unwrap()
-        .models
-        .remove(0);
+    let mut model = codex_models_manager::test_support::model_info("test-model");
     let mut live_models: Vec<codex_models_manager::manager::SharedModelsManager> = Vec::new();
-    for (resource, token) in [("first", "first"), ("first", "replacement"), ("second", "second")] {
+    for (resource, token) in [
+        ("first", "first"),
+        ("first", "replacement"),
+        ("second", "second"),
+    ] {
         info.gateway_oauth.as_mut().unwrap().resource =
             Some(format!("{}/{resource}", server.uri()));
         model.slug = format!("catalog-{resource}-{token}");
@@ -458,10 +459,7 @@ async fn models_observe_gateway_rotation(instance: ProviderInstance) {
         ProviderInstance::Same => provider,
         ProviderInstance::Separate => create_model_provider(info, Some(primary)),
     };
-    let mut first = codex_models_manager::bundled_models_response()
-        .unwrap()
-        .models
-        .remove(0);
+    let mut first = codex_models_manager::test_support::model_info("test-model");
     first.slug = "catalog-first".into();
     let mut second = first.clone();
     second.slug = "catalog-second".into();
@@ -635,10 +633,7 @@ async fn gateway_catalog_response_is_bound_to_the_credential_sent() {
         .expect(1)
         .mount(&token_server)
         .await;
-    let mut first = codex_models_manager::bundled_models_response()
-        .unwrap()
-        .models
-        .remove(0);
+    let mut first = codex_models_manager::test_support::model_info("test-model");
     first.slug = "gateway-old".into();
     let mut second = first.clone();
     second.slug = "gateway-new".into();

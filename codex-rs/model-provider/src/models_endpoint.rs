@@ -437,7 +437,7 @@ mod tests {
     use codex_models_manager::manager::ModelsManager;
     use codex_models_manager::manager::OpenAiModelsManager;
     use codex_models_manager::manager::RefreshStrategy;
-    use codex_models_manager::model_info::model_info_from_slug;
+    use codex_models_manager::test_support::model_info;
     use codex_protocol::auth::AuthMode;
     use codex_protocol::config_types::ModelProviderAuthInfo;
     use codex_protocol::error::CodexErrorDetails;
@@ -716,7 +716,7 @@ mod tests {
         .unwrap();
         let model = codex_protocol::openai_models::ModelInfo {
             used_fallback_model_metadata: false,
-            ..model_info_from_slug("command-auth-model")
+            ..model_info("command-auth-model")
         };
         Mock::given(method("GET"))
             .and(path("/models"))
@@ -761,7 +761,7 @@ mod tests {
             .await;
         assert_eq!(manager.get_remote_models().await, catalog.models);
         auth.auth().await;
-        let bundled = codex_models_manager::bundled_models_response().unwrap();
+        let bundled = codex_protocol::openai_models::ModelsResponse::default();
         assert_eq!(manager.get_remote_models().await, bundled.models);
         assert_eq!(manager.try_get_remote_models().unwrap(), bundled.models);
         assert_eq!(
@@ -805,7 +805,7 @@ mod tests {
             })
         {
             let server = MockServer::start().await;
-            let mut model = model_info_from_slug("provider-model");
+            let mut model = model_info("provider-model");
             model.visibility = ModelVisibility::List;
             model.supported_in_api = false;
             model.used_fallback_model_metadata = false;
@@ -889,7 +889,7 @@ mod tests {
         for slugs in [vec![" \t"], vec!["private-model", "private-model"]] {
             let server = MockServer::start().await;
             let catalog = ModelsResponse {
-                models: slugs.into_iter().map(model_info_from_slug).collect(),
+                models: slugs.into_iter().map(model_info).collect(),
             };
             Mock::given(method("GET"))
                 .and(path("/codex/models"))

@@ -1,8 +1,6 @@
 use super::*;
 use assert_matches::assert_matches;
 use codex_config::types::ModelAvailabilityNuxConfig;
-use codex_model_provider::create_model_provider;
-use codex_model_provider_info::ModelProviderInfo;
 use codex_protocol::config_types::ServiceTier;
 use codex_protocol::openai_models::ModelAvailabilityNux;
 use pretty_assertions::assert_eq;
@@ -12,20 +10,25 @@ fn all_model_presets() -> Vec<ModelPreset> {
     crate::test_support::TEST_MODEL_PRESETS.clone()
 }
 
-fn bedrock_model_presets() -> Vec<ModelPreset> {
-    create_model_provider(
-        ModelProviderInfo::create_amazon_bedrock_provider(/*aws*/ None),
-        /*auth_manager*/ None,
-    )
-    .models_manager_without_cache(/*config_model_catalog*/ None)
-    .try_list_models()
-    .expect("Bedrock model catalog")
+fn model_presets(slugs: &[&str]) -> Vec<ModelPreset> {
+    slugs
+        .iter()
+        .map(|slug| ModelPreset::from(codex_models_manager::test_support::model_info(slug)))
+        .collect()
 }
 
 #[tokio::test]
 async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()> {
     let (mut app, mut rx, _op_rx) = make_test_app_with_channels().await;
-    let catalog = codex_models_manager::bundled_models_response()?;
+    let mut model = codex_models_manager::test_support::model_info("gpt-5.5");
+    model.service_tiers = vec![codex_protocol::openai_models::ModelServiceTier {
+        id: ServiceTier::Fast.request_value().to_string(),
+        name: "Fast".to_string(),
+        description: "Test fast tier".to_string(),
+    }];
+    let catalog = codex_protocol::openai_models::ModelsResponse {
+        models: vec![model],
+    };
     let catalog_path = app.config.codex_home.as_path().join("picker-models.json");
     std::fs::write(&catalog_path, serde_json::to_vec(&catalog)?)?;
     std::fs::write(
@@ -162,9 +165,7 @@ async fn lifecycle_service_tier_uses_the_destination_catalog() -> Result<()> {
         let a = responses::start_mock_server().await;
         let b = responses::start_mock_server().await;
         let home = tempdir()?;
-        let mut model = codex_models_manager::bundled_models_response()?
-            .models
-            .remove(0);
+        let mut model = codex_models_manager::test_support::model_info("test-model");
         model.slug = "gpt-5.5".to_string();
         model.service_tiers = ["priority", "ultrafast"]
             .into_iter()
@@ -445,7 +446,9 @@ async fn lifecycle_service_tier_respects_choices_and_reports_partial_creation() 
     ] {
         let endpoint = core_test_support::responses::start_mock_server().await;
         let home = tempdir()?;
-        let mut catalog = codex_models_manager::bundled_models_response()?;
+        let mut catalog = codex_protocol::openai_models::ModelsResponse {
+            models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+        };
         catalog.models.truncate(1);
         catalog.models[0].slug = "gpt-5.5".to_string();
         catalog.models[0].service_tiers = vec![ModelServiceTier {
@@ -582,6 +585,8 @@ experimental_bearer_token = "local-tier-control"
 
 fn model_presets_with_test_upgrades() -> Vec<ModelPreset> {
     let mut presets = all_model_presets();
+    presets[0].display_name = "GPT-5.5".to_string();
+    presets[0].description = "Legacy coding model.".to_string();
     let mut preset = presets
         .iter()
         .find(|preset| preset.model == "gpt-5.5")
@@ -598,6 +603,15 @@ fn model_presets_with_test_upgrades() -> Vec<ModelPreset> {
         migration_markdown: None,
         retirement_at: None,
     });
+    presets[0].upgrade = Some(ModelUpgrade {
+        id: "gpt-6-sol".to_string(),
+        migration_config_key: "test-current-upgrade".to_string(),
+        model_link: None,
+        upgrade_copy: None,
+        migration_markdown: None,
+        retirement_at: None,
+    });
+    presets.extend(model_presets(&["gpt-6-sol"]));
     presets.push(preset);
     presets
 }
@@ -696,7 +710,7 @@ fn retired_model_migration_respects_catalog_metadata() {
 
 #[test]
 fn select_model_availability_nux_picks_only_eligible_model() {
-    let mut presets = all_model_presets();
+    let mut presets = model_presets(&["gpt-5.6-terra", "gpt-5.5"]);
     presets.iter_mut().for_each(|preset| {
         preset.availability_nux = None;
     });
@@ -721,7 +735,7 @@ fn select_model_availability_nux_picks_only_eligible_model() {
 
 #[test]
 fn select_model_availability_nux_does_not_fall_back_to_older_announcement() {
-    let mut presets = all_model_presets();
+    let mut presets = model_presets(&["gpt-5.6-terra", "gpt-5.5"]);
     presets.iter_mut().for_each(|preset| {
         preset.availability_nux = None;
     });
@@ -750,7 +764,7 @@ fn select_model_availability_nux_does_not_fall_back_to_older_announcement() {
 
 #[test]
 fn select_model_availability_nux_uses_existing_model_order_as_priority() {
-    let mut presets = all_model_presets();
+    let mut presets = model_presets(&["gpt-5.6-terra", "gpt-5.5"]);
     presets.iter_mut().for_each(|preset| {
         preset.availability_nux = None;
     });
@@ -782,7 +796,7 @@ fn select_model_availability_nux_uses_existing_model_order_as_priority() {
 
 #[test]
 fn select_model_availability_nux_returns_none_when_all_models_are_exhausted() {
-    let mut presets = all_model_presets();
+    let mut presets = model_presets(&["gpt-5.6-terra", "gpt-5.5"]);
     presets.iter_mut().for_each(|preset| {
         preset.availability_nux = None;
     });
@@ -805,12 +819,17 @@ fn select_model_availability_nux_returns_none_when_all_models_are_exhausted() {
 #[tokio::test]
 async fn prepare_startup_tooltip_override_persists_model_availability_nux_count() {
     let codex_home = tempdir().expect("temp steve home");
+    std::fs::write(
+        codex_home.path().join("config.toml"),
+        "model_provider = 'openai'\n",
+    )
+    .expect("explicit test provider");
     let config = ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())
         .build()
         .await
         .expect("config");
-    let mut presets = all_model_presets();
+    let mut presets = model_presets(&["gpt-5.6-terra", "gpt-5.5"]);
     presets.iter_mut().for_each(|preset| {
         preset.availability_nux = None;
     });
@@ -850,39 +869,30 @@ async fn prepare_startup_tooltip_override_persists_model_availability_nux_count(
 #[tokio::test]
 async fn accepted_model_migration_persists_target_default_reasoning_effort() -> Result<()> {
     let mut migration_copies = Vec::new();
-    for (model, replacement, provider_id, mut presets) in [
-        ("gpt-5.4", "gpt-6-sol", "openai", all_model_presets()),
-        ("gpt-5.4-mini", "gpt-6-luna", "openai", all_model_presets()),
-        ("gpt-5.5", "gpt-6-sol", "openai", all_model_presets()),
-        ("gpt-5.6-luna", "gpt-6-luna", "openai", all_model_presets()),
-        ("gpt-5.6-terra", "gpt-6-sol", "openai", all_model_presets()),
-        ("gpt-5.6-sol", "gpt-6-sol", "openai", all_model_presets()),
-        (
-            "openai.gpt-5.4",
-            "openai.gpt-6-sol",
-            "amazon-bedrock",
-            bedrock_model_presets(),
-        ),
+    for (model, replacement, provider_id) in [
+        ("gpt-5.4", "gpt-6-sol", "openai"),
+        ("gpt-5.4-mini", "gpt-6-luna", "openai"),
+        ("gpt-5.5", "gpt-6-sol", "openai"),
+        ("gpt-5.6-luna", "gpt-6-luna", "openai"),
+        ("gpt-5.6-terra", "gpt-6-sol", "openai"),
+        ("gpt-5.6-sol", "gpt-6-sol", "openai"),
+        ("openai.gpt-5.4", "openai.gpt-6-sol", "amazon-bedrock"),
     ] {
-        if !presets.iter().any(|preset| preset.model == model) {
-            let mut retired = presets
-                .iter()
-                .find(|preset| preset.model == replacement)
-                .expect("migration target")
-                .clone();
-            retired.id = model.to_string();
-            retired.model = model.to_string();
-            retired.show_in_picker = false;
-            retired.upgrade = Some(codex_protocol::openai_models::ModelUpgrade {
-                id: replacement.to_string(),
-                migration_config_key: model.to_string(),
-                model_link: None,
-                upgrade_copy: None,
-                migration_markdown: Some(format!("Catalog recommends {replacement} for {model}.")),
-                retirement_at: None,
-            });
-            presets.push(retired);
-        }
+        let mut presets = model_presets(&[replacement]);
+        presets[0].default_reasoning_effort = ReasoningEffortConfig::Medium;
+        let mut retired = presets[0].clone();
+        retired.id = model.to_string();
+        retired.model = model.to_string();
+        retired.show_in_picker = false;
+        retired.upgrade = Some(ModelUpgrade {
+            id: replacement.to_string(),
+            migration_config_key: model.to_string(),
+            model_link: None,
+            upgrade_copy: None,
+            migration_markdown: Some(format!("Catalog recommends {replacement} for {model}.")),
+            retirement_at: None,
+        });
+        presets.push(retired);
         let codex_home = tempdir()?;
         std::fs::write(
             codex_home.path().join("config.toml"),
@@ -973,47 +983,30 @@ async fn accepted_model_migration_persists_target_default_reasoning_effort() -> 
                 if selected_model == replacement && effort == Some(target_effort)
         );
     }
-    assert_snapshot!(migration_copies.join("\n"), @r"
-    Catalog recommends gpt-6-sol for gpt-5.4.
-    Catalog recommends gpt-6-luna for gpt-5.4-mini.
-    Meet GPT-6 Sol
-
-    Our latest Sol is more intelligent and more efficient so your usage limits go further. This model is a great daily driver for complex tasks, especially coding.
-
-    Meet GPT-6 Luna
-
-    Our latest Luna is significantly more efficient, so your usage limits go even further. Reach for it for any job that doesn't require frontier intelligence.
-
-    Meet GPT-6 Sol
-
-    Our latest Sol is more intelligent and more efficient so your usage limits go further. This model is a great daily driver for complex tasks, especially coding.
-
-    Meet GPT-6 Sol
-
-    Our latest Sol is more intelligent and more efficient so your usage limits go further. This model is a great daily driver for complex tasks, especially coding.
-
-    Catalog recommends openai.gpt-6-sol for openai.gpt-5.4.
-    ");
+    assert_eq!(
+        migration_copies,
+        [
+            ("gpt-5.4", "gpt-6-sol"),
+            ("gpt-5.4-mini", "gpt-6-luna"),
+            ("gpt-5.5", "gpt-6-sol"),
+            ("gpt-5.6-luna", "gpt-6-luna"),
+            ("gpt-5.6-terra", "gpt-6-sol"),
+            ("gpt-5.6-sol", "gpt-6-sol"),
+            ("openai.gpt-5.4", "openai.gpt-6-sol"),
+        ]
+        .map(|(model, replacement)| format!("Catalog recommends {replacement} for {model}."))
+    );
     Ok(())
 }
 
 #[tokio::test]
 async fn model_migration_prompt_respects_hide_flag_and_self_target() {
-    for (model, previous_target, target, mut presets) in [
-        (
-            "gpt-5.4-mini",
-            "gpt-5.6-luna",
-            "gpt-6-luna",
-            all_model_presets(),
-        ),
-        ("gpt-5.4", "gpt-5.6-terra", "gpt-6-sol", all_model_presets()),
-        (
-            "openai.gpt-5.4",
-            "openai.gpt-5.6-terra",
-            "openai.gpt-6-sol",
-            bedrock_model_presets(),
-        ),
+    for (model, previous_target, target) in [
+        ("gpt-5.4-mini", "gpt-5.6-luna", "gpt-6-luna"),
+        ("gpt-5.4", "gpt-5.6-terra", "gpt-6-sol"),
+        ("openai.gpt-5.4", "openai.gpt-5.6-terra", "openai.gpt-6-sol"),
     ] {
+        let mut presets = model_presets(&[target]);
         let mut retired = presets
             .iter()
             .find(|preset| preset.model == target)
@@ -1057,15 +1050,28 @@ async fn model_migration_prompt_respects_hide_flag_and_self_target() {
 
 #[tokio::test]
 async fn model_migration_prompt_skips_when_target_missing_or_hidden() {
-    for (model, target_model, mut available) in [
-        ("gpt-5.4-mini", "gpt-6-luna", all_model_presets()),
-        ("gpt-5.4", "gpt-6-sol", all_model_presets()),
-        (
-            "openai.gpt-5.4",
-            "openai.gpt-6-sol",
-            bedrock_model_presets(),
-        ),
+    for (model, target_model) in [
+        ("gpt-5.4-mini", "gpt-6-luna"),
+        ("gpt-5.4", "gpt-6-sol"),
+        ("openai.gpt-5.4", "openai.gpt-6-sol"),
     ] {
+        let mut available = model_presets(&[target_model]);
+        let mut source = model_presets(&[model]).remove(0);
+        source.upgrade = Some(ModelUpgrade {
+            id: target_model.to_string(),
+            migration_config_key: model.to_string(),
+            model_link: None,
+            upgrade_copy: None,
+            migration_markdown: None,
+            retirement_at: None,
+        });
+        available.push(source);
+        assert!(should_show_model_migration_prompt(
+            model,
+            target_model,
+            &BTreeMap::new(),
+            &available,
+        ));
         let target = available
             .iter_mut()
             .find(|preset| preset.model == target_model)

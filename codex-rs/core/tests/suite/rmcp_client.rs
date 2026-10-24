@@ -2170,18 +2170,17 @@ async fn stdio_mcp_tool_call_includes_sandbox_state_meta(
     let call_id = "sandbox-meta-call";
     let restricted_call_id = "owner-restricted-call";
     let namespace = format!("mcp__{server_name}");
-    let mut models = codex_models_manager::bundled_models_response()?;
+    let mut models = codex_protocol::openai_models::ModelsResponse {
+        models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+    };
     let model = models
         .models
         .iter_mut()
         .find(|model| model.slug == "gpt-5.5")
-        .expect("bundled model should exist");
+        .expect("test model should exist");
     model.node_repl_auto_review_required = node_repl_auto_review_required;
     model.node_repl_disabled = node_repl_disabled;
-    let messages = model
-        .model_messages
-        .as_mut()
-        .expect("bundled model messages");
+    let messages = model.model_messages.as_mut().expect("test model messages");
     messages.confirmation_policies = Some(ConfirmationPolicies {
         browser_use: browser_policy.map(str::to_owned),
         computer_use: computer_policy.map(str::to_owned),

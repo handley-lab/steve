@@ -499,7 +499,13 @@ async fn multi_agent_v2_spawn_fork_turns_all_applies_agent_type_override() {
 }
 
 fn service_tier_test_catalog() -> codex_protocol::openai_models::ModelsResponse {
-    let mut catalog = codex_models_manager::bundled_models_response().expect("bundled models");
+    let mut fast = codex_models_manager::test_support::model_info("gpt-5.5");
+    fast.service_tiers = vec![codex_protocol::openai_models::ModelServiceTier {
+        id: ServiceTier::Fast.request_value().to_string(),
+        name: "Fast".to_string(),
+        description: "Test fast tier".to_string(),
+    }];
+    let mut catalog = codex_protocol::openai_models::ModelsResponse { models: vec![fast] };
     let mut model = catalog
         .models
         .iter()

@@ -32,7 +32,6 @@ use codex_http_client::NetworkPolicyController;
 use codex_login::CodexAuth;
 use codex_mcp::CODEX_APPS_MCP_SERVER_NAME;
 use codex_mcp::codex_apps_mcp_server_config;
-use codex_models_manager::bundled_models_response;
 use codex_protocol::config_types::ApprovalsReviewer;
 use codex_protocol::config_types::CollaborationMode;
 use codex_protocol::config_types::ModeKind;
@@ -3757,13 +3756,14 @@ if (!tool) {
                     .enable(Feature::CodeModeToolSearch)
                     .expect("ranked Code Mode search should be enabled");
             }
-            let mut model_catalog =
-                bundled_models_response().expect("bundled models.json should parse");
+            let mut model_catalog = codex_protocol::openai_models::ModelsResponse {
+                models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+            };
             let model = model_catalog
                 .models
                 .iter_mut()
                 .find(|model| model.slug == "gpt-5.5")
-                .expect("gpt-5.5 exists in bundled models.json");
+                .expect("test model exists in the catalogue");
             config.chatgpt_base_url = apps_base_url;
             config.model = Some("gpt-5.5".to_string());
             model.supports_search_tool = true;
@@ -7228,18 +7228,25 @@ async fn code_mode_node_repl_text_evidence_is_visible_only_to_guardian(
         DynamicImage::new_rgba8(/*w*/ 2049, /*h*/ 32)
             .write_to(&mut large_image, ImageFormat::Png)?;
     }
-    let mut builder = test_codex()
+    let mut builder = test_codex().with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                .expect("write explicit test provider");
+        })
+        .with_model_info_override("gpt-5.6-luna", |model| {
+            model.use_responses_lite = true;
+        })
         .with_model_info_override("gpt-5.5", move |model| {
             model.node_repl_auto_review_required = auto_review_required
         })
         .with_config(move |config| {
+            config.guardian_model = Some("gpt-5.6-luna".to_string());
             config.permissions.approval_policy = Constrained::allow_any(AskForApproval::OnRequest);
             config.approvals_reviewer = ApprovalsReviewer::AutoReview;
             if reviewer_constraint.is_some_and(|value| value != "large_prompt") || check_detail {
                 let reviewer = config
                     .model_catalog
                     .as_mut()
-                    .expect("bundled model catalog")
+                    .expect("test model catalog")
                     .models
                     .iter_mut()
                     .find(|model| model.slug == "gpt-5.6-luna")

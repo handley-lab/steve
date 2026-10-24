@@ -28,6 +28,7 @@ use codex_protocol::config_types::CollaborationMode;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::config_types::Settings;
 use codex_protocol::models::PermissionProfile;
+use codex_protocol::openai_models::ApplyPatchToolType;
 use codex_protocol::permissions::FileSystemAccessMode;
 use codex_protocol::permissions::FileSystemPath;
 use codex_protocol::permissions::FileSystemSandboxEntry;
@@ -91,7 +92,16 @@ pub async fn apply_patch_harness() -> Result<TestCodexHarness> {
 async fn apply_patch_harness_with(
     configure: impl FnOnce(TestCodexBuilder) -> TestCodexBuilder,
 ) -> Result<TestCodexHarness> {
-    let builder = configure(test_codex());
+    let builder = configure(
+        test_codex()
+            .with_pre_build_hook(|home| {
+                std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
+                    .expect("write explicit test provider");
+            })
+            .with_model_info_override("gpt-5.5", |model| {
+                model.apply_patch_tool_type = Some(ApplyPatchToolType::Freeform);
+            }),
+    );
     // Box harness construction so apply_patch_cli tests do not inline the
     // full test-thread startup path into each test future.
     Box::pin(TestCodexHarness::with_auto_env_builder(builder)).await
@@ -254,8 +264,11 @@ async fn mxc_config_routes_command_and_patch_to_the_windows_executor() -> Result
 
     let harness = apply_patch_harness_with(|builder| {
         builder.with_pre_build_hook(|home| {
-            fs::write(home.join("config.toml"), "[windows]\nsandbox = \"mxc\"\n")
-                .expect("write MXC config");
+            fs::write(
+                home.join("config.toml"),
+                "model_provider = 'openai'\n[windows]\nsandbox = \"mxc\"\n",
+            )
+            .expect("write MXC config");
         })
     })
     .await?;

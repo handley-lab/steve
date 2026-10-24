@@ -19,7 +19,6 @@ use codex_history::InitialHistory;
 use codex_history::RolloutItem;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::built_in_model_providers;
-use codex_models_manager::bundled_models_response;
 use codex_plugin::PluginHookSource;
 use codex_plugin::PluginId;
 use codex_protocol::items::parse_hook_prompt_fragment;
@@ -3242,6 +3241,10 @@ async fn permission_request_hook_allows_apply_patch_with_write_alias() -> Result
     .await;
 
     let mut builder = test_codex()
+        .with_model_info_override("gpt-5.5", |model| {
+            model.apply_patch_tool_type =
+                Some(codex_protocol::openai_models::ApplyPatchToolType::Freeform);
+        })
         .with_pre_build_hook(|home| {
             write_permission_request_hook(
                 home,
@@ -3650,12 +3653,7 @@ async fn pre_tool_use_hook_model_tracks_step_after_a_turn_update() -> Result<()>
     )
     .await;
 
-    let base_model = bundled_models_response()
-        .expect("bundled models should parse")
-        .models
-        .into_iter()
-        .find(|model| model.slug == "gpt-5.5")
-        .expect("bundled gpt-5.5 model");
+    let base_model = codex_models_manager::test_support::model_info("gpt-5.5");
     let models = [model_a, model_b]
         .into_iter()
         .map(|slug| {
@@ -5089,6 +5087,10 @@ async fn pre_tool_use_blocks_apply_patch_before_execution() -> Result<()> {
     .await;
 
     let mut builder = test_codex()
+        .with_model_info_override("gpt-5.5", |model| {
+            model.apply_patch_tool_type =
+                Some(codex_protocol::openai_models::ApplyPatchToolType::Freeform);
+        })
         .with_pre_build_hook(|home| {
             write_pre_tool_use_hook(
                 home,
@@ -5169,6 +5171,10 @@ async fn pre_tool_use_rewrites_apply_patch_before_execution() -> Result<()> {
 
     let updated_input = serde_json::json!({ "command": rewritten_patch });
     let mut builder = test_codex()
+        .with_model_info_override("gpt-5.5", |model| {
+            model.apply_patch_tool_type =
+                Some(codex_protocol::openai_models::ApplyPatchToolType::Freeform);
+        })
         .with_pre_build_hook(move |home| {
             write_updating_pre_tool_use_hook(home, "^apply_patch$", &updated_input)
                 .expect("failed to write updating pre tool use hook fixture");
@@ -5231,6 +5237,10 @@ async fn pre_tool_use_blocks_apply_patch_with_write_alias() -> Result<()> {
     .await;
 
     let mut builder = test_codex()
+        .with_model_info_override("gpt-5.5", |model| {
+            model.apply_patch_tool_type =
+                Some(codex_protocol::openai_models::ApplyPatchToolType::Freeform);
+        })
         .with_pre_build_hook(|home| {
             write_pre_tool_use_hook(home, Some("^Write$"), "json_deny", "blocked write alias")
                 .expect("failed to write pre tool use hook test fixture");
@@ -5854,6 +5864,10 @@ async fn post_tool_use_records_additional_context_for_apply_patch() -> Result<()
 
     let post_context = "Remember the apply_patch post-tool note.";
     let mut builder = test_codex()
+        .with_model_info_override("gpt-5.5", |model| {
+            model.apply_patch_tool_type =
+                Some(codex_protocol::openai_models::ApplyPatchToolType::Freeform);
+        })
         .with_pre_build_hook(|home| {
             write_post_tool_use_hook(home, Some("^apply_patch$"), "context", post_context)
                 .expect("failed to write post tool use hook test fixture");
@@ -5925,6 +5939,10 @@ async fn post_tool_use_records_apply_patch_context_with_edit_alias() -> Result<(
 
     let post_context = "Remember the edit alias post-tool note.";
     let mut builder = test_codex()
+        .with_model_info_override("gpt-5.5", |model| {
+            model.apply_patch_tool_type =
+                Some(codex_protocol::openai_models::ApplyPatchToolType::Freeform);
+        })
         .with_pre_build_hook(|home| {
             write_post_tool_use_hook(home, Some("^Edit$"), "context", post_context)
                 .expect("failed to write post tool use hook test fixture");

@@ -12,7 +12,7 @@ async fn model_discovery_flag_controls_fetches_and_cached_catalogs() {
     let manager =
         OpenAiModelsManager::new(home.path().into(), endpoint.clone(), Some(auth.clone()));
     manager.set_api_key_model_discovery_enabled(/*enabled*/ false);
-    let bundled = load_remote_models_from_file().unwrap();
+    let empty_catalog: Vec<ModelInfo> = Vec::new();
 
     for strategy in [
         RefreshStrategy::Online,
@@ -24,7 +24,7 @@ async fn model_discovery_flag_controls_fetches_and_cached_catalogs() {
                 .raw_model_catalog(strategy, DEFAULT_HTTP_CLIENT_FACTORY)
                 .await
                 .models,
-            bundled
+            empty_catalog
         );
     }
     assert_eq!(endpoint.fetch_count(), 0);
@@ -48,9 +48,9 @@ async fn model_discovery_flag_controls_fetches_and_cached_catalogs() {
             .raw_model_catalog(RefreshStrategy::Online, DEFAULT_HTTP_CLIENT_FACTORY)
             .await
             .models,
-        bundled
+        empty_catalog
     );
-    assert_eq!(manager.try_get_remote_models().unwrap(), bundled);
+    assert_eq!(manager.try_get_remote_models().unwrap(), empty_catalog);
     assert_eq!(endpoint.fetch_count(), 1);
 
     // A new session must honor its startup flag even when a matching disk cache exists.
@@ -58,7 +58,7 @@ async fn model_discovery_flag_controls_fetches_and_cached_catalogs() {
         let restarted =
             OpenAiModelsManager::new(home.path().into(), endpoint.clone(), Some(auth.clone()));
         restarted.set_api_key_model_discovery_enabled(enabled);
-        let expected = if enabled { &models } else { &bundled };
+        let expected = if enabled { &models } else { &empty_catalog };
         for strategy in [RefreshStrategy::Offline, RefreshStrategy::OnlineIfUncached] {
             assert_eq!(
                 &restarted

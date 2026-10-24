@@ -44,6 +44,10 @@ async fn system_alias_patch_creates_multiple_files_and_missing_parents_without_r
     );
     let server = start_mock_server().await;
     let test = test_codex()
+        .with_model_info_override("gpt-5.5", |model| {
+            model.apply_patch_tool_type =
+                Some(codex_protocol::openai_models::ApplyPatchToolType::Freeform);
+        })
         .with_config(|config| {
             config.approvals_reviewer = ApprovalsReviewer::AutoReview;
             config

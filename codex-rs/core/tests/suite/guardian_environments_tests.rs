@@ -41,6 +41,8 @@ async fn guardian_reviews_target_environment_and_reuses_prefix(tool: &str) -> Re
             .expect("configure asynchronous review");
         })
         .with_model_info_override("guardian-environments-parent", |model| {
+            model.apply_patch_tool_type =
+                Some(codex_protocol::openai_models::ApplyPatchToolType::Freeform);
             model.guardian = None;
             model.auto_review_model_override = Some("gpt-5.5".to_owned());
         })

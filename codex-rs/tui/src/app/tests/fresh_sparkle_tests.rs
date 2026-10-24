@@ -53,8 +53,11 @@ async fn choose_model(
     preset.model = model.into();
     preset.display_name = model.into();
     preset.show_in_picker = true;
-    preset.supported_reasoning_efforts.truncate(/*len*/ 1);
-    preset.default_reasoning_effort = preset.supported_reasoning_efforts[0].effort.clone();
+    preset.supported_reasoning_efforts = vec![ReasoningEffortPreset {
+        effort: ReasoningEffortConfig::Medium,
+        description: "Test reasoning effort".to_string(),
+    }];
+    preset.default_reasoning_effort = ReasoningEffortConfig::Medium;
     app.chat_widget.open_model_popup_with_presets(vec![preset]);
     app.chat_widget
         .handle_key_event(KeyEvent::new(key, KeyModifiers::NONE));
