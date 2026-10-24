@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::fs::OpenOptions;
 use std::fs::{self};
 use std::io::Read;
 use std::io::Write;
@@ -50,8 +51,16 @@ pub struct Args {
     pub http_shutdown: bool,
 
     /// Absolute URL the proxy should forward requests to.
-    #[arg(long)]
-    pub upstream_url: String,
+    #[arg(long, required_unless_present = "listen")]
+    pub upstream_url: Option<String>,
+
+    /// Unix listener for the configured Steve providers.
+    #[arg(long, requires = "client_config", conflicts_with_all = ["upstream_url", "port", "server_info", "http_shutdown", "dump_dir"])]
+    pub listen: Option<String>,
+
+    /// Publish the sanitized native client configuration after binding.
+    #[arg(long, requires = "listen")]
+    pub client_config: Option<PathBuf>,
 
     /// Directory where request/response dumps should be written as JSON.
     #[arg(long, value_name = "DIR")]
@@ -66,14 +75,25 @@ struct ServerInfo {
 
 struct ForwardConfig {
     upstream_url: Url,
-    host_header: HeaderValue,
+    headers: HeaderMap,
+}
+
+/// Fixed upstream destinations and headers resolved by Steve's native provider loader.
+pub struct ConfiguredRoute {
+    pub provider: String,
+    pub models_url: Url,
+    pub responses_url: Url,
+    pub headers: HeaderMap,
 }
 
 /// Entry point for the library main, for parity with other crates.
 pub fn run_main(args: Args) -> Result<()> {
+    let upstream = args
+        .upstream_url
+        .context("use steve responses-api-proxy for configured providers")?;
     let auth_header = read_auth_header_from_stdin()?;
 
-    let upstream_url = Url::parse(&args.upstream_url).context("parsing --upstream-url")?;
+    let upstream_url = Url::parse(&upstream).context("parsing --upstream-url")?;
     let host = match (upstream_url.host_str(), upstream_url.port()) {
         (Some(host), Some(port)) => format!("{host}:{port}"),
         (Some(host), None) => host.to_string(),
@@ -82,9 +102,14 @@ pub fn run_main(args: Args) -> Result<()> {
     let host_header =
         HeaderValue::from_str(&host).context("constructing Host header from upstream URL")?;
 
+    let mut headers = HeaderMap::new();
+    let mut auth_header_value = HeaderValue::from_static(auth_header);
+    auth_header_value.set_sensitive(true);
+    headers.insert(AUTHORIZATION, auth_header_value);
+    headers.insert(HOST, host_header);
     let forward_config = Arc::new(ForwardConfig {
         upstream_url,
-        host_header,
+        headers,
     });
     let dump_dir = args
         .dump_dir
@@ -121,19 +146,99 @@ pub fn run_main(args: Args) -> Result<()> {
                 std::process::exit(0);
             }
 
-            if let Err(e) = forward_request(
-                &client,
-                auth_header,
-                &forward_config,
-                dump_dir.as_deref(),
-                request,
-            ) {
+            if request.method() != &Method::Post || request.url() != "/v1/responses" {
+                let _ = request.respond(Response::new_empty(StatusCode(403)));
+                return;
+            }
+
+            if let Err(e) = forward_request(&client, &forward_config, dump_dir.as_deref(), request)
+            {
                 eprintln!("forwarding error: {e}");
             }
         });
     }
 
     Err(anyhow!("server stopped unexpectedly"))
+}
+
+/// Serve the already-resolved configured routes without loading configuration or credentials.
+#[cfg(unix)]
+pub fn run_configured(
+    listen: &str,
+    client_config_path: &Path,
+    routes: Vec<ConfiguredRoute>,
+    client_config: &[u8],
+) -> Result<()> {
+    let socket_path = listen
+        .strip_prefix("unix://")
+        .context("--listen requires unix://PATH")?;
+    let server = Server::http_unix(Path::new(socket_path))
+        .map_err(|error| anyhow!("binding configured proxy Unix socket failed: {error}"))?;
+    let client = Arc::new(
+        Client::builder()
+            .timeout(None::<Duration>)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .context("building reqwest client")?,
+    );
+    publish_client_config(client_config_path, client_config)?;
+    let routes = Arc::new(routes);
+
+    for request in server.incoming_requests() {
+        let client = client.clone();
+        let routes = routes.clone();
+        std::thread::spawn(move || {
+            let Some(config) = configured_destination(&routes, request.method(), request.url())
+            else {
+                let _ = request.respond(Response::new_empty(StatusCode(403)));
+                return;
+            };
+            if let Err(error) = forward_request(&client, &config, None, request) {
+                eprintln!("forwarding error: {error}");
+            }
+        });
+    }
+    Err(anyhow!("server stopped unexpectedly"))
+}
+
+fn configured_destination(
+    routes: &[ConfiguredRoute],
+    method: &Method,
+    path: &str,
+) -> Option<ForwardConfig> {
+    let path = path.split_once('?').map_or(path, |(path, _query)| path);
+    for route in routes {
+        let models_path = format!("/{}/v1/models", route.provider);
+        let upstream_url = if method == &Method::Get && path == models_path {
+            &route.models_url
+        } else if method == &Method::Post && path == format!("/{}/v1/responses", route.provider) {
+            &route.responses_url
+        } else {
+            continue;
+        };
+        return Some(ForwardConfig {
+            upstream_url: upstream_url.clone(),
+            headers: route.headers.clone(),
+        });
+    }
+    None
+}
+
+#[cfg(unix)]
+fn publish_client_config(path: &Path, config: &[u8]) -> Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let temporary = path.with_extension("toml.tmp");
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&temporary)?;
+    file.write_all(config)?;
+    drop(file);
+    fs::rename(temporary, path)?;
+    Ok(())
 }
 
 fn bind_listener(port: Option<u16>) -> Result<(TcpListener, SocketAddr)> {
@@ -163,21 +268,12 @@ fn write_server_info(path: &Path, port: u16) -> Result<()> {
 
 fn forward_request(
     client: &Client,
-    auth_header: &'static str,
     config: &ForwardConfig,
     dump_dir: Option<&ExchangeDumper>,
     mut req: Request,
 ) -> Result<()> {
-    // Only allow POST /v1/responses exactly, no query string.
     let method = req.method().clone();
     let url_path = req.url().to_string();
-    let allow = method == Method::Post && url_path == "/v1/responses";
-
-    if !allow {
-        let resp = Response::new_empty(StatusCode(403));
-        let _ = req.respond(resp);
-        return Ok(());
-    }
 
     // Read request body
     let mut body = Vec::new();
@@ -194,8 +290,7 @@ fn forward_request(
             .ok()
     });
 
-    // Build headers for upstream, forwarding everything from the incoming
-    // request except Authorization (we replace it below).
+    // Client authorization and host headers cannot override the fixed upstream.
     let mut headers = HeaderMap::new();
     for header in req.headers() {
         let name_ascii = header.field.as_str();
@@ -213,16 +308,15 @@ fn forward_request(
         }
     }
 
-    // As part of our effort to to keep `auth_header` secret, we use a
-    // combination of `from_static()` and `set_sensitive(true)`.
-    let mut auth_header_value = HeaderValue::from_static(auth_header);
-    auth_header_value.set_sensitive(true);
-    headers.insert(AUTHORIZATION, auth_header_value);
-
-    headers.insert(HOST, config.host_header.clone());
+    for (name, value) in &config.headers {
+        headers.insert(name, value.clone());
+    }
 
     let upstream_resp = client
-        .post(config.upstream_url.clone())
+        .request(
+            reqwest::Method::from_bytes(method.as_str().as_bytes())?,
+            config.upstream_url.clone(),
+        )
         .headers(headers)
         .body(body)
         .send()
@@ -278,6 +372,15 @@ fn forward_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::net::UnixStream;
+    use std::process::Child;
+    use std::process::Command;
+    use std::process::Stdio;
+    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::Ordering;
+    use std::sync::mpsc;
+    use std::time::Instant;
 
     #[test]
     fn upstream_destination_is_required() {
@@ -290,8 +393,303 @@ mod tests {
             "http://127.0.0.1:43123/responses",
             "https://api.openai.com/v1/responses",
         ] {
-            let args = Args::try_parse_from(["responses-api-proxy", "--upstream-url", url]).unwrap();
-            assert_eq!(args.upstream_url, url);
+            let args =
+                Args::try_parse_from(["responses-api-proxy", "--upstream-url", url]).unwrap();
+            assert_eq!(args.upstream_url.as_deref(), Some(url));
         }
+    }
+
+    #[test]
+    fn configured_arguments_require_the_pair_and_exclude_legacy_options() {
+        let options = [
+            "responses-api-proxy",
+            "--listen",
+            "unix:///tmp/provider.sock",
+            "--client-config",
+            "/tmp/client.toml",
+        ];
+        assert!(Args::try_parse_from(options).is_ok());
+        assert!(Args::try_parse_from(&options[..3]).is_err());
+        assert!(
+            Args::try_parse_from(["responses-api-proxy", "--client-config", "/tmp/client.toml"])
+                .is_err()
+        );
+        for extra in [
+            vec!["--upstream-url", "http://localhost/responses"],
+            vec!["--port", "3128"],
+            vec!["--http-shutdown"],
+            vec!["--server-info", "/tmp/info"],
+            vec!["--dump-dir", "/tmp/dumps"],
+        ] {
+            assert!(Args::try_parse_from(options.into_iter().chain(extra)).is_err());
+        }
+    }
+
+    #[cfg(unix)]
+    struct ProxyFixture {
+        root: PathBuf,
+        child: Child,
+    }
+
+    #[cfg(unix)]
+    impl ProxyFixture {
+        fn start(upstream: &str) -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let root = std::env::temp_dir().join(format!(
+                "configured-proxy-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&root).unwrap();
+            let log = File::create(root.join("child.log")).unwrap();
+            let child = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "tests::configured_server_child",
+                    "--nocapture",
+                ])
+                .env("CONFIGURED_PROXY_TEST_ROOT", &root)
+                .env("CONFIGURED_PROXY_TEST_UPSTREAM", upstream)
+                .stdout(Stdio::from(log.try_clone().unwrap()))
+                .stderr(Stdio::from(log))
+                .spawn()
+                .unwrap();
+            let mut fixture = Self { root, child };
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !fixture.root.join("client.toml").exists() {
+                assert!(
+                    fixture.child.try_wait().unwrap().is_none(),
+                    "{}",
+                    fs::read_to_string(fixture.root.join("child.log")).unwrap()
+                );
+                assert!(Instant::now() < deadline, "proxy readiness timed out");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            assert!(fixture.root.join("provider.sock").exists());
+            assert_eq!(
+                fs::read(fixture.root.join("client.toml")).unwrap(),
+                b"model='alpha/native/id'\n"
+            );
+            fixture
+        }
+
+        fn request(&self, method: &str, path: &str, body: &str) -> String {
+            let mut stream = UnixStream::connect(self.root.join("provider.sock")).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            write!(stream, "{method} {path} HTTP/1.1\r\nHost: hostile.invalid\r\nAuthorization: Bearer client-secret\r\nX-Provider-Header: client-value\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).unwrap();
+            response
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for ProxyFixture {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            self.child.wait().unwrap();
+            fs::remove_dir_all(&self.root).unwrap();
+        }
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture"]
+    #[cfg(unix)]
+    fn configured_server_child() {
+        let root = PathBuf::from(std::env::var_os("CONFIGURED_PROXY_TEST_ROOT").unwrap());
+        let upstream = std::env::var("CONFIGURED_PROXY_TEST_UPSTREAM").unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer upstream-secret"),
+        );
+        headers.insert(
+            "x-provider-header",
+            HeaderValue::from_static("configured-value"),
+        );
+        let routes = vec![
+            ConfiguredRoute {
+                provider: "alpha".into(),
+                models_url: Url::parse(&format!("{upstream}/discovery?api-version=fixed")).unwrap(),
+                responses_url: Url::parse(&format!("{upstream}/responses")).unwrap(),
+                headers,
+            },
+            ConfiguredRoute {
+                provider: "beta".into(),
+                models_url: Url::parse(&format!("{upstream}/v1/models")).unwrap(),
+                responses_url: Url::parse(&format!("{upstream}/v1/responses")).unwrap(),
+                headers: HeaderMap::new(),
+            },
+        ];
+        run_configured(
+            &format!("unix://{}", root.join("provider.sock").display()),
+            &root.join("client.toml"),
+            routes,
+            b"model='alpha/native/id'\n",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn configured_proxy_keeps_fixed_routes_native_body_and_provider_headers() {
+        let upstream = Server::http("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", upstream.server_addr());
+        let (sender, receiver) = mpsc::channel();
+        let upstream_thread = std::thread::spawn(move || {
+            for _ in 0..5 {
+                let mut request = upstream.recv().unwrap();
+                let mut body = String::new();
+                request.as_reader().read_to_string(&mut body).unwrap();
+                sender
+                    .send((
+                        request.method().to_string(),
+                        request.url().to_string(),
+                        request.headers().to_vec(),
+                        body,
+                    ))
+                    .unwrap();
+                request
+                    .respond(Response::from_string("data: result\n\n"))
+                    .unwrap();
+            }
+        });
+        let proxy = ProxyFixture::start(&origin);
+        for (method, path, body, expected_path, authenticated) in [
+            (
+                "GET",
+                "/alpha/v1/models?client_version=0.0.0",
+                "",
+                "/discovery?api-version=fixed",
+                true,
+            ),
+            (
+                "GET",
+                "/alpha/v1/models?arbitrary=ignored&client_version=also-ignored",
+                "",
+                "/discovery?api-version=fixed",
+                true,
+            ),
+            (
+                "POST",
+                "/alpha/v1/responses",
+                r#"{"model":"native/id","input":"hello"}"#,
+                "/responses",
+                true,
+            ),
+            (
+                "POST",
+                "/alpha/v1/responses?arbitrary=ignored",
+                r#"{"model":"native/id","input":"query ignored"}"#,
+                "/responses",
+                true,
+            ),
+            (
+                "POST",
+                "/beta/v1/responses",
+                r#"{"model":"native/id","input":"again"}"#,
+                "/v1/responses",
+                false,
+            ),
+        ] {
+            let response = proxy.request(method, path, body);
+            assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+            assert!(response.ends_with("data: result\n\n"));
+            let (actual_method, actual_path, headers, actual_body) =
+                receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert_eq!(actual_method, method);
+            assert_eq!(actual_path, expected_path);
+            assert_eq!(actual_body, body);
+            let authorization = headers
+                .iter()
+                .find(|header| header.field.equiv("Authorization"))
+                .map(|header| header.value.as_str());
+            assert_eq!(
+                authorization,
+                authenticated.then_some("Bearer upstream-secret")
+            );
+            if authenticated {
+                assert_eq!(
+                    headers
+                        .iter()
+                        .find(|header| header.field.equiv("X-Provider-Header"))
+                        .unwrap()
+                        .value
+                        .as_str(),
+                    "configured-value"
+                );
+            }
+            assert!(
+                !headers
+                    .iter()
+                    .any(|header| header.value.as_str().contains("hostile.invalid"))
+            );
+        }
+        for (method, path) in [
+            ("GET", "/unknown/v1/models"),
+            ("POST", "/alpha/v1/models"),
+            ("GET", "/alpha/v1/responses"),
+            ("CONNECT", "example.com:443"),
+            ("GET", "/shutdown"),
+        ] {
+            assert!(proxy.request(method, path, "").starts_with("HTTP/1.1 403"));
+        }
+        upstream_thread.join().unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn configured_proxy_does_not_follow_upstream_redirects() {
+        let upstream = Server::http("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", upstream.server_addr());
+        let target = format!("{origin}/unexpected-destination");
+        let thread = std::thread::spawn(move || {
+            let request = upstream.recv().unwrap();
+            request
+                .respond(
+                    Response::new_empty(StatusCode(302))
+                        .with_header(Header::from_bytes("Location", target).unwrap()),
+                )
+                .unwrap();
+        });
+        let proxy = ProxyFixture::start(&origin);
+        assert!(
+            proxy
+                .request("GET", "/alpha/v1/models", "")
+                .starts_with("HTTP/1.1 302")
+        );
+        thread.join().unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn startup_failures_do_not_publish_client_config() {
+        let root = std::env::temp_dir().join(format!(
+            "configured-proxy-bind-failure-{}",
+            std::process::id()
+        ));
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("provider.sock"), "occupied").unwrap();
+        let result = run_configured(
+            &format!("unix://{}", root.join("provider.sock").display()),
+            &root.join("client.toml"),
+            vec![],
+            b"config",
+        );
+        assert!(result.is_err());
+        assert!(!root.join("client.toml").exists());
+        fs::remove_file(root.join("provider.sock")).unwrap();
+        let result = run_configured(
+            &format!("unix://{}", root.join("provider.sock").display()),
+            &root.join("missing-parent/client.toml"),
+            vec![],
+            b"config",
+        );
+        assert!(result.is_err());
+        assert!(!root.join("missing-parent/client.toml").exists());
+        fs::remove_dir_all(root).unwrap();
     }
 }

@@ -1063,6 +1063,8 @@ pub struct Config {
 
     /// Optional metadata overlay loaded from `model_catalog_json`.
     pub model_catalog: Option<ModelsResponse>,
+    /// Resolved overlay source for exact read-only file handoff.
+    pub model_catalog_json: Option<AbsolutePathBuf>,
 
     /// Optional verbosity control for GPT-5 models (Responses API `text.verbosity`).
     pub model_verbosity: Option<Verbosity>,
@@ -4714,6 +4716,7 @@ impl Config {
             plan_mode_reasoning_effort: cfg.plan_mode_reasoning_effort,
             model_reasoning_summary: cfg.model_reasoning_summary,
             model_catalog,
+            model_catalog_json: cfg.model_catalog_json,
             model_verbosity: cfg.model_verbosity,
             chatgpt_base_url: cfg.chatgpt_base_url.unwrap_or_default(),
             chatgpt_path_style: cfg.chatgpt_path_style.unwrap_or_default(),
