@@ -23,7 +23,6 @@ use serde::de::DeserializeOwned;
 use serde::de::Error;
 use strum_macros::Display;
 use strum_macros::EnumIter;
-use tracing::warn;
 use ts_rs::TS;
 
 use crate::config_types::ReasoningSummary;
@@ -860,7 +859,10 @@ pub struct ModelsResponse {
 struct ModelInfoWithLegacyBaseInstructionsRef<'a> {
     #[serde(flatten)]
     model: &'a ModelInfo,
-    base_instructions: String,
+    // Absent, not empty, when the model has no template: an empty legacy field
+    // would read back as an explicitly empty template.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    base_instructions: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -885,19 +887,10 @@ where
         .iter()
         .map(|model| {
             // Mirror the literal instruction template for clients using the deprecated wire field.
-            let base_instructions = if let Some(template) = model
+            let base_instructions = model
                 .model_messages
                 .as_ref()
-                .and_then(|messages| messages.instructions_template.as_deref())
-            {
-                template.to_owned()
-            } else {
-                warn!(
-                    model = %model.slug,
-                    "Model has no instruction template; returning empty instructions."
-                );
-                String::new()
-            };
+                .and_then(|messages| messages.instructions_template.clone());
             ModelInfoWithLegacyBaseInstructionsRef {
                 model,
                 base_instructions,
@@ -1458,8 +1451,7 @@ mod tests {
         value["models"][0]
             .as_object_mut()
             .expect("model should serialize as an object")
-            .remove("base_instructions")
-            .expect("serialized model should include legacy base instructions");
+            .remove("base_instructions");
 
         let response: ModelsResponse =
             serde_json::from_value(value).expect("model without instructions deserializes");
@@ -1481,7 +1473,6 @@ mod tests {
                 "before {{ personality }} after",
             ),
             (Some(""), ""),
-            (None, ""),
         ] {
             let response = ModelsResponse {
                 models: vec![test_model(Some(ModelMessages {
@@ -1492,6 +1483,25 @@ mod tests {
             let serialized = serde_json::to_value(response).expect("serialize models response");
             assert_eq!(serialized["models"][0]["base_instructions"], expected);
         }
+    }
+
+    #[test]
+    fn models_response_round_trips_model_without_template() {
+        let response = ModelsResponse {
+            models: vec![test_model(Some(ModelMessages::default()))],
+        };
+        let serialized = serde_json::to_value(&response).expect("serialize models response");
+        assert!(serialized["models"][0].get("base_instructions").is_none());
+
+        let restored: ModelsResponse =
+            serde_json::from_value(serialized).expect("deserialize models response");
+        assert_eq!(
+            restored.models[0]
+                .model_messages
+                .as_ref()
+                .and_then(|messages| messages.instructions_template.as_deref()),
+            None
+        );
     }
 
     #[test]

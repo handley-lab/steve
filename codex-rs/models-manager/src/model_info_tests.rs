@@ -248,6 +248,24 @@ fn catalog_model_without_instructions_inherits_builtin_template() {
 }
 
 #[test]
+fn builtin_template_fill_keeps_other_model_messages() {
+    let mut model = model_info_from_slug("catalog-model");
+    model.model_messages = Some(ModelMessages {
+        persistent_instructions: Some("Persistent catalog instructions".to_string()),
+        ..Default::default()
+    });
+
+    let updated = with_config_overrides(model, &ModelsManagerConfig::default());
+
+    let messages = updated.model_messages.as_ref().expect("model messages");
+    assert_eq!(messages.instructions_template.as_deref(), Some(BASE_INSTRUCTIONS));
+    assert_eq!(
+        messages.persistent_instructions.as_deref(),
+        Some("Persistent catalog instructions")
+    );
+}
+
+#[test]
 fn model_context_window_override_clamps_to_max_context_window() {
     let mut model = model_info_from_slug("unknown-model");
     model.context_window = Some(273_000);
