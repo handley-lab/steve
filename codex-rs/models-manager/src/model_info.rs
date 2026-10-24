@@ -43,6 +43,17 @@ pub fn with_config_overrides(mut model: ModelInfo, config: &ModelsManagerConfig)
         };
     }
 
+    // A catalogue row with no instructions inherits the bundled template, as the
+    // unknown-model fallback does.
+    if model
+        .model_messages
+        .as_ref()
+        .and_then(|messages| messages.instructions_template.as_ref())
+        .is_none()
+    {
+        model.model_messages.get_or_insert_default().instructions_template =
+            Some(BASE_INSTRUCTIONS.to_string());
+    }
     if let Some(base_instructions) = &config.base_instructions {
         let model_messages = model.model_messages.get_or_insert_default();
         model_messages.instructions_template = Some(base_instructions.clone());

@@ -237,6 +237,17 @@ fn unknown_model_uses_builtin_instruction_template() {
 }
 
 #[test]
+fn catalog_model_without_instructions_inherits_builtin_template() {
+    let mut model = model_info_from_slug("catalog-model");
+    model.model_messages = None;
+    model.used_fallback_model_metadata = false;
+
+    let updated = with_config_overrides(model, &ModelsManagerConfig::default());
+
+    assert_eq!(render_model_instructions(&updated), BASE_INSTRUCTIONS);
+}
+
+#[test]
 fn model_context_window_override_clamps_to_max_context_window() {
     let mut model = model_info_from_slug("unknown-model");
     model.context_window = Some(273_000);

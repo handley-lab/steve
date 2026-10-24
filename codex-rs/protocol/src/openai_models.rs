@@ -908,7 +908,8 @@ where
 }
 
 /// Deserializes catalog models while promoting the legacy top-level instruction field into Model
-/// Messages V2 when no canonical instruction template is present.
+/// Messages V2 when no canonical instruction template is present. A model with neither keeps
+/// `instructions_template` unset; the models manager supplies the bundled template.
 #[doc(hidden)]
 pub fn deserialize_model_infos_with_legacy_base<'de, D>(
     deserializer: D,
@@ -933,18 +934,6 @@ where
             {
                 let messages = model.model_messages.get_or_insert_default();
                 messages.instructions_template = Some(base_instructions);
-            }
-            if model
-                .model_messages
-                .as_ref()
-                .and_then(|messages| messages.instructions_template.as_ref())
-                .is_none()
-            {
-                let model_slug = &model.slug;
-                return Err(D::Error::custom(format!(
-                    "model `{model_slug}` is missing both `base_instructions` and \
-                     `model_messages.instructions_template`"
-                )));
             }
             Ok(model)
         })
@@ -1461,7 +1450,7 @@ mod tests {
     }
 
     #[test]
-    fn models_response_rejects_model_without_instruction_source() {
+    fn models_response_accepts_model_without_instruction_source() {
         let mut value = serde_json::to_value(ModelsResponse {
             models: vec![test_model(/*spec*/ None)],
         })
@@ -1472,13 +1461,15 @@ mod tests {
             .remove("base_instructions")
             .expect("serialized model should include legacy base instructions");
 
-        let error = serde_json::from_value::<ModelsResponse>(value)
-            .expect_err("model without instructions should be rejected");
+        let response: ModelsResponse =
+            serde_json::from_value(value).expect("model without instructions deserializes");
 
         assert_eq!(
-            error.to_string(),
-            "model `test-model` is missing both `base_instructions` and \
-             `model_messages.instructions_template`"
+            response.models[0]
+                .model_messages
+                .as_ref()
+                .and_then(|messages| messages.instructions_template.as_deref()),
+            None
         );
     }
 
