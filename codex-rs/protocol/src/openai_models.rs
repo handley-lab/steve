@@ -267,6 +267,8 @@ pub struct ModelPreset {
     pub available_access_programs: Option<ModelAccessPrograms>,
     /// Whether this is the default model for new users.
     pub is_default: bool,
+    #[serde(default)]
+    pub is_provider_default: bool,
     /// recommended upgrade model
     pub upgrade: Option<ModelUpgrade>,
     /// Whether this preset should appear in the picker UI.
@@ -405,6 +407,14 @@ const fn is_true(value: &bool) -> bool {
 /// Model metadata returned by the Codex backend `/models` endpoint.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, TS, JsonSchema)]
 pub struct ModelInfo {
+    /// Known non-chat model when discovery does not advertise a mode.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub non_chat: bool,
+    /// The service's explicit chat classification; None leaves classification to metadata.
+    #[serde(skip)]
+    #[schemars(skip)]
+    #[ts(skip)]
+    pub discovered_non_chat: Option<bool>,
     /// Model-owned approval coverage. Absent preserves legacy settings; an empty map disables
     /// ordinary Guardian review. Keys are computer_use, shell, file_changes, mcp, network,
     /// and permissions. This does not override mandatory safety or administrator requirements.
@@ -514,6 +524,60 @@ pub struct ModelInfo {
 }
 
 impl ModelInfo {
+    /// Minimal metadata for a live OpenAI-compatible model ID.
+    pub fn from_discovery_id(slug: String, mode: Option<String>) -> Self {
+        Self {
+            display_name: slug.clone(),
+            slug,
+            non_chat: false,
+            discovered_non_chat: mode.as_deref().map(|mode| mode != "chat"),
+            guardian: None,
+            description: None,
+            default_reasoning_level: None,
+            supported_reasoning_levels: Vec::new(),
+            shell_type: ConfigShellToolType::UnifiedExec,
+            visibility: ModelVisibility::List,
+            supported_in_api: true,
+            priority: 0,
+            additional_speed_tiers: Vec::new(),
+            service_tiers: Vec::new(),
+            default_service_tier: None,
+            available_access_programs: None,
+            availability_nux: None,
+            upgrade: None,
+            model_messages: None,
+            include_skills_usage_instructions: false,
+            include_plugin_usage_instructions: false,
+            include_apps_usage_instructions: false,
+            supports_reasoning_summary_parameter: false,
+            default_reasoning_summary: ReasoningSummary::None,
+            support_verbosity: false,
+            default_verbosity: None,
+            apply_patch_tool_type: None,
+            web_search_tool_type: WebSearchToolType::Text,
+            truncation_policy: TruncationPolicyConfig::bytes(10_000),
+            supports_image_detail_original: false,
+            context_window: None,
+            max_context_window: None,
+            auto_compact_token_limit: None,
+            comp_hash: None,
+            effective_context_window_percent: 100,
+            experimental_supported_tools: Vec::new(),
+            input_modalities: vec![InputModality::Text],
+            used_fallback_model_metadata: false,
+            supports_search_tool: false,
+            supports_experimental_context: false,
+            use_responses_lite: false,
+            supports_reasoning_effort_updates: false,
+            node_repl_auto_review_required: false,
+            node_repl_disabled: false,
+            auto_review_model_override: None,
+            model_specialty: None,
+            tool_mode: None,
+            multi_agent_version: None,
+            multi_agent_reasoning_effort: None,
+        }
+    }
     pub fn resolved_context_window(&self) -> Option<i64> {
         self.context_window.or(self.max_context_window)
     }
@@ -937,6 +1001,7 @@ where
 impl From<ModelInfo> for ModelPreset {
     fn from(info: ModelInfo) -> Self {
         ModelPreset {
+            is_provider_default: false,
             id: info.slug.clone(),
             model: info.slug.clone(),
             display_name: info.display_name,
@@ -1040,6 +1105,8 @@ mod tests {
 
     pub(super) fn test_model(spec: Option<ModelMessages>) -> ModelInfo {
         ModelInfo {
+            non_chat: false,
+            discovered_non_chat: None,
             slug: "test-model".to_string(),
             display_name: "Test Model".to_string(),
             description: None,

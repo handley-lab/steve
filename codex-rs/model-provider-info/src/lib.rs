@@ -141,6 +141,8 @@ pub struct ModelProviderInfo {
     pub base_url: Option<String>,
     /// Optional full URL for a Codex-native model catalog.
     pub model_catalog_url: Option<RedactedString>,
+    /// Explicit native model selected when this provider is requested without a model.
+    pub default_model: Option<String>,
     /// Environment variable that stores the user's API key for this provider.
     pub env_key: Option<String>,
 
@@ -524,6 +526,7 @@ other non-default provider fields are not supported"
             name: OPENAI_PROVIDER_NAME.into(),
             base_url,
             model_catalog_url: None,
+            default_model: None,
             env_key: None,
             env_key_instructions: None,
             experimental_bearer_token: None,
@@ -559,6 +562,7 @@ other non-default provider fields are not supported"
             name: AMAZON_BEDROCK_PROVIDER_NAME.into(),
             base_url: None,
             model_catalog_url: None,
+            default_model: None,
             env_key: None,
             env_key_instructions: None,
             experimental_bearer_token: None,
@@ -719,6 +723,7 @@ pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> M
         name: "gpt-oss".into(),
         base_url: Some(base_url.into()),
         model_catalog_url: None,
+        default_model: None,
         env_key: None,
         env_key_instructions: None,
         experimental_bearer_token: None,

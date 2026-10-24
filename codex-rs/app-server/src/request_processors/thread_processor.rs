@@ -282,6 +282,7 @@ fn has_model_resume_override(
 ) -> bool {
     typesafe_overrides.model.is_some()
         || typesafe_overrides.model_provider.is_some()
+        || request_overrides.is_some_and(|overrides| overrides.contains_key("model_provider"))
         || request_overrides.is_some_and(|overrides| overrides.contains_key("model"))
         || request_overrides
             .is_some_and(|overrides| overrides.contains_key("model_reasoning_effort"))
@@ -1636,7 +1637,7 @@ impl ThreadRequestProcessor {
         let response = ThreadStartResponse {
             thread: thread.clone(),
             disabled_plugin_ids: config_snapshot.disabled_plugin_ids,
-            model: config_snapshot.model,
+            model: format!("{}/{}", config_snapshot.model_provider_id, config_snapshot.model),
             model_provider: config_snapshot.model_provider_id,
             service_tier: config_snapshot.service_tier,
             cwd,
@@ -4402,7 +4403,7 @@ impl ThreadRequestProcessor {
                 let response = ThreadResumeResponse {
                     thread,
                     disabled_plugin_ids: config_snapshot.disabled_plugin_ids,
-                    model: session_configured.model,
+                    model: format!("{}/{}", session_configured.model_provider_id, session_configured.model),
                     model_provider: session_configured.model_provider_id,
                     service_tier: session_configured.service_tier,
                     cwd: session_configured.cwd,
@@ -4413,7 +4414,10 @@ impl ThreadRequestProcessor {
                     sandbox,
                     active_permission_profile,
                     reasoning_effort: session_configured.reasoning_effort,
-                    collaboration_mode: Some(config_snapshot.collaboration_mode),
+                    collaboration_mode: Some(config_snapshot.collaboration_mode.with_updates(
+                        Some(format!("{}/{}", config_snapshot.model_provider_id, config_snapshot.model)),
+                        None, None,
+                    )),
                     multi_agent_mode: MultiAgentMode::ExplicitRequestOnly,
                     initial_turns_page,
                     turns_backwards_cursor,
@@ -5318,6 +5322,16 @@ impl ThreadRequestProcessor {
         let needs_latest_settings =
             restore_approval_policy || restore_approvals_reviewer || restore_permission_profile;
         let loaded_parent = self.thread_manager.get_thread(source_thread_id).await.ok();
+        if !has_model_resume_override(request_overrides.as_ref(), &typesafe_overrides) {
+            if let Some(parent) = &loaded_parent {
+                let snapshot = parent.config_snapshot().await;
+                typesafe_overrides.model = Some(snapshot.model);
+                typesafe_overrides.model_provider = Some(snapshot.model_provider_id);
+            } else {
+                typesafe_overrides.model = source_thread.model.clone();
+                typesafe_overrides.model_provider = Some(source_thread.model_provider.clone());
+            }
+        }
         let loaded_parent_settings = if paginated_source && needs_latest_settings {
             if let Some(parent) = loaded_parent.as_ref() {
                 let snapshot = parent.thread_settings_snapshot().await;
@@ -5672,7 +5686,7 @@ impl ThreadRequestProcessor {
         let response = ThreadForkResponse {
             thread: thread.clone(),
             disabled_plugin_ids: config_snapshot.disabled_plugin_ids,
-            model: config_snapshot.model.clone(),
+            model: format!("{}/{}", config_snapshot.model_provider_id, config_snapshot.model),
             model_provider: session_configured.model_provider_id,
             service_tier: config_snapshot.service_tier.clone(),
             cwd: session_configured.cwd,
@@ -6395,6 +6409,12 @@ pub(crate) fn thread_from_stored_thread(
     );
     let history = thread.history;
     let thread_id = thread.thread_id.to_string();
+    let model_provider = if thread.model_provider.is_empty() {
+        fallback_provider.to_string()
+    } else {
+        thread.model_provider
+    };
+    let model = thread.model.map(|model| format!("{model_provider}/{model}"));
     let thread = Thread {
         id: thread_id.clone(),
         environments: None,
@@ -6419,12 +6439,8 @@ pub(crate) fn thread_from_stored_thread(
             .map(|entered_at| entered_at.timestamp()),
         project_id: thread.project_id,
         history_mode: thread.history_mode.into(),
-        model_provider: if thread.model_provider.is_empty() {
-            fallback_provider.to_string()
-        } else {
-            thread.model_provider
-        },
-        model: thread.model,
+        model_provider,
+        model,
         reasoning_effort: thread.reasoning_effort,
         created_at: thread.created_at.timestamp(),
         updated_at: thread.updated_at.timestamp(),
@@ -6606,7 +6622,7 @@ fn build_thread_from_snapshot(
         project_id: None,
         history_mode: config_snapshot.history_mode.into(),
         model_provider: config_snapshot.model_provider_id.clone(),
-        model: Some(config_snapshot.model.clone()),
+        model: Some(format!("{}/{}", config_snapshot.model_provider_id, config_snapshot.model)),
         reasoning_effort: config_snapshot.reasoning_effort.clone(),
         created_at: now,
         updated_at: now,

@@ -97,8 +97,8 @@ pub(crate) struct SessionServices {
     pub(crate) thread_store: Arc<dyn ThreadStore>,
     pub(crate) attestation_provider: Option<Arc<dyn AttestationProvider>>,
     pub(crate) time_provider: Arc<dyn TimeProvider>,
-    /// Session-scoped model client shared across turns.
-    pub(crate) model_client: ModelClient,
+    /// Current client; captured turns retain their own clone when the route changes.
+    pub(crate) model_client: ArcSwap<ModelClient>,
     pub(crate) executed_tool_calls: ExecutedToolCalls,
     pub(crate) code_mode_service: CodeModeService,
     pub(crate) tool_search_handler_cache: ToolSearchHandlerCache,

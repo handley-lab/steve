@@ -2791,6 +2791,14 @@ class ModelProviderCapabilitiesReadResponse(BaseModel):
     web_search: Annotated[bool, Field(alias="webSearch")]
 
 
+class ModelProviderError(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    message: str
+    provider: str
+
+
 class ModelRerouteReason(RootModel[Literal["highRiskCyberActivity"]]):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -8844,6 +8852,7 @@ class Model(BaseModel):
         "image",
     ]
     is_default: Annotated[bool, Field(alias="isDefault")]
+    is_provider_default: Annotated[bool | None, Field(alias="isProviderDefault")] = False
     model: str
     model_specialty: Annotated[str | None, Field(alias="modelSpecialty")] = None
     multi_agent_version: Annotated[
@@ -8887,6 +8896,7 @@ class ModelListResponse(BaseModel):
             description="Opaque cursor to pass to the next call to continue after the last item. If None, there are no more items to return.",
         ),
     ] = None
+    provider_errors: Annotated[list[ModelProviderError] | None, Field(alias="providerErrors")] = []
 
 
 class NewThreadModelDefaults(BaseModel):
@@ -10395,7 +10405,7 @@ class ThreadSettings(BaseModel):
         ),
     ] = []
     effort: ReasoningEffort | None = None
-    model: str
+    model: Annotated[str, Field(description="Canonical selection `provider/native-model-id`.")]
     model_provider: Annotated[str, Field(alias="modelProvider")]
     personality: Annotated[
         Personality | None,
@@ -12252,7 +12262,7 @@ class Thread(BaseModel):
     model: Annotated[
         str | None,
         Field(
-            description="Current configured model when loaded, otherwise the latest persisted model. Null when unavailable. This is not per-turn execution telemetry."
+            description="Canonical `provider/native-model-id` selection when loaded, otherwise the latest persisted selection. Null when unavailable. This is not per-turn execution telemetry."
         ),
     ] = None
     model_provider: Annotated[
@@ -12375,7 +12385,7 @@ class ThreadForkResponse(BaseModel):
             description="Environment-native paths to instruction source files currently loaded for this thread.",
         ),
     ] = []
-    model: str
+    model: Annotated[str, Field(description="Canonical selection `provider/native-model-id`.")]
     model_provider: Annotated[str, Field(alias="modelProvider")]
     reasoning_effort: Annotated[ReasoningEffort | None, Field(alias="reasoningEffort")] = None
     sandbox: Annotated[
@@ -12464,7 +12474,7 @@ class ThreadResumeResponse(BaseModel):
             description='Opaque cursor for hydrating paginated items backwards.\n\nPass this as `cursor` to `thread/items/list` with `sortDirection: "desc"`. The first page includes the item identified by the cursor.',
         ),
     ] = None
-    model: str
+    model: Annotated[str, Field(description="Canonical selection `provider/native-model-id`.")]
     model_provider: Annotated[str, Field(alias="modelProvider")]
     reasoning_effort: Annotated[ReasoningEffort | None, Field(alias="reasoningEffort")] = None
     sandbox: Annotated[
@@ -12545,7 +12555,7 @@ class ThreadStartResponse(BaseModel):
             description="Environment-native paths to instruction source files currently loaded for this thread.",
         ),
     ] = []
-    model: str
+    model: Annotated[str, Field(description="Canonical selection `provider/native-model-id`.")]
     model_provider: Annotated[str, Field(alias="modelProvider")]
     reasoning_effort: Annotated[ReasoningEffort | None, Field(alias="reasoningEffort")] = None
     sandbox: Annotated[

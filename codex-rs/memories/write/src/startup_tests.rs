@@ -659,7 +659,8 @@ async fn memories_startup_phase1_uses_live_thread_service_tier_and_detached_meta
             test.config.model.as_deref().unwrap_or("gpt-5.4-mini"),
             ReasoningEffort::Low,
         )
-        .await;
+        .await
+        .expect("stage-one model metadata");
     assert_eq!(
         request_context.service_tier,
         Some(ServiceTier::Fast.request_value().to_string())

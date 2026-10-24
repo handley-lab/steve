@@ -10039,6 +10039,68 @@ async fn model_catalog_json_rejects_empty_catalog() -> std::io::Result<()> {
     Ok(())
 }
 
+#[test]
+fn model_selection_distinguishes_explicit_native_pairs_from_qualified_selectors() {
+    let provider = built_in_model_providers(None)["openai"].clone();
+    let providers = ["cambridge", "moonshotai", "openai"]
+        .into_iter()
+        .map(|id| (id.to_string(), provider.clone()))
+        .collect();
+    let configured = vec!["cambridge".to_string(), "moonshotai".to_string()];
+    for (model, explicit, expected_provider, expected_model) in [
+        (
+            "moonshotai/Kimi-K3",
+            Some("cambridge"),
+            "cambridge",
+            "moonshotai/Kimi-K3",
+        ),
+        ("moonshotai/Kimi-K3", None, "moonshotai", "Kimi-K3"),
+        (
+            "cambridge/moonshotai/Kimi-K3",
+            None,
+            "cambridge",
+            "moonshotai/Kimi-K3",
+        ),
+        ("openai/native-id", None, "cambridge", "openai/native-id"),
+    ] {
+        assert_eq!(
+            super::resolve_model_selection(model, explicit, "cambridge", &providers, &configured)
+                .unwrap(),
+            (expected_provider.to_string(), expected_model.to_string())
+        );
+    }
+    assert!(
+        super::resolve_model_selection(
+            "moonshotai/Kimi-K3",
+            Some("cambrdge"),
+            "cambridge",
+            &providers,
+            &configured
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn model_catalog_json_rejects_duplicate_metadata_keys() -> std::io::Result<()> {
+    let home = TempDir::new()?;
+    let path = home.path().join("catalog.json");
+    let model = codex_protocol::openai_models::ModelInfo::from_discovery_id(
+        "cambridge/moonshotai/Kimi-K3".to_string(),
+        None,
+    );
+    std::fs::write(
+        &path,
+        serde_json::to_vec(&ModelsResponse {
+            models: vec![model.clone(), model],
+        })?,
+    )?;
+    let error = super::load_catalog_json(&path.abs()).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::InvalidData);
+    assert!(error.to_string().contains("unique model slugs"));
+    Ok(())
+}
+
 fn create_test_fixture() -> std::io::Result<PrecedenceTestFixture> {
     let toml = r#"
 model = "o3"

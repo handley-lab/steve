@@ -88,6 +88,9 @@ pub(crate) fn build_model_selection_edits(
     model: &str,
     effort: Option<impl ToString>,
 ) -> Vec<ConfigEdit> {
+    let (provider, native_model) = model
+        .split_once('/')
+        .expect("catalogue selections contain a provider and native model ID");
     let effort_edit = effort.map_or_else(
         || clear_config_value("model_reasoning_effort"),
         |effort| {
@@ -98,7 +101,8 @@ pub(crate) fn build_model_selection_edits(
         },
     );
     vec![
-        replace_config_value("model", serde_json::json!(model)),
+        replace_config_value("model_provider", serde_json::json!(provider)),
+        replace_config_value("model", serde_json::json!(native_model)),
         effort_edit,
     ]
 }

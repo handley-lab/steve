@@ -241,10 +241,11 @@ impl Session {
             });
         }
 
-        if !self.services.model_client.responses_websocket_enabled() {
+        let model_client =
+            self.model_client_for_provider(state.session_configuration.provider.clone());
+        if !model_client.responses_websocket_enabled() {
             // Without websocket prewarm, resolve auth once so Agent Identity bootstrap can
             // register or engage this session's bearer fallback before the first user request.
-            let model_client = self.services.model_client.clone();
             tokio::spawn(async move {
                 if let Err(err) = model_client.prewarm_auth().await {
                     warn!("startup auth prewarm failed: {err:#}");
@@ -307,7 +308,10 @@ async fn schedule_startup_prewarm_inner(
     input: PrewarmInput,
 ) -> CodexResult<ModelClientSession> {
     let prewarm_started_at = Instant::now();
-    let mut client_session = session.services.model_client.new_session();
+    let startup_turn_context = session
+        .new_startup_prewarm_turn_with_sub_id(INITIAL_SUBMIT_ID.to_owned())
+        .await;
+    let mut client_session = startup_turn_context.model_client.new_session();
     let websocket_ready = client_session.is_websocket_prewarmed().await;
     // Count the decision before preparation can fail; fresh clients also need prewarm.
     session.services.session_telemetry.counter(
@@ -329,9 +333,6 @@ async fn schedule_startup_prewarm_inner(
         return Ok(client_session);
     }
     let base_instructions = session.get_prompt_base_instructions().await.text;
-    let startup_turn_context = session
-        .new_startup_prewarm_turn_with_sub_id(INITIAL_SUBMIT_ID.to_owned())
-        .await;
     startup_turn_context.session_telemetry.record_startup_phase(
         "startup_prewarm_create_turn_context",
         prewarm_started_at.elapsed(),

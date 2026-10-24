@@ -159,7 +159,7 @@ pub(crate) async fn finalize(
         session.get_prompt_base_instructions().await,
         session.current_window_uses_incremental_tools(step).await,
     );
-    let request = session.services.model_client.build_responses_request(
+    let request = step.turn.model_client.build_responses_request(
         &prompt,
         model,
         /*effort*/ None,

@@ -343,6 +343,7 @@
           ]
         },
         "model": {
+          "description": "Canonical selection `provider/native-model-id`.",
           "type": "string"
         },
         "modelProvider": {

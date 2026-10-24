@@ -259,11 +259,11 @@ async fn fresh_startup_uses_server_defaults_with_explicit_and_managed_precedence
             false,
             Some("upgraded-model"),
             Some("high"),
-            None,
+            Some("server-second"),
         ),
         ("cli_effort", true, None, Some("low"), None),
-        ("cli_provider", false, None, None, Some("openai")),
-        ("kv_provider", false, None, None, Some("openai")),
+        ("cli_provider", false, None, None, Some("server-second")),
+        ("kv_provider", false, None, None, Some("server-second")),
         (
             "profile_model",
             false,
@@ -282,6 +282,14 @@ async fn fresh_startup_uses_server_defaults_with_explicit_and_managed_precedence
     ] {
         let client_home = tempdir()?;
         let server_home = tempdir()?;
+        let models = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/v1/models"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": (["server-model", "cli-model", "kv-model", "old-model", "upgraded-model", "profile-model", "managed-model"]
+                    .map(|id| serde_json::json!({"id": id})))
+            })))
+            .mount(&models).await;
         std::fs::write(
             client_home.path().join("config.toml"),
             r#"
@@ -293,15 +301,19 @@ name = "Client provider"
 base_url = "http://127.0.0.1:9/v1"
 wire_api = "responses"
 requires_openai_auth = false
+[model_providers.server-second]
+name = "Second provider"
+base_url = "http://127.0.0.1:9/v1"
+wire_api = "responses"
 "#,
         )?;
         std::fs::write(
             server_home.path().join("config.toml"),
-            if choice == "managed" {
+            format!("{}\nmodel_provider = \"client-provider\"\n[model_providers.client-provider]\nname = \"Server\"\nbase_url = \"{}/v1\"\nwire_api = \"responses\"\n[model_providers.server-second]\nname = \"OpenAI fixture\"\nbase_url = \"{}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n", if choice == "managed" {
                 ""
             } else {
                 "model = \"server-model\"\nmodel_reasoning_effort = \"high\"\n"
-            },
+            }, models.uri(), models.uri()),
         )?;
         if managed {
             std::fs::write(
@@ -319,8 +331,8 @@ requires_openai_auth = false
                 ("model".into(), "kv-model".into()),
             ]),
             "migration" => harness_overrides.model = Some("old-model".into()),
-            "cli_provider" => harness_overrides.model_provider = Some("openai".into()),
-            "kv_provider" => cli_kv_overrides.push(("model_provider".into(), "openai".into())),
+            "cli_provider" => harness_overrides.model_provider = Some("server-second".into()),
+            "kv_provider" => cli_kv_overrides.push(("model_provider".into(), "server-second".into())),
             "cli_effort" => cli_kv_overrides.push((
                 "model_reasoning_effort".to_string(),
                 TomlValue::String("low".to_string()),
@@ -352,10 +364,13 @@ requires_openai_auth = false
             .harness_overrides(harness_overrides.clone())
             .build()
             .await?;
-        let mut server_config = config.clone();
-        server_config.codex_home = server_home.path().to_path_buf().abs();
-        server_config.sqlite = SqliteConfig::new_for_testing(server_home.path().abs());
-        server_config.model_catalog = Some(Default::default());
+        let server_config = ConfigBuilder::default()
+            .codex_home(server_home.path().to_path_buf())
+            .loader_overrides(LoaderOverrides {
+                system_requirements_path: Some(server_home.path().join("requirements.toml")),
+                ..LoaderOverrides::without_managed_config_for_tests()
+            })
+            .build().await?;
         let (mut server, requests, proxy) = start_recording_app_server_with_history(
             &server_config,
             HistoryCapabilities::Current,
@@ -399,7 +414,7 @@ requires_openai_auth = false
                 &mut launch_choices,
                 &AppEventSender::new(tx),
                 "old-model".into(),
-                "upgraded-model".into(),
+                "server-second/upgraded-model".into(),
                 ReasoningEffortConfig::High,
             );
         }

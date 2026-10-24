@@ -150,7 +150,7 @@ pub(super) async fn guardian_review_session_config(
                 )
             })?;
     }
-    if review_model.model != context.model_info.slug || models_manager.is_some() {
+    if guardian_model_info.slug != context.model_info.slug || models_manager.is_some() {
         spawn_config.model_context_window = None;
         spawn_config.model_auto_compact_token_limit = None;
     }

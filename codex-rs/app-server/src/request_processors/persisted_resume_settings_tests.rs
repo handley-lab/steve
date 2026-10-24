@@ -63,6 +63,7 @@ fn turn_context_item(
     active_permission_profile: Option<ActivePermissionProfile>,
 ) -> RolloutItem {
     RolloutItem::TurnContext(TurnContextItem {
+        model_provider_id: None,
         turn_id: Some(turn_id.to_string()),
         root_turn_id: None,
         disabled_plugin_ids: None,

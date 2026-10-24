@@ -1893,6 +1893,7 @@ pub(crate) fn model_preset_from_api_model(model: ApiModel) -> ModelPreset {
     });
 
     ModelPreset {
+        is_provider_default: model.is_provider_default,
         id: model.id,
         model: model.model,
         display_name: model.display_name,
@@ -2911,6 +2912,7 @@ mod tests {
             default_service_tier: None,
             available_access_programs: None,
             is_default: false,
+            is_provider_default: false,
         }
     }
 

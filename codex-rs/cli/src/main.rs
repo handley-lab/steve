@@ -142,6 +142,8 @@ struct MultitoolCli {
 
 #[derive(Debug, clap::Subcommand)]
 enum Subcommand {
+    /// Discover the configured providers' coding models.
+    Models,
     /// Browse all agent sessions on the shared local app-server daemon.
     Agents(AgentsCommand),
 
@@ -1072,6 +1074,14 @@ async fn cli_main(
 
     let open_agents_overview = matches!(&subcommand, Some(Subcommand::Agents(_)));
     match subcommand {
+        Some(Subcommand::Models) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "models",
+            )?;
+            run_models_command(root_config_overrides).await?;
+        }
         None | Some(Subcommand::Agents(_)) => {
             prepend_config_flags(
                 &mut interactive.config_overrides,
@@ -2119,6 +2129,34 @@ async fn run_debug_models_command(root_config_overrides: CliConfigOverrides) -> 
     Ok(())
 }
 
+async fn run_models_command(overrides: CliConfigOverrides) -> anyhow::Result<()> {
+    let config = ConfigBuilder::default()
+        .cli_overrides(overrides.parse_overrides().map_err(anyhow::Error::msg)?)
+        .build()
+        .await?;
+    let auth = AuthManager::shared_from_config(&config, true).await?;
+    let manager = build_models_manager(&config, auth);
+    let listing = manager
+        .model_catalog_result(RefreshStrategy::Online, config.http_client_factory())
+        .await?;
+    let response = codex_app_server_protocol::ModelListResponse {
+        data: codex_app_server::supported_models(manager.build_available_models(listing.models), false),
+        next_cursor: None,
+        cyber_access_programs_enabled: None,
+        provider_errors: listing
+            .provider_errors
+            .into_iter()
+            .map(|error| codex_app_server_protocol::ModelProviderError {
+                provider: error.provider,
+                message: error.message,
+            })
+            .collect(),
+    };
+    serde_json::to_writer(std::io::stdout(), &response)?;
+    println!();
+    Ok(())
+}
+
 async fn run_debug_clear_memories_command(
     root_config_overrides: &CliConfigOverrides,
 ) -> anyhow::Result<()> {
@@ -2285,6 +2323,7 @@ fn unsupported_subcommand_name_for_strict_config(
         Some(Subcommand::Execpolicy(_)) => Some("execpolicy"),
         Some(Subcommand::Apply(_)) => Some("apply"),
         Some(Subcommand::ResponsesApiProxy(_)) => Some("responses-api-proxy"),
+        Some(Subcommand::Models) => Some("models"),
         Some(Subcommand::StdioToUds(_)) => Some("stdio-to-uds"),
         Some(Subcommand::Features(_)) => Some("features"),
         Some(Subcommand::TcpTunnel(_)) => Some("tcp-tunnel"),

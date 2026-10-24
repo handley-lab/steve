@@ -101,6 +101,12 @@ type SharedModelsEndpointClient = Arc<dyn ModelsEndpointClient>;
 
 /// Coordinates model discovery plus cached metadata on disk.
 pub trait ModelsManager: fmt::Debug + Send + Sync {
+    /// Fetch discovery without turning an endpoint failure into cached availability.
+    fn model_catalog_result(
+        &self,
+        refresh_strategy: RefreshStrategy,
+        http_client_factory: HttpClientFactory,
+    ) -> ModelsManagerFuture<'_, CoreResult<ModelListing>>;
     /// Supply remote model discovery policy.
     /// Static catalogs ignore this setting.
     fn set_api_key_model_discovery_enabled(&self, _enabled: bool) {}
@@ -204,13 +210,18 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
     /// Look up model metadata, applying remote overrides and config adjustments.
     fn get_model_info<'a>(
         &'a self,
+        _provider_id: &'a str,
         model: &'a str,
         config: &'a ModelsManagerConfig,
-    ) -> ModelsManagerFuture<'a, ModelInfo> {
+    ) -> ModelsManagerFuture<'a, CoreResult<ModelInfo>> {
         Box::pin(
             async move {
                 let remote_models = self.get_remote_models().await;
-                construct_model_info_from_candidates(model, &remote_models, config)
+                Ok(construct_model_info_from_candidates(
+                    model,
+                    &remote_models,
+                    config,
+                ))
             }
             .instrument(tracing::info_span!("get_model_info", model = model)),
         )
@@ -221,6 +232,7 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
     /// Uses `Online` strategy to fetch latest models when ETags differ.
     fn refresh_if_new_etag(
         &self,
+        provider_id: &str,
         etag: String,
         http_client_factory: HttpClientFactory,
     ) -> ModelsManagerFuture<'_, ()>;
@@ -230,6 +242,18 @@ pub type ModelsManagerFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a
 
 /// Shared model manager handle used across runtime services.
 pub type SharedModelsManager = Arc<dyn ModelsManager>;
+
+#[derive(Debug, Clone, Default)]
+pub struct ModelListing {
+    pub models: Vec<ModelInfo>,
+    pub provider_errors: Vec<ModelProviderError>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct ModelProviderError {
+    pub provider: String,
+    pub message: String,
+}
 
 /// Explicit catalogs serialize refresh. Auth and discovery
 /// settings are still evaluated when models are requested.
@@ -345,6 +369,30 @@ impl StaticModelsManager {
 }
 
 impl ModelsManager for OpenAiModelsManager {
+    fn model_catalog_result(
+        &self,
+        refresh_strategy: RefreshStrategy,
+        http_client_factory: HttpClientFactory,
+    ) -> ModelsManagerFuture<'_, CoreResult<ModelListing>> {
+        Box::pin(async move {
+            if self.model_discovery_disabled() {
+                return Err(codex_protocol::error::CodexErr::InvalidRequest(
+                    "model discovery is disabled".to_string(),
+                ));
+            }
+            if let Err(error) = self
+                .refresh_available_models(refresh_strategy, &http_client_factory)
+                .await
+            {
+                self.remote_models.write().await.models.clear();
+                return Err(error);
+            }
+            Ok(ModelListing {
+                models: self.get_remote_models().await,
+                provider_errors: Vec::new(),
+            })
+        })
+    }
     fn set_api_key_model_discovery_enabled(&self, enabled: bool) {
         self.api_key_model_discovery_enabled
             .store(enabled, Ordering::SeqCst);
@@ -428,12 +476,13 @@ impl ModelsManager for OpenAiModelsManager {
     #[tracing::instrument(skip_all, fields(model))]
     fn get_model_info<'a>(
         &'a self,
+        _provider_id: &'a str,
         model: &'a str,
         config: &'a ModelsManagerConfig,
-    ) -> ModelsManagerFuture<'a, ModelInfo> {
+    ) -> ModelsManagerFuture<'a, CoreResult<ModelInfo>> {
         Box::pin(async move {
             let models = self.get_remote_models().await;
-            match &self.catalog_source {
+            Ok(match &self.catalog_source {
                 CatalogSource::Default => {
                     construct_model_info_from_candidates(model, &models, config)
                 }
@@ -442,7 +491,7 @@ impl ModelsManager for OpenAiModelsManager {
                     models.into_iter().find(|candidate| candidate.slug == model),
                     config,
                 ),
-            }
+            })
         })
     }
 
@@ -452,6 +501,7 @@ impl ModelsManager for OpenAiModelsManager {
 
     fn refresh_if_new_etag(
         &self,
+        _provider_id: &str,
         etag: String,
         http_client_factory: HttpClientFactory,
     ) -> ModelsManagerFuture<'_, ()> {
@@ -681,6 +731,19 @@ impl OpenAiModelsManager {
 }
 
 impl ModelsManager for StaticModelsManager {
+    fn model_catalog_result(
+        &self,
+        _refresh_strategy: RefreshStrategy,
+        _http_client_factory: HttpClientFactory,
+    ) -> ModelsManagerFuture<'_, CoreResult<ModelListing>> {
+        Box::pin(async move {
+            Ok(ModelListing {
+                models: self.remote_models.clone(),
+                provider_errors: Vec::new(),
+            })
+        })
+    }
+
     fn raw_model_catalog(
         &self,
         _refresh_strategy: RefreshStrategy,
@@ -711,6 +774,7 @@ impl ModelsManager for StaticModelsManager {
 
     fn refresh_if_new_etag(
         &self,
+        _provider_id: &str,
         _etag: String,
         _http_client_factory: HttpClientFactory,
     ) -> ModelsManagerFuture<'_, ()> {

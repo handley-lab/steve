@@ -62,23 +62,23 @@ pub(super) async fn sampler_config(
     manager: Option<Arc<ThreadManager>>,
 ) -> Result<LunaSamplerConfig, String> {
     let mut config = input.config.clone();
-    let independent_provider =
-        if let Some(provider_id) = &guardian_config.local_overrides.model_provider {
-            let provider = &config.model_providers[provider_id];
-            let changed =
-                provider_id != &config.model_provider_id || provider != &config.model_provider;
-            config.model_provider_id = provider_id.clone();
-            config.model_provider = provider.clone();
-            changed
-        } else {
-            false
-        };
     let model = guardian_config
         .local_overrides
         .model
         .as_deref()
         .filter(|model| !model.trim().is_empty())
         .ok_or("Set features.guardianv2.model before enabling the classifier")?;
+    let (provider_id, model) = config
+        .resolve_model_selection(
+            model,
+            guardian_config.local_overrides.model_provider.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
+    let provider = config.model_providers[&provider_id].clone();
+    let independent_provider =
+        provider_id != config.model_provider_id || provider != config.model_provider;
+    config.model_provider_id = provider_id;
+    config.model_provider = provider;
     let models_manager = if independent_provider {
         let models_manager = codex_core::build_models_manager(&config, Arc::clone(&auth_manager));
         models_manager
@@ -98,7 +98,12 @@ pub(super) async fn sampler_config(
     let luna_model = if let Some(models_manager) = models_manager {
         let mut model_config = config.to_models_manager_config();
         model_config.model_context_window = None;
-        Some(models_manager.get_model_info(model, &model_config).await)
+        Some(
+            models_manager
+                .get_model_info(&config.model_provider_id, &model, &model_config)
+                .await
+                .map_err(|error| error.to_string())?,
+        )
     } else {
         None
     };

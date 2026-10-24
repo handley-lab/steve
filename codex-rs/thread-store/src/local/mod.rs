@@ -1073,6 +1073,7 @@ mod tests {
         let cwd = std::env::current_dir().expect("current directory");
         let turn_context = |model: &str, approval_policy| {
             RolloutItem::TurnContext(TurnContextItem {
+                model_provider_id: None,
                 turn_id: Some("turn-1".to_string()),
                 root_turn_id: None,
                 disabled_plugin_ids: None,

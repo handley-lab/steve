@@ -1402,7 +1402,7 @@
           "type": "string"
         },
         "model": {
-          "description": "Current configured model when loaded, otherwise the latest persisted model. Null when unavailable. This is not per-turn execution telemetry.",
+          "description": "Canonical `provider/native-model-id` selection when loaded, otherwise the latest persisted selection. Null when unavailable. This is not per-turn execution telemetry.",
           "type": [
             "string",
             "null"
@@ -3084,6 +3084,7 @@
       "type": "array"
     },
     "model": {
+      "description": "Canonical selection `provider/native-model-id`.",
       "type": "string"
     },
     "modelProvider": {

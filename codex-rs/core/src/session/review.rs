@@ -8,11 +8,18 @@ pub(super) async fn spawn_review_thread(
     parent_turn_context: Arc<TurnContext>,
     sub_id: String,
     resolved: crate::review_prompts::ResolvedReviewRequest,
-) {
+) -> CodexResult<()> {
     let model = config
         .review_model
         .clone()
         .unwrap_or_else(|| parent_turn_context.model_info().slug.clone());
+    let mut review_config = (*parent_turn_context.config).clone();
+    let (provider_id, model) = review_config
+        .resolve_model_selection(&model, None)
+        .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
+    review_config.model_provider_id = provider_id;
+    review_config.model_provider =
+        review_config.model_providers[&review_config.model_provider_id].clone();
     let available_models = sess
         .services
         .models_manager
@@ -24,8 +31,12 @@ pub(super) async fn spawn_review_thread(
     let review_model_info = sess
         .services
         .models_manager
-        .get_model_info(&model, &config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &review_config.model_provider_id,
+            &model,
+            &review_config.to_models_manager_config(),
+        )
+        .await?;
     // For reviews, disable web_search and view_image regardless of global settings.
     let mut review_features = sess.features.clone();
     let _ = review_features.disable(Feature::WebSearchRequest);
@@ -39,7 +50,7 @@ pub(super) async fn spawn_review_thread(
     let mut reasoning_effort = selected.collaboration_mode.reasoning_effort();
 
     // Build per‑turn client with the requested model/family.
-    let mut per_turn_config = (*parent_turn_context.config).clone();
+    let mut per_turn_config = review_config;
     // Preserve configured overrides without carrying over the parent model's defaults.
     per_turn_config.token_budget = config.token_budget.clone();
     per_turn_config.features = review_features.clone();
@@ -175,4 +186,5 @@ pub(super) async fn spawn_review_thread(
     // (TurnStarted + TurnComplete) for consistency with other standalone tasks.
     sess.start_task(Arc::clone(&tc), input, ReviewTask::new())
         .await;
+    Ok(())
 }

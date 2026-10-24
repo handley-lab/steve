@@ -337,6 +337,17 @@ impl GatedModelsManager {
 }
 
 impl ModelsManager for GatedModelsManager {
+    fn model_catalog_result(
+        &self,
+        strategy: RefreshStrategy,
+        factory: HttpClientFactory,
+    ) -> ModelsManagerFuture<
+        '_,
+        codex_protocol::error::Result<codex_models_manager::manager::ModelListing>,
+    > {
+        self.inner.model_catalog_result(strategy, factory)
+    }
+
     fn raw_model_catalog(
         &self,
         strategy: RefreshStrategy,
@@ -363,17 +374,19 @@ impl ModelsManager for GatedModelsManager {
 
     fn refresh_if_new_etag(
         &self,
+        provider_id: &str,
         etag: String,
         factory: HttpClientFactory,
     ) -> ModelsManagerFuture<'_, ()> {
-        self.inner.refresh_if_new_etag(etag, factory)
+        self.inner.refresh_if_new_etag(provider_id, etag, factory)
     }
 
     fn get_model_info<'a>(
         &'a self,
+        provider_id: &'a str,
         model: &'a str,
         config: &'a ModelsManagerConfig,
-    ) -> ModelsManagerFuture<'a, ModelInfo> {
+    ) -> ModelsManagerFuture<'a, codex_protocol::error::Result<ModelInfo>> {
         Box::pin(async move {
             let pause = if model == MODEL_B {
                 self.first_b_lookup.lock().expect("lookup gate").take()
@@ -384,7 +397,7 @@ impl ModelsManager for GatedModelsManager {
                 pause.started.notify_one();
                 pause.resume.notified().await;
             }
-            self.inner.get_model_info(model, config).await
+            self.inner.get_model_info(provider_id, model, config).await
         })
     }
 }

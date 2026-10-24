@@ -173,6 +173,7 @@ fn model_provider_from_proto(
         }
     };
     let info = ModelProviderInfo {
+        default_model: None,
         name: provider.name,
         base_url: provider.base_url,
         model_catalog_url: provider.model_catalog_url.map(Into::into),

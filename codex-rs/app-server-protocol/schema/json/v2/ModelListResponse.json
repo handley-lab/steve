@@ -104,6 +104,10 @@
         "isDefault": {
           "type": "boolean"
         },
+        "isProviderDefault": {
+          "default": false,
+          "type": "boolean"
+        },
         "model": {
           "type": "string"
         },
@@ -196,6 +200,21 @@
       },
       "required": [
         "message"
+      ],
+      "type": "object"
+    },
+    "ModelProviderError": {
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message",
+        "provider"
       ],
       "type": "object"
     },
@@ -305,6 +324,13 @@
         "string",
         "null"
       ]
+    },
+    "providerErrors": {
+      "default": [],
+      "items": {
+        "$ref": "#/definitions/ModelProviderError"
+      },
+      "type": "array"
     }
   },
   "required": [

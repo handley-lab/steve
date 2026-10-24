@@ -257,8 +257,13 @@ supports_websockets = false
             )
             .await;
         let resolved_parent = manager
-            .get_model_info("gpt-5.5", &config.to_models_manager_config())
-            .await;
+            .get_model_info(
+                &config.model_provider_id,
+                "gpt-5.5",
+                &config.to_models_manager_config(),
+            )
+            .await
+            .unwrap();
         let store = thread.thread_extension_data();
         store.insert(resolved_parent);
         if case == "no_parent" {

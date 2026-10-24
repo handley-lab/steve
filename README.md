@@ -59,6 +59,7 @@ comparison_model = "vllm-sr/d3"
 
 [model_providers.cambridge]
 name = "Cambridge HPC"
+default_model = "moonshotai/Kimi-K3"
 base_url = "https://llm.hpc.cam.ac.uk/v1"
 env_key = "CAMBRIDGE_LLM_API_KEY"
 wire_api = "responses"
@@ -78,14 +79,26 @@ The tests establish protocol compatibility, not comparative safety quality.
 OpenAI account login and managed account-token renewal are
 removed; supplied API keys and configured authentication commands remain available.
 Every inference provider needs an explicit `base_url`, including OpenAI providers.
-Set `model_provider` and `model` explicitly; catalogue defaults do not select them.
+Set `model_provider` and either `model` or that provider's `default_model`.
+Catalogue ordering never selects a model.
 
-Model discovery uses `models` at the configured provider base, or the full
-`model_catalog_url` when supplied. It expects a Codex-native `ModelsResponse`
-catalog; a list of model IDs is not enough. Set
-`features.api_key_model_discovery = false` to disable remote catalog discovery
-for every provider. `model_catalog_json` supplies a local catalog and bypasses
-remote discovery.
+Model discovery polls the explicitly configured providers at `models`, or their
+full `model_catalog_url` when supplied. It accepts Codex-native catalogs and
+OpenAI-compatible `data/id` lists. `steve models` and the app server's
+`model/list` expose qualified choices such as `cambridge/moonshotai/Kimi-K3`,
+explicit global/provider defaults, and provider discovery errors. Provider
+defaults come from `default_model`, never from list order. Pass a qualified choice
+with `-m` or a model-only API request. Explicit provider/model request pairs use
+the native model ID; saved configuration retains that pair. Public thread model
+selections, including settings acknowledgements, use the qualified choice.
+
+`model_catalog_json` supplies metadata for live IDs, including context limits
+and instructions missing from discovery. Metadata slugs must use the canonical
+`provider/native-model-id` spelling. A local-only
+entry does not make a model available. Metadata can mark an otherwise
+unclassified model with `"non_chat": true`; advertised non-chat modes are excluded
+from coding choices. `features.api_key_model_discovery = false` disables
+discovery instead of advertising a static catalog as live.
 
 The native provider transport uses the Responses API. A provider exposing another
 protocol needs a compatible gateway; changing its URL or token alone does not

@@ -1088,7 +1088,10 @@ impl App {
     ) -> Option<ReasoningEffortConfig> {
         let default_effort = self.default_reasoning_effort_for_conversation_model(model);
         if let Some(default_effort) = default_effort.as_ref() {
-            self.config.model = Some(model.to_string());
+            let (provider, native_model) = model.split_once('/')
+                .expect("catalogue selections contain provider and native model");
+            self.config.model_provider_id = provider.to_string();
+            self.config.model = Some(native_model.to_string());
             self.config.model_reasoning_effort = Some(default_effort.clone());
         }
         self.chat_widget.set_model(model);
@@ -1439,6 +1442,20 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tempfile::tempdir;
 
+    fn use_canonical_model_catalog(app: &mut App) {
+        let mut models = app.model_catalog.models.clone();
+        for preset in &mut models {
+            preset.model = format!("openai/{}", preset.model);
+            preset.id = preset.model.clone();
+            preset.default_reasoning_effort = ReasoningEffortConfig::Medium;
+            preset.supported_reasoning_efforts = [ReasoningEffortConfig::Low, ReasoningEffortConfig::Medium]
+                .into_iter()
+                .map(|effort| ReasoningEffortPreset { effort, description: String::new() })
+                .collect();
+        }
+        app.model_catalog = Arc::new(ModelCatalog::new(models));
+    }
+
     #[tokio::test]
     async fn update_reasoning_effort_updates_collaboration_mode() {
         let mut app = make_test_app().await;
@@ -1468,17 +1485,19 @@ mod tests {
             (ReasoningEffortConfig::Ultra, ReasoningEffortConfig::Medium),
         ] {
             let mut app = make_test_app().await;
+            use_canonical_model_catalog(&mut app);
             app.config.model = Some("gpt-5.5".to_string());
             app.config.model_reasoning_effort = Some(configured_effort.clone());
             app.chat_widget
                 .set_reasoning_effort(Some(configured_effort));
 
             let default_effort =
-                app.on_apply_advanced_reasoning("gpt-5.5", ReasoningEffortConfig::Ultra);
+                app.on_apply_advanced_reasoning("openai/gpt-5.5", ReasoningEffortConfig::Ultra);
             let new_thread_config = &app.config;
+            assert_eq!(new_thread_config.model_provider_id, "openai");
 
             assert_eq!(default_effort, Some(expected_default_effort.clone()));
-            assert_eq!(app.chat_widget.current_model(), "gpt-5.5");
+            assert_eq!(app.chat_widget.current_model(), "openai/gpt-5.5");
             assert_eq!(
                 app.chat_widget.current_reasoning_effort(),
                 Some(ReasoningEffortConfig::Ultra)
@@ -1535,6 +1554,7 @@ mod tests {
     #[tokio::test]
     async fn conversation_reasoning_updates_active_plan_without_changing_plan_default() {
         let mut app = make_test_app().await;
+        use_canonical_model_catalog(&mut app);
         app.config.model_reasoning_effort = Some(ReasoningEffortConfig::Low);
         app.config.plan_mode_reasoning_effort = Some(ReasoningEffortConfig::High);
         app.chat_widget
@@ -1545,7 +1565,7 @@ mod tests {
             .handle_key_event(KeyEvent::from(KeyCode::BackTab));
 
         let default_effort =
-            app.on_apply_advanced_reasoning("gpt-5.5", ReasoningEffortConfig::Ultra);
+            app.on_apply_advanced_reasoning("openai/gpt-5.5", ReasoningEffortConfig::Ultra);
 
         assert_eq!(default_effort, Some(ReasoningEffortConfig::Low));
         assert_eq!(
@@ -1579,6 +1599,7 @@ mod tests {
     #[tokio::test]
     async fn leaving_conversation_ultra_in_default_clears_the_ephemeral_plan_effort() {
         let mut app = make_test_app().await;
+        use_canonical_model_catalog(&mut app);
         app.config.model_reasoning_effort = Some(ReasoningEffortConfig::Low);
         app.config.plan_mode_reasoning_effort = Some(ReasoningEffortConfig::High);
         app.chat_widget
@@ -1586,7 +1607,7 @@ mod tests {
         app.chat_widget
             .set_plan_mode_reasoning_effort(Some(ReasoningEffortConfig::High));
 
-        app.on_apply_advanced_reasoning("gpt-5.4", ReasoningEffortConfig::Ultra);
+        app.on_apply_advanced_reasoning("openai/gpt-5.4", ReasoningEffortConfig::Ultra);
         app.on_update_reasoning_effort(Some(ReasoningEffortConfig::Medium));
         app.chat_widget
             .handle_key_event(KeyEvent::from(KeyCode::BackTab));
@@ -1604,6 +1625,7 @@ mod tests {
     #[tokio::test]
     async fn leaving_conversation_ultra_in_plan_clears_the_ephemeral_default_effort() {
         let mut app = make_test_app().await;
+        use_canonical_model_catalog(&mut app);
         app.config.model_reasoning_effort = Some(ReasoningEffortConfig::Low);
         app.config.plan_mode_reasoning_effort = Some(ReasoningEffortConfig::High);
         app.chat_widget
@@ -1613,7 +1635,7 @@ mod tests {
         app.chat_widget
             .handle_key_event(KeyEvent::from(KeyCode::BackTab));
 
-        app.on_apply_advanced_reasoning("gpt-5.4", ReasoningEffortConfig::Ultra);
+        app.on_apply_advanced_reasoning("openai/gpt-5.4", ReasoningEffortConfig::Ultra);
         app.on_update_plan_mode_reasoning_effort(Some(ReasoningEffortConfig::Medium));
         app.chat_widget
             .handle_key_event(KeyEvent::from(KeyCode::BackTab));

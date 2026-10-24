@@ -556,6 +556,7 @@ mod tests {
             name: "mock".into(),
             base_url: Some(base_url),
             model_catalog_url: None,
+            default_model: None,
             env_key: None,
             env_key_instructions: None,
             experimental_bearer_token: None,
@@ -1136,8 +1137,13 @@ printf '%s\n' '{"AccessKeyId":"exported","SecretAccessKey":"secret"}'
                         .is_empty()
                 );
                 let metadata = manager
-                    .get_model_info("configured-model", &ModelsManagerConfig::default())
-                    .await;
+                    .get_model_info(
+                        "fixture",
+                        "configured-model",
+                        &ModelsManagerConfig::default(),
+                    )
+                    .await
+                    .unwrap();
                 assert_eq!(metadata.slug, "configured-model");
                 assert!(metadata.used_fallback_model_metadata);
             }

@@ -500,9 +500,7 @@ async fn mcp_attribution_in_constructed_request(thread: &CodexThread) -> McpAttr
         .session
         .responses_metadata(&step_context, CodexResponsesRequestKind::Turn)
         .await;
-    let request = thread
-        .session
-        .services
+    let request = turn_context
         .model_client
         .build_responses_request(
             &prompt,
@@ -2667,6 +2665,7 @@ async fn spawn_agent_fork_sanitizes_inherited_compaction_metadata() {
             root_turn_id: Some("root-turn".to_string()),
         }),
         previous_turn_settings: Some(codex_history::PreviousTurnSettings {
+            model_provider_id: None,
             model: "parent-model".into(),
             comp_hash: None,
             cyber_access_program: None,
@@ -3814,6 +3813,7 @@ async fn spawn_agent_full_fork_legacy_compaction_rebuilds_child_instructions_onc
                     last_started_turn_id: None,
                     turn_attribution: None,
                     previous_turn_settings: Some(codex_history::PreviousTurnSettings {
+                        model_provider_id: None,
                         model: "parent-model".into(),
                         comp_hash: None,
                         cyber_access_program: None,

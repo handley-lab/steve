@@ -318,16 +318,24 @@ impl CatalogRequestProcessor {
             cursor,
             include_hidden,
         } = params;
-        let presets = catalog
+        let (models, provider_errors) = catalog
             .list_models(codex_models_manager::manager::RefreshStrategy::OnlineIfUncached)
             .await
             .map_err(|err| config_load_error(&err))?;
-        let models = supported_models(presets, include_hidden.unwrap_or(false));
+        let models = supported_models(models, include_hidden.unwrap_or(false));
+        let provider_errors = provider_errors
+            .into_iter()
+            .map(|error| codex_app_server_protocol::ModelProviderError {
+                provider: error.provider,
+                message: error.message,
+            })
+            .collect();
         let total = models.len();
 
         if total == 0 {
             return Ok(ModelListResponse {
                 data: Vec::new(),
+                provider_errors,
                 next_cursor: None,
                 cyber_access_programs_enabled,
             });
@@ -357,6 +365,7 @@ impl CatalogRequestProcessor {
         };
         Ok(ModelListResponse {
             data: items,
+            provider_errors,
             next_cursor,
             cyber_access_programs_enabled,
         })

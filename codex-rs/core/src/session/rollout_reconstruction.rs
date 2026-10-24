@@ -368,6 +368,7 @@ impl ContextManager {
                         ctx.turn_id.as_deref(),
                     ) {
                         active_segment.previous_turn_settings = Some(PreviousTurnSettings {
+                            model_provider_id: ctx.model_provider_id.clone(),
                             model: ctx.model.clone(),
                             cyber_access_program: ctx.cyber_access_program,
                             comp_hash: ctx.comp_hash.clone(),

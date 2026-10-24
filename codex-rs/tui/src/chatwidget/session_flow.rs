@@ -223,7 +223,7 @@ impl ChatWidget {
                 &self.config,
                 &self.local_settings,
                 &model_for_header,
-                self.model_catalog.display_name(&session.model),
+                self.model_catalog.display_name(&model_for_header),
                 &session,
                 self.show_welcome_banner,
                 startup_tooltip_override,

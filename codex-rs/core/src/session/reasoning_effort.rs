@@ -100,6 +100,7 @@ impl Session {
         if !self
             .services
             .model_client
+            .load()
             .reasoning_effort_override_enabled(&settings.model_info)
         {
             if usage == RequestEffortUsage::Sampling {
@@ -141,6 +142,7 @@ impl Session {
         if !self
             .services
             .model_client
+            .load()
             .reasoning_effort_override_enabled(&settings.model_info)
         {
             return None;

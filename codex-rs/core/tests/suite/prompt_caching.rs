@@ -202,13 +202,15 @@ async fn prompt_tools_are_consistent_across_requests(
     let model_info = thread_manager
         .get_models_manager()
         .get_model_info(
+            &config.model_provider_id,
             config
                 .model
                 .as_deref()
                 .expect("test config should have a model"),
             &config.to_models_manager_config(),
         )
-        .await;
+        .await
+        .unwrap();
     let base_instructions = if custom_instructions {
         CUSTOM_BASE_INSTRUCTIONS.to_string()
     } else {

@@ -113,7 +113,7 @@ pub(crate) async fn run_inline_remote_auto_compact_task(
     sess: Arc<Session>,
     step_context: Arc<StepContext>,
     replacement_step_context: Arc<StepContext>,
-    client_session: &mut ModelClientSession,
+    client_session: Option<&mut ModelClientSession>,
     world_state: Arc<WorldState>,
     reason: CompactionReason,
     phase: CompactionPhase,
@@ -130,7 +130,7 @@ pub(crate) async fn run_inline_remote_auto_compact_task(
         &sess,
         &step_context,
         &replacement_step_context,
-        Some(client_session),
+        client_session,
         world_state,
         compaction_metadata,
         candidate,
@@ -301,7 +301,7 @@ async fn run_remote_compaction_request_v2(
             let trace = InferenceTraceContext::disabled();
             // Replay the routing token without letting this request change foreground routing.
             let turn_state = Arc::new(turn_state.map(OnceLock::from).unwrap_or_default());
-            let http_executor = ResponsesHttpExecutor::new(&sess.services.model_client);
+            let http_executor = ResponsesHttpExecutor::new(&turn_context.model_client);
             let stream = tokio::select! {
                 biased;
                 _ = cancellation.cancelled() => return Err(CodexErr::TurnAborted),

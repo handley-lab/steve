@@ -83,7 +83,8 @@ async fn build_and_install_compaction(
 ) -> CodexResult<bool> {
     let turn_context = &step_context.turn;
     if let Some(candidate) = &candidate
-        && (candidate.model_info.slug != step_context.settings.model_info.slug
+        && (candidate.model_provider_id != turn_context.config.model_provider_id
+            || candidate.model_info.slug != step_context.settings.model_info.slug
             || candidate.model_info.comp_hash != step_context.settings.model_info.comp_hash)
     {
         return Ok(false);

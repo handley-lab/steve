@@ -117,8 +117,12 @@ pub(crate) async fn spawn(
                 session
                     .services
                     .models_manager
-                    .get_model_info(model, &config.to_models_manager_config())
-                    .await,
+                    .get_model_info(
+                        &config.model_provider_id,
+                        model,
+                        &config.to_models_manager_config(),
+                    )
+                    .await?,
             ),
             _ => None,
         };

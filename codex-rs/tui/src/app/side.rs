@@ -630,7 +630,10 @@ impl App {
         let mut fork_config = self.chat_widget.config_ref().clone();
         let parent_model = self.chat_widget.current_model();
         if !parent_model.trim().is_empty() {
-            fork_config.model = Some(parent_model.to_string());
+            let (provider, native_model) = parent_model.split_once('/')
+                .expect("current model is a canonical selection");
+            fork_config.model_provider_id = provider.to_string();
+            fork_config.model = Some(native_model.to_string());
         }
         fork_config.model_reasoning_effort = self.chat_widget.current_reasoning_effort();
         fork_config.service_tier = self.chat_widget.configured_service_tier();

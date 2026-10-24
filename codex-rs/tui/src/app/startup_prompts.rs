@@ -198,9 +198,12 @@ pub(super) fn apply_accepted_model_migration(
         to_model: target_model.clone(),
     });
 
-    launch_choices.model = Some(target_model.clone());
     launch_choices.effort = Some(serde_json::json!(target_default_effort));
-    config.model = Some(target_model.clone());
+    let (provider, native_model) = target_model.split_once('/')
+        .expect("catalogue migration targets are canonical selections");
+    launch_choices.set_model(provider, native_model);
+    config.model_provider_id = provider.to_string();
+    config.model = Some(native_model.to_string());
     config.model_reasoning_effort = Some(target_default_effort.clone());
     app_event_tx.send(AppEvent::UpdateModel(target_model.clone()));
     app_event_tx.send(AppEvent::UpdateReasoningEffort(Some(

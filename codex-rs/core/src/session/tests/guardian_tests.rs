@@ -101,6 +101,22 @@ async fn rollout_reconstruction_skips_guardian_metadata_when_disabled() {
     struct CatalogReads(Arc<AtomicUsize>);
 
     impl ModelsManager for CatalogReads {
+        fn model_catalog_result(
+            &self,
+            strategy: RefreshStrategy,
+            factory: codex_http_client::HttpClientFactory,
+        ) -> ModelsManagerFuture<
+            '_,
+            codex_protocol::error::Result<codex_models_manager::manager::ModelListing>,
+        > {
+            Box::pin(async move {
+                Ok(codex_models_manager::manager::ModelListing {
+                    models: self.raw_model_catalog(strategy, factory).await.models,
+                    provider_errors: Vec::new(),
+                })
+            })
+        }
+
         fn raw_model_catalog(
             &self,
             _strategy: RefreshStrategy,
@@ -130,6 +146,7 @@ async fn rollout_reconstruction_skips_guardian_metadata_when_disabled() {
 
         fn refresh_if_new_etag(
             &self,
+            _provider_id: &str,
             _etag: String,
             _http_client_factory: codex_http_client::HttpClientFactory,
         ) -> ModelsManagerFuture<'_, ()> {

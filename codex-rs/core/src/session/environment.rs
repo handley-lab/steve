@@ -159,7 +159,7 @@ enum ConfigUpdateSource {
 }
 
 impl Session {
-    pub(super) fn apply_session_settings(
+    pub(super) async fn apply_session_settings(
         &self,
         current: &SessionConfiguration,
         updates: &SessionSettingsUpdate,
@@ -169,7 +169,62 @@ impl Session {
             ensure_configs_stay_owner_provided(current_environments, &environments.environments)?;
         }
 
-        current.apply(updates, current_environments)
+        let mut normalized = updates.clone();
+        let selected = updates
+            .step_settings
+            .collaboration_mode
+            .as_ref()
+            .map(|mode| mode.model())
+            .or(updates.step_settings.model.as_deref());
+        let invalid = |message: String| ConstraintError::InvalidValue {
+            field_name: "model",
+            candidate: selected.unwrap_or_default().to_string(),
+            allowed: message,
+            requirement_source: codex_config::RequirementSource::Unknown,
+        };
+        let selection = selected
+            .map(|selected| {
+                current
+                    .original_config_do_not_use
+                    .resolve_model_selection(selected, None)
+            })
+            .transpose()
+            .map_err(|error| invalid(error.to_string()))?;
+        if let Some((_, native_model)) = &selection {
+            if let Some(mode) = &mut normalized.step_settings.collaboration_mode {
+                mode.settings.model = native_model.clone();
+            } else {
+                normalized.step_settings.model = Some(native_model.clone());
+            }
+        }
+        let mut next = current.apply(&normalized, current_environments)?;
+        if let Some((provider_id, native_model)) = selection {
+            let model_info = self
+                .services
+                .models_manager
+                .get_model_info(
+                    &provider_id,
+                    &native_model,
+                    &next
+                        .model_info_overrides
+                        .models_manager_config(next.step_settings.personality),
+                )
+                .await
+                .map_err(|error| invalid(error.to_string()))?;
+            let mut config = (*next.original_config_do_not_use).clone();
+            config.model_provider_id = provider_id;
+            config.model_provider = config.model_providers[&config.model_provider_id].clone();
+            config.model = Some(native_model.clone());
+            if config.model_provider_id != current.original_config_do_not_use.model_provider_id {
+                next.provider = codex_model_provider::create_model_provider(
+                    config.model_provider.clone(),
+                    Some(Arc::clone(&self.services.auth_manager)),
+                );
+            }
+            next.model_info = Arc::new(model_info);
+            next.original_config_do_not_use = Arc::new(config);
+        }
+        Ok(next)
     }
 
     /// Activates the environments accepted for a new task. Configuration may have arrived for

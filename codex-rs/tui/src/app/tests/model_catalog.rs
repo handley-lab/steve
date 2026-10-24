@@ -938,7 +938,7 @@ async fn accepted_model_migration_persists_target_default_reasoning_effort() -> 
             &mut crate::app_server_session::StartupLaunchChoices::default(),
             &app_event_tx,
             current_model,
-            upgrade.id,
+            format!("{provider_id}/{}", upgrade.id),
             target_effort.clone(),
         );
 
@@ -961,13 +961,13 @@ async fn accepted_model_migration_persists_target_default_reasoning_effort() -> 
         assert_matches!(
             acknowledged,
             AppEvent::PersistModelMigrationPromptAcknowledged { from_model, to_model }
-                if from_model == model && to_model == replacement
+                if from_model == model && to_model == format!("{provider_id}/{replacement}")
         );
 
         let update_model = rx.try_recv().expect("update model event");
         assert_matches!(
             update_model,
-            AppEvent::UpdateModel(updated_model) if updated_model == replacement
+            AppEvent::UpdateModel(updated_model) if updated_model == format!("{provider_id}/{replacement}")
         );
 
         let update_effort = rx.try_recv().expect("update effort event");
@@ -980,7 +980,7 @@ async fn accepted_model_migration_persists_target_default_reasoning_effort() -> 
         assert_matches!(
             persist_selection,
             AppEvent::PersistModelSelection { model: selected_model, effort }
-                if selected_model == replacement && effort == Some(target_effort)
+                if selected_model == format!("{provider_id}/{replacement}") && effort == Some(target_effort)
         );
     }
     assert_eq!(

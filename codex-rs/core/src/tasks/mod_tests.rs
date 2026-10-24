@@ -160,7 +160,8 @@ async fn turn_completion_metrics_follow_model_switch(scenario: UsageScenario) {
     let turn_context = Arc::new(
         previous_context
             .with_model(next_model.to_string(), &session.services.models_manager)
-            .await,
+            .await
+            .unwrap(),
     );
     // Earlier session usage must not leak into this turn's per-model samples.
     session

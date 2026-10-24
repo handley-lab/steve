@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use codex_core::config::Config;
+use codex_models_manager::manager::ModelProviderError;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_models_manager::manager::SharedModelsManager;
 use codex_protocol::openai_models::ModelPreset;
@@ -32,15 +33,20 @@ impl ModelCatalog {
     pub(crate) async fn list_models(
         &self,
         refresh_strategy: RefreshStrategy,
-    ) -> std::io::Result<Vec<ModelPreset>> {
+    ) -> std::io::Result<(Vec<ModelPreset>, Vec<ModelProviderError>)> {
         // Check before consulting even a warm cache, just as turn admission checks
         // the retained session route before using it.
         self.config_manager
             .check_thread_model_provider(&self.config)
             .await?;
-        Ok(self
+        let listing = self
             .models_manager
-            .list_models(refresh_strategy, self.config.http_client_factory())
-            .await)
+            .model_catalog_result(refresh_strategy, self.config.http_client_factory())
+            .await
+            .map_err(std::io::Error::other)?;
+        Ok((
+            self.models_manager.build_available_models(listing.models),
+            listing.provider_errors,
+        ))
     }
 }

@@ -309,8 +309,13 @@ async fn installed_extension_uses_http_after_warm_socket_auth_expires() -> Resul
     let mut model = test
         .thread_manager
         .get_models_manager()
-        .get_model_info("gpt-5.5", &config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &config.model_provider_id,
+            "gpt-5.5",
+            &config.to_models_manager_config(),
+        )
+        .await
+        .unwrap();
     model.node_repl_auto_review_required = true;
     thread_store.insert(model);
     registry.thread_lifecycle_contributors()[0]
@@ -793,8 +798,13 @@ async fn computer_use_only_scores_cannot_approve_other_actions() -> Result<()> {
         .test
         .thread_manager
         .get_models_manager()
-        .get_model_info("gpt-5.5", &fixture.test.config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &fixture.test.config.model_provider_id,
+            "gpt-5.5",
+            &fixture.test.config.to_models_manager_config(),
+        )
+        .await
+        .unwrap();
     changed_model.guardian = Some(codex_protocol::openai_models::GuardianModelPolicy {
         computer_use: Some(codex_protocol::openai_models::GuardianReviewMode::Adaptive),
         ..Default::default()
@@ -1045,8 +1055,13 @@ async fn sample_configured_conversation_history_with_delivery(
         let parent_model = test
             .thread_manager
             .get_models_manager()
-            .get_model_info("gpt-5.5", &config.to_models_manager_config())
-            .await;
+            .get_model_info(
+                &config.model_provider_id,
+                "gpt-5.5",
+                &config.to_models_manager_config(),
+            )
+            .await
+            .unwrap();
         thread_store.insert(parent_model);
     }
     assert_eq!(
@@ -1297,8 +1312,13 @@ async fn contributor_fails_closed_when_model_configuration_is_invalid() -> Resul
         .test
         .thread_manager
         .get_models_manager()
-        .get_model_info("gpt-5.5", &fixture.test.config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &fixture.test.config.model_provider_id,
+            "gpt-5.5",
+            &fixture.test.config.to_models_manager_config(),
+        )
+        .await
+        .unwrap();
     parent_model
         .model_messages
         .as_mut()
@@ -2457,8 +2477,13 @@ async fn contributor_skips_required_models_in_standard_scope() -> Result<()> {
     let mut model_info = test
         .thread_manager
         .get_models_manager()
-        .get_model_info("gpt-5.5", &config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &config.model_provider_id,
+            "gpt-5.5",
+            &config.to_models_manager_config(),
+        )
+        .await
+        .unwrap();
     model_info.slug = "protected-model".to_owned();
     thread_store.insert(model_info);
     // A late prewarm preview must leave the active model's review requirements intact.
@@ -3263,8 +3288,13 @@ async fn assert_parent_compaction_reuse(parent_context_for_review: bool) -> Resu
     let parent_model = test
         .thread_manager
         .get_models_manager()
-        .get_model_info(MODEL, &config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &config.model_provider_id,
+            MODEL,
+            &config.to_models_manager_config(),
+        )
+        .await
+        .unwrap();
     let mut builder = ExtensionRegistryBuilder::new();
     super::install(
         &mut builder,
@@ -3850,8 +3880,13 @@ async fn classifier_uses_configured_provider_model_and_catalog() -> Result<()> {
         let mut model = test
             .thread_manager
             .get_models_manager()
-            .get_model_info(MODEL, &test.config.to_models_manager_config())
-            .await;
+            .get_model_info(
+                &test.config.model_provider_id,
+                MODEL,
+                &test.config.to_models_manager_config(),
+            )
+            .await
+            .unwrap();
         model.slug = "local-risk".to_owned();
         model.context_window = Some(4_096);
         model.effective_context_window_percent = 50;

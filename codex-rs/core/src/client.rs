@@ -607,6 +607,34 @@ impl ModelClient {
         self
     }
 
+    pub(crate) fn with_provider(&self, provider: SharedModelProvider) -> Self {
+        if self.state.provider.info() == provider.info() {
+            return self.clone();
+        }
+        let mut client = self.clone();
+        client.state = Self::new(
+            provider.auth_manager(),
+            self.state.thread_id,
+            provider.info().clone(),
+            self.state.session_source.clone(),
+            self.state.originator.clone(),
+            self.state.model_verbosity,
+            self.state.content_item_kinds_enabled,
+            self.state.reasoning_effort_override_enabled,
+            self.state.enable_request_compression,
+            self.state.include_timing_metrics,
+            self.state.beta_features_header.clone(),
+            self.state.concurrent_reasoning_summaries_enabled,
+            self.state.output_token_replay_enabled,
+            self.state.attestation_provider.clone(),
+            self.http_client_factory.clone(),
+            self.state.workspace_routing.clone(),
+            self.request_contributors.clone(),
+        )
+        .state;
+        client
+    }
+
     pub(crate) fn reasoning_effort_override_enabled(&self, model_info: &ModelInfo) -> bool {
         self.state.reasoning_effort_override_enabled
             && model_info.supports_reasoning_effort_updates
@@ -1410,6 +1438,10 @@ impl Drop for ModelClientSession {
 }
 
 impl ModelClientSession {
+    pub(crate) fn is_for_provider(&self, provider: &SharedModelProvider) -> bool {
+        self.client.state.provider.info() == provider.info()
+    }
+
     pub(crate) fn inference_tools_changed(&self, tools: &Arc<[ToolSpec]>) -> bool {
         let previous = self
             .client
