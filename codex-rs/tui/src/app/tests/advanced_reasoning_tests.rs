@@ -47,7 +47,10 @@ async fn fork_current_session_preserves_conversation_ultra() -> Result<()> {
             .contains_key(&source_thread_id)
     );
     assert!(!app.thread_event_channels.contains_key(&source_thread_id));
-    assert_eq!(app.chat_widget.current_model(), format!("{}/gpt-5.4", app.config.model_provider_id));
+    assert_eq!(
+        app.chat_widget.current_model(),
+        format!("{}/gpt-5.4", app.config.model_provider_id)
+    );
     assert_eq!(
         app.chat_widget.current_reasoning_effort(),
         Some(ReasoningEffortConfig::Ultra)

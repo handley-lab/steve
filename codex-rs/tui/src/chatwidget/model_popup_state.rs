@@ -40,8 +40,14 @@ impl ChatWidget {
     /// Keep a present model picker aligned with the active task, including Reserve entry/exit.
     pub(super) fn refresh_open_model_picker(&mut self) {
         // Refresh an existing parent without reopening it or interrupting its reasoning child.
-        if self.bottom_pane.selected_index_for_present_view(MODEL_SELECTION_VIEW_ID).is_some() {
-            self.open_model_popup_with_presets(self.model_catalog.try_list_models().unwrap_or_default());
+        if self
+            .bottom_pane
+            .selected_index_for_present_view(MODEL_SELECTION_VIEW_ID)
+            .is_some()
+        {
+            self.open_model_popup_with_presets(
+                self.model_catalog.try_list_models().unwrap_or_default(),
+            );
         }
     }
 

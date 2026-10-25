@@ -309,11 +309,16 @@ wire_api = "responses"
         )?;
         std::fs::write(
             server_home.path().join("config.toml"),
-            format!("{}\nmodel_provider = \"client-provider\"\n[model_providers.client-provider]\nname = \"Server\"\nbase_url = \"{}/v1\"\nwire_api = \"responses\"\n[model_providers.server-second]\nname = \"OpenAI fixture\"\nbase_url = \"{}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n", if choice == "managed" {
-                ""
-            } else {
-                "model = \"server-model\"\nmodel_reasoning_effort = \"high\"\n"
-            }, models.uri(), models.uri()),
+            format!(
+                "{}\nmodel_provider = \"client-provider\"\n[model_providers.client-provider]\nname = \"Server\"\nbase_url = \"{}/v1\"\nwire_api = \"responses\"\n[model_providers.server-second]\nname = \"OpenAI fixture\"\nbase_url = \"{}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n",
+                if choice == "managed" {
+                    ""
+                } else {
+                    "model = \"server-model\"\nmodel_reasoning_effort = \"high\"\n"
+                },
+                models.uri(),
+                models.uri()
+            ),
         )?;
         if managed {
             std::fs::write(
@@ -332,7 +337,9 @@ wire_api = "responses"
             ]),
             "migration" => harness_overrides.model = Some("old-model".into()),
             "cli_provider" => harness_overrides.model_provider = Some("server-second".into()),
-            "kv_provider" => cli_kv_overrides.push(("model_provider".into(), "server-second".into())),
+            "kv_provider" => {
+                cli_kv_overrides.push(("model_provider".into(), "server-second".into()))
+            }
             "cli_effort" => cli_kv_overrides.push((
                 "model_reasoning_effort".to_string(),
                 TomlValue::String("low".to_string()),
@@ -370,7 +377,8 @@ wire_api = "responses"
                 system_requirements_path: Some(server_home.path().join("requirements.toml")),
                 ..LoaderOverrides::without_managed_config_for_tests()
             })
-            .build().await?;
+            .build()
+            .await?;
         let (mut server, requests, proxy) = start_recording_app_server_with_history(
             &server_config,
             HistoryCapabilities::Current,

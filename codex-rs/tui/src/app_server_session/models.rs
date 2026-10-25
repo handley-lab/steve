@@ -46,7 +46,11 @@ impl AppServerSession {
                 ),
                 Err(err) => (Err(err.to_string()), Vec::new()),
             };
-            app_event_tx.send(AppEvent::ModelsLoaded { request_id, result, provider_errors });
+            app_event_tx.send(AppEvent::ModelsLoaded {
+                request_id,
+                result,
+                provider_errors,
+            });
         });
     }
 }

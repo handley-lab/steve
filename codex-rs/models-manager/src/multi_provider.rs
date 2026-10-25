@@ -306,7 +306,10 @@ mod tests {
         let models = manager.get_remote_models().await;
         assert_eq!(models[0].slug, "cambridge/moonshotai/Kimi-K3");
         assert_eq!(models[0].context_window, Some(100));
-        assert_eq!(models[0].upgrade.as_ref().unwrap().model, "cambridge/new/native-id");
+        assert_eq!(
+            models[0].upgrade.as_ref().unwrap().model,
+            "cambridge/new/native-id"
+        );
         assert_eq!(models[1].slug, "moonshotai/Kimi-K3");
         assert_eq!(models[1].context_window, Some(200));
         let config = crate::ModelsManagerConfig::default();

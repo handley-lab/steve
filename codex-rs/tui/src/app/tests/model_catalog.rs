@@ -22,10 +22,12 @@ async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()
     let (mut app, mut rx, _op_rx) = make_test_app_with_channels().await;
     let models = wiremock::MockServer::start().await;
     wiremock::Mock::given(wiremock::matchers::path("/v1/models"))
-        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({"data": [{"id": "gpt-5.5"}]}),
-        ))
-        .mount(&models).await;
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"data": [{"id": "gpt-5.5"}]})),
+        )
+        .mount(&models)
+        .await;
     let mut model = codex_models_manager::test_support::model_info("fixture/gpt-5.5");
     model.service_tiers = vec![codex_protocol::openai_models::ModelServiceTier {
         id: ServiceTier::Fast.request_value().to_string(),
@@ -40,13 +42,16 @@ async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()
     std::fs::write(
         app.config.codex_home.join("config.toml"),
         format!(
-            "model_provider = \"fixture\"\nmodel = \"gpt-5.5\"\nmodel_catalog_json = {catalog_path:?}\n[model_providers.fixture]\nname = \"Fixture\"\nbase_url = \"{}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n[model_providers.broken]\nname = \"Unavailable\"\nbase_url = \"{}/broken/v1\"\nwire_api = \"responses\"\n", models.uri(), models.uri()
+            "model_provider = \"fixture\"\nmodel = \"gpt-5.5\"\nmodel_catalog_json = {catalog_path:?}\n[model_providers.fixture]\nname = \"Fixture\"\nbase_url = \"{}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n[model_providers.broken]\nname = \"Unavailable\"\nbase_url = \"{}/broken/v1\"\nwire_api = \"responses\"\n",
+            models.uri(),
+            models.uri()
         ),
     )?;
     app.config = ConfigBuilder::default()
         .codex_home(app.config.codex_home.to_path_buf())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
-        .build().await?;
+        .build()
+        .await?;
     let mut app_server = start_config_write_test_app_server(&app).await?;
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let fast = Some(ServiceTier::Fast.request_value());
@@ -111,7 +116,9 @@ async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()
     })
     .await?;
     let AppEvent::ModelsLoaded {
-        result: Ok(models), provider_errors, ..
+        result: Ok(models),
+        provider_errors,
+        ..
     } = &mut loaded
     else {
         panic!("model/list should return models");
@@ -129,10 +136,15 @@ async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()
     Box::pin(app.handle_event(&mut tui, &mut app_server, loaded)).await?;
     let errors: String = std::iter::from_fn(|| rx.try_recv().ok())
         .filter_map(|event| match event {
-            AppEvent::InsertHistoryCell(cell) => Some(cell.display_lines(80).into_iter()
-                .map(|line| line.to_string()).collect::<String>()),
+            AppEvent::InsertHistoryCell(cell) => Some(
+                cell.display_lines(80)
+                    .into_iter()
+                    .map(|line| line.to_string())
+                    .collect::<String>(),
+            ),
             _ => None,
-        }).collect();
+        })
+        .collect();
     assert!(errors.contains("broken: Model discovery failed"));
     assert!(app.chat_widget.no_modal_or_popup_active());
     app.chat_widget.open_model_popup();

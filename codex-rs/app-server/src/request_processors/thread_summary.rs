@@ -175,10 +175,14 @@ pub(crate) fn thread_response_active_permission_profile(
 pub(crate) fn thread_settings_from_config_snapshot(
     config_snapshot: &ThreadConfigSnapshot,
 ) -> ThreadSettings {
-    let model = format!("{}/{}", config_snapshot.model_provider_id, config_snapshot.model);
-    let collaboration_mode = config_snapshot.collaboration_mode.with_updates(
-        Some(model.clone()), None, None,
+    let model = format!(
+        "{}/{}",
+        config_snapshot.model_provider_id, config_snapshot.model
     );
+    let collaboration_mode =
+        config_snapshot
+            .collaboration_mode
+            .with_updates(Some(model.clone()), None, None);
     ThreadSettings {
         disabled_plugin_ids: config_snapshot.disabled_plugin_ids.clone(),
         cwd: config_snapshot.cwd().clone(),

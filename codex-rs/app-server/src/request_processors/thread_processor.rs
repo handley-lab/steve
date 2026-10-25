@@ -1637,7 +1637,10 @@ impl ThreadRequestProcessor {
         let response = ThreadStartResponse {
             thread: thread.clone(),
             disabled_plugin_ids: config_snapshot.disabled_plugin_ids,
-            model: format!("{}/{}", config_snapshot.model_provider_id, config_snapshot.model),
+            model: format!(
+                "{}/{}",
+                config_snapshot.model_provider_id, config_snapshot.model
+            ),
             model_provider: config_snapshot.model_provider_id,
             service_tier: config_snapshot.service_tier,
             cwd,
@@ -4403,7 +4406,10 @@ impl ThreadRequestProcessor {
                 let response = ThreadResumeResponse {
                     thread,
                     disabled_plugin_ids: config_snapshot.disabled_plugin_ids,
-                    model: format!("{}/{}", session_configured.model_provider_id, session_configured.model),
+                    model: format!(
+                        "{}/{}",
+                        session_configured.model_provider_id, session_configured.model
+                    ),
                     model_provider: session_configured.model_provider_id,
                     service_tier: session_configured.service_tier,
                     cwd: session_configured.cwd,
@@ -4415,8 +4421,12 @@ impl ThreadRequestProcessor {
                     active_permission_profile,
                     reasoning_effort: session_configured.reasoning_effort,
                     collaboration_mode: Some(config_snapshot.collaboration_mode.with_updates(
-                        Some(format!("{}/{}", config_snapshot.model_provider_id, config_snapshot.model)),
-                        None, None,
+                        Some(format!(
+                            "{}/{}",
+                            config_snapshot.model_provider_id, config_snapshot.model
+                        )),
+                        None,
+                        None,
                     )),
                     multi_agent_mode: MultiAgentMode::ExplicitRequestOnly,
                     initial_turns_page,
@@ -5686,7 +5696,10 @@ impl ThreadRequestProcessor {
         let response = ThreadForkResponse {
             thread: thread.clone(),
             disabled_plugin_ids: config_snapshot.disabled_plugin_ids,
-            model: format!("{}/{}", config_snapshot.model_provider_id, config_snapshot.model),
+            model: format!(
+                "{}/{}",
+                config_snapshot.model_provider_id, config_snapshot.model
+            ),
             model_provider: session_configured.model_provider_id,
             service_tier: config_snapshot.service_tier.clone(),
             cwd: session_configured.cwd,
@@ -6414,7 +6427,9 @@ pub(crate) fn thread_from_stored_thread(
     } else {
         thread.model_provider
     };
-    let model = thread.model.map(|model| format!("{model_provider}/{model}"));
+    let model = thread
+        .model
+        .map(|model| format!("{model_provider}/{model}"));
     let thread = Thread {
         id: thread_id.clone(),
         environments: None,
@@ -6622,7 +6637,10 @@ fn build_thread_from_snapshot(
         project_id: None,
         history_mode: config_snapshot.history_mode.into(),
         model_provider: config_snapshot.model_provider_id.clone(),
-        model: Some(format!("{}/{}", config_snapshot.model_provider_id, config_snapshot.model)),
+        model: Some(format!(
+            "{}/{}",
+            config_snapshot.model_provider_id, config_snapshot.model
+        )),
         reasoning_effort: config_snapshot.reasoning_effort.clone(),
         created_at: now,
         updated_at: now,

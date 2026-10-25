@@ -165,7 +165,8 @@ async fn session_and_settings_sync_server_provider_id() {
     let mut updated = thread_settings_for_test("gpt-5.4", first_id);
     updated.thread_settings.model_provider = "server-updated".to_string();
     updated.thread_settings.model = "server-updated/gpt-5.4".to_string();
-    updated.thread_settings.collaboration_mode.settings.model = updated.thread_settings.model.clone();
+    updated.thread_settings.collaboration_mode.settings.model =
+        updated.thread_settings.model.clone();
     chat.handle_server_notification(
         ServerNotification::ThreadSettingsUpdated(updated),
         /*replay_kind*/ None,

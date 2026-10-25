@@ -199,7 +199,8 @@ pub(super) fn apply_accepted_model_migration(
     });
 
     launch_choices.effort = Some(serde_json::json!(target_default_effort));
-    let (provider, native_model) = target_model.split_once('/')
+    let (provider, native_model) = target_model
+        .split_once('/')
         .expect("catalogue migration targets are canonical selections");
     launch_choices.set_model(provider, native_model);
     config.model_provider_id = provider.to_string();

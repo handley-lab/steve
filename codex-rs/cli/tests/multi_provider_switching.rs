@@ -82,9 +82,16 @@ async fn switch_captures_native_route_tools_and_cold_resume() -> Result<()> {
                 } else {
                     assert!(!request.headers.contains_key("authorization"));
                 }
-                if body["input"].as_array().unwrap().iter()
-                    .any(|item| item["type"] == "compaction_trigger") {
-                    assert_eq!(provider, "cambridge", "previous model compacts on its own provider");
+                if body["input"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|item| item["type"] == "compaction_trigger")
+                {
+                    assert_eq!(
+                        provider, "cambridge",
+                        "previous model compacts on its own provider"
+                    );
                     compactions.fetch_add(1, Ordering::SeqCst);
                     let events = [
                         json!({"type":"response.output_item.done", "item": {
@@ -92,8 +99,10 @@ async fn switch_captures_native_route_tools_and_cold_resume() -> Result<()> {
                         }}),
                         json!({"type":"response.completed", "response":{"id":"compact"}}),
                     ];
-                    let response: String = events.iter()
-                        .map(|event| format!("data: {event}\n\n")).collect();
+                    let response: String = events
+                        .iter()
+                        .map(|event| format!("data: {event}\n\n"))
+                        .collect();
                     return ResponseTemplate::new(200)
                         .insert_header("content-type", "text/event-stream")
                         .set_body_string(response);
@@ -139,15 +148,21 @@ async fn switch_captures_native_route_tools_and_cold_resume() -> Result<()> {
             .mount(&server)
             .await;
     }
-    let metadata = ["cambridge", "turing"].into_iter().map(|provider| {
-        let mut model = codex_protocol::openai_models::ModelInfo::from_discovery_id(
-            format!("{provider}/turing/shared-id"), None,
-        );
-        model.comp_hash = Some(provider.to_string());
-        model
-    }).collect::<Vec<_>>();
-    std::fs::write(home.path().join("models.json"),
-        serde_json::to_vec(&json!({"models":metadata}))?)?;
+    let metadata = ["cambridge", "turing"]
+        .into_iter()
+        .map(|provider| {
+            let mut model = codex_protocol::openai_models::ModelInfo::from_discovery_id(
+                format!("{provider}/turing/shared-id"),
+                None,
+            );
+            model.comp_hash = Some(provider.to_string());
+            model
+        })
+        .collect::<Vec<_>>();
+    std::fs::write(
+        home.path().join("models.json"),
+        serde_json::to_vec(&json!({"models":metadata}))?,
+    )?;
     std::fs::write(
         home.path().join("config.toml"),
         format!(
@@ -198,10 +213,17 @@ default_model = "turing/shared-id"
         .await?;
     assert_eq!(thread.model, "cambridge/turing/shared-id");
     assert_eq!(thread.model_provider, "cambridge");
-    assert_eq!(thread.thread.model.as_deref(), Some("cambridge/turing/shared-id"));
-    let started_notification = app.read_stream_until_notification_message("thread/started").await?;
-    assert_eq!(started_notification.params.as_ref().unwrap()["thread"]["model"],
-        "cambridge/turing/shared-id");
+    assert_eq!(
+        thread.thread.model.as_deref(),
+        Some("cambridge/turing/shared-id")
+    );
+    let started_notification = app
+        .read_stream_until_notification_message("thread/started")
+        .await?;
+    assert_eq!(
+        started_notification.params.as_ref().unwrap()["thread"]["model"],
+        "cambridge/turing/shared-id"
+    );
     let thread_id = thread.thread.id;
     let first = app
         .send_turn_start_request(TurnStartParams {
@@ -222,15 +244,24 @@ default_model = "turing/shared-id"
             },
         })
         .await?;
-    let updated = app.read_stream_until_matching_notification(
-        "selected provider acknowledgement",
-        |notification| notification.method == "thread/settings/updated"
-            && notification.params.as_ref().is_some_and(|params|
-                params["threadSettings"]["modelProvider"] == "turing"),
-    ).await?;
+    let updated = app
+        .read_stream_until_matching_notification(
+            "selected provider acknowledgement",
+            |notification| {
+                notification.method == "thread/settings/updated"
+                    && notification
+                        .params
+                        .as_ref()
+                        .is_some_and(|params| params["threadSettings"]["modelProvider"] == "turing")
+            },
+        )
+        .await?;
     let settings = &updated.params.as_ref().unwrap()["threadSettings"];
     assert_eq!(settings["model"], "turing/turing/shared-id");
-    assert_eq!(settings["collaborationMode"]["settings"]["model"], "turing/turing/shared-id");
+    assert_eq!(
+        settings["collaborationMode"]["settings"]["model"],
+        "turing/turing/shared-id"
+    );
     assert_eq!(
         first_count.load(Ordering::SeqCst),
         1,
@@ -272,17 +303,31 @@ default_model = "turing/shared-id"
     assert_eq!(resumed.thread.id, thread_id);
     assert_eq!(resumed.model_provider, "turing");
     assert_eq!(resumed.model, "turing/turing/shared-id");
-    assert_eq!(resumed.thread.model.as_deref(), Some("turing/turing/shared-id"));
+    assert_eq!(
+        resumed.thread.model.as_deref(),
+        Some("turing/turing/shared-id")
+    );
     assert_eq!(resumed.thread.model_provider, "turing");
-    assert_eq!(resumed.collaboration_mode.as_ref().unwrap().model(), "turing/turing/shared-id");
-    let warm: ThreadResumeResponse = app.request(|request_id| ClientRequest::ThreadResume {
-        request_id,
-        params: ThreadResumeParams { thread_id: thread_id.clone(), ..Default::default() },
-    }).await?;
+    assert_eq!(
+        resumed.collaboration_mode.as_ref().unwrap().model(),
+        "turing/turing/shared-id"
+    );
+    let warm: ThreadResumeResponse = app
+        .request(|request_id| ClientRequest::ThreadResume {
+            request_id,
+            params: ThreadResumeParams {
+                thread_id: thread_id.clone(),
+                ..Default::default()
+            },
+        })
+        .await?;
     assert_eq!(warm.model, "turing/turing/shared-id");
-    let fork = app.send_thread_fork_request(codex_app_server_protocol::ThreadForkParams {
-        thread_id: thread_id.clone(), ..Default::default()
-    }).await?;
+    let fork = app
+        .send_thread_fork_request(codex_app_server_protocol::ThreadForkParams {
+            thread_id: thread_id.clone(),
+            ..Default::default()
+        })
+        .await?;
     let forked: codex_app_server_protocol::ThreadForkResponse = app.read_response(fork).await?;
     assert_ne!(forked.thread.id, thread_id);
     assert_eq!(forked.model, "turing/turing/shared-id");

@@ -2144,7 +2144,10 @@ async fn run_models_command(overrides: CliConfigOverrides) -> anyhow::Result<()>
         .model_catalog_result(RefreshStrategy::Online, config.http_client_factory())
         .await?;
     let response = codex_app_server_protocol::ModelListResponse {
-        data: codex_app_server::supported_models(manager.build_available_models(listing.models), false),
+        data: codex_app_server::supported_models(
+            manager.build_available_models(listing.models),
+            false,
+        ),
         next_cursor: None,
         cyber_access_programs_enabled: None,
         provider_errors: listing

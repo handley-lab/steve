@@ -12,7 +12,12 @@ async fn model_picker_compact_hint_and_actions_follow_configured_bindings() {
     chat.bottom_pane.set_keymap_bindings(&keymap);
     let mut preset = get_available_model(&chat, "gpt-5.5");
     preset.supported_reasoning_efforts = [ReasoningEffortConfig::Low, ReasoningEffortConfig::High]
-        .into_iter().map(|effort| ReasoningEffortPreset { effort, description: String::new() }).collect();
+        .into_iter()
+        .map(|effort| ReasoningEffortPreset {
+            effort,
+            description: String::new(),
+        })
+        .collect();
     chat.model_catalog = Arc::new(ModelCatalog::new(vec![preset]));
     chat.open_model_popup_with_presets(chat.model_catalog.models.clone());
     let popup = render_bottom_popup(&chat, /*width*/ 40);

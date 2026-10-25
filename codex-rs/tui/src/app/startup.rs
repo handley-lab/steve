@@ -1080,7 +1080,8 @@ See the Steve keymap documentation for supported actions and examples."
         }
         let initial_session_ms = initial_session_started_at.elapsed().as_millis();
         for error in provider_errors {
-            app.chat_widget.add_error_message(format!("{}: {}", error.provider, error.message));
+            app.chat_widget
+                .add_error_message(format!("{}: {}", error.provider, error.message));
         }
 
         if let Err(err) = startup_draft.flush_pending_events(tui).await {

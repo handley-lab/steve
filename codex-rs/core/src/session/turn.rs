@@ -1386,8 +1386,7 @@ async fn run_pre_sampling_compact(
     client_session: &mut ModelClientSession,
     cancellation_token: &CancellationToken,
 ) -> CodexResult<()> {
-    maybe_run_previous_model_inline_compact(sess, turn_context, cancellation_token)
-        .await?;
+    maybe_run_previous_model_inline_compact(sess, turn_context, cancellation_token).await?;
     let token_status =
         super::context_window::context_window_token_status(sess.as_ref(), turn_context.as_ref())
             .await;
@@ -1484,9 +1483,7 @@ async fn maybe_run_previous_model_inline_compact(
                     active_context_tokens >= new_context_window
                 }
             };
-        if !previous_model_limit_reached
-            || old_context_window <= new_context_window
-        {
+        if !previous_model_limit_reached || old_context_window <= new_context_window {
             return Ok(());
         }
         CompactionReason::ModelDownshift

@@ -1088,7 +1088,8 @@ impl App {
     ) -> Option<ReasoningEffortConfig> {
         let default_effort = self.default_reasoning_effort_for_conversation_model(model);
         if let Some(default_effort) = default_effort.as_ref() {
-            let (provider, native_model) = model.split_once('/')
+            let (provider, native_model) = model
+                .split_once('/')
                 .expect("catalogue selections contain provider and native model");
             self.config.model_provider_id = provider.to_string();
             self.config.model = Some(native_model.to_string());
@@ -1448,10 +1449,14 @@ mod tests {
             preset.model = format!("openai/{}", preset.model);
             preset.id = preset.model.clone();
             preset.default_reasoning_effort = ReasoningEffortConfig::Medium;
-            preset.supported_reasoning_efforts = [ReasoningEffortConfig::Low, ReasoningEffortConfig::Medium]
-                .into_iter()
-                .map(|effort| ReasoningEffortPreset { effort, description: String::new() })
-                .collect();
+            preset.supported_reasoning_efforts =
+                [ReasoningEffortConfig::Low, ReasoningEffortConfig::Medium]
+                    .into_iter()
+                    .map(|effort| ReasoningEffortPreset {
+                        effort,
+                        description: String::new(),
+                    })
+                    .collect();
         }
         app.model_catalog = Arc::new(ModelCatalog::new(models));
     }
