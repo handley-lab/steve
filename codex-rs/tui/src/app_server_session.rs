@@ -348,10 +348,11 @@ pub(crate) enum ThreadParamsMode {
 }
 
 /// Determines where model settings come from when resuming a thread.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ResumeModelSettings {
     /// Sends the current config's model, provider, and reasoning effort as explicit overrides.
-    OverrideFromCurrentConfig,
+    /// Retains the invocation's model selector when the request omits the provider.
+    OverrideFromCurrentConfig(Option<String>),
     /// Omits those overrides so app-server restores the settings saved with the thread.
     RestoreFromThread,
     /// Rejoins a loaded thread without changing any of its existing settings.
@@ -2221,7 +2222,7 @@ fn thread_resume_params_from_config(
         }
     }
     let (model, model_provider) = match model_settings {
-        ResumeModelSettings::OverrideFromCurrentConfig => (
+        ResumeModelSettings::OverrideFromCurrentConfig(_) => (
             config.model.clone(),
             provider_selection::explicit_provider(&config),
         ),
@@ -3439,7 +3440,7 @@ mod tests {
             thread_id,
             ThreadParamsMode::Remote,
             /*remote_cwd_override*/ None,
-            ResumeModelSettings::OverrideFromCurrentConfig,
+            ResumeModelSettings::OverrideFromCurrentConfig(None),
             crate::resume_permissions::ResumePermissions::CURRENT_CONFIG,
         );
         let fork = thread_fork_params_from_config(
@@ -3582,7 +3583,7 @@ mod tests {
             thread_id,
             ThreadParamsMode::Remote,
             Some(remote_cwd.as_path()),
-            ResumeModelSettings::OverrideFromCurrentConfig,
+            ResumeModelSettings::OverrideFromCurrentConfig(None),
             crate::resume_permissions::ResumePermissions::CURRENT_CONFIG,
         );
         let fork = thread_fork_params_from_config(
@@ -3637,7 +3638,7 @@ mod tests {
             thread_id,
             ThreadParamsMode::Embedded,
             /*remote_cwd_override*/ None,
-            ResumeModelSettings::OverrideFromCurrentConfig,
+            ResumeModelSettings::OverrideFromCurrentConfig(None),
             crate::resume_permissions::ResumePermissions::CURRENT_CONFIG,
         );
         let fork = thread_fork_params_from_config(
@@ -4193,7 +4194,7 @@ mod tests {
             thread_id,
             ThreadParamsMode::Embedded,
             /*remote_cwd_override*/ None,
-            ResumeModelSettings::OverrideFromCurrentConfig,
+            ResumeModelSettings::OverrideFromCurrentConfig(None),
             crate::resume_permissions::ResumePermissions::CURRENT_CONFIG,
         );
         let control_fork = thread_fork_params_from_config(
@@ -4224,7 +4225,7 @@ mod tests {
             thread_id,
             ThreadParamsMode::Embedded,
             /*remote_cwd_override*/ None,
-            ResumeModelSettings::OverrideFromCurrentConfig,
+            ResumeModelSettings::OverrideFromCurrentConfig(None),
             crate::resume_permissions::ResumePermissions::CURRENT_CONFIG,
         );
         let treatment_fork = thread_fork_params_from_config(

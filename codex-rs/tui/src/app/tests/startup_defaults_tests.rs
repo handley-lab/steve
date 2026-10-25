@@ -54,6 +54,130 @@ async fn run_startup_for_test(
 }
 
 #[tokio::test]
+async fn resume_startup_preserves_explicit_model_selector() -> Result<()> {
+    let home = tempdir()?;
+    let models = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/v1/models"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{"id": "moonshotai/Kimi-K3"}, {"id": "google/gemma-4-31b-it"}]
+            })),
+        )
+        .mount(&models)
+        .await;
+    std::fs::write(
+        home.path().join("config.toml"),
+        format!(
+            r#"
+model_provider = "turing"
+model = "google/gemma-4-31b-it"
+[features]
+api_key_model_discovery = true
+[model_providers.turing]
+name = "Turing"
+base_url = "{0}/v1"
+wire_api = "responses"
+[model_providers.cambridge]
+name = "Cambridge"
+base_url = "{0}/v1"
+wire_api = "responses"
+"#,
+            models.uri(),
+        ),
+    )?;
+    let server_config = ConfigBuilder::default()
+        .codex_home(home.path().to_path_buf())
+        .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+        .build()
+        .await?;
+    let thread_id = crate::tests::write_session_rollout(
+        home.path(),
+        "2025-01-02T10-00-00",
+        "2025-01-02T10:00:00Z",
+        "Saved Cambridge session",
+        "cambridge",
+        server_config.cwd.as_path(),
+    )?;
+    for (model, provider) in [
+        (None, None),
+        (Some("cambridge/moonshotai/Kimi-K3"), None),
+        (Some("moonshotai/Kimi-K3"), Some("cambridge")),
+    ] {
+        let harness_overrides = ConfigOverrides {
+            model: model.map(str::to_owned),
+            model_provider: provider.map(str::to_owned),
+            ..Default::default()
+        };
+        let config = ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+            .harness_overrides(harness_overrides.clone())
+            .build()
+            .await?;
+        let (mut server, requests, proxy) =
+            start_recording_remote_app_server(&server_config).await?;
+        let bootstrap = server.bootstrap(&config).await?;
+        let mut tui = crate::tui::test_support::make_test_tui()?;
+        tui.pause_events();
+        let mut run = Box::pin(App::run(
+            &mut tui,
+            server,
+            config.clone(),
+            config.cwd.to_path_buf(),
+            Vec::new(),
+            harness_overrides,
+            LoaderOverrides::without_managed_config_for_tests(),
+            CloudConfigBundleLoader::default(),
+            /*initial_prompt*/ None,
+            Vec::new(),
+            SessionSelection::Resume(SessionTarget {
+                thread_id,
+                path: None,
+                cwd: None,
+                history_mode: None,
+            }),
+            codex_feedback::CodexFeedback::new(),
+            /*is_first_run*/ false,
+            /*should_prompt_windows_sandbox_nux_at_startup*/ false,
+            remote_target(),
+            /*state_db*/ None,
+            Arc::new(EnvironmentManager::default_for_tests()),
+            Duration::ZERO,
+            Some(bootstrap),
+            /*startup_hooks_browser*/ None,
+            /*daemon_startup_warning*/ None,
+            /*managed_daemon*/ false,
+            crate::startup_draft::tests::quiet_startup_test_pump(),
+            /*managed_worktree*/ None,
+            /*daemon_cli_executable*/ None,
+        ));
+        let resumes = tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                let resumes = recorded_params(&requests, "thread/resume");
+                if !resumes.is_empty() {
+                    return Ok::<_, color_eyre::eyre::Report>(resumes);
+                }
+                tokio::select! {
+                    result = &mut run => {
+                        result?;
+                        return Err(color_eyre::eyre::eyre!("startup exited before thread/resume"));
+                    }
+                    () = tokio::time::sleep(Duration::from_millis(20)) => {}
+                }
+            }
+        })
+        .await??;
+        drop(run);
+        proxy.abort();
+        assert_eq!(resumes.len(), 1);
+        assert_eq!(resumes[0]["model"], serde_json::json!(model));
+        assert_eq!(resumes[0]["modelProvider"], serde_json::json!(provider));
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn agents_overview_startup_restores_saved_grouping() -> Result<()> {
     let home = tempdir()?;
     std::fs::write(

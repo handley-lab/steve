@@ -8656,7 +8656,7 @@ async fn prompt_edit_reverts_earlier_and_first_visible_prompts_in_place_scenario
             &local_settings,
             config.clone(),
             source_thread_id,
-            crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig,
+            crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig(None),
         )
         .await?;
     assert!(app_server.has_older_history(source_thread_id));

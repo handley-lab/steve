@@ -95,7 +95,7 @@ async fn archived_session_requires_confirmation_before_resume_or_fork() -> Resul
                     },
                     &server_target,
                     &target,
-                    action,
+                    action.clone(),
                     initial,
                     async || {
                         prompts.set(prompts.get() + 1);
@@ -123,12 +123,17 @@ async fn archived_session_requires_confirmation_before_resume_or_fork() -> Resul
         }
 
         assert_eq!(prompts.get(), 6);
-        let SessionStartOutcome::Started(started) =
-            start_session(&mut app_server, &config, &target, action, async || {
+        let SessionStartOutcome::Started(started) = start_session(
+            &mut app_server,
+            &config,
+            &target,
+            action.clone(),
+            async || {
                 prompts.set(prompts.get() + 1);
                 Ok(UnarchiveChoice::Unarchive)
-            })
-            .await?
+            },
+        )
+        .await?
         else {
             panic!("confirmed session should start")
         };
@@ -174,9 +179,13 @@ async fn archived_session_requires_confirmation_before_resume_or_fork() -> Resul
             cwd: None,
             history_mode: None,
         };
-        let error = start_session(&mut app_server, &config, &missing, action, async || {
-            panic!("unrelated failures must not prompt")
-        })
+        let error = start_session(
+            &mut app_server,
+            &config,
+            &missing,
+            action.clone(),
+            async || panic!("unrelated failures must not prompt"),
+        )
         .await
         .expect_err("missing session should fail");
         assert!(

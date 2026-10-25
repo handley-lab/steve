@@ -161,11 +161,16 @@ impl AppServerSession {
             thread_id,
             self.thread_params_mode(),
             self.remote_cwd_override.as_deref(),
-            model_settings,
+            model_settings.clone(),
             permission_overrides,
         );
-        if model_settings == ResumeModelSettings::OverrideFromCurrentConfig {
+        if let ResumeModelSettings::OverrideFromCurrentConfig(model) = model_settings {
             params.model_provider = self.explicit_model_provider(&config);
+            if params.model_provider.is_none()
+                && let Some(model) = model
+            {
+                params.model = Some(model);
+            }
         }
         self.thread_tool_transport()
             .configure_mcp(&mut params.config);

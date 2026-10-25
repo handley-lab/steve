@@ -48,7 +48,9 @@ pub(super) fn resume_model_settings_for_overrides(
         || harness_overrides.model_provider.is_some()
         || has_layer_override
     {
-        crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig
+        crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig(
+            harness_overrides.model.clone(),
+        )
     } else {
         crate::app_server_session::ResumeModelSettings::RestoreFromThread
     }
@@ -1670,15 +1672,15 @@ mod tests {
         for (key, expected) in [
             (
                 "model",
-                crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig,
+                crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig(None),
             ),
             (
                 "model_provider",
-                crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig,
+                crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig(None),
             ),
             (
                 "model_reasoning_effort",
-                crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig,
+                crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig(None),
             ),
             (
                 "sandbox_mode",
@@ -1723,7 +1725,7 @@ mod tests {
         app.harness_overrides.model_provider = Some("custom-provider".to_string());
         assert_eq!(
             app.resume_model_settings(),
-            crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig
+            crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig(None)
         );
     }
 
