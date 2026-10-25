@@ -85,7 +85,10 @@ pub(super) async fn maybe_start(
     let model_info = &step_context.settings.model_info;
     let attempt = CompactionAttempt {
         history_version: state.history.history_version(),
-        model_slug: model_info.slug.clone(),
+        model_slug: format!(
+            "{}/{}",
+            turn_context.config.model_provider_id, model_info.slug
+        ),
         compaction_hash: model_info.comp_hash.clone(),
         auth_owner_generation,
     };
@@ -94,7 +97,7 @@ pub(super) async fn maybe_start(
         || state.shutting_down
         || state.async_compaction.last_attempt.as_ref() == Some(&attempt)
         || state.history.annotated_items().is_empty()
-        || sess.services.model_client.auth_owner_generation() != auth_owner_generation
+        || step_context.turn.model_client.auth_owner_generation() != auth_owner_generation
     {
         return;
     }
@@ -167,9 +170,14 @@ pub(crate) async fn wait_for_pending(
         let model = &step_context.settings.model_info;
         let attempt = state.async_compaction.last_attempt.as_ref()?;
         if attempt.history_version != state.history.history_version()
-            || attempt.model_slug != model.slug
+            || attempt.model_slug
+                != format!(
+                    "{}/{}",
+                    step_context.turn.config.model_provider_id, model.slug
+                )
             || attempt.compaction_hash != model.comp_hash
-            || attempt.auth_owner_generation != sess.services.model_client.auth_owner_generation()
+            || attempt.auth_owner_generation
+                != step_context.turn.model_client.auth_owner_generation()
         {
             return None;
         }

@@ -131,6 +131,7 @@ requires_openai_auth = true
     assert_eq!(
         response,
         ModelListResponse {
+            provider_errors: Vec::new(),
             data: expected.iter().map(model_from_preset).collect(),
             next_cursor: None,
             cyber_access_programs_enabled: None,

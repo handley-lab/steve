@@ -199,8 +199,13 @@ async fn remote_models_get_model_info_uses_longest_matching_prefix() -> Result<(
         .await;
 
     let model_info = manager
-        .get_model_info("gpt-5.3-codex-test", &config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &config.model_provider_id,
+            "gpt-5.3-codex-test",
+            &config.to_models_manager_config(),
+        )
+        .await
+        .unwrap();
 
     assert_eq!(model_info.slug, "gpt-5.3-codex-test");
     assert_eq!(
@@ -651,8 +656,13 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
     assert_eq!(available_model.model, REMOTE_MODEL_SLUG);
 
     let model_info = models_manager
-        .get_model_info(REMOTE_MODEL_SLUG, &config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &config.model_provider_id,
+            REMOTE_MODEL_SLUG,
+            &config.to_models_manager_config(),
+        )
+        .await
+        .unwrap();
     assert_eq!(model_info.shell_type, ConfigShellToolType::UnifiedExec);
 
     core_test_support::submit_thread_settings(
@@ -770,8 +780,13 @@ async fn remote_models_truncation_policy_without_override_preserves_remote() -> 
     wait_for_model_available(&models_manager, slug).await;
 
     let model_info = models_manager
-        .get_model_info(slug, &test.config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &test.config.model_provider_id,
+            slug,
+            &test.config.to_models_manager_config(),
+        )
+        .await
+        .unwrap();
     assert_eq!(
         model_info.truncation_policy,
         TruncationPolicyConfig::bytes(/*limit*/ 12_000)
@@ -817,8 +832,13 @@ async fn remote_models_truncation_policy_with_tool_output_override() -> Result<(
     wait_for_model_available(&models_manager, slug).await;
 
     let model_info = models_manager
-        .get_model_info(slug, &test.config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &test.config.model_provider_id,
+            slug,
+            &test.config.to_models_manager_config(),
+        )
+        .await
+        .unwrap();
     assert_eq!(
         model_info.truncation_policy,
         TruncationPolicyConfig::bytes(/*limit*/ 200)
@@ -1006,8 +1026,13 @@ async fn remote_models_apply_legacy_instructions(auth: CodexAuth) -> Result<()> 
     wait_for_event(&codex, |event| matches!(event, EventMsg::TurnComplete(_))).await;
 
     let base_model_info = models_manager
-        .get_model_info("gpt-5.2", &config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &config.model_provider_id,
+            "gpt-5.2",
+            &config.to_models_manager_config(),
+        )
+        .await
+        .unwrap();
     let requests = response_mock.requests();
     assert_eq!(requests.len(), 2, "expected two model requests");
     let request = requests.last().expect("expected second model request");
@@ -1405,6 +1430,8 @@ fn test_remote_model_with_policy(
     truncation_policy: TruncationPolicyConfig,
 ) -> ModelInfo {
     ModelInfo {
+        non_chat: false,
+        discovered_non_chat: None,
         slug: slug.to_string(),
         display_name: format!("{slug} display"),
         description: Some(format!("{slug} description")),

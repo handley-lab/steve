@@ -128,6 +128,7 @@ mod mcp_refresh;
 mod message_processor;
 mod model_catalog;
 mod models;
+pub use models::supported_models;
 mod models_refresh_worker;
 mod notification_media;
 mod otel_reloader;

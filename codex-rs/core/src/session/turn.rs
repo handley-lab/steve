@@ -183,8 +183,9 @@ pub(crate) async fn run_turn(
     // Record results from hooks that finished after the previous turn before this turn's user prompt.
     drain_async_hook_results(&sess, &turn_context, /*before_user_prompt*/ true).await;
 
-    let mut client_session =
-        prewarmed_client_session.unwrap_or_else(|| sess.services.model_client.new_session());
+    let mut client_session = prewarmed_client_session
+        .filter(|client| client.is_for_provider(&turn_context.provider))
+        .unwrap_or_else(|| turn_context.model_client.new_session());
     // TODO(ccunningham): Pre-turn compaction runs before context updates and the
     // new user message are recorded. Estimate pending incoming items (context
     // diffs/full reinjection + user input) and trigger compaction preemptively
@@ -357,7 +358,7 @@ pub(crate) async fn run_turn(
             &sess,
             Arc::clone(&first_step_context),
             Arc::clone(&first_step_context),
-            &mut client_session,
+            Some(&mut client_session),
             CompactionReason::ContextLimit,
             CompactionPhase::PreTurn,
             /*candidate*/ None,
@@ -400,6 +401,7 @@ pub(crate) async fn run_turn(
         .await;
     sess.set_previous_turn_settings(Some(PreviousTurnSettings {
         model: turn_context.model_info().slug.clone(),
+        model_provider_id: Some(turn_context.config.model_provider_id.clone()),
         cyber_access_program: turn_context.cyber_access_program,
         comp_hash: turn_context.model_info().comp_hash.clone(),
         realtime_active: Some(turn_context.realtime_active),
@@ -677,7 +679,7 @@ pub(crate) async fn run_turn(
                         &sess,
                         Arc::clone(&step_context),
                         Arc::clone(&step_context),
-                        &mut client_session,
+                        Some(&mut client_session),
                         CompactionReason::ContextLimit,
                         CompactionPhase::MidTurn,
                         candidate,
@@ -795,7 +797,7 @@ pub(crate) async fn run_turn(
                                 &sess,
                                 Arc::clone(&step_context),
                                 Arc::clone(&step_context),
-                                &mut client_session,
+                                Some(&mut client_session),
                                 CompactionReason::ContextLimit,
                                 CompactionPhase::PostTurn,
                                 candidate,
@@ -847,7 +849,7 @@ pub(crate) async fn run_turn(
                     &sess,
                     Arc::clone(&step_context),
                     Arc::clone(&step_context),
-                    &mut client_session,
+                    Some(&mut client_session),
                     CompactionReason::ContextLimit,
                     CompactionPhase::MidTurn,
                     /*candidate*/ None,
@@ -1384,8 +1386,7 @@ async fn run_pre_sampling_compact(
     client_session: &mut ModelClientSession,
     cancellation_token: &CancellationToken,
 ) -> CodexResult<()> {
-    maybe_run_previous_model_inline_compact(sess, turn_context, client_session, cancellation_token)
-        .await?;
+    maybe_run_previous_model_inline_compact(sess, turn_context, cancellation_token).await?;
     let token_status =
         super::context_window::context_window_token_status(sess.as_ref(), turn_context.as_ref())
             .await;
@@ -1400,7 +1401,7 @@ async fn run_pre_sampling_compact(
             sess,
             Arc::clone(&step_context),
             step_context,
-            client_session,
+            Some(client_session),
             CompactionReason::ContextLimit,
             CompactionPhase::PreTurn,
             candidate,
@@ -1425,7 +1426,6 @@ fn comp_hash_changed(previous: Option<&str>, current: Option<&str>) -> bool {
 async fn maybe_run_previous_model_inline_compact(
     sess: &Arc<Session>,
     turn_context: &Arc<TurnContext>,
-    client_session: &mut ModelClientSession,
     cancellation_token: &CancellationToken,
 ) -> CodexResult<()> {
     let Some(previous_turn_settings) = sess.previous_turn_settings().await else {
@@ -1436,12 +1436,22 @@ async fn maybe_run_previous_model_inline_compact(
         turn_context.model_info().comp_hash.as_deref(),
     );
     let previous_model = previous_turn_settings.model;
-    if !should_compact_for_comp_hash_change && previous_model == turn_context.model_info().slug {
+    let previous_provider = previous_turn_settings
+        .model_provider_id
+        .as_deref()
+        .unwrap_or(&turn_context.config.model_provider_id);
+    if !should_compact_for_comp_hash_change
+        && previous_model == turn_context.model_info().slug
+        && previous_provider == turn_context.config.model_provider_id
+    {
         return Ok(());
     }
     let mut previous_model_turn_context = turn_context
-        .with_model(previous_model.clone(), &sess.services.models_manager)
-        .await;
+        .with_model(
+            format!("{previous_provider}/{previous_model}"),
+            &sess.services.models_manager,
+        )
+        .await?;
     // `with_model` preserves the current turn's access program. Restore the previous
     // turn's program so compaction uses the same model/cyber_access_program pair as that turn.
     // Combining the previous model with the current turn's program can produce a pair
@@ -1473,10 +1483,7 @@ async fn maybe_run_previous_model_inline_compact(
                     active_context_tokens >= new_context_window
                 }
             };
-        if !previous_model_limit_reached
-            || previous_model_turn_context.model_info().slug == turn_context.model_info().slug
-            || old_context_window <= new_context_window
-        {
+        if !previous_model_limit_reached || old_context_window <= new_context_window {
             return Ok(());
         }
         CompactionReason::ModelDownshift
@@ -1494,7 +1501,7 @@ async fn maybe_run_previous_model_inline_compact(
         sess,
         step_context,
         replacement_step_context,
-        client_session,
+        None,
         reason,
         CompactionPhase::PreTurn,
         /*candidate*/ None,
@@ -1514,7 +1521,7 @@ async fn run_auto_compact(
     sess: &Arc<Session>,
     step_context: Arc<StepContext>,
     replacement_step_context: Arc<StepContext>,
-    client_session: &mut ModelClientSession,
+    client_session: Option<&mut ModelClientSession>,
     reason: CompactionReason,
     phase: CompactionPhase,
     candidate: Option<Box<BackgroundCompactionCandidate>>,
@@ -3072,7 +3079,11 @@ async fn try_run_sampling_request(
                 // Update internal state with latest models etag
                 sess.services
                     .models_manager
-                    .refresh_if_new_etag(etag, turn_context.config.http_client_factory())
+                    .refresh_if_new_etag(
+                        &turn_context.config.model_provider_id,
+                        etag,
+                        turn_context.config.http_client_factory(),
+                    )
                     .await;
             }
             ResponseEvent::Completed {

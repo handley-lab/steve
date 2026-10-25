@@ -423,6 +423,7 @@ async fn record_initial_history_restores_world_state_baseline(input: BaselineTur
         ),
         (
             Some(PreviousTurnSettings {
+                model_provider_id: context_item.model_provider_id.clone(),
                 model: context_item.model.clone(),
                 comp_hash: context_item.comp_hash.clone(),
                 cyber_access_program: None,
@@ -449,6 +450,7 @@ async fn record_initial_history_resumed_bare_turn_context_does_not_hydrate_previ
     let (session, turn_context) = make_session_and_context().await;
     let previous_model = "previous-rollout-model";
     let previous_context_item = TurnContextItem {
+        model_provider_id: None,
         turn_id: Some(turn_context.sub_id.clone()),
         root_turn_id: None,
         disabled_plugin_ids: None,
@@ -495,6 +497,7 @@ async fn record_initial_history_resumed_hydrates_previous_turn_settings_from_lif
     let (session, turn_context) = make_session_and_context().await;
     let previous_model = "previous-rollout-model";
     let mut previous_context_item = TurnContextItem {
+        model_provider_id: None,
         turn_id: Some(turn_context.sub_id.clone()),
         root_turn_id: None,
         disabled_plugin_ids: None,
@@ -570,6 +573,7 @@ async fn record_initial_history_resumed_hydrates_previous_turn_settings_from_lif
     assert_eq!(
         session.previous_turn_settings().await,
         Some(PreviousTurnSettings {
+            model_provider_id: None,
             model: previous_model.to_string(),
             comp_hash: Some("comp-hash-a".to_string()),
             cyber_access_program: None,
@@ -710,6 +714,7 @@ async fn reconstruct_history_rollback_keeps_history_and_metadata_in_sync_for_com
             .expect("serialize previous settings"),
         json!({
             "model": turn_context.model_info().slug,
+            "model_provider_id": turn_context.config.model_provider_id,
             "comp_hash": null,
             "realtime_active": turn_context.realtime_active,
             "cyber_access_program": "daybreak_blue",
@@ -820,6 +825,7 @@ async fn reconstruct_history_rollback_keeps_history_and_metadata_in_sync_for_inc
             .expect("serialize previous settings"),
         json!({
             "model": turn_context.model_info().slug,
+            "model_provider_id": turn_context.config.model_provider_id,
             "comp_hash": null,
             "realtime_active": turn_context.realtime_active,
             "cyber_access_program": "daybreak_blue",
@@ -966,6 +972,7 @@ async fn reconstruct_history_rollback_skips_non_user_turns_for_history_and_metad
     assert_eq!(
         reconstructed.previous_turn_settings,
         Some(PreviousTurnSettings {
+            model_provider_id: Some(turn_context.config.model_provider_id.clone()),
             model: turn_context.model_info().slug.clone(),
             comp_hash: None,
             cyber_access_program: None,
@@ -1078,6 +1085,7 @@ async fn reconstruct_history_rollback_counts_inter_agent_assistant_turns() {
     assert_eq!(
         reconstructed.previous_turn_settings,
         Some(PreviousTurnSettings {
+            model_provider_id: Some(turn_context.config.model_provider_id.clone()),
             model: turn_context.model_info().slug.clone(),
             comp_hash: None,
             cyber_access_program: None,
@@ -1335,6 +1343,7 @@ async fn record_initial_history_resumed_rollback_drops_incomplete_user_turn_comp
     assert_eq!(
         session.previous_turn_settings().await,
         Some(PreviousTurnSettings {
+            model_provider_id: Some(turn_context.config.model_provider_id.clone()),
             model: turn_context.model_info().slug.clone(),
             comp_hash: None,
             cyber_access_program: None,
@@ -1626,6 +1635,7 @@ async fn bounded_replay_matches_full_replay_after_empty_turn_compactions(
                         last_started_turn_id: Some(format!("wake-{window_number}")),
                         turn_attribution: None,
                         previous_turn_settings: Some(PreviousTurnSettings {
+                            model_provider_id: None,
                             model: format!("metadata-model-{window_number}"),
                             comp_hash: Some(format!("metadata-hash-{window_number}")),
                             cyber_access_program: None,
@@ -1874,6 +1884,7 @@ async fn completed_turn_suffix_after_compaction_overrides_resume_metadata(
         root_turn_id: None,
     });
     let expected_settings = PreviousTurnSettings {
+        model_provider_id: newer_context.model_provider_id.clone(),
         model: newer_context.model.clone(),
         comp_hash: newer_context.comp_hash.clone(),
         cyber_access_program: None,
@@ -2133,6 +2144,7 @@ async fn record_initial_history_resumed_turn_context_after_compaction_reestablis
     let (session, turn_context) = make_session_and_context().await;
     let previous_model = "previous-rollout-model";
     let previous_context_item = TurnContextItem {
+        model_provider_id: None,
         turn_id: Some(turn_context.sub_id.clone()),
         root_turn_id: Some("root-turn".to_string()),
         disabled_plugin_ids: None,
@@ -2221,6 +2233,7 @@ async fn record_initial_history_resumed_turn_context_after_compaction_reestablis
     assert_eq!(
         session.previous_turn_settings().await,
         Some(PreviousTurnSettings {
+            model_provider_id: None,
             model: previous_model.to_string(),
             comp_hash: None,
             cyber_access_program: None,
@@ -2231,6 +2244,7 @@ async fn record_initial_history_resumed_turn_context_after_compaction_reestablis
         serde_json::to_value(session.reference_context_item().await)
             .expect("serialize seeded reference context item"),
         serde_json::to_value(Some(TurnContextItem {
+            model_provider_id: None,
             turn_id: Some(turn_context.sub_id.clone()),
             root_turn_id: Some("root-turn".to_string()),
             disabled_plugin_ids: None,
@@ -2261,6 +2275,7 @@ async fn record_initial_history_resumed_aborted_turn_without_id_clears_active_tu
     let (session, turn_context) = make_session_and_context().await;
     let previous_model = "previous-rollout-model";
     let previous_context_item = TurnContextItem {
+        model_provider_id: None,
         turn_id: Some(turn_context.sub_id.clone()),
         root_turn_id: None,
         disabled_plugin_ids: None,
@@ -2382,6 +2397,7 @@ async fn record_initial_history_resumed_aborted_turn_without_id_clears_active_tu
     assert_eq!(
         session.previous_turn_settings().await,
         Some(PreviousTurnSettings {
+            model_provider_id: None,
             model: previous_model.to_string(),
             comp_hash: None,
             cyber_access_program: None,
@@ -2404,6 +2420,7 @@ async fn record_initial_history_resumed_unmatched_abort_preserves_active_turn_fo
     let current_turn_id = "current-turn".to_string();
     let unmatched_abort_turn_id = "other-turn".to_string();
     let current_context_item = TurnContextItem {
+        model_provider_id: None,
         turn_id: Some(current_turn_id.clone()),
         root_turn_id: None,
         disabled_plugin_ids: None,
@@ -2519,6 +2536,7 @@ async fn record_initial_history_resumed_unmatched_abort_preserves_active_turn_fo
     assert_eq!(
         session.previous_turn_settings().await,
         Some(PreviousTurnSettings {
+            model_provider_id: None,
             model: current_model.to_string(),
             comp_hash: None,
             cyber_access_program: None,
@@ -2539,6 +2557,7 @@ async fn record_initial_history_resumed_trailing_incomplete_turn_compaction_clea
     let (session, turn_context) = make_session_and_context().await;
     let previous_model = "previous-rollout-model";
     let previous_context_item = TurnContextItem {
+        model_provider_id: None,
         turn_id: Some(turn_context.sub_id.clone()),
         root_turn_id: None,
         disabled_plugin_ids: None,
@@ -2649,6 +2668,7 @@ async fn record_initial_history_resumed_trailing_incomplete_turn_compaction_clea
     assert_eq!(
         session.previous_turn_settings().await,
         Some(PreviousTurnSettings {
+            model_provider_id: None,
             model: previous_model.to_string(),
             comp_hash: None,
             cyber_access_program: None,
@@ -2704,6 +2724,7 @@ async fn record_initial_history_resumed_trailing_incomplete_turn_preserves_turn_
     assert_eq!(
         session.previous_turn_settings().await,
         Some(PreviousTurnSettings {
+            model_provider_id: Some(turn_context.config.model_provider_id.clone()),
             model: turn_context.model_info().slug.clone(),
             comp_hash: None,
             cyber_access_program: None,
@@ -2724,6 +2745,7 @@ async fn record_initial_history_resumed_replaced_incomplete_compacted_turn_clear
     let (session, turn_context) = make_session_and_context().await;
     let previous_model = "previous-rollout-model";
     let previous_context_item = TurnContextItem {
+        model_provider_id: None,
         turn_id: Some(turn_context.sub_id.clone()),
         root_turn_id: None,
         disabled_plugin_ids: None,
@@ -2848,6 +2870,7 @@ async fn record_initial_history_resumed_replaced_incomplete_compacted_turn_clear
     assert_eq!(
         session.previous_turn_settings().await,
         Some(PreviousTurnSettings {
+            model_provider_id: None,
             model: previous_model.to_string(),
             comp_hash: None,
             cyber_access_program: None,

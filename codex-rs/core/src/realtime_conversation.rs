@@ -1319,6 +1319,7 @@ pub(crate) async fn handle_start(
 }
 
 struct PreparedRealtimeConversationStart {
+    model_client: ModelClient,
     api_provider: ApiProvider,
     http_client_factory: HttpClientFactory,
     realtime_sideband_base_url: Option<String>,
@@ -1349,13 +1350,15 @@ async fn prepare_realtime_start(
     sess: &Arc<Session>,
     params: ConversationStartParams,
 ) -> CodexResult<PreparedRealtimeConversationStart> {
-    let provider = sess.provider().await;
-    let auth_manager = sess
-        .services
-        .model_client
+    let config = sess.get_config().await;
+    let provider = &config.model_provider;
+    let model_client = sess.model_client_for_provider(codex_model_provider::create_model_provider(
+        provider.clone(),
+        Some(Arc::clone(&sess.services.auth_manager)),
+    ));
+    let auth_manager = model_client
         .auth_manager()
         .unwrap_or_else(|| Arc::clone(&sess.services.auth_manager));
-    let config = sess.get_config().await;
     let (auth, http_client_factory) = match auth_manager.auth_with_http_client_factory().await {
         Some((auth, captured_factory)) if auth.is_chatgpt_auth() || auth.is_api_key_auth() => (
             Some(auth),
@@ -1474,6 +1477,7 @@ async fn prepare_realtime_start(
         extra_headers.insert(X_CODEX_TURN_METADATA_HEADER, metadata);
     }
     Ok(PreparedRealtimeConversationStart {
+        model_client,
         api_provider,
         http_client_factory,
         realtime_sideband_base_url,
@@ -1712,6 +1716,7 @@ async fn handle_start_inner(
     prepared_start: PreparedRealtimeConversationStart,
 ) -> CodexResult<()> {
     let PreparedRealtimeConversationStart {
+        model_client,
         api_provider,
         http_client_factory,
         realtime_sideband_base_url,
@@ -1755,7 +1760,7 @@ async fn handle_start_inner(
         codex_response_handoff_channel_prefixes,
         realtime_call_api_provider,
         session_config,
-        model_client: sess.services.model_client.clone(),
+        model_client,
         sdp,
         existing_call_id,
     };

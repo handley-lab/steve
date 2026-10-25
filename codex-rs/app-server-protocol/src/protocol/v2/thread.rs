@@ -187,6 +187,7 @@ pub struct MockExperimentalMethodResponse {
 #[ts(export_to = "v2/")]
 pub struct ThreadStartResponse {
     pub thread: Thread,
+    /// Canonical selection `provider/native-model-id`.
     pub model: String,
     pub model_provider: String,
     pub service_tier: Option<String>,
@@ -310,6 +311,7 @@ pub struct ThreadSettings {
     pub approvals_reviewer: ApprovalsReviewer,
     pub sandbox_policy: SandboxPolicy,
     pub active_permission_profile: Option<ActivePermissionProfile>,
+    /// Canonical selection `provider/native-model-id`.
     pub model: String,
     pub model_provider: String,
     pub service_tier: Option<String>,
@@ -435,6 +437,7 @@ pub struct ThreadResumeParams {
 #[ts(export_to = "v2/")]
 pub struct ThreadResumeResponse {
     pub thread: Thread,
+    /// Canonical selection `provider/native-model-id`.
     pub model: String,
     pub model_provider: String,
     pub service_tier: Option<String>,
@@ -640,6 +643,7 @@ pub struct ThreadForkParams {
 #[ts(export_to = "v2/")]
 pub struct ThreadForkResponse {
     pub thread: Thread,
+    /// Canonical selection `provider/native-model-id`.
     pub model: String,
     pub model_provider: String,
     pub service_tier: Option<String>,

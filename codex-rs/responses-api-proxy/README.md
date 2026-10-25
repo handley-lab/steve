@@ -1,5 +1,28 @@
 # codex-responses-api-proxy
 
+## Configured Steve providers
+
+```sh
+steve responses-api-proxy --listen unix:///path/provider.sock --client-config /path/client.toml
+```
+
+Steve resolves its native provider configuration and supported authentication
+before starting this proxy. The proxy binds the Unix socket, then atomically
+publishes the sanitized client TOML. Readiness is the socket and client file
+while the foreground process is alive; diagnostics use stderr.
+
+Configured providers expose `GET /<provider>/v1/models` and
+`POST /<provider>/v1/responses`. Destinations and headers come from Steve's
+resolved configuration. Inbound query strings are discarded; configured upstream
+queries are preserved. Request bodies retain native model IDs unchanged.
+Other paths and methods are refused, and upstream redirects are not followed.
+
+Use the client TOML with Alan's read cage and relay. The proxy alone does not
+restrict the client's filesystem or network. Configured mode cannot combine
+with the explicit-upstream options described below.
+
+## Explicit upstream
+
 #### tl;dr:
 
 ```

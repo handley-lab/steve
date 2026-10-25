@@ -442,8 +442,15 @@ impl ExternalAgentSessionImporter {
             )
             .await;
         let model_info = models_manager
-            .get_model_info(model.as_str(), &config.to_models_manager_config())
-            .await;
+            .get_model_info(
+                &config.model_provider_id,
+                model.as_str(),
+                &config.to_models_manager_config(),
+            )
+            .await
+            .map_err(|error| {
+                SessionImportStepFailure::new("model_unavailable".to_string(), error.to_string())
+            })?;
         let thread_id = ThreadId::new();
         let source = self.thread_manager.session_source();
         let cwd = config.cwd.to_path_buf();

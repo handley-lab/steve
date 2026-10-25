@@ -512,8 +512,13 @@ async fn remote_model_override_uses_catalog_model_for_strict_auto_review() -> Re
         "expected the model catalog to be fetched remotely"
     );
     let model_info = models_manager
-        .get_model_info(model, &config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &config.model_provider_id,
+            model,
+            &config.to_models_manager_config(),
+        )
+        .await
+        .unwrap();
     assert_eq!(
         model_info.auto_review_model_override,
         Some(review_model.to_string())
@@ -597,6 +602,8 @@ async fn remote_model_override_uses_catalog_model_for_strict_auto_review() -> Re
 
 fn remote_model_with_auto_review_override(slug: &str, review_model: &str) -> ModelInfo {
     ModelInfo {
+        non_chat: false,
+        discovered_non_chat: None,
         slug: slug.to_string(),
         display_name: format!("{slug} display"),
         description: Some(format!("{slug} description")),

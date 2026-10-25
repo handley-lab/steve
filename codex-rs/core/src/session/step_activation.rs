@@ -414,6 +414,7 @@ impl Session {
                 update,
                 &constraints,
                 self.services.models_manager.as_ref(),
+                &turn_context.config.model_provider_id,
                 &overrides,
                 &self.features,
             )

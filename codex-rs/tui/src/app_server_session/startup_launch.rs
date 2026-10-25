@@ -51,6 +51,11 @@ impl StartupLaunchChoices {
         }
     }
 
+    pub(crate) fn set_model(&mut self, provider: &str, native_model: &str) {
+        self.provider = Some(provider.to_string());
+        self.model = Some(native_model.to_string());
+    }
+
     pub(super) fn configure(self, params: &mut ThreadStartParams) {
         if self.selected_profile {
             params.model_provider = self.provider.or(params.model_provider.take());

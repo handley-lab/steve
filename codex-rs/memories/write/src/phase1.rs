@@ -62,9 +62,28 @@ pub async fn run(context: Arc<MemoryStartupContext>, config: Arc<Config>) {
         warn!("memory extraction is unavailable: set memories.extract_model");
         return;
     };
-    let stage_one_context = context
-        .stage_one_request_context(config.as_ref(), model, crate::stage_one::REASONING_EFFORT)
-        .await;
+    let (provider_id, model) = match config.resolve_model_selection(model, None) {
+        Ok(selection) => selection,
+        Err(error) => {
+            warn!(%error, "memory extraction model is unavailable");
+            return;
+        }
+    };
+    let mut config = (*config).clone();
+    config.model_provider_id = provider_id;
+    config.model_provider = config.model_providers[&config.model_provider_id].clone();
+    config.model = Some(model.clone());
+    let config = Arc::new(config);
+    let stage_one_context = match context
+        .stage_one_request_context(config.as_ref(), &model, crate::stage_one::REASONING_EFFORT)
+        .await
+    {
+        Ok(context) => context,
+        Err(error) => {
+            warn!(%error, "memory extraction model is unavailable");
+            return;
+        }
+    };
     let _phase_one_e2e_timer = stage_one_context.start_timer(MEMORY_PHASE_ONE_E2E_MS);
 
     // 1. Claim startup job.

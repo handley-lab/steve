@@ -12,6 +12,7 @@ use strum_macros::IntoStaticStr;
 pub enum SlashCommand {
     // DO NOT ALPHA-SORT! Enum order is presentation order in the popup, so
     // more frequently used commands should be listed first.
+    #[strum(to_string = "model", serialize = "models")]
     Model,
     Daybreak,
     Ide,
@@ -331,6 +332,13 @@ mod tests {
     use std::str::FromStr;
 
     use super::SlashCommand;
+
+    #[test]
+    fn models_alias_parses_to_model_command() {
+        assert_eq!(SlashCommand::Model.command(), "model");
+        assert_eq!(SlashCommand::from_str("model"), Ok(SlashCommand::Model));
+        assert_eq!(SlashCommand::from_str("models"), Ok(SlashCommand::Model));
+    }
 
     #[test]
     fn stop_command_is_canonical_name() {

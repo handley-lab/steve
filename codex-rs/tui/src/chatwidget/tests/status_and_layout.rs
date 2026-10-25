@@ -6014,7 +6014,7 @@ async fn model_scope_thread_switch_dismisses_old_choosers_only() {
         let modes = chat.model_catalog.collaboration_modes.clone();
         match choice {
             0 => chat.open_model_popup(),
-            1 => chat.open_all_models_popup(),
+            1 => chat.open_model_popup_with_presets(chat.model_catalog.models.clone()),
             2 => chat.open_reasoning_popup(preset),
             3 => chat.open_advanced_reasoning_popup(preset),
             _ => chat.open_plan_reasoning_scope_prompt("gpt-5.5".into(), None),

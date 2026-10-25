@@ -24,7 +24,12 @@ pub fn build_guardian_review_session_config(
     personality: Option<codex_protocol::config_types::Personality>,
     model_messages: ResolvedModelMessages<'_>,
 ) -> anyhow::Result<Config> {
-    guardian_config.model = Some(active_model.to_owned());
+    let (provider_id, native_model) =
+        guardian_config.resolve_model_selection(active_model, None)?;
+    guardian_config.model_provider_id = provider_id;
+    guardian_config.model_provider =
+        guardian_config.model_providers[&guardian_config.model_provider_id].clone();
+    guardian_config.model = Some(native_model);
     guardian_config.model_reasoning_effort = reasoning_effort;
     guardian_config.model_reasoning_summary = Some(reasoning_summary);
     guardian_config.personality = personality;
@@ -103,17 +108,18 @@ pub(crate) async fn resolve_review_model(
         })
         .filter(|model| !model.trim().is_empty())
         .ok_or_else(|| anyhow::anyhow!("Set auto_review.model before enabling automatic review"))?;
-    let independent_provider =
-        if let Some((provider_id, provider)) = &config.guardian_model_provider {
-            let changed =
-                provider_id != &config.model_provider_id || provider != &config.model_provider;
-            config.model_provider_id = provider_id.clone();
-            config.model_provider = provider.clone();
-            changed
-        } else {
-            false
-        };
-    if independent_provider || review_model_id != context.model_info.slug {
+    let (provider_id, native_model) = config.resolve_model_selection(
+        &review_model_id,
+        config
+            .guardian_model_provider
+            .as_ref()
+            .map(|(id, _)| id.as_str()),
+    )?;
+    let independent_provider = provider_id != config.model_provider_id;
+    config.model_provider_id = provider_id;
+    config.model_provider = config.model_providers[&config.model_provider_id].clone();
+    let review_model_id = format!("{}/{}", config.model_provider_id, native_model);
+    if independent_provider || native_model != context.model_info.slug {
         config.model_context_window = None;
         config.model_auto_compact_token_limit = None;
     }
@@ -140,10 +146,11 @@ pub(crate) async fn resolve_review_model(
     let guardian_model_info = Arc::new(
         models_manager
             .get_model_info(
-                review_model.model.as_str(),
+                &config.model_provider_id,
+                &native_model,
                 &config.to_models_manager_config(),
             )
-            .await,
+            .await?,
     );
     Ok((
         review_model,

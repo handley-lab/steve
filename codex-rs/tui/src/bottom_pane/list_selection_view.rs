@@ -3,6 +3,7 @@
 //! Controls and overflow indicators keep their own rows outside the result viewport.
 //! Letter-labeled children are indented and do not consume numeric shortcuts.
 
+use codex_utils_fuzzy_match::fuzzy_match;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyModifiers;
@@ -682,14 +683,13 @@ impl ListSelectionView {
             });
 
         if self.is_searchable && !self.search_query.is_empty() {
-            let query_lower = self.search_query.to_lowercase();
             self.filtered_indices = self
                 .active_items()
                 .iter()
                 .positions(|item| {
                     item.search_value
                         .as_ref()
-                        .is_some_and(|v| v.to_lowercase().contains(&query_lower))
+                        .is_some_and(|value| fuzzy_match(value, &self.search_query).is_some())
                 })
                 .collect();
         } else {
@@ -2355,6 +2355,48 @@ mod tests {
         assert_eq!(view.search_query, "feature/paste-support");
         assert_eq!(view.filtered_indices, vec![1]);
         assert_eq!(view.selected_actual_idx(), Some(1));
+    }
+
+    #[test]
+    fn fuzzy_search_preserves_source_indices_and_clear_restores_rows() {
+        let (tx, mut rx) = unbounded_channel();
+        let models = [
+            "cambridge/moonshotai/Kimi-K3",
+            "turing/google/gemma-4-31b-it",
+        ];
+        let mut view = new_view(
+            SelectionViewParams {
+                items: models
+                    .into_iter()
+                    .map(|model| SelectionItem {
+                        name: model.to_string(),
+                        search_value: Some(model.to_string()),
+                        actions: vec![Box::new(move |tx| {
+                            tx.send(AppEvent::UpdateModel(model.to_string()))
+                        })],
+                        ..Default::default()
+                    })
+                    .collect(),
+                is_searchable: true,
+                ..Default::default()
+            },
+            AppEventSender::new(tx),
+        );
+
+        view.set_search_query("TRG/GM4".to_string());
+        assert_eq!(view.filtered_indices, vec![1]);
+        assert_eq!(view.selected_actual_idx(), Some(1));
+        view.handle_key_event(KeyEvent::from(KeyCode::Enter));
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(AppEvent::UpdateModel(model)) if model == models[1]
+        ));
+
+        view.set_search_query("no-such-model".to_string());
+        assert!(view.filtered_indices.is_empty());
+        assert_eq!(view.selected_actual_idx(), None);
+        view.set_search_query(String::new());
+        assert_eq!(view.filtered_indices, vec![0, 1]);
     }
 
     #[test]

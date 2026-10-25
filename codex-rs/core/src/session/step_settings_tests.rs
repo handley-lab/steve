@@ -468,11 +468,17 @@ async fn model_resolution_preserves_startup_overrides_and_instruction_provenance
         settings.personality = config.personality;
 
         let legacy = models_manager
-            .get_model_info("model-b", &config.to_models_manager_config())
-            .await;
+            .get_model_info(
+                &config.model_provider_id,
+                "model-b",
+                &config.to_models_manager_config(),
+            )
+            .await
+            .unwrap();
         let resolved = settings
-            .resolve_model_info(&models_manager, &overrides)
-            .await;
+            .resolve_model_info(&models_manager, &config.model_provider_id, &overrides)
+            .await
+            .unwrap();
         assert_eq!(resolved, legacy);
         assert_eq!(
             render_model_instructions(&resolved),

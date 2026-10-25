@@ -60,7 +60,7 @@ async fn stream_retry_preserves_deadline_across_delayed_notification() {
     let (mut session, turn_context) = make_session_and_context().await;
     let step_context = StepContext::for_test(Arc::new(turn_context));
     session.realtime_history = Some(Mutex::new(RealtimeHistoryState::default()));
-    let mut client_session = session.services.model_client.new_session();
+    let mut client_session = session.services.model_client.load().new_session();
     // The second retry emits a notification even when release builds hide the first.
     let mut retry_state = ResponsesStreamRetryState {
         retries: 1,

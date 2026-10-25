@@ -24,7 +24,7 @@ impl AppServerSession {
     ) {
         let request_handle = self.request_handle();
         tokio::spawn(async move {
-            let result = request_handle
+            let response = request_handle
                 .request_typed::<ModelListResponse>(ClientRequest::ModelList {
                     request_id: RequestId::String(format!("model-list-{request_id}")),
                     params: ModelListParams {
@@ -34,16 +34,23 @@ impl AppServerSession {
                         include_hidden: Some(true),
                     },
                 })
-                .await
-                .map(|response| {
-                    response
+                .await;
+            let (result, provider_errors) = match response {
+                Ok(response) => (
+                    Ok(response
                         .data
                         .into_iter()
                         .map(model_preset_from_api_model)
-                        .collect()
-                })
-                .map_err(|err| err.to_string());
-            app_event_tx.send(AppEvent::ModelsLoaded { request_id, result });
+                        .collect()),
+                    response.provider_errors,
+                ),
+                Err(err) => (Err(err.to_string()), Vec::new()),
+            };
+            app_event_tx.send(AppEvent::ModelsLoaded {
+                request_id,
+                result,
+                provider_errors,
+            });
         });
     }
 }

@@ -197,17 +197,15 @@ impl Classification {
                         .filter(|model| !model.trim().is_empty());
                     if let Some(review_model_id) = review_model_id {
                         let mut reviewer_config = config.as_ref().clone();
-                        let independent_provider = if let Some((id, provider)) =
-                            &config.guardian_model_provider
-                        {
-                            let changed = id != &config.model_provider_id
-                                || provider != &config.model_provider;
-                            reviewer_config.model_provider_id = id.clone();
-                            reviewer_config.model_provider = provider.clone();
-                            changed
-                        } else {
-                            false
-                        };
+                        let (provider_id, review_model_id) = config.resolve_model_selection(
+                            review_model_id,
+                            config.guardian_model_provider.as_ref().map(|(id, _)| id.as_str()),
+                        )?;
+                        let provider = config.model_providers[&provider_id].clone();
+                        let independent_provider = provider_id != config.model_provider_id
+                            || provider != config.model_provider;
+                        reviewer_config.model_provider_id = provider_id;
+                        reviewer_config.model_provider = provider;
                         let (models_manager, refresh) = if independent_provider {
                             (
                                 codex_core::build_models_manager(
@@ -227,8 +225,8 @@ impl Classification {
                             .await;
                         Some(Arc::new(
                             models_manager
-                                .get_model_info(review_model_id, &reviewer_config.to_models_manager_config())
-                                .await,
+                                .get_model_info(&reviewer_config.model_provider_id, &review_model_id, &reviewer_config.to_models_manager_config())
+                                .await?,
                         ))
                     } else {
                         parent_model.clone()
@@ -236,14 +234,12 @@ impl Classification {
                 } else {
                     None
                 };
-                (trusted_tool_context, root_snapshot, review_model)
+                Ok::<_, codex_protocol::error::CodexErr>((trusted_tool_context, root_snapshot, review_model))
             } => Some(metadata),
         };
         // Metadata can become ready in the same poll as expiry. Do not start
         // synchronous transcript preparation for an observation that is already stale.
-        let Some((trusted_tool_context, root_snapshot, review_model)) =
-            metadata.filter(|_| !pending_score.is_expired())
-        else {
+        let Some(metadata) = metadata.filter(|_| !pending_score.is_expired()) else {
             record_classification(
                 metrics.as_deref(),
                 context_mode,
@@ -252,6 +248,20 @@ impl Classification {
                 /*failure_reason*/ None,
             );
             return;
+        };
+        let (trusted_tool_context, root_snapshot, review_model) = match metadata {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                tracing::warn!(%error, "Guardian review model is unavailable");
+                record_classification(
+                    metrics.as_deref(),
+                    context_mode,
+                    classification_started_at.elapsed(),
+                    "failed",
+                    Some("model_unavailable"),
+                );
+                return;
+            }
         };
         let mut truncations = ClassificationTruncations::default();
         let mut trusted_skills = TrustedSkillInvocations::default();

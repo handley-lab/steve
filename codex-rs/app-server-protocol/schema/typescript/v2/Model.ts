@@ -30,4 +30,4 @@ defaultServiceTier: string | null,
 /**
  * Null when the catalog does not provide access-program metadata.
  */
-availableAccessPrograms: ModelAccessPrograms | null, isDefault: boolean, };
+availableAccessPrograms: ModelAccessPrograms | null, isDefault: boolean, isProviderDefault: boolean, };

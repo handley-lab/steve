@@ -315,6 +315,7 @@ pub(crate) struct AppServerBootstrap {
     pub(crate) default_model: String,
     pub(crate) has_chatgpt_account: bool,
     pub(crate) available_models: Vec<ModelPreset>,
+    pub(crate) provider_errors: Vec<codex_app_server_protocol::ModelProviderError>,
     pub(crate) collaboration_modes: Vec<codex_protocol::config_types::CollaborationModeMask>,
 }
 
@@ -785,6 +786,7 @@ impl AppServerSession {
             default_model,
             has_chatgpt_account,
             available_models,
+            provider_errors: models.provider_errors,
             collaboration_modes,
         })
     }
@@ -1893,6 +1895,7 @@ pub(crate) fn model_preset_from_api_model(model: ApiModel) -> ModelPreset {
     });
 
     ModelPreset {
+        is_provider_default: model.is_provider_default,
         id: model.id,
         model: model.model,
         display_name: model.display_name,
@@ -2911,6 +2914,7 @@ mod tests {
             default_service_tier: None,
             available_access_programs: None,
             is_default: false,
+            is_provider_default: false,
         }
     }
 

@@ -414,14 +414,25 @@ pub async fn review(
     #[allow(deprecated)]
     match resolve_review_request(review_request, &turn_context.cwd) {
         Ok(resolved) => {
-            spawn_review_thread(
+            if let Err(error) = spawn_review_thread(
                 Arc::clone(sess),
                 Arc::clone(config),
                 turn_context.clone(),
                 sub_id,
                 resolved,
             )
-            .await;
+            .await
+            {
+                sess.send_event(
+                    &turn_context,
+                    EventMsg::Error(ErrorEvent {
+                        misalignment: None,
+                        message: error.to_string(),
+                        codex_error_info: Some(CodexErrorInfo::BadRequest),
+                    }),
+                )
+                .await;
+            }
         }
         Err(err) => {
             let event = Event {

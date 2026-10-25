@@ -282,18 +282,22 @@ impl MemoryStartupContext {
         config: &Config,
         model_name: &str,
         reasoning_effort: ReasoningEffort,
-    ) -> StageOneRequestContext {
+    ) -> anyhow::Result<StageOneRequestContext> {
         let config_snapshot = self.thread.config_snapshot().await;
         let model_info = self
             .thread_manager
             .get_models_manager()
-            .get_model_info(model_name, &config.to_models_manager_config())
-            .await;
+            .get_model_info(
+                &config.model_provider_id,
+                model_name,
+                &config.to_models_manager_config(),
+            )
+            .await?;
         let reasoning_summary = config
             .model_reasoning_summary
             .unwrap_or(model_info.default_reasoning_summary);
 
-        StageOneRequestContext {
+        Ok(StageOneRequestContext {
             version: self.version,
             model_info,
             session_telemetry: build_session_telemetry(
@@ -307,7 +311,7 @@ impl MemoryStartupContext {
             reasoning_effort: Some(reasoning_effort),
             reasoning_summary,
             service_tier: config_snapshot.service_tier,
-        }
+        })
     }
 
     pub(crate) async fn stream_stage_one_prompt(

@@ -453,10 +453,27 @@ pub fn build_models_manager(
     config: &Config,
     auth_manager: Arc<AuthManager>,
 ) -> SharedModelsManager {
-    let provider = create_model_provider(config.model_provider.clone(), Some(auth_manager));
-    let manager = provider.models_manager(
-        config.codex_home.to_path_buf(),
-        config.model_catalog.clone(),
+    let providers = config
+        .configured_model_provider_ids()
+        .into_iter()
+        .map(|id| {
+            let info = config.model_providers[&id].clone();
+            let provider = create_model_provider(info.clone(), Some(Arc::clone(&auth_manager)));
+            codex_models_manager::multi_provider::ProviderModels {
+                id,
+                name: info.name.clone(),
+                default_model: info.default_model.clone(),
+                manager: provider.models_manager_without_cache(None),
+            }
+        })
+        .collect();
+    let manager: SharedModelsManager = Arc::new(
+        codex_models_manager::multi_provider::MultiProviderModelsManager::new(
+            providers,
+            config.model_catalog.clone(),
+            &config.model_provider_id,
+            config.model.as_deref(),
+        ),
     );
     manager.set_api_key_model_discovery_enabled(
         config.features.enabled(Feature::ApiKeyModelDiscovery),

@@ -45,7 +45,7 @@ historyMode: ThreadHistoryMode, /**
  * Model provider used for this thread (for example, 'openai').
  */
 modelProvider: string, /**
- * Current configured model when loaded, otherwise the latest persisted model.
+ * Canonical `provider/native-model-id` selection when loaded, otherwise the latest persisted selection.
  * Null when unavailable. This is not per-turn execution telemetry.
  */
 model: string | null, /**

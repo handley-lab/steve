@@ -11499,6 +11499,10 @@
         "isDefault": {
           "type": "boolean"
         },
+        "isProviderDefault": {
+          "default": false,
+          "type": "boolean"
+        },
         "model": {
           "type": "string"
         },
@@ -11653,6 +11657,13 @@
             "string",
             "null"
           ]
+        },
+        "providerErrors": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/ModelProviderError"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -11681,6 +11692,21 @@
         "webSearch"
       ],
       "title": "ModelProviderCapabilitiesReadResponse",
+      "type": "object"
+    },
+    "ModelProviderError": {
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message",
+        "provider"
+      ],
       "type": "object"
     },
     "ModelRerouteReason": {
@@ -18692,7 +18718,7 @@
           "type": "string"
         },
         "model": {
-          "description": "Current configured model when loaded, otherwise the latest persisted model. Null when unavailable. This is not per-turn execution telemetry.",
+          "description": "Canonical `provider/native-model-id` selection when loaded, otherwise the latest persisted selection. Null when unavailable. This is not per-turn execution telemetry.",
           "type": [
             "string",
             "null"
@@ -19412,6 +19438,7 @@
           "type": "array"
         },
         "model": {
+          "description": "Canonical selection `provider/native-model-id`.",
           "type": "string"
         },
         "modelProvider": {
@@ -21951,6 +21978,7 @@
           ]
         },
         "model": {
+          "description": "Canonical selection `provider/native-model-id`.",
           "type": "string"
         },
         "modelProvider": {
@@ -22393,6 +22421,7 @@
           ]
         },
         "model": {
+          "description": "Canonical selection `provider/native-model-id`.",
           "type": "string"
         },
         "modelProvider": {
@@ -22674,6 +22703,7 @@
           "type": "array"
         },
         "model": {
+          "description": "Canonical selection `provider/native-model-id`.",
           "type": "string"
         },
         "modelProvider": {

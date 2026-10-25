@@ -2817,8 +2817,13 @@ async fn guardian_reuses_prompt_cache_key_and_appends_prior_reviews() -> anyhow:
     let mut reviewer_model = session
         .services
         .models_manager
-        .get_model_info("codex-auto-review", &turn.config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &turn.config.model_provider_id,
+            "codex-auto-review",
+            &turn.config.to_models_manager_config(),
+        )
+        .await
+        .unwrap();
     reviewer_model.comp_hash = Some("test-checkpoint".to_owned());
     let auth_manager = Arc::clone(&session.services.auth_manager);
     Arc::get_mut(&mut session)

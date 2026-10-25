@@ -20,7 +20,15 @@ fn model_presets(slugs: &[&str]) -> Vec<ModelPreset> {
 #[tokio::test]
 async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()> {
     let (mut app, mut rx, _op_rx) = make_test_app_with_channels().await;
-    let mut model = codex_models_manager::test_support::model_info("gpt-5.5");
+    let models = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::path("/v1/models"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"data": [{"id": "gpt-5.5"}]})),
+        )
+        .mount(&models)
+        .await;
+    let mut model = codex_models_manager::test_support::model_info("fixture/gpt-5.5");
     model.service_tiers = vec![codex_protocol::openai_models::ModelServiceTier {
         id: ServiceTier::Fast.request_value().to_string(),
         name: "Fast".to_string(),
@@ -34,10 +42,16 @@ async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()
     std::fs::write(
         app.config.codex_home.join("config.toml"),
         format!(
-            "model_provider = \"openai\"\nmodel = \"gpt-5.5\"\nmodel_catalog_json = {catalog_path:?}\n"
+            "model_provider = \"fixture\"\nmodel = \"gpt-5.5\"\nmodel_catalog_json = {catalog_path:?}\n[model_providers.fixture]\nname = \"Fixture\"\nbase_url = \"{}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n[model_providers.broken]\nname = \"Unavailable\"\nbase_url = \"{}/broken/v1\"\nwire_api = \"responses\"\n",
+            models.uri(),
+            models.uri()
         ),
     )?;
-    app.config.model_catalog = Some(catalog);
+    app.config = ConfigBuilder::default()
+        .codex_home(app.config.codex_home.to_path_buf())
+        .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+        .build()
+        .await?;
     let mut app_server = start_config_write_test_app_server(&app).await?;
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let fast = Some(ServiceTier::Fast.request_value());
@@ -47,7 +61,7 @@ async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()
         .session
         .thread_id;
     let mut session = test_thread_session(thread_id, test_path_buf("/tmp/project"));
-    session.model = "gpt-5.5".to_string();
+    session.model = "fixture/gpt-5.5".to_string();
     app.primary_thread_id = Some(thread_id);
     app.active_thread_id = Some(thread_id);
     app.primary_session_configured = Some(session.clone());
@@ -79,6 +93,7 @@ async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()
         AppEvent::ModelsLoaded {
             request_id,
             result: Ok(hidden),
+            provider_errors: Vec::new(),
         },
     ))
     .await?;
@@ -101,20 +116,36 @@ async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()
     })
     .await?;
     let AppEvent::ModelsLoaded {
-        result: Ok(models), ..
+        result: Ok(models),
+        provider_errors,
+        ..
     } = &mut loaded
     else {
         panic!("model/list should return models");
     };
     assert!(!models.is_empty());
+    assert_eq!(provider_errors.len(), 1);
+    assert_eq!(provider_errors[0].provider, "broken");
     for model in models.iter_mut() {
-        model.is_default = model.model == "gpt-5.5";
+        model.is_default = model.model == "fixture/gpt-5.5";
         model.default_service_tier = model
             .is_default
             .then(|| ServiceTier::Fast.request_value().to_string());
     }
     let expected = models.clone();
     Box::pin(app.handle_event(&mut tui, &mut app_server, loaded)).await?;
+    let errors: String = std::iter::from_fn(|| rx.try_recv().ok())
+        .filter_map(|event| match event {
+            AppEvent::InsertHistoryCell(cell) => Some(
+                cell.display_lines(80)
+                    .into_iter()
+                    .map(|line| line.to_string())
+                    .collect::<String>(),
+            ),
+            _ => None,
+        })
+        .collect();
+    assert!(errors.contains("broken: Model discovery failed"));
     assert!(app.chat_widget.no_modal_or_popup_active());
     app.chat_widget.open_model_popup();
     assert!(!app.chat_widget.no_modal_or_popup_active());
@@ -136,6 +167,7 @@ async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()
     let stale = AppEvent::ModelsLoaded {
         request_id: uuid::Uuid::new_v4(),
         result: Ok(all_model_presets()),
+        provider_errors: Vec::new(),
     };
     Box::pin(app.handle_event(&mut tui, &mut app_server, stale)).await?;
     assert_eq!(
@@ -938,7 +970,7 @@ async fn accepted_model_migration_persists_target_default_reasoning_effort() -> 
             &mut crate::app_server_session::StartupLaunchChoices::default(),
             &app_event_tx,
             current_model,
-            upgrade.id,
+            format!("{provider_id}/{}", upgrade.id),
             target_effort.clone(),
         );
 
@@ -961,13 +993,13 @@ async fn accepted_model_migration_persists_target_default_reasoning_effort() -> 
         assert_matches!(
             acknowledged,
             AppEvent::PersistModelMigrationPromptAcknowledged { from_model, to_model }
-                if from_model == model && to_model == replacement
+                if from_model == model && to_model == format!("{provider_id}/{replacement}")
         );
 
         let update_model = rx.try_recv().expect("update model event");
         assert_matches!(
             update_model,
-            AppEvent::UpdateModel(updated_model) if updated_model == replacement
+            AppEvent::UpdateModel(updated_model) if updated_model == format!("{provider_id}/{replacement}")
         );
 
         let update_effort = rx.try_recv().expect("update effort event");
@@ -980,7 +1012,7 @@ async fn accepted_model_migration_persists_target_default_reasoning_effort() -> 
         assert_matches!(
             persist_selection,
             AppEvent::PersistModelSelection { model: selected_model, effort }
-                if selected_model == replacement && effort == Some(target_effort)
+                if selected_model == format!("{provider_id}/{replacement}") && effort == Some(target_effort)
         );
     }
     assert_eq!(

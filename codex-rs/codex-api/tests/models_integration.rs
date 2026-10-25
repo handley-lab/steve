@@ -52,11 +52,7 @@ fn provider(base_url: &str) -> Provider {
 async fn invalid_models_response_reports_bounded_decode_metadata() {
     let server = MockServer::start().await;
     for (body, category, column_offset) in [
-        (
-            json!({ "data": [{ "id": "private-model" }] }).to_string(),
-            "Data",
-            0,
-        ),
+        (json!({ "data": [{ "id": 123 }] }).to_string(), "Data", 3),
         (
             json!({ "models": "private-value".repeat(4096) }).to_string(),
             "Data",
@@ -102,12 +98,65 @@ async fn invalid_models_response_reports_bounded_decode_metadata() {
 }
 
 #[tokio::test]
+async fn openai_model_ids_preserve_native_slashes_and_honor_advertised_mode() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": [
+            {"id": "moonshotai/Kimi-K3"}, {"id": "vllm-sr/d3", "mode": "decisions"}
+        ]})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let transport =
+        ReqwestTransport::from_http_client(HttpClientBuilder::new().build_direct().unwrap());
+    let provider = provider(&server.uri());
+    let url = ModelsClient::<ReqwestTransport>::request_url(&provider, "0.1.0");
+    let client = ModelsClient::new(transport, provider, Arc::new(DummyAuth));
+    let (models, _) = client
+        .list_models(url, HeaderMap::new(), None)
+        .await
+        .unwrap();
+    assert_eq!(models[0].slug, "moonshotai/Kimi-K3");
+    assert_eq!(models[0].context_window, None);
+    assert_eq!(models[0].discovered_non_chat, None);
+    assert_eq!(models[1].discovered_non_chat, Some(true));
+}
+
+#[tokio::test]
+async fn malformed_and_duplicate_live_ids_are_rejected() {
+    let server = MockServer::start().await;
+    for data in [json!([{"id":"same"},{"id":"same"}]), json!([{"id":""}])] {
+        let mock = Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": data})))
+            .expect(1)
+            .mount_as_scoped(&server)
+            .await;
+        let transport =
+            ReqwestTransport::from_http_client(HttpClientBuilder::new().build_direct().unwrap());
+        let provider = provider(&server.uri());
+        let url = ModelsClient::<ReqwestTransport>::request_url(&provider, "0.1.0");
+        let client = ModelsClient::new(transport, provider, Arc::new(DummyAuth));
+        assert!(
+            client
+                .list_models(url, HeaderMap::new(), None)
+                .await
+                .is_err()
+        );
+        drop(mock);
+    }
+}
+
+#[tokio::test]
 async fn models_client_hits_models_endpoint() {
     let server = MockServer::start().await;
     let base_url = format!("{}/api/codex", server.uri());
 
     let response = ModelsResponse {
         models: vec![ModelInfo {
+            non_chat: false,
+            discovered_non_chat: None,
             slug: "gpt-test".to_string(),
             display_name: "gpt-test".to_string(),
             description: Some("desc".to_string()),

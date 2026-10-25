@@ -344,6 +344,7 @@ pub struct TurnContext {
     /// Turn-wide telemetry; model-attributed step work should use `StepContext::session_telemetry`.
     pub(crate) session_telemetry: SessionTelemetry,
     pub(crate) provider: SharedModelProvider,
+    pub(crate) model_client: ModelClient,
     pub(crate) session_source: SessionSource,
     pub(crate) history_mode: ThreadHistoryMode,
     pub(crate) parent_thread_id: Option<ThreadId>,
@@ -418,6 +419,11 @@ impl TurnContext {
         let session_telemetry = step_settings.telemetry(&self.session_telemetry);
         let extension_data = Arc::new(codex_extension_api::ExtensionData::new(sub_id.clone()));
         extension_data.insert(self.skills_snapshot().as_ref().clone());
+        let provider = codex_model_provider::create_model_provider(
+            config.model_provider.clone(),
+            self.auth_manager.clone(),
+        );
+        let model_client = self.model_client.with_provider(provider.clone());
 
         Self {
             sub_id,
@@ -434,7 +440,8 @@ impl TurnContext {
             active_host_plugin_identities: None,
             next_step_settings: ArcSwap::from(step_settings),
             session_telemetry,
-            provider: self.provider.clone(),
+            provider,
+            model_client,
             session_source: self.session_source.clone(),
             history_mode: self.history_mode,
             parent_thread_id: self.parent_thread_id,
@@ -770,12 +777,25 @@ impl TurnContext {
         &self,
         model: String,
         models_manager: &SharedModelsManager,
-    ) -> Self {
+    ) -> codex_protocol::error::Result<Self> {
         let mut config = (*self.config).clone();
+        let (provider_id, model) = config
+            .resolve_model_selection(&model, None)
+            .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
+        config.model_provider_id = provider_id;
+        config.model_provider = config.model_providers[&config.model_provider_id].clone();
         config.model = Some(model.clone());
+        let provider = codex_model_provider::create_model_provider(
+            config.model_provider.clone(),
+            self.auth_manager.clone(),
+        );
         let model_info = models_manager
-            .get_model_info(model.as_str(), &config.to_models_manager_config())
-            .await;
+            .get_model_info(
+                &config.model_provider_id,
+                model.as_str(),
+                &config.to_models_manager_config(),
+            )
+            .await?;
         let supported_reasoning_levels = model_info
             .supported_reasoning_levels
             .iter()
@@ -819,7 +839,7 @@ impl TurnContext {
         config.service_tier = step_settings.service_tier.clone();
         let session_telemetry = step_settings.telemetry(&self.session_telemetry);
 
-        Self {
+        Ok(Self {
             sub_id: self.sub_id.clone(),
             trace_id: self.trace_id.clone(),
             realtime_active: self.realtime_active,
@@ -833,7 +853,8 @@ impl TurnContext {
             active_host_plugin_identities: self.active_host_plugin_identities.clone(),
             next_step_settings: ArcSwap::from(step_settings),
             session_telemetry,
-            provider: self.provider.clone(),
+            provider: provider.clone(),
+            model_client: self.model_client.with_provider(provider),
             session_source: self.session_source.clone(),
             history_mode: self.history_mode,
             parent_thread_id: self.parent_thread_id,
@@ -864,7 +885,7 @@ impl TurnContext {
                 self.model_verification_emitted.load(Ordering::Relaxed),
             ),
             cyber_access_program: self.cyber_access_program,
-        }
+        })
     }
 
     fn non_legacy_file_system_sandbox_policy(&self) -> Option<RawFileSystemSandboxPolicy> {
@@ -904,6 +925,7 @@ impl TurnContext {
             ),
             file_system_sandbox_policy: self.non_legacy_file_system_sandbox_policy(),
             model: self.model_info().slug.clone(),
+            model_provider_id: Some(self.config.model_provider_id.clone()),
             comp_hash: self.model_info().comp_hash.clone(),
             collaboration_mode: Some(self.collaboration_mode()),
             multi_agent_version: Some(self.multi_agent_version),
@@ -1016,6 +1038,7 @@ impl Session {
         auth_manager: Option<Arc<AuthManager>>,
         session_telemetry: &SessionTelemetry,
         provider: SharedModelProvider,
+        model_client: ModelClient,
         session_configuration: &SessionConfiguration,
         multi_agent_version: MultiAgentVersion,
         per_turn_config: Config,
@@ -1105,6 +1128,7 @@ impl Session {
             next_step_settings: ArcSwap::from(step_settings),
             session_telemetry: session_telemetry_for_context,
             provider,
+            model_client,
             session_source,
             history_mode: session_configuration.history_mode,
             parent_thread_id: session_configuration.parent_thread_id,
@@ -1263,13 +1287,12 @@ impl Session {
             .map(TurnEnvironment::permission_profile)
             .cloned()
             .unwrap_or_else(|| session_configuration.permission_profile());
-        let model_info = session_configuration
-            .step_settings
-            .resolve_model_info(
-                self.services.models_manager.as_ref(),
-                &session_configuration.model_info_overrides,
-            )
-            .await;
+        let model_info = codex_models_manager::model_info::with_config_overrides(
+            (*session_configuration.model_info).clone(),
+            &session_configuration
+                .model_info_overrides
+                .models_manager_config(session_configuration.step_settings.personality),
+        );
         let multi_agent_version = match build_mode {
             TurnContextBuildMode::Full => {
                 // Only execution and initial context creation publish model metadata.
@@ -1333,6 +1356,7 @@ impl Session {
             Some(Arc::clone(&self.services.auth_manager)),
             &self.services.session_telemetry,
             session_configuration.provider.clone(),
+            self.model_client_for_provider(session_configuration.provider.clone()),
             &session_configuration,
             multi_agent_version,
             per_turn_config,

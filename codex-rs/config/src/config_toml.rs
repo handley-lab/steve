@@ -978,6 +978,9 @@ pub fn validate_model_providers(
 ) -> Result<(), String> {
     validate_reserved_model_provider_ids(model_providers)?;
     for (key, provider) in model_providers {
+        if key.is_empty() || key.contains('/') {
+            return Err("model provider IDs must be non-empty and cannot contain '/'".to_string());
+        }
         if matches!(
             key.as_str(),
             AMAZON_BEDROCK_PROVIDER_ID | AMAZON_BEDROCK_RUNTIME_PROVIDER_ID

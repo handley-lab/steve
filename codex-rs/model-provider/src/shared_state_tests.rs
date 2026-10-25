@@ -319,7 +319,9 @@ async fn models_cache_follows_gateway_credentials_and_configuration() {
             let before = std::fs::read(&cache_path).unwrap();
             let requests_before = server.received_requests().await.unwrap().len();
             live_models[0].set_api_key_model_discovery_enabled(false);
-            live_models[0].refresh_if_new_etag("stable-gateway".into(), factory.clone()).await;
+            live_models[0]
+                .refresh_if_new_etag("fixture", "stable-gateway".into(), factory.clone())
+                .await;
             let off_cache = std::fs::read(&cache_path).unwrap();
             eprintln!("T18_EVIDENCE {}", json!({"kind": "gateway-etag-off",
                 "token": owner.cached_access_token(), "cache_before": String::from_utf8_lossy(&before),
@@ -331,7 +333,9 @@ async fn models_cache_follows_gateway_credentials_and_configuration() {
             assert_eq!(server.received_requests().await.unwrap().len(), requests_before);
             assert!(live_models[0].get_remote_models().await.is_empty());
             live_models[0].set_api_key_model_discovery_enabled(true);
-            live_models[0].refresh_if_new_etag("stable-gateway".into(), factory.clone()).await;
+            live_models[0]
+                .refresh_if_new_etag("fixture", "stable-gateway".into(), factory.clone())
+                .await;
             let after = live_models[0].get_remote_models().await;
             let cache_after: serde_json::Value = serde_json::from_slice(&std::fs::read(&cache_path).unwrap()).unwrap();
             eprintln!("T18_EVIDENCE {}", json!({"kind": "gateway-etag-replacement",
@@ -370,7 +374,9 @@ async fn models_cache_follows_gateway_credentials_and_configuration() {
             assert_eq!(catalog.models, vec![model.clone()]);
             if resource == "first" && token == "first" && pass == 0 {
                 let before = server.received_requests().await.unwrap().len();
-                models.refresh_if_new_etag("stable-gateway".into(), factory.clone()).await;
+                models
+                    .refresh_if_new_etag("fixture", "stable-gateway".into(), factory.clone())
+                    .await;
                 assert_eq!(server.received_requests().await.unwrap().len(), before);
                 let cold_owner = seed_gateway_auth(&info, &primary,
                     json!({"access_token": token, "refresh_token": "refresh-secret", "expires_at": i64::MAX}));

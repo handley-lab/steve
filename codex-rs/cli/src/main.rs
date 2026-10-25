@@ -142,6 +142,8 @@ struct MultitoolCli {
 
 #[derive(Debug, clap::Subcommand)]
 enum Subcommand {
+    /// Discover the configured providers' coding models.
+    Models,
     /// Browse all agent sessions on the shared local app-server daemon.
     Agents(AgentsCommand),
 
@@ -1072,6 +1074,14 @@ async fn cli_main(
 
     let open_agents_overview = matches!(&subcommand, Some(Subcommand::Agents(_)));
     match subcommand {
+        Some(Subcommand::Models) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "models",
+            )?;
+            run_models_command(root_config_overrides).await?;
+        }
         None | Some(Subcommand::Agents(_)) => {
             prepend_config_flags(
                 &mut interactive.config_overrides,
@@ -1812,8 +1822,12 @@ async fn cli_main(
                 root_remote_auth_token_env.as_deref(),
                 "responses-api-proxy",
             )?;
-            tokio::task::spawn_blocking(move || codex_responses_api_proxy::run_main(args))
-                .await??;
+            if args.listen.is_some() {
+                run_configured_proxy_command(args, root_config_overrides).await?;
+            } else {
+                tokio::task::spawn_blocking(move || codex_responses_api_proxy::run_main(args))
+                    .await??;
+            }
         }
         Some(Subcommand::StdioToUds(cmd)) => {
             reject_remote_mode_for_subcommand(
@@ -2119,6 +2133,158 @@ async fn run_debug_models_command(root_config_overrides: CliConfigOverrides) -> 
     Ok(())
 }
 
+async fn run_models_command(overrides: CliConfigOverrides) -> anyhow::Result<()> {
+    let config = ConfigBuilder::default()
+        .cli_overrides(overrides.parse_overrides().map_err(anyhow::Error::msg)?)
+        .build()
+        .await?;
+    let auth = AuthManager::shared_from_config(&config, true).await?;
+    let manager = build_models_manager(&config, auth);
+    let listing = manager
+        .model_catalog_result(RefreshStrategy::Online, config.http_client_factory())
+        .await?;
+    let response = codex_app_server_protocol::ModelListResponse {
+        data: codex_app_server::supported_models(
+            manager.build_available_models(listing.models),
+            false,
+        ),
+        next_cursor: None,
+        cyber_access_programs_enabled: None,
+        provider_errors: listing
+            .provider_errors
+            .into_iter()
+            .map(|error| codex_app_server_protocol::ModelProviderError {
+                provider: error.provider,
+                message: error.message,
+            })
+            .collect(),
+    };
+    serde_json::to_writer(std::io::stdout(), &response)?;
+    println!();
+    Ok(())
+}
+
+async fn run_configured_proxy_command(
+    args: ResponsesApiProxyArgs,
+    overrides: CliConfigOverrides,
+) -> anyhow::Result<()> {
+    let config = ConfigBuilder::default()
+        .cli_overrides(overrides.parse_overrides().map_err(anyhow::Error::msg)?)
+        .build()
+        .await?;
+    let auth = AuthManager::shared_from_config(&config, true).await?;
+    let mut routes = Vec::new();
+    let mut providers = toml::map::Map::new();
+    for id in config.configured_model_provider_ids() {
+        let info = &config.model_providers[&id];
+        if info.aws.is_some()
+            || info.gateway_oauth.is_some()
+            || info.auth.is_some()
+            || info.is_amazon_bedrock()
+            || (info.requires_openai_auth
+                && info.env_key.is_none()
+                && info.experimental_bearer_token.is_none())
+        {
+            anyhow::bail!(
+                "provider {id}: configured proxy supports no-key and static bearer authentication"
+            );
+        }
+        let provider =
+            codex_model_provider::create_model_provider(info.clone(), Some(Arc::clone(&auth)));
+        let api = provider
+            .api_provider()
+            .await
+            .map_err(|_| anyhow::anyhow!("provider {id}: failed to resolve API configuration"))?;
+        let mut headers = api.headers.clone();
+        headers.extend(
+            provider
+                .api_auth()
+                .await
+                .map_err(|_| anyhow::anyhow!("provider {id}: failed to resolve authentication"))?
+                .resolve_auth_headers()
+                .await
+                .map_err(|_| {
+                    anyhow::anyhow!("provider {id}: failed to resolve authentication headers")
+                })?,
+        );
+        let version = codex_build_info::BuildInfo::get().version().to_string();
+        let models = match info.model_catalog_url.as_deref() {
+            Some(catalog) => {
+                codex_api::ModelsClient::<codex_api::ReqwestTransport>::catalog_request_url(
+                    &api, catalog, &version,
+                )
+                .map_err(|_| anyhow::anyhow!("provider {id}: invalid model catalogue URL"))?
+            }
+            None => {
+                codex_api::ModelsClient::<codex_api::ReqwestTransport>::request_url(&api, &version)
+            }
+        };
+        routes.push(codex_responses_api_proxy::ConfiguredRoute {
+            provider: id.clone(),
+            models_url: url::Url::parse(&models)
+                .map_err(|_| anyhow::anyhow!("provider {id}: invalid model catalogue URL"))?,
+            responses_url: url::Url::parse(&api.url_for_path("responses"))
+                .map_err(|_| anyhow::anyhow!("provider {id}: invalid Responses URL"))?,
+            headers,
+        });
+        let mut client = info.clone();
+        client.base_url = Some(format!("http://127.0.0.1:3128/{id}/v1"));
+        client.model_catalog_url = None;
+        client.env_key = None;
+        client.env_key_instructions = None;
+        client.experimental_bearer_token = None;
+        client.auth = None;
+        client.gateway_oauth = None;
+        client.aws = None;
+        client.query_params = None;
+        client.http_headers = None;
+        client.env_http_headers = None;
+        client.requires_openai_auth = false;
+        client.supports_websockets = false;
+        providers.insert(id, toml::Value::try_from(client)?);
+    }
+    let mut client = toml::map::Map::new();
+    client.insert("model_provider".into(), config.model_provider_id.into());
+    if let Some(model) = config.model {
+        client.insert("model".into(), model.into());
+    }
+    if let Some(metadata) = config.model_catalog_json {
+        client.insert(
+            "model_catalog_json".into(),
+            toml::Value::try_from(metadata)?,
+        );
+    }
+    client.insert("model_providers".into(), toml::Value::Table(providers));
+    client.insert(
+        "features".into(),
+        toml::Value::Table(toml::map::Map::from_iter([(
+            "api_key_model_discovery".into(),
+            config
+                .features
+                .enabled(codex_features::Feature::ApiKeyModelDiscovery)
+                .into(),
+        )])),
+    );
+    let client = toml::to_string(&client)?.into_bytes();
+    let listen = args.listen.expect("configured mode requires listen");
+    let path = args
+        .client_config
+        .expect("configured mode requires client-config");
+    #[cfg(unix)]
+    {
+        tokio::task::spawn_blocking(move || {
+            codex_responses_api_proxy::run_configured(&listen, &path, routes, &client)
+        })
+        .await??;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (listen, path, routes, client);
+        anyhow::bail!("configured proxy requires Unix sockets")
+    }
+}
+
 async fn run_debug_clear_memories_command(
     root_config_overrides: &CliConfigOverrides,
 ) -> anyhow::Result<()> {
@@ -2285,6 +2451,7 @@ fn unsupported_subcommand_name_for_strict_config(
         Some(Subcommand::Execpolicy(_)) => Some("execpolicy"),
         Some(Subcommand::Apply(_)) => Some("apply"),
         Some(Subcommand::ResponsesApiProxy(_)) => Some("responses-api-proxy"),
+        Some(Subcommand::Models) => Some("models"),
         Some(Subcommand::StdioToUds(_)) => Some("stdio-to-uds"),
         Some(Subcommand::Features(_)) => Some("features"),
         Some(Subcommand::TcpTunnel(_)) => Some("tcp-tunnel"),

@@ -241,7 +241,7 @@ pub struct Thread {
     pub history_mode: ThreadHistoryMode,
     /// Model provider used for this thread (for example, 'openai').
     pub model_provider: String,
-    /// Current configured model when loaded, otherwise the latest persisted model.
+    /// Canonical `provider/native-model-id` selection when loaded, otherwise the latest persisted selection.
     /// Null when unavailable. This is not per-turn execution telemetry.
     pub model: Option<String>,
     /// Current configured reasoning effort when loaded, otherwise the latest persisted effort.

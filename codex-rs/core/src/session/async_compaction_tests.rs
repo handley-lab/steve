@@ -72,7 +72,7 @@ async fn cancelled_turn_skips_launch_but_preserves_existing_work(trigger: Compac
     let world_state = Arc::new(WorldState::default());
     let cancelled = CancellationToken::new();
     cancelled.cancel();
-    let auth = sess.services.model_client.auth_owner_generation();
+    let auth = sess.services.model_client.load().auth_owner_generation();
     maybe_start(
         &sess,
         &step,
@@ -124,13 +124,13 @@ async fn cancelled_turn_skips_launch_but_preserves_existing_work(trigger: Compac
     match trigger {
         CompactionTrigger::Auto => {
             let candidate = take_ready(&sess, &turn).await.expect("published candidate");
-            let mut client_session = sess.services.model_client.new_session();
+            let mut client_session = sess.services.model_client.load().new_session();
             assert!(
                 crate::compact_remote_v2::run_inline_remote_auto_compact_task(
                     Arc::clone(&sess),
                     Arc::clone(&next_step),
                     next_step,
-                    &mut client_session,
+                    Some(&mut client_session),
                     world_state,
                     CompactionReason::ContextLimit,
                     phase,

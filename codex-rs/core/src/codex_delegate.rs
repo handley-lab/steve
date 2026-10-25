@@ -74,10 +74,10 @@ pub(crate) async fn run_codex_thread_interactive(
         return Err(CodexErr::TurnAborted);
     }
     config.permissions.approval_policy = Constrained::allow_only(AskForApproval::Never);
-    config.model_provider.supports_websockets &= parent_session
-        .services
-        .model_client
-        .responses_websocket_enabled();
+    if config.model_provider_id == parent_ctx.config.model_provider_id {
+        config.model_provider.supports_websockets &=
+            parent_ctx.model_client.responses_websocket_enabled();
+    }
 
     let conversation_history = initial_history.unwrap_or(InitialHistory::New);
     let forked_from_thread_id = conversation_history.forked_from_id();

@@ -3442,6 +3442,8 @@ pub struct TurnContextItem {
     pub file_system_sandbox_policy: Option<RawFileSystemSandboxPolicy>,
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comp_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collaboration_mode: Option<CollaborationMode>,
@@ -6322,6 +6324,7 @@ mod tests {
     #[test]
     fn turn_context_item_serializes_split_policy_and_summary() -> Result<()> {
         let item = TurnContextItem {
+            model_provider_id: None,
             turn_id: None,
             root_turn_id: None,
             disabled_plugin_ids: None,

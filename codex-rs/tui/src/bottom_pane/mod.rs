@@ -1550,6 +1550,9 @@ impl BottomPane {
         };
 
         let replaces_active_view = index + 1 == self.view_stack.len();
+        if params.is_searchable {
+            params.initial_search_query = self.view_stack[index].search_query().map(str::to_string);
+        }
         self.apply_standard_popup_hint(&mut params);
         let mut view = list_selection_view::ListSelectionView::new(
             params,

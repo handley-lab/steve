@@ -10,6 +10,8 @@ use codex_protocol::openai_models::ModelsResponse;
 use http::HeaderMap;
 use http::Method;
 use http::header::ETAG;
+use serde::Deserialize;
+use std::collections::HashSet;
 use std::sync::Arc;
 use url::Url;
 
@@ -76,16 +78,44 @@ impl<T: HttpTransport> ModelsClient<T> {
         let (body, header_etag) = self
             .list_models_raw(request_url, extra_headers, response_body_limit_bytes)
             .await?;
-        let ModelsResponse { models } =
-            serde_json::from_slice::<ModelsResponse>(&body).map_err(|e| {
-                ApiError::Stream(format!(
-                    "failed to decode models response: {:?} at line {} column {} (body: {} bytes)",
-                    e.classify(),
-                    e.line(),
-                    e.column(),
-                    body.len()
-                ))
-            })?;
+        #[derive(Deserialize)]
+        struct ModelIds {
+            data: Vec<DiscoveredModel>,
+        }
+        #[derive(Deserialize)]
+        struct DiscoveredModel {
+            id: String,
+            mode: Option<String>,
+        }
+        let decode_error = |e: serde_json::Error| {
+            ApiError::Stream(format!(
+                "failed to decode models response: {:?} at line {} column {} (body: {} bytes)",
+                e.classify(),
+                e.line(),
+                e.column(),
+                body.len()
+            ))
+        };
+        let value: serde_json::Value = serde_json::from_slice(&body).map_err(decode_error)?;
+        let models: Vec<ModelInfo> = if value.get("data").is_some() {
+            let ModelIds { data } = serde_json::from_slice(&body).map_err(decode_error)?;
+            data.into_iter()
+                .map(|model| ModelInfo::from_discovery_id(model.id, model.mode))
+                .collect()
+        } else {
+            serde_json::from_slice::<ModelsResponse>(&body)
+                .map_err(decode_error)?
+                .models
+        };
+        let mut ids = HashSet::new();
+        if models
+            .iter()
+            .any(|model| model.slug.trim().is_empty() || !ids.insert(&model.slug))
+        {
+            return Err(ApiError::InvalidRequest {
+                message: "model discovery must contain unique, non-empty IDs".to_string(),
+            });
+        }
 
         Ok((models, header_etag))
     }

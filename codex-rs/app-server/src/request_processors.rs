@@ -612,7 +612,11 @@ pub(crate) fn apply_live_thread_settings(
     thread: &mut Thread,
     config_snapshot: &ThreadConfigSnapshot,
 ) {
-    thread.model = Some(config_snapshot.model.clone());
+    thread.model = Some(format!(
+        "{}/{}",
+        config_snapshot.model_provider_id, config_snapshot.model
+    ));
+    thread.model_provider = config_snapshot.model_provider_id.clone();
     thread.reasoning_effort = config_snapshot.reasoning_effort.clone();
     thread.environments = Some(
         config_snapshot

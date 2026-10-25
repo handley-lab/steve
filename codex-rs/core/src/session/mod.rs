@@ -555,6 +555,15 @@ pub(crate) const INITIAL_SUBMIT_ID: &str = "";
 pub(crate) const SUBMISSION_CHANNEL_CAPACITY: usize = 512;
 
 impl Session {
+    pub(crate) fn model_client_for_provider(
+        &self,
+        provider: codex_model_provider::SharedModelProvider,
+    ) -> ModelClient {
+        let client = self.services.model_client.load().with_provider(provider);
+        self.services.model_client.store(Arc::new(client.clone()));
+        client
+    }
+
     /// Spawn and initialize a new session.
     /// Hide the concrete startup future from callers while keeping initialization lazy.
     #[inline(never)]
@@ -804,8 +813,12 @@ impl Session {
         // 2. conversation history => session_meta.base_instructions
         // 3. rendered instructions_template for current model
         let model_info = models_manager
-            .get_model_info(model.as_str(), &config.to_models_manager_config())
-            .await;
+            .get_model_info(
+                &config.model_provider_id,
+                model.as_str(),
+                &config.to_models_manager_config(),
+            )
+            .await?;
         // Forked subagents keep their parent's activation with the copied history.
         // Fresh children restore configured preferences before applying startup defaults.
         let inherits_token_budget = matches!(&conversation_history, InitialHistory::Forked(_))
@@ -915,6 +928,7 @@ impl Session {
                 config.model_provider.clone(),
                 Some(Arc::clone(&auth_manager)),
             ),
+            model_info: Arc::new(model_info.clone()),
             step_settings: Arc::new(StepSettings {
                 collaboration_mode,
                 reasoning_summary: config.model_reasoning_summary,
@@ -2007,7 +2021,9 @@ impl Session {
             credential_masking_warning,
         ) = {
             let mut state = self.state.lock().await;
-            let updated = match self.apply_session_settings(&state.session_configuration, &updates)
+            let updated = match self
+                .apply_session_settings(&state.session_configuration, &updates)
+                .await
             {
                 Ok(updated) => updated,
                 Err(err) => {
@@ -2110,7 +2126,9 @@ impl Session {
         updates: &SessionSettingsUpdate,
     ) -> ConstraintResult<ThreadConfigSnapshot> {
         let state = self.state.lock().await;
-        let configuration = self.apply_session_settings(&state.session_configuration, updates)?;
+        let configuration = self
+            .apply_session_settings(&state.session_configuration, updates)
+            .await?;
         Ok(configuration.thread_config_snapshot(configuration.environments.clone()))
     }
 
@@ -2200,13 +2218,7 @@ impl Session {
         };
         let config = self.build_effective_session_config(&configuration);
         if !config.features.enabled(Feature::ReasoningEffortOverride) {
-            let model = configuration
-                .step_settings
-                .resolve_model_info(
-                    self.services.models_manager.as_ref(),
-                    &configuration.model_info_overrides,
-                )
-                .await;
+            let model = &configuration.model_info;
             if let Some(effort) = config
                 .model_reasoning_effort
                 .clone()
@@ -4262,7 +4274,7 @@ impl Session {
                     // Validate immediately before slicing and replacing the captured prefix.
                     if state.history.history_version() != prefix.generation
                         || state.history.annotated_items().len() < prefix.len
-                        || self.services.model_client.auth_owner_generation()
+                        || turn_context.model_client.auth_owner_generation()
                             != prefix.auth_owner_generation
                     {
                         return false;

@@ -109,6 +109,8 @@ fn test_model_info(
     input_modalities: Vec<InputModality>,
 ) -> ModelInfo {
     ModelInfo {
+        non_chat: false,
+        discovered_non_chat: None,
         slug: slug.to_string(),
         display_name: display_name.to_string(),
         description: Some(description.to_string()),
@@ -1339,12 +1341,22 @@ async fn model_switch_to_smaller_model_updates_token_context_window() -> Result<
         "expected {smaller_model_slug} to be available in remote model list"
     );
     let large_model_info = models_manager
-        .get_model_info(large_model_slug, &test.config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &test.config.model_provider_id,
+            large_model_slug,
+            &test.config.to_models_manager_config(),
+        )
+        .await
+        .unwrap();
     assert_eq!(large_model_info.context_window, Some(large_context_window));
     let smaller_model_info = models_manager
-        .get_model_info(smaller_model_slug, &test.config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &test.config.model_provider_id,
+            smaller_model_slug,
+            &test.config.to_models_manager_config(),
+        )
+        .await
+        .unwrap();
     assert_eq!(
         smaller_model_info.context_window,
         Some(smaller_context_window)

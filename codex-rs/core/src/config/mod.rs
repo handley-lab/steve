@@ -1061,9 +1061,10 @@ pub struct Config {
     /// using the Responses API. When unset, the model catalog default is used.
     pub model_reasoning_summary: Option<ReasoningSummary>,
 
-    /// Optional full model catalog loaded from `model_catalog_json`.
-    /// When set, this replaces the bundled catalog for the current process.
+    /// Optional metadata overlay loaded from `model_catalog_json`.
     pub model_catalog: Option<ModelsResponse>,
+    /// Resolved overlay source for exact read-only file handoff.
+    pub model_catalog_json: Option<AbsolutePathBuf>,
 
     /// Optional verbosity control for GPT-5 models (Responses API `text.verbosity`).
     pub model_verbosity: Option<Verbosity>,
@@ -1652,6 +1653,46 @@ async fn config_toml_from_layers(layers: &ConfigLayerStack) -> std::io::Result<C
 }
 
 impl Config {
+    pub fn configured_model_provider_ids(&self) -> Vec<String> {
+        let effective = self.config_layer_stack.effective_config();
+        let mut ids: Vec<_> = effective
+            .get("model_providers")
+            .and_then(toml::Value::as_table)
+            .into_iter()
+            .flat_map(|providers| providers.keys().cloned())
+            .collect();
+        // A selected built-in is explicit even without a model_providers entry.
+        if !ids.contains(&self.model_provider_id) {
+            ids.push(self.model_provider_id.clone());
+        }
+        ids.sort();
+        ids
+    }
+
+    /// Resolve a model-only selector or an explicit provider/native-model pair.
+    pub fn resolve_model_selection(
+        &self,
+        model: &str,
+        explicit_provider: Option<&str>,
+    ) -> std::io::Result<(String, String)> {
+        let selection = resolve_model_selection(
+            model,
+            explicit_provider,
+            &self.model_provider_id,
+            &self.model_providers,
+            &self.configured_model_provider_ids(),
+        )?;
+        if let Some(required) = self.config_layer_stack.required_model_provider()
+            && selection.0 != required
+        {
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidInput,
+                format!("model conflicts with required model_provider `{required}`"),
+            ));
+        }
+        Ok(selection)
+    }
+
     pub fn sqlite_config(&self) -> &codex_state::SqliteConfig {
         &self.sqlite
     }
@@ -2219,6 +2260,32 @@ pub fn validate_feature_requirements_for_config_toml(
     managed_features::validate_feature_requirements_in_config_toml(cfg, feature_requirements)
 }
 
+fn resolve_model_selection(
+    model: &str,
+    explicit_provider: Option<&str>,
+    default_provider: &str,
+    providers: &HashMap<String, ModelProviderInfo>,
+    configured_providers: &[String],
+) -> std::io::Result<(String, String)> {
+    let (provider, native_model) = match explicit_provider {
+        Some(provider) => (provider, model),
+        None => model
+            .split_once('/')
+            .filter(|(provider, _)| {
+                *provider == default_provider
+                    || configured_providers.iter().any(|id| id == provider)
+            })
+            .unwrap_or((default_provider, model)),
+    };
+    if !providers.contains_key(provider) {
+        return Err(std::io::Error::new(
+            ErrorKind::NotFound,
+            format!("Model provider `{provider}` not found"),
+        ));
+    }
+    Ok((provider.to_string(), native_model.to_string()))
+}
+
 fn load_catalog_json(path: &AbsolutePathBuf) -> std::io::Result<ModelsResponse> {
     let file_contents = std::fs::read_to_string(path)?;
     let catalog = serde_json::from_str::<ModelsResponse>(&file_contents).map_err(|err| {
@@ -2237,6 +2304,17 @@ fn load_catalog_json(path: &AbsolutePathBuf) -> std::io::Result<ModelsResponse> 
                 "model_catalog_json path `{}` must contain at least one model",
                 path.display()
             ),
+        ));
+    }
+    let mut slugs = HashSet::new();
+    if catalog
+        .models
+        .iter()
+        .any(|model| !slugs.insert(&model.slug))
+    {
+        return Err(std::io::Error::new(
+            ErrorKind::InvalidData,
+            "model_catalog_json must contain unique model slugs",
         ));
     }
     Ok(catalog)
@@ -3958,18 +4036,21 @@ impl Config {
             .clone()
             .filter(|value| !value.is_empty());
 
+        let configured_model_provider_ids: Vec<_> = cfg.model_providers.keys().cloned().collect();
         let model_providers =
             merge_configured_model_providers(built_in_model_providers(openai_base_url), cfg.model_providers)
                 .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidData, message))?;
 
-        let model_provider_id = config_layer_stack.required_model_provider().map(str::to_string)
+        let explicit_model_provider = model_provider.clone();
+        let model_override = model.is_some();
+        let mut model_provider_id = config_layer_stack.required_model_provider().map(str::to_string)
             .or(model_provider)
             .or(cfg.model_provider)
             .ok_or_else(|| std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Set model_provider explicitly in config.toml or with an override",
             ))?;
-        let model_provider = model_providers
+        let mut model_provider = model_providers
             .get(&model_provider_id)
             .ok_or_else(|| {
                 let message = if model_provider_id == LEGACY_OLLAMA_CHAT_PROVIDER_ID {
@@ -4136,7 +4217,30 @@ impl Config {
 
         let forced_login_method = cfg.forced_login_method;
 
-        let model = model.or(cfg.model);
+        let model = model.or(cfg.model).or_else(|| model_provider.default_model.clone());
+        let model = match model {
+            Some(model) => {
+                let explicit_provider = if model_override {
+                    explicit_model_provider.as_deref()
+                } else {
+                    Some(model_provider_id.as_str())
+                };
+                let (provider_id, native_model) = resolve_model_selection(
+                    &model, explicit_provider, &model_provider_id, &model_providers,
+                    &configured_model_provider_ids,
+                )?;
+                if let Some(required) = config_layer_stack.required_model_provider()
+                    && provider_id != required
+                {
+                    return Err(std::io::Error::new(ErrorKind::InvalidInput,
+                        format!("model conflicts with required model_provider `{required}`")));
+                }
+                model_provider = model_providers[&provider_id].clone();
+                model_provider_id = provider_id;
+                Some(native_model)
+            }
+            None => None,
+        };
         let notices = cfg.notice.unwrap_or_default();
         let service_tier = match service_tier_override {
             Some(Some(service_tier)) => Some(service_tier),
@@ -4612,6 +4716,7 @@ impl Config {
             plan_mode_reasoning_effort: cfg.plan_mode_reasoning_effort,
             model_reasoning_summary: cfg.model_reasoning_summary,
             model_catalog,
+            model_catalog_json: cfg.model_catalog_json,
             model_verbosity: cfg.model_verbosity,
             chatgpt_base_url: cfg.chatgpt_base_url.unwrap_or_default(),
             chatgpt_path_style: cfg.chatgpt_path_style.unwrap_or_default(),

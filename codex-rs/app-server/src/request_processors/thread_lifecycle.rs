@@ -912,6 +912,8 @@ pub(super) async fn handle_pending_thread_resume_request(
     let session_id = conversation.startup_metadata().session_id.to_string();
     thread.session_id = session_id;
 
+    let model = format!("{model_provider_id}/{model}");
+    let collaboration_mode = collaboration_mode.with_updates(Some(model.clone()), None, None);
     let response = ThreadResumeResponse {
         thread,
         disabled_plugin_ids,

@@ -773,13 +773,17 @@ async fn get_model_info_tracks_fallback_usage() {
     });
     let known_slug = "known-model".to_string();
 
-    let known = manager.get_model_info(known_slug.as_str(), &config).await;
+    let known = manager
+        .get_model_info("fixture", known_slug.as_str(), &config)
+        .await
+        .unwrap();
     assert!(!known.used_fallback_model_metadata);
     assert_eq!(known.slug, known_slug);
 
     let unknown = manager
-        .get_model_info("model-that-does-not-exist", &config)
-        .await;
+        .get_model_info("fixture", "model-that-does-not-exist", &config)
+        .await
+        .unwrap();
     assert!(unknown.used_fallback_model_metadata);
     assert_eq!(unknown.slug, "model-that-does-not-exist");
 }
@@ -797,8 +801,9 @@ async fn get_model_info_caps_configured_context_override() {
     };
     assert_eq!(
         manager
-            .get_model_info("long-context", &config)
+            .get_model_info("fixture", "long-context", &config)
             .await
+            .unwrap()
             .context_window,
         Some(872_000)
     );
@@ -815,8 +820,9 @@ async fn get_model_info_uses_custom_catalog() {
     });
 
     let model_info = manager
-        .get_model_info("gpt-overlay-experiment", &config)
-        .await;
+        .get_model_info("fixture", "gpt-overlay-experiment", &config)
+        .await
+        .unwrap();
 
     assert_eq!(model_info.slug, "gpt-overlay-experiment");
     assert_eq!(model_info.display_name, "Overlay");
@@ -835,7 +841,10 @@ async fn get_model_info_matches_namespaced_suffix() {
     });
     let namespaced_model = "custom/gpt-image".to_string();
 
-    let model_info = manager.get_model_info(&namespaced_model, &config).await;
+    let model_info = manager
+        .get_model_info("fixture", &namespaced_model, &config)
+        .await
+        .unwrap();
 
     assert_eq!(model_info.slug, namespaced_model);
     assert!(model_info.supports_image_detail_original);
@@ -851,7 +860,10 @@ async fn get_model_info_matches_hyphenated_provider_namespace_suffix() {
     });
     let namespaced_model = "openai-codex/gpt-image".to_string();
 
-    let model_info = manager.get_model_info(&namespaced_model, &config).await;
+    let model_info = manager
+        .get_model_info("fixture", &namespaced_model, &config)
+        .await
+        .unwrap();
 
     assert_eq!(model_info.slug, namespaced_model);
     assert!(!model_info.used_fallback_model_metadata);
@@ -866,7 +878,10 @@ async fn get_model_info_rejects_multi_segment_namespace_suffix_matching() {
     let known_slug = "known-model".to_string();
     let namespaced_model = format!("ns1/ns2/{known_slug}");
 
-    let model_info = manager.get_model_info(&namespaced_model, &config).await;
+    let model_info = manager
+        .get_model_info("fixture", &namespaced_model, &config)
+        .await
+        .unwrap();
 
     assert_eq!(model_info.slug, namespaced_model);
     assert!(model_info.used_fallback_model_metadata);
@@ -992,8 +1007,9 @@ async fn get_model_info_uses_fallback_for_unlisted_model() {
         .expect("refresh succeeds");
 
     let model_info = manager
-        .get_model_info(&bundled_slug, &ModelsManagerConfig::default())
-        .await;
+        .get_model_info("fixture", &bundled_slug, &ModelsManagerConfig::default())
+        .await
+        .unwrap();
 
     assert_eq!(model_info.slug, bundled_slug);
     assert!(model_info.used_fallback_model_metadata);
@@ -1092,8 +1108,9 @@ async fn authoritative_catalog_preserves_hidden_models_and_matches_exact_ids() {
     for unknown in ["gpt-6-sol-other", "namespace/gpt-6-sol"] {
         assert_eq!(
             manager
-                .get_model_info(unknown, &ModelsManagerConfig::default())
-                .await,
+                .get_model_info("fixture", unknown, &ModelsManagerConfig::default())
+                .await
+                .unwrap(),
             model_info::model_info_from_slug(unknown)
         );
     }
@@ -1753,8 +1770,13 @@ async fn unconfigured_catalog_does_not_seed_models() {
         selected.unwrap()
     );
     let model = manager
-        .get_model_info("google/gemma-4-31b-it", &ModelsManagerConfig::default())
-        .await;
+        .get_model_info(
+            "fixture",
+            "google/gemma-4-31b-it",
+            &ModelsManagerConfig::default(),
+        )
+        .await
+        .unwrap();
     assert_eq!(model.slug, "google/gemma-4-31b-it");
     assert!(model.used_fallback_model_metadata);
     assert_eq!(endpoint.fetch_count(), 0);

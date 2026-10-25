@@ -217,23 +217,31 @@ async fn apply_requested_spawn_agent_model_overrides(
     }
 
     if let Some(requested_model) = requested_model {
+        let (provider_id, native_model) = config
+            .resolve_model_selection(requested_model, None)
+            .map_err(|error| error.to_string())?;
+        let qualified = format!("{provider_id}/{native_model}");
         let available_models = session
             .services
             .models_manager
             .list_models(RefreshStrategy::Offline, config.http_client_factory())
             .await;
-        let selected_model_name = find_spawn_agent_model_name(
-            &available_models,
-            requested_model,
-            turn.multi_agent_version,
-        )?;
+        let selected_model_name =
+            find_spawn_agent_model_name(&available_models, &qualified, turn.multi_agent_version)?;
         let selected_model_info = session
             .services
             .models_manager
-            .get_model_info(&selected_model_name, &config.to_models_manager_config())
-            .await;
+            .get_model_info(
+                &provider_id,
+                &native_model,
+                &config.to_models_manager_config(),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
 
-        config.model = Some(selected_model_name.clone());
+        config.model_provider_id = provider_id;
+        config.model_provider = config.model_providers[&config.model_provider_id].clone();
+        config.model = Some(native_model);
         if let Some(reasoning_effort) = requested_reasoning_effort {
             validate_spawn_agent_reasoning_effort(
                 &selected_model_name,
@@ -279,8 +287,13 @@ pub(crate) async fn apply_spawn_agent_service_tier(
     let model_info = session
         .services
         .models_manager
-        .get_model_info(model.as_str(), &config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &config.model_provider_id,
+            model.as_str(),
+            &config.to_models_manager_config(),
+        )
+        .await
+        .map_err(|error| error.to_string())?;
 
     config.service_tier = model_info
         .supports_service_tier(service_tier.as_str())
@@ -310,8 +323,13 @@ async fn apply_spawn_agent_role(
     let model_info = session
         .services
         .models_manager
-        .get_model_info(&model, &config.to_models_manager_config())
-        .await;
+        .get_model_info(
+            &config.model_provider_id,
+            &model,
+            &config.to_models_manager_config(),
+        )
+        .await
+        .map_err(|error| error.to_string())?;
     if model_info.used_fallback_model_metadata {
         return Ok(());
     }

@@ -24,7 +24,7 @@ fn thread_settings_for_test(
             active_permission_profile: Some(
                 codex_app_server_protocol::ActivePermissionProfile::read_only(),
             ),
-            model: model.to_string(),
+            model: format!("openai/{model}"),
             model_provider: "openai".to_string(),
             service_tier: Some(ServiceTier::Fast.request_value().to_string()),
             effort: Some(ReasoningEffortConfig::High),
@@ -32,7 +32,7 @@ fn thread_settings_for_test(
             collaboration_mode: CollaborationMode {
                 mode: ModeKind::Plan,
                 settings: codex_protocol::config_types::Settings {
-                    model: model.to_string(),
+                    model: format!("openai/{model}"),
                     reasoning_effort: Some(ReasoningEffortConfig::High),
                     developer_instructions: None,
                 },
@@ -51,7 +51,7 @@ fn configured_thread_session(thread_id: ThreadId) -> crate::session_state::Threa
         forked_from_id: None,
         fork_parent_title: None,
         thread_name: None,
-        model: "gpt-5.2".to_string(),
+        model: "openai/gpt-5.2".to_string(),
         model_provider_id: "openai".to_string(),
         service_tier: None,
         approval_policy: AskForApproval::Never,
@@ -122,7 +122,17 @@ async fn session_and_settings_sync_server_provider_id() {
     let first_id = ThreadId::new();
     let mut first = configured_thread_session(first_id);
     first.model_provider_id = "server-ollama".to_string();
+    first.model = "server-ollama/org/native-model".to_string();
+    first.collaboration_mode = Some(Box::new(CollaborationMode {
+        mode: ModeKind::Default,
+        settings: codex_protocol::config_types::Settings {
+            model: first.model.clone(),
+            reasoning_effort: None,
+            developer_instructions: None,
+        },
+    }));
     chat.handle_thread_session(first.clone());
+    assert_eq!(chat.current_model(), "server-ollama/org/native-model");
     let displayed = status(&mut chat);
     assert!(displayed.contains("Model provider:") && displayed.contains("server-ollama"));
     assert!(!displayed.contains("local-provider.example"));
@@ -136,14 +146,33 @@ async fn session_and_settings_sync_server_provider_id() {
 
     chat.handle_thread_session_quiet(first);
     assert_eq!(chat.config.model_provider_id, "server-ollama");
+    assert_eq!(chat.current_model(), "server-ollama/org/native-model");
+    let edits = crate::config_update::build_model_selection_edits(
+        chat.current_model(),
+        Some(ReasoningEffortConfig::High),
+    );
+    assert!(
+        edits
+            .iter()
+            .any(|edit| edit.key_path == "model_provider" && edit.value == "server-ollama")
+    );
+    assert!(
+        edits
+            .iter()
+            .any(|edit| edit.key_path == "model" && edit.value == "org/native-model")
+    );
 
     let mut updated = thread_settings_for_test("gpt-5.4", first_id);
     updated.thread_settings.model_provider = "server-updated".to_string();
+    updated.thread_settings.model = "server-updated/gpt-5.4".to_string();
+    updated.thread_settings.collaboration_mode.settings.model =
+        updated.thread_settings.model.clone();
     chat.handle_server_notification(
         ServerNotification::ThreadSettingsUpdated(updated),
         /*replay_kind*/ None,
     );
     assert!(status(&mut chat).contains("server-updated"));
+    assert_eq!(chat.current_model(), "server-updated/gpt-5.4");
 }
 
 fn start_safety_buffering_test_turn(

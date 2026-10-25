@@ -151,6 +151,8 @@ pub struct Model {
     pub available_access_programs: Option<ModelAccessPrograms>,
     // Only one model should be marked as default.
     pub is_default: bool,
+    #[serde(default)]
+    pub is_provider_default: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -179,6 +181,8 @@ pub struct ReasoningEffortOption {
 #[ts(export_to = "v2/")]
 pub struct ModelListResponse {
     pub data: Vec<Model>,
+    #[serde(default)]
+    pub provider_errors: Vec<ModelProviderError>,
     /// Opaque cursor to pass to the next call to continue after the last item.
     /// If None, there are no more items to return.
     pub next_cursor: Option<String>,
@@ -187,6 +191,14 @@ pub struct ModelListResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
     pub cyber_access_programs_enabled: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ModelProviderError {
+    pub provider: String,
+    pub message: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
@@ -238,7 +250,7 @@ mod tests {
 
     #[test]
     fn model_list_forwarding_snapshot_is_optional_and_preserves_false() {
-        let legacy = json!({"data": [], "nextCursor": null});
+        let legacy = json!({"data": [], "nextCursor": null, "providerErrors": []});
         let response: ModelListResponse = serde_json::from_value(legacy.clone()).unwrap();
         assert_eq!(response.cyber_access_programs_enabled, None);
         assert_eq!(serde_json::to_value(&response).unwrap(), legacy);

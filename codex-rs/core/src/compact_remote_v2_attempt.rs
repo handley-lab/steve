@@ -49,6 +49,7 @@ pub(super) enum RemoteCompactV2AttemptInput<'a> {
 }
 
 pub(crate) struct BackgroundCompactionCandidate {
+    pub(super) model_provider_id: String,
     pub(crate) prefix: CompactionPrefix,
     pub(super) model_info: Arc<ModelInfo>,
     pub(super) cutoff_world_state: Arc<WorldState>,
@@ -137,7 +138,7 @@ pub(super) async fn run_remote_compact_v2_attempt(
                 .executed_tool_calls
                 .attach_to_compaction_prompt(&mut input);
             let client_session = client_session.unwrap_or_else(|| {
-                owned_client_session.insert(sess.services.model_client.new_session())
+                owned_client_session.insert(turn_context.model_client.new_session())
             });
             (
                 model_info,
@@ -306,6 +307,7 @@ pub(crate) async fn run_background_compaction(
     )
     .await?;
     Ok(BackgroundCompactionCandidate {
+        model_provider_id: step_context.turn.config.model_provider_id.clone(),
         prefix,
         model_info: Arc::clone(&step_context.settings.model_info),
         cutoff_world_state,

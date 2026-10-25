@@ -375,7 +375,10 @@ experimental_bearer_token = "credential-a"
     let event = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
         .await?
         .expect("model refresh response");
-    let crate::app_event::AppEvent::ModelsLoaded { request_id, result } = event else {
+    let crate::app_event::AppEvent::ModelsLoaded {
+        request_id, result, ..
+    } = event
+    else {
         panic!("expected model refresh response");
     };
     assert_eq!(request_id, refresh_id);

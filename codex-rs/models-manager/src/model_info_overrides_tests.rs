@@ -16,7 +16,10 @@ async fn offline_model_info_without_tool_output_override() {
         TestModelsEndpoint::new(Vec::new()),
     );
 
-    let model_info = manager.get_model_info("unknown-model", &config).await;
+    let model_info = manager
+        .get_model_info("fixture", "unknown-model", &config)
+        .await
+        .unwrap();
 
     assert_eq!(
         model_info.truncation_policy,
@@ -36,7 +39,10 @@ async fn offline_model_info_with_tool_output_override() {
         models: vec![model],
     });
 
-    let model_info = manager.get_model_info("configured-model", &config).await;
+    let model_info = manager
+        .get_model_info("fixture", "configured-model", &config)
+        .await
+        .unwrap();
 
     assert_eq!(
         model_info.truncation_policy,

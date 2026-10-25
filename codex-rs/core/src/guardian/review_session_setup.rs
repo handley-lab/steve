@@ -139,11 +139,13 @@ impl PreparedGuardianContext {
                 .map(|item| InitialHistory::Forked(vec![RolloutItem::ResponseItem(item.into())]))
         });
         let mut config = self.config.clone();
-        config.model_provider.supports_websockets &= self
-            .parent
-            .services
-            .model_client
-            .responses_websocket_enabled();
+        if config.model_provider_id == self.context.turn().config.model_provider_id {
+            config.model_provider.supports_websockets &= self
+                .context
+                .turn()
+                .model_client
+                .responses_websocket_enabled();
+        }
         let mut options = crate::StartThreadOptions {
             history_mode: Some(codex_protocol::protocol::ThreadHistoryMode::Paginated),
             internal_parent: Some(crate::thread_manager::InternalSessionParent {

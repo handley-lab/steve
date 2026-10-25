@@ -3351,10 +3351,30 @@ async fn memories_reset_confirmation_sends_event_on_confirm() {
     assert_matches!(rx.try_recv(), Ok(AppEvent::ResetMemories));
 }
 
+fn model_with_reasoning_choices(model: &str) -> ModelPreset {
+    let mut preset = ModelPreset::from(codex_models_manager::test_support::model_info(model));
+    preset.default_reasoning_effort = ReasoningEffortConfig::Medium;
+    preset.supported_reasoning_efforts = vec![
+        ReasoningEffortPreset {
+            effort: ReasoningEffortConfig::Low,
+            description: "Quick answers".to_string(),
+        },
+        ReasoningEffortPreset {
+            effort: ReasoningEffortConfig::Medium,
+            description: "Balanced reasoning".to_string(),
+        },
+    ];
+    preset
+}
+
 #[tokio::test]
 async fn model_selection_popup_snapshot() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
     chat.thread_id = Some(ThreadId::new());
+    chat.model_catalog = Arc::new(ModelCatalog::new(vec![
+        model_with_reasoning_choices("gpt-5.5"),
+        model_with_reasoning_choices("gpt-5.6-terra"),
+    ]));
     chat.open_model_popup();
 
     let popup = render_bottom_popup(&chat, /*width*/ 80);
@@ -3411,7 +3431,7 @@ async fn model_picker_refresh_rejects_obsolete_and_unusable_replies() {
 
 #[tokio::test]
 async fn model_picker_refreshes_startup_catalog() {
-    for (explicit_all_models, hidden_startup) in [(false, false), (true, false), (false, true)] {
+    for hidden_startup in [false, true] {
         let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
         chat.thread_id = Some(ThreadId::new());
         let mut startup = vec![get_available_model(&chat, "gpt-5.5")];
@@ -3428,11 +3448,6 @@ async fn model_picker_refreshes_startup_catalog() {
             std::iter::from_fn(|| rx.try_recv().ok())
                 .any(|event| matches!(event, AppEvent::FetchModels { .. }))
         );
-        if explicit_all_models {
-            chat.handle_key_event(KeyEvent::from(KeyCode::Esc));
-            chat.open_all_models_popup();
-        }
-
         apply_model_list_response(&mut chat, refreshed.clone());
         if hidden_startup {
             assert!(chat.no_modal_or_popup_active());
@@ -3442,11 +3457,7 @@ async fn model_picker_refreshes_startup_catalog() {
         assert_eq!(chat.model_catalog.try_list_models().unwrap(), refreshed);
         insta::allow_duplicates! {
             assert_chatwidget_snapshot!(
-                if explicit_all_models {
-                    "model_selection_popup"
-                } else {
-                    "model_picker_refreshes_auto_models"
-                },
+                "model_picker_refreshes_auto_models",
                 render_bottom_popup(&chat, /*width*/ 80)
             );
         }
@@ -3454,27 +3465,78 @@ async fn model_picker_refreshes_startup_catalog() {
 }
 
 #[tokio::test]
-async fn model_picker_queued_all_models_uses_refreshed_catalog() {
+async fn model_picker_is_flat_and_fuzzy_searches_qualified_ids_and_labels() {
+    for query in ["TRG/OM", "lclwks"] {
+        let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
+        chat.thread_id = Some(ThreadId::new());
+        let preset = get_available_model(&chat, "gpt-5.5");
+        let mut presets = Vec::new();
+        for (model, label) in [
+            ("cambridge/org/model", "Remote service"),
+            ("turing/org/model", "Local workstation"),
+            ("codex-auto-test", "Auto test"),
+        ] {
+            let mut model_preset = preset.clone();
+            model_preset.id = model.to_string();
+            model_preset.model = model.to_string();
+            model_preset.display_name = label.to_string();
+            presets.push(model_preset);
+        }
+        chat.open_model_popup_with_presets(presets);
+        let popup = render_bottom_popup(&chat, /*width*/ 100);
+        assert!(popup.contains("Remote service"));
+        assert!(popup.contains("Local workstation"));
+        assert!(popup.contains("Auto test"));
+        assert!(!popup.contains("All models"));
+        for character in query.chars() {
+            chat.handle_key_event(KeyEvent::from(KeyCode::Char(character)));
+        }
+        chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+        let selected = assert_matches!(
+            rx.try_recv(), Ok(AppEvent::OpenReasoningPopup { model }) => model.model
+        );
+        assert_eq!(selected, "turing/org/model");
+    }
+}
+
+#[tokio::test]
+async fn model_picker_search_refresh_preserves_qualified_selection() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
     chat.thread_id = Some(ThreadId::new());
-    let refreshed = chat.model_catalog.try_list_models().unwrap();
     let preset = get_available_model(&chat, "gpt-5.5");
-    let mut auto = preset.clone();
-    auto.model = "codex-auto-test".to_string();
-    auto.id = auto.model.clone();
-    chat.model_catalog = Arc::new(ModelCatalog::new(vec![auto, preset]));
+    let mut presets = Vec::new();
+    for model in ["cambridge/org/model", "turing/org/model"] {
+        let mut model_preset = preset.clone();
+        model_preset.id = model.to_string();
+        model_preset.model = model.to_string();
+        model_preset.display_name = "Shared label".to_string();
+        presets.push(model_preset);
+    }
+    chat.model_catalog = Arc::new(ModelCatalog::new(presets.clone()));
+    chat.set_model("turing/org/model");
     chat.open_model_popup();
-    assert_matches!(rx.try_recv(), Ok(AppEvent::FetchModels { .. }));
-    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
-    assert_eq!(chat.bottom_pane.active_view_id(), None);
-    // Apply the model/list reply before the queued All models intent is handled.
-    apply_model_list_response(&mut chat, refreshed);
-    assert_matches!(rx.try_recv(), Ok(AppEvent::OpenAllModelsPopup));
-    chat.open_all_models_popup();
-    assert_chatwidget_snapshot!(
-        "model_selection_popup",
-        render_bottom_popup(&chat, /*width*/ 80)
+    assert_eq!(
+        chat.bottom_pane
+            .selected_index_for_present_view("model-selection"),
+        Some(1)
     );
+    for character in "rgmdl".chars() {
+        chat.handle_key_event(KeyEvent::from(KeyCode::Char(character)));
+    }
+    presets.reverse();
+    apply_model_list_response(&mut chat, presets);
+    assert_eq!(
+        chat.bottom_pane
+            .selected_index_for_present_view("model-selection"),
+        Some(0)
+    );
+    assert!(render_bottom_popup(&chat, /*width*/ 80).contains("rgmdl"));
+    while rx.try_recv().is_ok() {}
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+    let selected = assert_matches!(
+        rx.try_recv(), Ok(AppEvent::OpenReasoningPopup { model }) => model.model
+    );
+    assert_eq!(selected, "turing/org/model");
 }
 
 #[tokio::test]
@@ -3488,8 +3550,8 @@ async fn model_picker_refresh_preserves_highlight() {
         let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
         chat.thread_id = Some(ThreadId::new());
         let mut presets = vec![
-            get_available_model(&chat, "gpt-5.5"),
-            get_available_model(&chat, "gpt-5.6-terra"),
+            model_with_reasoning_choices("gpt-5.5"),
+            model_with_reasoning_choices("gpt-5.6-terra"),
         ];
         for preset in &mut presets {
             preset.display_name = "Shared display name".to_string();
@@ -3553,24 +3615,17 @@ async fn model_picker_refreshes_service_tier_controls() {
 
 #[tokio::test]
 async fn model_picker_refresh_preserves_dismissal_and_reasoning_submenu() {
-    for (dismiss, explicit_all_models, accept_reasoning) in [
-        (true, false, false),
-        (false, false, false),
-        (false, true, false),
-        (false, false, true),
-        (false, true, true),
-    ] {
+    for (dismiss, accept_reasoning) in [(true, false), (false, false), (false, true)] {
         let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
         chat.thread_id = Some(ThreadId::new());
-        let preset = get_available_model(&chat, "gpt-5.5");
-        let refreshed = chat.model_catalog.try_list_models().unwrap();
+        let preset = model_with_reasoning_choices("gpt-5.5");
+        let refreshed = vec![
+            preset.clone(),
+            model_with_reasoning_choices("gpt-5.6-terra"),
+        ];
         chat.model_catalog = Arc::new(ModelCatalog::new(vec![preset.clone()]));
         chat.open_model_popup();
         assert_matches!(rx.try_recv(), Ok(AppEvent::FetchModels { .. }));
-        if explicit_all_models {
-            chat.handle_key_event(KeyEvent::from(KeyCode::Esc));
-            chat.open_all_models_popup();
-        }
         if dismiss {
             chat.handle_key_event(KeyEvent::from(KeyCode::Esc));
         } else {
@@ -3607,26 +3662,17 @@ async fn model_picker_refresh_preserves_dismissal_and_reasoning_submenu() {
 
 #[tokio::test]
 async fn model_picker_refresh_dismisses_empty_choices() {
-    for (explicit_all_models, reasoning_submenu) in
-        [(false, false), (true, false), (false, true), (true, true)]
-    {
+    for reasoning_submenu in [false, true] {
         let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
         chat.thread_id = Some(ThreadId::new());
-        let mut preset = get_available_model(&chat, "gpt-5.5");
+        let mut preset = model_with_reasoning_choices("gpt-5.5");
+        chat.model_catalog = Arc::new(ModelCatalog::new(vec![preset.clone()]));
         chat.open_model_popup();
-        if explicit_all_models {
-            chat.handle_key_event(KeyEvent::from(KeyCode::Esc));
-            chat.open_all_models_popup();
-        }
         if reasoning_submenu {
             chat.open_reasoning_popup(preset.clone());
         }
         let before = render_bottom_popup(&chat, /*width*/ 80);
-        if explicit_all_models {
-            preset.model = "codex-auto-test".to_string();
-        } else {
-            preset.show_in_picker = false;
-        }
+        preset.show_in_picker = false;
         while rx.try_recv().is_ok() {}
         apply_model_list_response(&mut chat, vec![preset]);
         if reasoning_submenu {
@@ -3658,6 +3704,7 @@ async fn model_picker_hides_show_in_picker_false_models_from_cache() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("test-visible-model")).await;
     chat.thread_id = Some(ThreadId::new());
     let preset = |slug: &str, show_in_picker: bool| ModelPreset {
+        is_provider_default: false,
         id: slug.to_string(),
         model: slug.to_string(),
         display_name: slug.to_string(),
@@ -4109,7 +4156,7 @@ async fn reasoning_up_shortcuts_reach_max_in_default_and_plan_modes() {
 #[tokio::test]
 async fn reasoning_up_shortcut_does_not_silently_enter_ultra() {
     for (model, model_path) in [
-        ("gpt-5.5", "All models → gpt-5.5"),
+        ("gpt-5.5", "gpt-5.5"),
         ("codex-auto-test", "codex-auto-test"),
     ] {
         let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
@@ -4223,6 +4270,7 @@ async fn single_reasoning_option_skips_selection() {
         description: "Greater reasoning depth for complex or ambiguous problems".to_string(),
     }];
     let preset = ModelPreset {
+        is_provider_default: false,
         id: "model-with-single-reasoning".to_string(),
         model: "model-with-single-reasoning".to_string(),
         display_name: "model-with-single-reasoning".to_string(),
@@ -4289,11 +4337,7 @@ async fn advanced_only_reasoning_option_requires_explicit_selection() {
 #[tokio::test]
 async fn auto_model_advertising_advanced_effort_opens_reasoning_picker() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-    let mut preset = get_available_model(&chat, "gpt-5.6-terra");
-    preset.id = "codex-auto-test".to_string();
-    preset.model = "codex-auto-test".to_string();
-    preset.display_name = "codex-auto-test".to_string();
-    preset.default_reasoning_effort = ReasoningEffortConfig::Medium;
+    let mut preset = model_with_reasoning_choices("codex-auto-test");
     preset
         .supported_reasoning_efforts
         .push(ReasoningEffortPreset {
@@ -4375,9 +4419,10 @@ async fn feedback_good_result_consent_popup_includes_connectivity_diagnostics_fi
 async fn reasoning_popup_escape_returns_to_model_popup() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
     chat.thread_id = Some(ThreadId::new());
+    let preset = model_with_reasoning_choices("gpt-5.5");
+    chat.model_catalog = Arc::new(ModelCatalog::new(vec![preset.clone()]));
     chat.open_model_popup();
 
-    let preset = get_available_model(&chat, "gpt-5.5");
     chat.open_reasoning_popup(preset);
 
     let before_escape = render_bottom_popup(&chat, /*width*/ 80);

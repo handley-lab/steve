@@ -126,6 +126,7 @@ impl ResolvedStepSettings {
         update: &StepSettingsUpdate,
         constraints: &StepSettingsConstraints<'_>,
         models_manager: &dyn ModelsManager,
+        provider_id: &str,
         overrides: &ModelInfoOverrides,
         features: &Features,
     ) -> ConstraintResult<Self> {
@@ -134,7 +135,17 @@ impl ResolvedStepSettings {
             if selected.collaboration_mode.model() == self.selected.collaboration_mode.model() {
                 Arc::clone(&self.model_info)
             } else {
-                Arc::new(selected.resolve_model_info(models_manager, overrides).await)
+                Arc::new(
+                    selected
+                        .resolve_model_info(models_manager, provider_id, overrides)
+                        .await
+                        .map_err(|error| ConstraintError::InvalidValue {
+                            field_name: "model",
+                            candidate: selected.collaboration_mode.model().to_string(),
+                            allowed: error.to_string(),
+                            requirement_source: codex_config::RequirementSource::Unknown,
+                        })?,
+                )
             };
         let mut next = Self::new(Arc::new(selected), model_info, features);
         next.mcp_approvals_reviewer_override = update
@@ -241,11 +252,12 @@ impl StepSettings {
     pub(super) async fn resolve_model_info(
         &self,
         models_manager: &dyn ModelsManager,
+        provider_id: &str,
         overrides: &ModelInfoOverrides,
-    ) -> ModelInfo {
+    ) -> codex_protocol::error::Result<ModelInfo> {
         let config = overrides.models_manager_config(self.personality);
         models_manager
-            .get_model_info(self.collaboration_mode.model(), &config)
+            .get_model_info(provider_id, self.collaboration_mode.model(), &config)
             .await
     }
 

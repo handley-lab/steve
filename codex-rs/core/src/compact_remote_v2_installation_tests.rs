@@ -15,12 +15,15 @@ use tokio_util::sync::CancellationToken;
 enum HistoryChange {
     Replacement,
     Account,
+    Provider,
 }
 
 #[test_case(HistoryChange::Replacement, CompactionFallback::Skip; "replacement optional")]
 #[test_case(HistoryChange::Account, CompactionFallback::Skip; "account optional")]
+#[test_case(HistoryChange::Provider, CompactionFallback::Skip; "provider optional")]
 #[test_case(HistoryChange::Replacement, CompactionFallback::Foreground; "replacement required")]
 #[test_case(HistoryChange::Account, CompactionFallback::Foreground; "account required")]
+#[test_case(HistoryChange::Provider, CompactionFallback::Foreground; "provider required")]
 #[tokio::test]
 async fn prepared_prefix_rejection_respects_caller_intent(
     change: HistoryChange,
@@ -67,8 +70,9 @@ async fn prepared_prefix_rejection_respects_caller_intent(
     sess.replace_history(vec![original.clone()], /*reference_context_item*/ None)
         .await;
     let history = sess.clone_history().await;
-    let auth = sess.services.model_client.auth_owner_generation();
+    let auth = sess.services.model_client.load().auth_owner_generation();
     let mut candidate = BackgroundCompactionCandidate {
+        model_provider_id: step.turn.config.model_provider_id.clone(),
         prefix: CompactionPrefix {
             generation: history.history_version(),
             len: history.annotated_items().len(),
@@ -107,11 +111,14 @@ async fn prepared_prefix_rejection_respects_caller_intent(
         HistoryChange::Account => {
             candidate.prefix.auth_owner_generation = Some(auth.unwrap_or_default().wrapping_add(1));
         }
+        HistoryChange::Provider => {
+            candidate.model_provider_id = "other-provider".to_string();
+        }
     }
     // Rewritten histories still fit the captured length; length alone cannot reject them.
     let history = sess.clone_history().await;
     assert!(history.annotated_items().len() >= candidate.prefix.len);
-    if !matches!(change, HistoryChange::Account) {
+    if matches!(change, HistoryChange::Replacement) {
         assert_ne!(history.history_version(), candidate.prefix.generation);
     }
     let before = sess

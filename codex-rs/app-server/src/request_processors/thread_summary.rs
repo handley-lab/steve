@@ -175,6 +175,14 @@ pub(crate) fn thread_response_active_permission_profile(
 pub(crate) fn thread_settings_from_config_snapshot(
     config_snapshot: &ThreadConfigSnapshot,
 ) -> ThreadSettings {
+    let model = format!(
+        "{}/{}",
+        config_snapshot.model_provider_id, config_snapshot.model
+    );
+    let collaboration_mode =
+        config_snapshot
+            .collaboration_mode
+            .with_updates(Some(model.clone()), None, None);
     ThreadSettings {
         disabled_plugin_ids: config_snapshot.disabled_plugin_ids.clone(),
         cwd: config_snapshot.cwd().clone(),
@@ -184,12 +192,12 @@ pub(crate) fn thread_settings_from_config_snapshot(
         active_permission_profile: thread_response_active_permission_profile(
             config_snapshot.active_permission_profile.clone(),
         ),
-        model: config_snapshot.model.clone(),
+        model,
         model_provider: config_snapshot.model_provider_id.clone(),
         service_tier: config_snapshot.service_tier.clone(),
         effort: config_snapshot.reasoning_effort.clone(),
         summary: config_snapshot.reasoning_summary,
-        collaboration_mode: config_snapshot.collaboration_mode.clone(),
+        collaboration_mode,
         multi_agent_mode: MultiAgentMode::ExplicitRequestOnly,
         personality: config_snapshot.personality,
     }

@@ -5196,7 +5196,7 @@ async fn side_fork_config_inherits_parent_thread_runtime_settings() {
 
     let parent_service_tier = ServiceTier::Fast.request_value();
     let parent_permission_profile = PermissionProfile::workspace_write();
-    app.chat_widget.set_model("parent-thread-model");
+    app.chat_widget.set_model("turing/org/parent-thread-model");
     app.chat_widget
         .set_reasoning_effort(Some(ReasoningEffortConfig::High));
     app.chat_widget
@@ -5212,6 +5212,7 @@ async fn side_fork_config_inherits_parent_thread_runtime_settings() {
         .set_approvals_reviewer(ApprovalsReviewer::AutoReview);
 
     let fork_config = app.side_fork_config();
+    assert_eq!(fork_config.model_provider_id, "turing");
 
     assert_eq!(
         (
@@ -5223,7 +5224,7 @@ async fn side_fork_config_inherits_parent_thread_runtime_settings() {
             fork_config.approvals_reviewer,
         ),
         (
-            Some("parent-thread-model"),
+            Some("org/parent-thread-model"),
             Some(ReasoningEffortConfig::High),
             Some(parent_service_tier),
             AskForApproval::OnRequest.to_core(),
