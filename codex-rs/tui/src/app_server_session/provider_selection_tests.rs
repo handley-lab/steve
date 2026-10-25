@@ -59,7 +59,7 @@ requires_openai_auth = false
             &local_settings,
             client_config.clone(),
             parent,
-            ResumeModelSettings::OverrideFromCurrentConfig,
+            ResumeModelSettings::OverrideFromCurrentConfig(None),
         )
         .await?;
     assert_eq!(resumed.session.model_provider_id, "server-provider");

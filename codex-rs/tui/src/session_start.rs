@@ -14,7 +14,7 @@ use crate::unarchive_prompt::UnarchiveChoice;
 use color_eyre::Result;
 use color_eyre::eyre::WrapErr;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) enum SessionStartAction {
     Resume(
         ResumeModelSettings,
@@ -24,7 +24,7 @@ pub(crate) enum SessionStartAction {
 }
 
 impl SessionStartAction {
-    pub(crate) fn verb(self) -> &'static str {
+    pub(crate) fn verb(&self) -> &'static str {
         match self {
             Self::Resume(..) => "resume",
             Self::Fork(_) => "fork",
@@ -32,7 +32,7 @@ impl SessionStartAction {
     }
 
     async fn start(
-        self,
+        &self,
         app_server: &mut AppServerSession,
         config: &Config,
         local_settings: &LocalSettings,
@@ -45,8 +45,8 @@ impl SessionStartAction {
                         local_settings,
                         config.clone(),
                         target.thread_id,
-                        settings,
-                        permissions,
+                        settings.clone(),
+                        *permissions,
                     )
                     .await
             }
@@ -56,7 +56,7 @@ impl SessionStartAction {
                         local_settings,
                         config.clone(),
                         target.thread_id,
-                        permission_mode,
+                        *permission_mode,
                     )
                     .await
             }

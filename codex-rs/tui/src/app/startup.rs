@@ -276,7 +276,7 @@ impl App {
             local_settings.tui.notification_settings.condition,
         );
 
-        let harness_overrides =
+        let mut harness_overrides =
             normalize_harness_overrides_for_cwd(harness_overrides, &config.cwd)?;
         app_server.model_provider_override = harness_overrides.model_provider.clone();
         let fresh_start = matches!(
@@ -428,6 +428,11 @@ impl App {
                 })
                 .ok();
             return Ok(exit_info);
+        }
+        if harness_overrides.model.is_some()
+            && let Some(model) = &launch_choices.model
+        {
+            harness_overrides.model = Some(model.clone());
         }
         if let Some(updated_model) = config.model.clone() {
             model = updated_model;
@@ -611,7 +616,7 @@ impl App {
                             &local_settings,
                             config.clone(),
                             target_session.thread_id,
-                            model_settings,
+                            model_settings.clone(),
                             crate::resume_permissions::ResumePermissions::from_overrides(
                                 &config,
                                 &harness_overrides,
@@ -665,7 +670,7 @@ impl App {
                         },
                         &app_server_target,
                         &target_session,
-                        action,
+                        action.clone(),
                         resumed,
                         async || {
                             startup_draft.flush_pending_events(tui).await?;
@@ -764,7 +769,7 @@ impl App {
                     },
                     &app_server_target,
                     &target_session,
-                    action,
+                    action.clone(),
                     forked,
                     async || {
                         startup_draft.flush_pending_events(tui).await?;
