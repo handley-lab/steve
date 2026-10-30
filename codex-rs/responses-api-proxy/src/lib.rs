@@ -29,13 +29,19 @@ use tiny_http::Response;
 use tiny_http::Server;
 use tiny_http::StatusCode;
 
+mod auth;
 mod dump;
+mod github_oidc;
 mod read_api_key;
+use auth::Auth;
 use dump::ExchangeDumper;
+use github_oidc::GithubOidc;
 use read_api_key::read_auth_header_from_stdin;
 
+const OPENAI_RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
+
 /// CLI arguments for the proxy.
-#[derive(Debug, Clone, Parser)]
+#[derive(Clone, Debug, Parser)]
 #[command(name = "responses-api-proxy", about = "Minimal OpenAI responses proxy")]
 pub struct Args {
     /// Port to listen on. If not set, an ephemeral port is used.
@@ -55,7 +61,7 @@ pub struct Args {
     pub upstream_url: Option<String>,
 
     /// Unix listener for the configured Steve providers.
-    #[arg(long, requires = "client_config", conflicts_with_all = ["upstream_url", "port", "server_info", "http_shutdown", "dump_dir"])]
+    #[arg(long, requires = "client_config", conflicts_with_all = ["upstream_url", "port", "server_info", "http_shutdown", "dump_dir", "github_oidc"])]
     pub listen: Option<String>,
 
     /// Publish the sanitized native client configuration after binding.
@@ -65,6 +71,59 @@ pub struct Args {
     /// Directory where request/response dumps should be written as JSON.
     #[arg(long, value_name = "DIR")]
     pub dump_dir: Option<PathBuf>,
+
+    /// Authenticate to the OpenAI API using GitHub Actions workload identity.
+    /// In this mode stdin supplies the GitHub OIDC request token, not an API key.
+    #[arg(long, requires_all = ["oidc_audience", "identity_provider_id", "service_account_id", "github_oidc_request_url"])]
+    pub github_oidc: bool,
+
+    /// Audience configured on the OpenAI workload identity provider.
+    #[arg(long, requires = "github_oidc", value_name = "AUDIENCE")]
+    pub oidc_audience: Option<String>,
+
+    /// OpenAI workload identity provider ID.
+    #[arg(long, requires = "github_oidc", value_name = "ID")]
+    pub identity_provider_id: Option<String>,
+
+    /// OpenAI service account ID selected by the provider mapping.
+    #[arg(long, requires = "github_oidc", value_name = "ID")]
+    pub service_account_id: Option<String>,
+
+    /// HTTPS token-request URL from GitHub's runner-provided ACTIONS_ID_TOKEN_REQUEST_URL.
+    ///
+    /// Use the value directly from the trusted runner environment, never from
+    /// a workflow input or repository content. The proxy sends the GitHub
+    /// request credential to this URL.
+    #[arg(long, requires = "github_oidc", value_name = "URL")]
+    pub github_oidc_request_url: Option<String>,
+}
+
+impl Args {
+    fn auth(&self) -> Result<Auth> {
+        if self.github_oidc {
+            Auth::validate_federated_upstream(
+                self.upstream_url.as_deref().context("--upstream-url is required")?,
+            )?;
+            let provider = required(&self.identity_provider_id, "--identity-provider-id")?;
+            let service_account = required(&self.service_account_id, "--service-account-id")?;
+            let audience = required(&self.oidc_audience, "--oidc-audience")?;
+            let request_url = required(&self.github_oidc_request_url, "--github-oidc-request-url")?;
+            Auth::federated(
+                GithubOidc::from_stdin(request_url, audience)?,
+                provider.to_owned(),
+                service_account.to_owned(),
+            )
+        } else {
+            Ok(Auth::ApiKey(read_auth_header_from_stdin()?))
+        }
+    }
+}
+
+fn required<'a>(value: &'a Option<String>, name: &str) -> Result<&'a str> {
+    value
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| anyhow!("workload identity requires a nonempty {name}"))
 }
 
 #[derive(Serialize)]
@@ -90,10 +149,16 @@ pub struct ConfiguredRoute {
 pub fn run_main(args: Args) -> Result<()> {
     let upstream = args
         .upstream_url
+        .as_deref()
         .context("use steve responses-api-proxy for configured providers")?;
-    let auth_header = read_auth_header_from_stdin()?;
+    let auth = Arc::new(args.auth()?);
+    if args.github_oidc {
+        // Complete the initial exchange before publishing server info.
+        // API keys have already been validated when read from stdin.
+        auth.header()?;
+    }
 
-    let upstream_url = Url::parse(&upstream).context("parsing --upstream-url")?;
+    let upstream_url = Url::parse(upstream).context("parsing --upstream-url")?;
     let host = match (upstream_url.host_str(), upstream_url.port()) {
         (Some(host), Some(port)) => format!("{host}:{port}"),
         (Some(host), None) => host.to_string(),
@@ -103,9 +168,6 @@ pub fn run_main(args: Args) -> Result<()> {
         HeaderValue::from_str(&host).context("constructing Host header from upstream URL")?;
 
     let mut headers = HeaderMap::new();
-    let mut auth_header_value = HeaderValue::from_static(auth_header);
-    auth_header_value.set_sensitive(true);
-    headers.insert(AUTHORIZATION, auth_header_value);
     headers.insert(HOST, host_header);
     let forward_config = Arc::new(ForwardConfig {
         upstream_url,
@@ -138,6 +200,7 @@ pub fn run_main(args: Args) -> Result<()> {
     let http_shutdown = args.http_shutdown;
     for request in server.incoming_requests() {
         let client = client.clone();
+        let auth = auth.clone();
         let forward_config = forward_config.clone();
         let dump_dir = dump_dir.clone();
         std::thread::spawn(move || {
@@ -151,8 +214,13 @@ pub fn run_main(args: Args) -> Result<()> {
                 return;
             }
 
-            if let Err(e) = forward_request(&client, &forward_config, dump_dir.as_deref(), request)
-            {
+            if let Err(e) = forward_request(
+                &client,
+                Some(auth.as_ref()),
+                &forward_config,
+                dump_dir.as_deref(),
+                request,
+            ) {
                 eprintln!("forwarding error: {e}");
             }
         });
@@ -193,7 +261,7 @@ pub fn run_configured(
                 let _ = request.respond(Response::new_empty(StatusCode(403)));
                 return;
             };
-            if let Err(error) = forward_request(&client, &config, None, request) {
+            if let Err(error) = forward_request(&client, None, &config, None, request) {
                 eprintln!("forwarding error: {error}");
             }
         });
@@ -268,6 +336,7 @@ fn write_server_info(path: &Path, port: u16) -> Result<()> {
 
 fn forward_request(
     client: &Client,
+    auth: Option<&Auth>,
     config: &ForwardConfig,
     dump_dir: Option<&ExchangeDumper>,
     mut req: Request,
@@ -311,6 +380,17 @@ fn forward_request(
     for (name, value) in &config.headers {
         headers.insert(name, value.clone());
     }
+    let auth_header = match auth.map(Auth::header).transpose() {
+        Ok(value) => value,
+        Err(err) => {
+            // Do not expose credentials or upstream error bodies to the caller.
+            let _ = req.respond(Response::new_empty(StatusCode(502)));
+            return Err(err);
+        }
+    };
+    if let Some(auth_header) = &auth_header {
+        headers.insert(AUTHORIZATION, auth_header.value.clone());
+    }
 
     let upstream_resp = client
         .request(
@@ -327,6 +407,13 @@ fn forward_request(
     // implements `Read`, so we can use it directly as the body of the
     // `tiny_http::Response`.
     let status = upstream_resp.status();
+    if status == reqwest::StatusCode::UNAUTHORIZED
+        && let Some(auth_header) = auth_header
+    {
+        // Do not replay a Responses POST. A subsequent request can obtain a
+        // fresh credential, but a late 401 must not evict one renewed in-flight.
+        auth_header.invalidate();
+    }
     let mut response_headers = Vec::new();
     for (name, value) in upstream_resp.headers().iter() {
         // Skip headers that tiny_http manages itself.

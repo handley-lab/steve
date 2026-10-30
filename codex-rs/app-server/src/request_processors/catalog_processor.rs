@@ -97,6 +97,7 @@ fn hooks_to_info(hooks: &[codex_hooks::HookListEntry]) -> Vec<HookMetadata> {
                 source_path: hook.source_path.clone(),
                 source: hook.source.into(),
                 plugin_id: hook.plugin_id.clone(),
+                environment_id: hook.environment_id.clone(),
                 display_order: hook.display_order,
                 enabled: hook.enabled,
                 is_managed: hook.is_managed,
@@ -178,25 +179,31 @@ impl CatalogRequestProcessor {
         &self,
         params: ModelListParams,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        let (config, scoped_catalog, cyber_access_programs_enabled) = match params.thread_id.as_deref() {
-            Some(thread_id) => {
-                let thread_id = ThreadId::from_string(thread_id)
-                    .map_err(|err| invalid_request(format!("invalid thread id: {err}")))?;
-                let thread = self
-                    .thread_manager
-                    .get_thread(thread_id)
-                    .await
-                    .map_err(|_| invalid_request(format!("thread not found: {thread_id}")))?;
-                let config = thread.config().await;
-                let catalog = ModelCatalog::new(
-                    self.config_manager.clone(),
-                    config.clone(),
-                    thread.models_manager(),
-                );
-                (config, Some(catalog), Some(thread.enabled(Feature::ApiKeyCyberAccessPrograms)))
-            }
-            None => (self.config.clone(), None, None),
-        };
+        let (config, models_manager, cyber_access_programs_enabled) =
+            match params.thread_id.as_deref() {
+                Some(thread_id) => {
+                    let thread_id = ThreadId::from_string(thread_id)
+                        .map_err(|err| invalid_request(format!("invalid thread id: {err}")))?;
+                    let thread = self
+                        .thread_manager
+                        .get_thread(thread_id)
+                        .await
+                        .map_err(|_| invalid_request(format!("thread not found: {thread_id}")))?;
+                    (
+                        thread.config().await,
+                        thread.models_manager(),
+                        Some(thread.enabled(Feature::ApiKeyCyberAccessPrograms)),
+                    )
+                }
+                None => {
+                    let (config, manager) = self
+                        .model_catalog
+                        .current()
+                        .await
+                        .map_err(|err| config_load_error(&err))?;
+                    (config, manager, None)
+                }
+            };
         // Gate the same provider used by the catalog, including when its model cache is warm.
         // Resolving credentials may refresh them, but explicit host policy prevents browser login.
         if let Some(gateway) = codex_model_provider::create_model_provider(
@@ -213,14 +220,19 @@ impl CatalogRequestProcessor {
                 .map_err(|err| config_load_error(&err))?;
             if gateway.resolve_access_token().await.is_err() {
                 let current = match params.thread_id.as_ref() {
-                    Some(_) => self
-                        .config_manager
-                        .load_latest_config_with_session_layers(
-                            &config.config_layer_stack,
-                            &config.cwd,
-                        )
-                        .await,
-                    None => self.config_manager.load_latest_config(/*fallback_cwd*/ None).await,
+                    Some(_) => {
+                        self.config_manager
+                            .load_latest_config_with_session_layers(
+                                &config.config_layer_stack,
+                                &config.cwd,
+                            )
+                            .await
+                    }
+                    None => {
+                        self.config_manager
+                            .load_latest_config(/*fallback_cwd*/ None)
+                            .await
+                    }
                 }
                 .map_err(|err| config_load_error(&err))?;
                 // Login RPCs use current config, while the catalog retains its selected provider.
@@ -238,11 +250,12 @@ impl CatalogRequestProcessor {
         }
         self.list_models(
             params,
-            scoped_catalog.as_ref().unwrap_or(&self.model_catalog),
+            config,
+            models_manager,
             cyber_access_programs_enabled,
         )
-            .await
-            .map(|response| Some(response.into()))
+        .await
+        .map(|response| Some(response.into()))
     }
 
     pub(crate) async fn experimental_feature_list(
@@ -309,7 +322,8 @@ impl CatalogRequestProcessor {
     async fn list_models(
         &self,
         params: ModelListParams,
-        catalog: &ModelCatalog,
+        config: Arc<Config>,
+        models_manager: codex_models_manager::manager::SharedModelsManager,
         cyber_access_programs_enabled: Option<bool>,
     ) -> Result<ModelListResponse, JSONRPCErrorError> {
         let ModelListParams {
@@ -318,8 +332,13 @@ impl CatalogRequestProcessor {
             cursor,
             include_hidden,
         } = params;
-        let (models, provider_errors) = catalog
-            .list_models(codex_models_manager::manager::RefreshStrategy::OnlineIfUncached)
+        let (models, provider_errors) = self
+            .model_catalog
+            .list_models_from_snapshot(
+                config,
+                models_manager,
+                codex_models_manager::manager::RefreshStrategy::OnlineIfUncached,
+            )
             .await
             .map_err(|err| config_load_error(&err))?;
         let models = supported_models(models, include_hidden.unwrap_or(false));
@@ -652,12 +671,35 @@ impl CatalogRequestProcessor {
         Ok(SkillsExtraRootsSetResponse {})
     }
 
-    /// Handle `hooks/list` by resolving hooks for each requested cwd.
+    /// Resolve a loaded thread's hook inventory, or inspect configuration for each requested cwd.
     async fn hooks_list_response(
         &self,
         params: HooksListParams,
     ) -> Result<HooksListResponse, JSONRPCErrorError> {
-        let HooksListParams { cwds } = params;
+        let HooksListParams { cwds, thread_id } = params;
+        if let Some(thread_id) = thread_id {
+            if !cwds.is_empty() {
+                return Err(invalid_request("specify either threadId or cwds"));
+            }
+            let thread_id = ThreadId::from_string(&thread_id)
+                .map_err(|err| invalid_request(format!("invalid thread id: {err}")))?;
+            let thread = self
+                .thread_manager
+                .get_thread(thread_id)
+                .await
+                .map_err(|_| invalid_request(format!("thread not found: {thread_id}")))?;
+            let cwd = thread.config_snapshot().await.cwd().to_path_buf();
+            let hooks = thread.list_hooks();
+            return Ok(HooksListResponse {
+                data: vec![codex_app_server_protocol::HooksListEntry {
+                    cwd,
+                    hooks: hooks_to_info(&hooks.hooks),
+                    warnings: hooks.warnings,
+                    errors: Vec::new(),
+                }],
+            });
+        }
+
         let cwds = if cwds.is_empty() {
             vec![self.config.cwd.to_path_buf()]
         } else {
@@ -702,14 +744,17 @@ impl CatalogRequestProcessor {
             } else {
                 codex_core_plugins::PluginHookLoadOutcome::default()
             };
-            let hooks = codex_hooks::list_hooks(codex_hooks::HooksConfig {
+            let hooks_config = codex_hooks::HooksConfig {
                 feature_enabled: hooks_enabled,
                 bypass_hook_trust: config.bypass_hook_trust,
                 config_layer_stack: Some(config.config_layer_stack),
                 plugin_hook_sources: plugin_hooks.hook_sources,
                 plugin_hook_load_warnings: plugin_hooks.hook_load_warnings,
                 ..Default::default()
-            });
+            };
+            let hooks = tokio::task::spawn_blocking(move || codex_hooks::list_hooks(hooks_config))
+                .await
+                .map_err(|err| internal_error(format!("hook discovery task failed: {err}")))?;
             data.push(codex_app_server_protocol::HooksListEntry {
                 cwd,
                 hooks: hooks_to_info(&hooks.hooks),

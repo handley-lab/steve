@@ -2,6 +2,8 @@
 //!
 //! Transport, configuration, authentication, and shutdown are kept together.
 
+use std::sync::Arc;
+
 use clap::Parser;
 use codex_arg0::Arg0DispatchPaths;
 use codex_core::config::Config;
@@ -16,6 +18,7 @@ use codex_utils_cli::CliConfigOverrides;
 use codex_websocket_auth::WebsocketAuthArgs;
 
 use crate::exec_server_auth;
+use crate::exec_server_credential::ExecutorCredentialPipe;
 use crate::exec_server_telemetry;
 
 /// [EXPERIMENTAL] Run the standalone exec-server service.
@@ -105,6 +108,15 @@ pub(super) struct ExecServerCommand {
     )]
     pub(super) use_agent_identity_auth: bool,
 
+    /// Read rotating executor credentials from stdin; exit when the pipe closes.
+    #[arg(
+        long = "executor-credential-stdin",
+        requires = "exec_server_remote",
+        conflicts_with_all = ["use_agent_identity_auth", "aws_sigv4"],
+        global = true
+    )]
+    pub(super) executor_credential_stdin: bool,
+
     /// Sign Direct registration and WebSocket handshake requests with AWS SigV4.
     #[arg(long = "aws-sigv4", requires = "exec_server_remote", global = true)]
     pub(super) aws_sigv4: bool,
@@ -185,8 +197,27 @@ impl ExecServerCommand {
             })?;
             let config = load_exec_server_config(root_config_overrides, strict_config).await?;
             let direct_transport = self.remote_transport == ExecServerRemoteTransport::Direct;
-            let (_otel, telemetry) = exec_server_telemetry::init(Some(&config));
-            let auth_provider = if self.aws_sigv4 {
+            // Configured exporters may contain account-wide credentials or client keys.
+            // The scoped executor must not initialize those exporters.
+            let telemetry_config = (!self.executor_credential_stdin).then_some(&config);
+            let (_otel, telemetry) = exec_server_telemetry::init(telemetry_config);
+            let mut credential_provider = None;
+            let mut parent_lifetime = if self.exit_on_stdin_close {
+                exec_server_telemetry::ParentLifetime::StdinPipe
+            } else {
+                exec_server_telemetry::ParentLifetime::Independent
+            };
+            let auth_provider: codex_api::SharedAuthProvider = if self.executor_credential_stdin {
+                let ExecutorCredentialPipe {
+                    provider,
+                    parent_closed,
+                } = ExecutorCredentialPipe::from_stdin(environment_id.trim().to_string());
+                provider.wait_for_initial().await?;
+                parent_lifetime =
+                    exec_server_telemetry::ParentLifetime::MonitoredStdin(parent_closed);
+                credential_provider = Some(Arc::clone(&provider));
+                provider
+            } else if self.aws_sigv4 {
                 exec_server_auth::aws_sigv4_auth_provider(
                     codex_aws_auth::AwsAuthConfig {
                         profile: self.aws_profile,
@@ -215,16 +246,14 @@ impl ExecServerCommand {
                 auth_provider,
                 config.http_client_factory(),
             )?;
+            if self.executor_credential_stdin {
+                remote_config = remote_config.with_executor_credential_auth()?;
+            }
             if let Some(name) = self.name {
                 remote_config.name = name;
             }
             remote_config.request_dispatch_mode = self.request_dispatch_mode;
             let remote_config = remote_config.with_telemetry(telemetry);
-            let parent_lifetime = if self.exit_on_stdin_close {
-                exec_server_telemetry::ParentLifetime::StdinPipe
-            } else {
-                exec_server_telemetry::ParentLifetime::Independent
-            };
             let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
             #[cfg(target_os = "macos")]
             let runtime_paths = runtime_paths.with_allowed_symlinked_codex_home(
@@ -233,7 +262,7 @@ impl ExecServerCommand {
                     &config.codex_home,
                 ),
             );
-            exec_server_telemetry::run_until_shutdown(
+            let result = exec_server_telemetry::run_until_shutdown(
                 async move {
                     let shutdown = async move {
                         let _ = shutdown_receiver.await;
@@ -261,7 +290,11 @@ impl ExecServerCommand {
                 parent_lifetime,
                 exec_server_telemetry::ShutdownBehavior::Graceful(shutdown_sender),
             )
-            .await
+            .await;
+            if let Some(provider) = credential_provider {
+                provider.check_pipe_failure()?;
+            }
+            result
         } else {
             let config_result = load_exec_server_config(root_config_overrides, strict_config).await;
             let config = if strict_config {
@@ -364,7 +397,7 @@ async fn load_exec_server_remote_auth_provider(
         return Ok(codex_model_provider::auth_provider_from_auth(&auth));
     }
 
-    let auth = load_exec_server_remote_auth(
+    let (auth_manager, auth) = load_exec_server_remote_auth(
         config,
         "remote exec-server registration requires supplied backend credentials or an API key; set STEVE_API_KEY",
     )
@@ -380,7 +413,14 @@ async fn load_exec_server_remote_auth_provider(
         validate_api_key_remote_host(base_url)?;
     }
 
-    Ok(codex_model_provider::auth_provider_from_auth(&auth))
+    if auth.uses_codex_backend() {
+        Ok(codex_model_provider::auth_provider_from_auth_manager(
+            auth_manager,
+            &auth,
+        ))
+    } else {
+        Ok(codex_model_provider::auth_provider_from_auth(&auth))
+    }
 }
 
 pub(super) fn is_supported_exec_server_remote_auth(auth: &CodexAuth) -> bool {
@@ -430,7 +470,7 @@ async fn load_exec_server_config(
 async fn load_exec_server_remote_auth(
     config: &codex_core::config::Config,
     missing_auth_error: &'static str,
-) -> anyhow::Result<codex_login::CodexAuth> {
+) -> anyhow::Result<(Arc<AuthManager>, codex_login::CodexAuth)> {
     let auth_manager =
         AuthManager::shared_from_config(config, /*enable_codex_api_key_env*/ true).await?;
 
@@ -445,5 +485,5 @@ async fn load_exec_server_remote_auth(
         }
     };
 
-    Ok(auth)
+    Ok((auth_manager, auth))
 }

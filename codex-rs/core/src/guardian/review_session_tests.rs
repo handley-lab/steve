@@ -18,6 +18,7 @@ use codex_protocol::protocol::ErrorEvent;
 use codex_protocol::protocol::TurnAbortReason;
 use codex_protocol::protocol::TurnAbortedEvent;
 use codex_protocol::protocol::TurnCompleteEvent;
+use codex_protocol_test_support::ContentItemTestExt;
 use pretty_assertions::assert_eq;
 
 #[tokio::test]
@@ -263,7 +264,9 @@ async fn test_review_params() -> GuardianReviewSessionParams {
         reasoning_summary,
         personality,
         external_cancel: None,
-        deadline: tokio::time::Instant::now() + Duration::from_secs(30),
+        deadline: codex_guardian_reviewer::ReviewDeadline::At(
+            tokio::time::Instant::now() + Duration::from_secs(30),
+        ),
     }
 }
 
@@ -668,6 +671,7 @@ async fn guardian_review_session_config_resolves_policy_and_template(
                 guardian_output_contract_prompt(),
             )
             .render()
+            .expect_text()
         )
     );
 }
@@ -721,12 +725,16 @@ async fn run_review_on_reused_session_waits_for_submitted_turn() {
     }
     let params = test_review_params().await;
 
+    tokio::time::pause();
+
     let review = tokio::spawn(async move {
         run_review_on_session(
             &review_session,
             &params,
             GuardianReviewSessionKind::TrunkReused,
-            tokio::time::Instant::now() + Duration::from_secs(1),
+            codex_guardian_reviewer::ReviewDeadline::At(
+                tokio::time::Instant::now() + Duration::from_secs(1),
+            ),
         )
         .await
     });
@@ -848,7 +856,9 @@ async fn wait_for_guardian_review_ignores_prior_turn_errors() {
     } = wait_for_guardian_review(
         &review_session,
         "current-turn",
-        tokio::time::Instant::now() + Duration::from_secs(1),
+        codex_guardian_reviewer::ReviewDeadline::At(
+            tokio::time::Instant::now() + Duration::from_secs(1),
+        ),
         /*external_cancel*/ None,
         &mut analytics_result,
     )
@@ -894,7 +904,9 @@ async fn wait_for_guardian_review_preserves_structured_session_error() {
     } = wait_for_guardian_review(
         &review_session,
         "current-turn",
-        tokio::time::Instant::now() + Duration::from_secs(1),
+        codex_guardian_reviewer::ReviewDeadline::At(
+            tokio::time::Instant::now() + Duration::from_secs(1),
+        ),
         /*external_cancel*/ None,
         &mut analytics_result,
     )
@@ -932,7 +944,9 @@ async fn wait_for_guardian_review_ignores_prior_turn_aborts() {
     } = wait_for_guardian_review(
         &review_session,
         "current-turn",
-        tokio::time::Instant::now() + Duration::from_secs(1),
+        codex_guardian_reviewer::ReviewDeadline::At(
+            tokio::time::Instant::now() + Duration::from_secs(1),
+        ),
         /*external_cancel*/ None,
         &mut analytics_result,
     )
@@ -972,7 +986,9 @@ async fn wait_for_guardian_review_timeout_drains_expected_turn_after_stale_termi
     } = wait_for_guardian_review(
         &review_session,
         "current-turn",
-        tokio::time::Instant::now() + Duration::from_millis(10),
+        codex_guardian_reviewer::ReviewDeadline::At(
+            tokio::time::Instant::now() + Duration::from_millis(10),
+        ),
         /*external_cancel*/ None,
         &mut analytics_result,
     )
@@ -982,7 +998,7 @@ async fn wait_for_guardian_review_timeout_drains_expected_turn_after_stale_termi
         .await
         .expect("interrupt response task should complete");
     assert!(matches!(outcome, GuardianReviewSessionOutcome::TimedOut));
-    assert_eq!(disposition, SessionDisposition::Reusable);
+    assert_eq!(disposition, SessionDisposition::Rollback);
     assert!(!turn_completed);
 }
 
@@ -1013,7 +1029,9 @@ async fn wait_for_guardian_review_cancel_drains_expected_turn_after_stale_termin
     } = wait_for_guardian_review(
         &review_session,
         "current-turn",
-        tokio::time::Instant::now() + Duration::from_secs(1),
+        codex_guardian_reviewer::ReviewDeadline::At(
+            tokio::time::Instant::now() + Duration::from_secs(1),
+        ),
         Some(&external_cancel),
         &mut analytics_result,
     )
@@ -1023,7 +1041,7 @@ async fn wait_for_guardian_review_cancel_drains_expected_turn_after_stale_termin
         .await
         .expect("interrupt response task should complete");
     assert!(matches!(outcome, GuardianReviewSessionOutcome::Aborted));
-    assert_eq!(disposition, SessionDisposition::Reusable);
+    assert_eq!(disposition, SessionDisposition::Rollback);
     assert!(!turn_completed);
 }
 
@@ -1044,12 +1062,12 @@ async fn interrupt_and_drain_turn_ignores_prior_turn_completion() {
     let result = wait_for_guardian_review(
         &review_session,
         "current-turn",
-        tokio::time::Instant::now(),
+        codex_guardian_reviewer::ReviewDeadline::At(tokio::time::Instant::now()),
         Some(&cancellation),
         &mut GuardianReviewAnalyticsResult::without_session(),
     )
     .await;
-    assert_eq!(result.disposition, SessionDisposition::Reusable);
+    assert_eq!(result.disposition, SessionDisposition::Rollback);
 
     assert!(review_session.io.rx_event.try_recv().is_err());
 }

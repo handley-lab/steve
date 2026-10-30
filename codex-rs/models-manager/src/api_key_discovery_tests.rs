@@ -13,6 +13,7 @@ async fn model_discovery_flag_controls_fetches_and_cached_catalogs() {
         OpenAiModelsManager::new(home.path().into(), endpoint.clone(), Some(auth.clone()));
     manager.set_api_key_model_discovery_enabled(/*enabled*/ false);
     let empty_catalog: Vec<ModelInfo> = Vec::new();
+    let config = ModelsManagerConfig::default();
 
     for strategy in [
         RefreshStrategy::Online,
@@ -40,6 +41,10 @@ async fn model_discovery_flag_controls_fetches_and_cached_catalogs() {
         models
     );
     assert_eq!(endpoint.fetch_count(), 1);
+    assert_eq!(
+        manager.get_model_info("fixture", "dynamic", &config).await.unwrap(),
+        models[0]
+    );
 
     // A runtime rollback must also suppress the already-loaded catalog.
     manager.set_api_key_model_discovery_enabled(/*enabled*/ false);

@@ -213,6 +213,7 @@ impl ModelProvider for AmazonBedrockModelProvider {
 
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
+            reasoning_summaries: true,
             image_generation: false,
             web_search: self.endpoint == BedrockEndpoint::Mantle,
             external_web_access: false,
@@ -513,6 +514,7 @@ mod tests {
                 .await
                 .expect("managed Bedrock auth should resolve")
                 .to_auth_headers()
+                .unwrap()
                 .get(http::header::AUTHORIZATION),
             Some(&HeaderValue::from_static("Bearer managed-bedrock-api-key"))
         );
@@ -558,6 +560,7 @@ mod tests {
                     .await
                     .expect("configured AWS profile auth should resolve")
                     .to_auth_headers()
+                    .unwrap()
                     .get(http::header::AUTHORIZATION)
                     .is_none()
             );
@@ -597,6 +600,7 @@ mod tests {
         assert_eq!(
             provider.capabilities(),
             ProviderCapabilities {
+                reasoning_summaries: true,
                 image_generation: false,
                 web_search: true,
                 external_web_access: false,
@@ -615,6 +619,7 @@ mod tests {
         assert_eq!(
             provider.capabilities(),
             ProviderCapabilities {
+                reasoning_summaries: true,
                 image_generation: false,
                 web_search: false,
                 external_web_access: false,

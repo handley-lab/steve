@@ -100,6 +100,31 @@ requires_openai_auth = true
         .with_env_overrides(&[("OPENAI_API_KEY", None), ("STEVE_API_KEY", None)])
         .build_initialized()
         .await?;
+    // Exercise runtime toggles after login has replaced the startup catalog manager.
+    if let Some(enabled) = app_enablement {
+        let _: ExperimentalFeatureEnablementSetResponse = mcp
+            .request(
+                |request_id| ClientRequest::ExperimentalFeatureEnablementSet {
+                    request_id,
+                    params: ExperimentalFeatureEnablementSetParams {
+                        enablement: [("api_key_model_discovery".to_string(), !enabled)].into(),
+                    },
+                },
+            )
+            .await?;
+    }
+    let config_path = codex_home.path().join("config.toml");
+    let config = std::fs::read_to_string(&config_path)?
+        .replace("name = \"OpenAI\"", "name = \"After login\"");
+    std::fs::write(config_path, config)?;
+    let login = mcp.send_login_account_api_key_request("test-key").await?;
+    let _: codex_app_server_protocol::LoginAccountResponse = mcp.read_response(login).await?;
+    let _: ModelListResponse = mcp
+        .request(|request_id| ClientRequest::ModelList {
+            request_id,
+            params: ModelListParams::default(),
+        })
+        .await?;
     let mut remote = vec![ModelPreset::from(remote_model)];
     ModelPreset::mark_default_by_picker_visibility(&mut remote);
     let _: ExperimentalFeatureEnablementSetResponse = mcp

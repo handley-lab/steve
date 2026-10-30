@@ -5,10 +5,12 @@ pub mod manager;
 pub mod model_info;
 pub mod model_presets;
 pub mod multi_provider;
+mod originator;
 pub mod test_support;
 
 pub use codex_protocol::auth::AuthMode;
 pub use config::ModelsManagerConfig;
+pub use originator::ModelCatalogOriginator;
 
 /// Convert the client version string to a whole version string (e.g. "1.2.3-alpha.4" -> "1.2.3").
 pub fn client_version_to_whole() -> String {

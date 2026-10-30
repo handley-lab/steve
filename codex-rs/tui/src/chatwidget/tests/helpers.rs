@@ -1,5 +1,6 @@
 use super::*;
 use crate::test_support::boxed_future;
+use codex_app_server_protocol::GeneratedImageRef;
 use codex_app_server_protocol::ImageGenerationItem;
 use codex_app_server_protocol::PluginAvailability;
 use codex_utils_absolute_path::test_support::PathExt;
@@ -859,10 +860,13 @@ pub(super) fn handle_image_generation_end(
                 id: call_id.into(),
                 status: status.into(),
                 revised_prompt,
-                result: String::new(),
+                image: GeneratedImageRef::Inline {
+                    result: String::new(),
+                },
                 transparent_background: None,
                 failure: None,
                 saved_path,
+                input_images: Vec::new(),
                 imagegen_request_id: None,
                 generation_id: None,
             }),
@@ -1729,7 +1733,9 @@ pub(super) fn hook_run(
         handler_type: codex_app_server_protocol::HookHandlerType::Command,
         execution_mode: codex_app_server_protocol::HookExecutionMode::Sync,
         scope: codex_app_server_protocol::HookScope::Turn,
-        source_path: PathBuf::from(test_path_display("/tmp/hooks.json")).abs(),
+        source_path: PathBuf::from(test_path_display("/tmp/hooks.json"))
+            .abs()
+            .into(),
         source: codex_app_server_protocol::HookSource::User,
         display_order: 0,
         status,

@@ -27,6 +27,7 @@ use codex_app_server_protocol::MarketplaceUpgradeResponse;
 use codex_app_server_protocol::McpServerOauthLoginParams;
 use codex_app_server_protocol::RequestId;
 
+use crate::hooks_rpc::HooksListTarget;
 use crate::hooks_rpc::fetch_hooks_list;
 use crate::hooks_rpc::write_hook_trust;
 use crate::hooks_rpc::write_hook_trusts;
@@ -324,14 +325,18 @@ impl App {
         });
     }
 
-    pub(super) fn fetch_hooks_list(&mut self, app_server: &AppServerSession, cwd: PathBuf) {
+    pub(super) fn fetch_hooks_list(
+        &mut self,
+        app_server: &AppServerSession,
+        target: HooksListTarget,
+    ) {
         let request_handle = app_server.request_handle();
         let app_event_tx = self.app_event_tx.clone();
         tokio::spawn(async move {
-            let result = fetch_hooks_list(request_handle, cwd.clone())
+            let result = fetch_hooks_list(request_handle, &target)
                 .await
                 .map_err(|err| err.to_string());
-            app_event_tx.send(AppEvent::HooksLoaded { cwd, result });
+            app_event_tx.send(AppEvent::HooksLoaded { target, result });
         });
     }
 
@@ -1385,6 +1390,7 @@ mod tests {
         )
         .expect("write ChatGPT authentication");
         let app_server = crate::start_app_server_for_picker(
+            crate::backend_id::BackendId::new(),
             &app.config,
             &crate::AppServerTarget::Embedded,
             app.cli_kv_overrides.clone(),
@@ -1596,6 +1602,7 @@ mod tests {
         let statuses = vec![
             McpServerStatus {
                 server_capabilities: None,
+                tool_list_meta: None,
                 tools_error: None,
                 name: "docs".to_string(),
                 runtime_status: None,
@@ -1621,6 +1628,7 @@ mod tests {
             },
             McpServerStatus {
                 server_capabilities: None,
+                tool_list_meta: None,
                 tools_error: None,
                 name: "disabled".to_string(),
                 runtime_status: None,

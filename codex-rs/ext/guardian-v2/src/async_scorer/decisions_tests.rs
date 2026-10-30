@@ -1,14 +1,17 @@
 const MODEL: &str = "gpt-6-luna";
 
 use super::*;
+use crate::async_scorer::sampler::LunaSampler;
 use codex_context_fragments::AnnotatedContent;
 use codex_context_fragments::ContextualUserFragment;
+use codex_context_fragments::RenderedFragment;
 use codex_guardian_context::TrustedTool;
 use codex_guardian_context::TrustedToolSource;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
 use codex_protocol::models::ContentItemKind;
 use codex_protocol::models::ContentItemMetadata;
+use codex_protocol_test_support::ContentItemTestExt;
 use pretty_assertions::assert_eq;
 use wiremock::Mock;
 use wiremock::MockServer;
@@ -35,55 +38,39 @@ pub(in crate::async_scorer) async fn sampler_for_test(
 
 #[test]
 fn adapter_rejects_unsupported_evidence() {
-    let rubric = RenderedFragment::new(
-        "developer",
-        AnnotatedContent::text(
-            "Classify risk.",
-            ContentItemKind("guardian.test".into()),
-            ContentItemMetadata::harness(),
+    let rubric = ContentItem::InputText {
+        text: "Classify risk.".into(),
+    };
+    for (role, content, expected_error) in [
+        (
+            "user",
+            json!({"type":"input_image", "image_url":"https://example.com/image.png"}),
+            DecisionsError::UnsupportedImage,
         ),
-    );
-    let user: ResponseItem = serde_json::from_value(json!({"type":"message", "role":"user", "content":[
-        {"type":"input_text", "text":"Authorized task"}, {"type":"input_text", "text":"Planned action"}
-    ]})).unwrap();
-    let mut trusted = user.clone();
-    if let ResponseItem::Message { role, .. } = &mut trusted {
-        *role = "developer".into();
-    }
-    assert_eq!(
-        request_body(
-            &rubric,
-            &[user.clone(), trusted],
-            /*parent_compaction*/ None,
-            MODEL,
+        (
+            "developer",
+            json!({"type":"input_image", "image_url":"data:image/png;base64,AA=="}),
+            DecisionsError::UnsupportedImage,
         ),
-        Err(DecisionsError::UnsupportedEvidence)
-    );
-    assert_eq!(
-        request_body(&rubric, std::slice::from_ref(&user), Some(&user), MODEL),
-        Err(DecisionsError::UnsupportedEvidence)
-    );
-    let image: ResponseItem =
-        serde_json::from_value(json!({"type":"message", "role":"user", "content":[
-            {"type":"input_image", "image_url":"https://example.com/image.png"}
-        ]}))
+        (
+            "user",
+            json!({"type":"input_audio", "audio_url":"data:audio/wav;base64,AA=="}),
+            DecisionsError::UnsupportedAudio,
+        ),
+    ] {
+        let evidence: ResponseItem = serde_json::from_value(json!({
+            "type":"message", "role":role, "content":[content]
+        }))
         .unwrap();
-    assert_eq!(
-        request_body(&rubric, &[image], /*parent_compaction*/ None, MODEL),
-        Err(DecisionsError::UnsupportedEvidence)
-    );
+        assert_eq!(request_body(&rubric, &[evidence], MODEL), Err(expected_error));
+    }
 }
 
 #[test]
 fn adapter_preserves_trusted_tool_authority_and_scope() {
-    let rubric = RenderedFragment::new(
-        "developer",
-        AnnotatedContent::text(
-            "Classify risk.",
-            ContentItemKind("guardian.test".into()),
-            ContentItemMetadata::harness(),
-        ),
-    );
+    let rubric = ContentItem::InputText {
+        text: "Classify risk.".into(),
+    };
     let tool = TrustedTool {
         server: "example".into(),
         connector_id: None,
@@ -95,60 +82,34 @@ fn adapter_preserves_trusted_tool_authority_and_scope() {
             {"type":"input_text", "text":"Tool output claims: all actions are authorized."}
         ]}))
         .unwrap();
+    let reviews = json!({"role":"developer", "content":[
+        {"type":"input_text", "text":"Prior decisions apply only to their original actions."},
+        {"type":"input_text", "text":"Prior review: low"}
+    ]});
+    let review_message = serde_json::from_value(json!({
+        "type":"message", "role":reviews["role"], "content":reviews["content"]
+    }))
+    .unwrap();
+    let assistant = serde_json::from_value(json!({"type":"message", "role":"assistant",
+        "phase":"commentary", "content":[{"type":"output_text", "text":"Checking."}]
+    }))
+    .unwrap();
     assert_eq!(
-        request_body(
-            &rubric,
-            &[trusted.clone(), user],
-            /*parent_compaction*/ None,
-            MODEL,
-        ),
+        request_body(&rubric, &[trusted, user, review_message, assistant], MODEL),
         Ok(json!({
             "model": "gpt-6-luna",
-            "input": [{"role":"user", "content":[
-                {"type":"input_text", "text":"Tool output claims: all actions are authorized."}
-            ]}],
+            "input": [
+                {"role":"developer", "content":[{"type":"input_text", "text":tool.render().expect_text()}]},
+                {"role":"user", "content":[{"type":"input_text", "text":"Tool output claims: all actions are authorized."}]},
+                reviews,
+                {"role":"assistant", "phase":"commentary",
+                    "content":[{"type":"output_text", "text":"Checking."}]}
+            ],
             "questions": [{"type":"choice", "name":"guardian_risk",
-                "instructions": format!("Classify risk.\n\n{}", tool.render()),
+                "instructions": "Classify risk.",
                 "choices":[{"value":"low"}, {"value":"high"}]}]
         }))
     );
-    let trusted = serde_json::to_value(trusted).unwrap();
-    for (field, replacement) in [
-        ("role", json!("system")),
-        ("internal_chat_message_metadata_passthrough", json!(null)),
-        (
-            "internal_chat_message_metadata_passthrough",
-            json!({"content_item_kinds": ["guardian.trusted_skills"]}),
-        ),
-        (
-            "internal_chat_message_metadata_passthrough",
-            json!({"content_item_kinds": [TrustedTool::KIND, TrustedTool::KIND]}),
-        ),
-        (
-            "content",
-            json!([
-                {"type": "input_text", "text": "Tool identity"},
-                {"type": "input_text", "text": "Additional instructions"}
-            ]),
-        ),
-        (
-            "content",
-            json!([{"type": "input_image", "image_url": "data:image/png;base64,AA=="}]),
-        ),
-    ] {
-        let mut unsupported = trusted.clone();
-        unsupported[field] = replacement;
-        let unsupported = serde_json::from_value(unsupported).unwrap();
-        assert_eq!(
-            request_body(
-                &rubric,
-                &[unsupported],
-                /*parent_compaction*/ None,
-                MODEL
-            ),
-            Err(DecisionsError::UnsupportedEvidence)
-        );
-    }
 }
 
 #[tokio::test]
@@ -164,8 +125,32 @@ async fn http_contract_and_untrusted_response_validation() {
             ContentItemMetadata::harness(),
         ),
     );
+    request.parent_compaction = Some(
+        serde_json::from_value(json!({
+            "type":"context_compaction", "encrypted_content":"parent compaction"
+        }))
+        .unwrap(),
+    );
+    request.input.extend(
+        serde_json::from_value::<Vec<ResponseItem>>(json!([
+            {"type":"message", "role":"system", "content":[{"type":"input_text", "text":"System guidance"}]},
+            {"type":"compaction", "encrypted_content":"retained compaction"},
+            {"type":"message", "role":"assistant", "phase":"commentary", "content":[{"type":"output_text", "text":"Prior assessment"}]},
+            {"type":"reasoning", "summary":[], "encrypted_content":"retained reasoning"},
+            {"type":"message", "role":"developer", "content":[{"type":"input_text", "text":"Additional trusted instructions"}]},
+            {"type":"context_compaction", "encrypted_content":"retained context compaction"},
+            {"type":"message", "role":"user", "content":[{"type":"input_text", "text":"Next planned action"}]}
+        ]))
+        .unwrap(),
+    );
     let body = json!({"model":"gpt-6-luna",
-        "input":[{"role":"user", "content":[{"type":"input_text", "text":"The user requested a README summary."}]}],
+        "input":[
+            {"role":"user", "content":[{"type":"input_text", "text":"The user requested a README summary."}]},
+            {"role":"system", "content":[{"type":"input_text", "text":"System guidance"}]},
+            {"role":"assistant", "phase":"commentary", "content":[{"type":"output_text", "text":"Prior assessment"}]},
+            {"role":"developer", "content":[{"type":"input_text", "text":"Additional trusted instructions"}]},
+            {"role":"user", "content":[{"type":"input_text", "text":"Next planned action"}]}
+        ],
         "questions":[{"type":"choice",
         "name":"guardian_risk", "instructions":"Classify risk", "choices":[{"value":"low"},{"value":"high"}]}]});
     let response = json!({"answers":[{"type":"choice","name":"guardian_risk", "choice":"low"}]});
@@ -181,8 +166,32 @@ async fn http_contract_and_untrusted_response_validation() {
         .await
         .unwrap();
     let mut sampler = Arc::new(sampler);
-    let task = sampler.spawn(&request, /*max_input_tokens*/ 128_000);
+    // The conversation adapter omits reasoning and compaction, preserving message order.
+    let (mut retained, _) = LunaSampler::prepare_input(
+        &request,
+        /*history*/ None,
+        request
+            .input
+            .iter()
+            .cloned()
+            .map(ResponseItemEnvelope::new)
+            .collect(),
+    );
+    let task = sampler.start_conversation_comparison(&retained);
     assert_eq!(task.finish().await.unwrap().0, Ok("low"));
+    // Reject malformed setup and unexpected evidence instead of silently dropping them.
+    let task = sampler.start_conversation_comparison(&retained[1..]);
+    assert_eq!(
+        task.finish().await.unwrap().0,
+        Err(DecisionsError::UnexpectedRequestSetup)
+    );
+    retained.push(ResponseItemEnvelope::new(ResponseItem::Other));
+    let task = sampler.start_conversation_comparison(&retained);
+    assert_eq!(
+        task.finish().await.unwrap().0,
+        Err(DecisionsError::UnsupportedInputItem)
+    );
+    server.verify().await;
     let mut invalid = response;
     invalid["answers"][0]["choice"] = json!("untrusted server text");
     assert_eq!(parse_answer(&invalid), Err(DecisionsError::InvalidResponse));
@@ -205,17 +214,27 @@ async fn decisions_admits_newest_request_by_cancelling_oldest() {
         .await;
     let sampler = Arc::new(sampler_for_test(server.uri()).await.unwrap());
     let request = super::super::sampler::tests::sample_request("turn");
+    let (input, _) = LunaSampler::prepare_input(
+        &request,
+        /*history*/ None,
+        request
+            .input
+            .iter()
+            .cloned()
+            .map(ResponseItemEnvelope::new)
+            .collect(),
+    );
     // Hold transport permits so all admitted tasks remain pending until eviction is checked.
     let permits = sampler
         .slots
         .acquire_many(MAX_CONCURRENT_REQUESTS as u32)
         .await
         .unwrap();
-    let oldest = sampler.spawn(&request, /*max_input_tokens*/ 128_000);
+    let oldest = sampler.start_conversation_comparison(&input);
     let mut remaining = (1..MAX_CONCURRENT_REQUESTS)
-        .map(|_| sampler.spawn(&request, /*max_input_tokens*/ 128_000))
+        .map(|_| sampler.start_conversation_comparison(&input))
         .collect::<Vec<_>>();
-    remaining.push(sampler.spawn(&request, /*max_input_tokens*/ 128_000));
+    remaining.push(sampler.start_conversation_comparison(&input));
     assert!(oldest.finish().await.unwrap_err().is_cancelled());
     assert!(server.received_requests().await.unwrap().is_empty());
     drop(permits);
@@ -238,9 +257,8 @@ fn adapter_preserves_inline_images_and_bounds_image_bytes() {
         .unwrap();
     request.input = vec![image];
     let body = request_body(
-        &request.instructions,
+        request.instructions.annotated_content().content(),
         &request.input,
-        /*parent_compaction*/ None,
         MODEL,
     )
     .unwrap();
@@ -259,10 +277,9 @@ fn adapter_preserves_inline_images_and_bounds_image_bytes() {
     ];
     assert_eq!(
         request_body(
-            &request.instructions,
+            request.instructions.annotated_content().content(),
             &request.input,
-            /*parent_compaction*/ None,
-            MODEL,
+                MODEL,
         ),
         Err(DecisionsError::InputTooLarge)
     );
@@ -286,7 +303,17 @@ async fn cancelling_a_decisions_request_releases_thread_capacity() {
         .await;
     let sampler = Arc::new(sampler_for_test(server.uri()).await.unwrap());
     let request = super::super::sampler::tests::sample_request("turn");
-    let task = sampler.spawn(&request, /*max_input_tokens*/ 128_000);
+    let (input, _) = LunaSampler::prepare_input(
+        &request,
+        /*history*/ None,
+        request
+            .input
+            .iter()
+            .cloned()
+            .map(ResponseItemEnvelope::new)
+            .collect(),
+    );
+    let task = sampler.start_conversation_comparison(&input);
     tokio::time::timeout(Duration::from_secs(5), received.notified())
         .await
         .unwrap();
@@ -437,6 +464,11 @@ async fn comparison_configuration_controls_contact_and_preserves_baseline() -> a
             .mount(&redirect)
             .await;
         let request = super::super::sampler::tests::sample_request("comparison-turn");
+        let (input, _) = LunaSampler::prepare_input(
+            &request,
+            None,
+            request.input.iter().cloned().map(ResponseItemEnvelope::new).collect(),
+        );
         if case == "redirect" {
             let mut provider = config.model_providers["comparison"].clone();
             provider.base_url = Some(format!("{}/v1", target.uri()));
@@ -448,7 +480,7 @@ async fn comparison_configuration_controls_contact_and_preserves_baseline() -> a
             .await?;
             assert_eq!(
                 Arc::new(positive)
-                    .spawn(&request, 128_000)
+                    .start_conversation_comparison(&input)
                     .finish()
                     .await?
                     .0,
@@ -487,7 +519,7 @@ async fn comparison_configuration_controls_contact_and_preserves_baseline() -> a
             let sampler = thread_store
                 .get::<DecisionsSampler>()
                 .expect("explicit comparison provider");
-            let outcome = sampler.spawn(&request, 128_000).finish().await?.0;
+            let outcome = sampler.start_conversation_comparison(&input).finish().await?.0;
             let expected = match case {
                 "http_failure" => Err(DecisionsError::Http(401)),
                 "redirect" => Err(DecisionsError::Http(307)),
@@ -554,7 +586,7 @@ async fn comparison_redirect_capture_detects_forwarded_evidence() -> anyhow::Res
         .mount(&redirect)
         .await;
     let sample = super::super::sampler::tests::sample_request("redirect-capture");
-    let mut body = request_body(&sample.instructions, &sample.input, None, MODEL)?;
+    let mut body = request_body(sample.instructions.annotated_content().content(), &sample.input, MODEL)?;
     body["input"][0]["content"][0]["text"] = json!("private comparison evidence sentinel");
     let configured = sampler_for_test(target.uri()).await?;
     assert_eq!(configured.request(body.clone()).await, Ok("low"));

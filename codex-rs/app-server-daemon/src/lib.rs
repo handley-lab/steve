@@ -26,6 +26,7 @@ mod thread_recovery;
 mod update_loop;
 
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -48,6 +49,11 @@ use settings::MAX_SHUTDOWN_GRACE_SECONDS;
 use tokio::time::sleep;
 
 const START_POLL_INTERVAL: Duration = Duration::from_millis(50);
+// An older updater can pass background policy to a replacement daemon, so retain
+// the longer readiness allowance during upgrades on macOS.
+#[cfg(target_os = "macos")]
+const START_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(not(target_os = "macos"))]
 const START_TIMEOUT: Duration = Duration::from_secs(10);
 // Leave room for the longest graceful stop, forced-exit check, and restart.
 const OPERATION_LOCK_TIMEOUT: Duration =
@@ -291,6 +297,20 @@ pub async fn run_pid_update_loop(
     #[cfg(windows)]
     backend::windows::ensure_not_elevated()?;
     update_loop::run(http_client_factory, restore_release).await
+}
+
+pub use backend::stderr_log::stderr_writer;
+
+/// Routes managed app-server logs through a bounded queue to a dedicated file worker.
+/// Full queues and oversized records are dropped; shutdown never waits for disk I/O.
+/// Native and other-process stderr writes remain best effort during pruning.
+pub fn maintain_stderr_log() -> Result<()> {
+    backend::stderr_log::start(
+        Daemon::from_environment()?
+            .pid_file
+            .with_extension("stderr.log"),
+    );
+    Ok(())
 }
 
 pub async fn update(
@@ -570,9 +590,9 @@ impl Daemon {
                     #[cfg(windows)]
                     backend::windows::ensure_detached_launch(managed_codex_bin)?;
                     if let Err(err) = thread_recovery::discard_pending(self) {
-                        eprintln!(
-                            "warning: failed to clear stale daemon recovery before update: {err}"
-                        );
+                        let _ = stderr_writer().write_all(format!(
+                            "warning: failed to clear stale daemon recovery before update: {err}\n"
+                        ).as_bytes());
                     }
                     diagnostics::event(
                         "restart_requested",

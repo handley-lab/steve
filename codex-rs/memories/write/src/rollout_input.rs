@@ -36,7 +36,7 @@ pub(crate) async fn read_recent_rollout_items(path: &Path) -> anyhow::Result<Vec
     let path = path.to_owned();
     let (stop, keep_running) = tokio::sync::oneshot::channel::<()>();
     let task = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<RolloutItem>> {
-        let mut reader = open_rollout_seekable_reader(&path)?;
+        let mut reader = open_rollout_seekable_reader(&path, || stop.is_closed())?;
         // Validate this session's format from its header, not metadata copied into fork history.
         // Bound the header read too: session metadata may contain large instructions or schemas.
         let mut header = String::new();

@@ -68,7 +68,12 @@ pub(crate) fn serialization_failure_hook_events(
 ) -> Vec<HookCompletedEvent> {
     handlers
         .into_iter()
-        .filter(|handler| matches!(handler.source_path, HandlerSourcePath::Local(_)))
+        .filter(|handler| {
+            !matches!(
+                handler.source_path,
+                HandlerSourcePath::ExecutorScoped { .. }
+            )
+        })
         .map(|handler| {
             let mut run = dispatcher::running_summary(&handler);
             run.status = HookRunStatus::Failed;
@@ -125,7 +130,11 @@ pub(crate) fn matcher_pattern_for_event(
         | HookEventName::SubagentStop
         | HookEventName::PreCompact
         | HookEventName::PostCompact => matcher,
-        HookEventName::UserPromptSubmit | HookEventName::Stop | HookEventName::Interrupt => None,
+        HookEventName::PreModelRequest
+        | HookEventName::PostModelRequest
+        | HookEventName::UserPromptSubmit
+        | HookEventName::Stop
+        | HookEventName::Interrupt => None,
     }
 }
 

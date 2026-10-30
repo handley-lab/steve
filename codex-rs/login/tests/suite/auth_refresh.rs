@@ -9,6 +9,7 @@ use codex_login::AuthKeyringBackendKind;
 use codex_login::AuthManager;
 use codex_login::load_auth_dot_json;
 use codex_login::save_auth;
+use codex_login::token_data::AccountOAuthProvenance;
 use codex_login::token_data::IdTokenInfo;
 use codex_login::token_data::TokenData;
 use codex_protocol::auth::AuthMode;
@@ -23,6 +24,7 @@ use tempfile::TempDir;
 use wiremock::Mock;
 use wiremock::MockServer;
 use wiremock::ResponseTemplate;
+use wiremock::matchers::body_partial_json;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
@@ -46,7 +48,18 @@ async fn managed_renewal_is_unavailable_and_preserves_supplied_tokens() -> Resul
 
     let ctx = RefreshTokenTestContext::new(&server).await?;
     let initial_last_refresh = Utc::now() - Duration::days(1);
-    let initial_tokens = build_tokens(INITIAL_ACCESS_TOKEN, INITIAL_REFRESH_TOKEN);
+    let mut initial_tokens = build_tokens(INITIAL_ACCESS_TOKEN, INITIAL_REFRESH_TOKEN);
+    initial_tokens.login_owner_id = Some("completed-login".into());
+    initial_tokens.id_token = codex_login::token_data::parse_chatgpt_jwt_claims(
+        &jwt_with_payload(json!({
+            "sub": "user-123",
+            "https://api.openai.com/auth": { "chatgpt_user_id": "user-123", "chatgpt_account_id": "account-id" }
+        })),
+    )?;
+    initial_tokens.oauth_provenance = Some(AccountOAuthProvenance {
+        issuer: server.uri(),
+        client_id: "recorded-client".into(),
+    });
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
@@ -138,6 +151,9 @@ async fn auth_preserves_near_expiry_tokens_without_account_renewal() -> Result<(
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/oauth/token"))
+        .and(body_partial_json(
+            json!({"refresh_reason": "proactive_expiry"}),
+        ))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "access_token": "new-access-token",
             "refresh_token": "new-refresh-token"
@@ -462,6 +478,9 @@ async fn unauthorized_recovery_reloads_supplied_tokens_without_account_renewal()
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/oauth/token"))
+        .and(body_partial_json(
+            json!({"refresh_reason": "unauthorized_recovery"}),
+        ))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "access_token": "recovered-access-token",
             "refresh_token": "recovered-refresh-token"
@@ -791,6 +810,8 @@ fn build_tokens(access_token: &str, refresh_token: &str) -> TokenData {
         id_token,
         access_token: access_token.to_string(),
         refresh_token: refresh_token.to_string(),
+        oauth_provenance: None,
+        login_owner_id: None,
         account_id: Some("account-id".to_string()),
     }
 }

@@ -1,7 +1,8 @@
 //! Collects bounded conversation evidence before consumer-specific rendering.
 //!
 //! Both Guardian consumers receive the same role and tool-source attribution,
-//! with complete user messages and capped non-user entries. Resolved context profiles
+//! with generated compaction summaries attributed to the assistant, complete user
+//! messages and capped non-user entries, except sync tool and assistant entries prepared later. Resolved context profiles
 //! apply aggregate retention after the host selects its full/delta slice. Tool outputs with a
 //! call ID retain their generic label when the call is unavailable. Outputs
 //! without a call ID require an explicit name.
@@ -117,7 +118,7 @@ impl SectionContributor for ConversationTranscriptSection {
 
     fn contribute(&self, input: &SectionInput<'_>) -> Result<Option<ContextSection>, SectionError> {
         Ok(Some(ContextSection::ConversationTranscript {
-            items: collect_transcript(input.history, input.transcript),
+            items: collect_transcript_for_target(input.history, input.transcript, input.target),
         }))
     }
 }
@@ -129,6 +130,14 @@ impl SectionContributor for ConversationTranscriptSection {
 pub fn collect_transcript(
     history: &dyn SectionHistory,
     config: &ConversationTranscriptConfig,
+) -> Vec<ConversationTranscriptEntry> {
+    collect_transcript_for_target(history, config, crate::ContextTarget::Async)
+}
+
+fn collect_transcript_for_target(
+    history: &dyn SectionHistory,
+    config: &ConversationTranscriptConfig,
+    target: crate::ContextTarget,
 ) -> Vec<ConversationTranscriptEntry> {
     let mut entries = Vec::new();
     let mut tool_names_by_call_id = HashMap::new();
@@ -145,6 +154,7 @@ pub fn collect_transcript(
                 role,
                 content,
                 phase,
+                internal_chat_message_metadata_passthrough,
                 ..
             } => {
                 let text = content
@@ -163,6 +173,18 @@ pub fn collect_transcript(
                     .collect::<Vec<_>>()
                     .join("\n");
                 let kind = match role.as_str() {
+                    // Local compaction uses the user wire role for model context, but
+                    // its generated summary is not user authorization.
+                    "user"
+                        if internal_chat_message_metadata_passthrough
+                            .as_ref()
+                            .and_then(|metadata| metadata.content_item_kinds.as_ref())
+                            .is_some_and(|kinds| {
+                                kinds.iter().any(|kind| kind.0 == "compaction.summary")
+                            }) =>
+                    {
+                        ConversationTranscriptEntryKind::Assistant
+                    }
                     "user" => ConversationTranscriptEntryKind::User,
                     "developer" if text.starts_with(MANUAL_APPROVAL_DEVELOPER_PREFIX) => {
                         ConversationTranscriptEntryKind::Developer
@@ -191,14 +213,18 @@ pub fn collect_transcript(
                     // an explicit omission at the same cursor position. Serialized bytes
                     // conservatively charge the encrypted payload to the message budget.
                     let bytes = serde_json::to_vec(item).map_or(usize::MAX, |item| item.len());
-                    let limit = codex_protocol::protocol::TruncationPolicy::Tokens(
-                        config.entry_limits.message_tokens.min(9_000),
-                    )
-                    .byte_budget();
-                    let content = if bytes <= limit {
+                    let content = if target == crate::ContextTarget::Sync {
                         TranscriptContent::AgentMessage(Box::new(item.clone()))
                     } else {
-                        TranscriptContent::Text(TRANSCRIPT_OMISSION_NOTICE.to_owned())
+                        let limit = codex_protocol::protocol::TruncationPolicy::Tokens(
+                            config.entry_limits.message_tokens.min(9_000),
+                        )
+                        .byte_budget();
+                        if bytes <= limit {
+                            TranscriptContent::AgentMessage(Box::new(item.clone()))
+                        } else {
+                            TranscriptContent::Text(TRANSCRIPT_OMISSION_NOTICE.to_owned())
+                        }
                     };
                     entries.push(ConversationTranscriptEntry {
                         kind: ConversationTranscriptEntryKind::Assistant,
@@ -385,8 +411,21 @@ pub fn collect_transcript(
             }
             ConversationTranscriptEntryKind::Assistant
             | ConversationTranscriptEntryKind::ProtectedAssistant
+            | ConversationTranscriptEntryKind::Reasoning
+                if target == crate::ContextTarget::Sync =>
+            {
+                text
+            }
+            ConversationTranscriptEntryKind::Assistant
+            | ConversationTranscriptEntryKind::ProtectedAssistant
             | ConversationTranscriptEntryKind::Reasoning => {
                 truncate_text(&text, config.entry_limits.message_tokens)
+            }
+            ConversationTranscriptEntryKind::ToolCall(_)
+            | ConversationTranscriptEntryKind::ToolOutput(_)
+                if target == crate::ContextTarget::Sync =>
+            {
+                text
             }
             ConversationTranscriptEntryKind::ToolCall(_)
             | ConversationTranscriptEntryKind::ToolOutput(_) => {

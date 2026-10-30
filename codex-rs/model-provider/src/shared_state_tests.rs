@@ -18,6 +18,9 @@ use codex_login::default_client::create_client_for_route;
 use codex_model_provider_info::GatewayOAuthDelivery;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_models_manager::manager::RefreshStrategy;
+use codex_protocol::error::CodexErrorDetails;
+use codex_protocol::protocol::CodexErrorInfo;
+use codex_protocol::protocol::SessionSource;
 use http::HeaderMap;
 use http::HeaderName;
 use http::HeaderValue;
@@ -121,10 +124,10 @@ async fn gateway_credentials_accompany_primary_auth_in_models_and_responses() {
             HeaderValue::from_static(value),
         );
         // WebSocket handshakes use the synchronous header interface.
-        assert_eq!(auth.to_auth_headers(), expected);
+        assert_eq!(auth.to_auth_headers().unwrap(), expected);
         assert_eq!(auth.resolve_auth_headers().await.unwrap(), expected);
-        assert_eq!(scoped.auth.to_auth_headers(), expected);
-        assert!(auth.to_auth_headers()[name].is_sensitive());
+        assert_eq!(scoped.auth.to_auth_headers().unwrap(), expected);
+        assert!(auth.to_auth_headers().unwrap()[name].is_sensitive());
         let api = info.to_api_provider(/*auth_mode*/ None).unwrap();
         let transport = ReqwestTransport::from_http_client(
             create_client_for_route(
@@ -210,7 +213,7 @@ async fn gateway_refresh_preserves_primary_auth_and_hides_issuer_errors() {
         let result = provider.api_auth().await;
         if succeeds {
             assert_eq!(
-                result.unwrap().to_auth_headers(),
+                result.unwrap().to_auth_headers().unwrap(),
                 HeaderMap::from_iter([
                     (
                         http::header::AUTHORIZATION,
@@ -486,7 +489,8 @@ async fn models_observe_gateway_rotation(instance: ProviderInstance) {
             .api_auth()
             .await
             .unwrap()
-            .to_auth_headers(),
+            .to_auth_headers()
+            .unwrap(),
         HeaderMap::from_iter([
             (
                 http::header::AUTHORIZATION,
@@ -521,7 +525,8 @@ async fn models_observe_gateway_rotation(instance: ProviderInstance) {
             .api_auth()
             .await
             .unwrap()
-            .to_auth_headers(),
+            .to_auth_headers()
+            .unwrap(),
         HeaderMap::from_iter([
             (
                 http::header::AUTHORIZATION,
@@ -830,6 +835,93 @@ async fn gateway_setup_errors_are_reported_when_authentication_is_requested() {
 }
 
 #[tokio::test]
+async fn gateway_login_required_invalidates_the_last_successful_catalog() {
+    let server = MockServer::start().await;
+    let home = tempfile::tempdir().unwrap();
+    let primary = AuthManager::from_auth_for_testing_with_home(
+        CodexAuth::from_api_key("primary-token"),
+        home.path().to_path_buf(),
+    );
+    let info = ModelProviderInfo {
+        model_catalog_url: Some(format!("{}/models", server.uri()).into()),
+        gateway_oauth: Some(GatewayOAuthConfig {
+            authorization_url: format!("{}/authorize", server.uri()),
+            token_url: format!("{}/token", server.uri()),
+            client_id: "client".into(),
+            resource: None,
+            scopes: vec![],
+            redirect_port: None,
+            delivery: GatewayOAuthDelivery::Header {
+                name: "x-gateway-auth".into(),
+                scheme: "Bearer".into(),
+            },
+        }),
+        ..ModelProviderInfo::create_openai_provider(Some(server.uri()))
+    };
+    let login_control = codex_login::GatewayLoginControl::for_runtime(&primary.runtime_config());
+    login_control.require_explicit_login();
+    let gateway = seed_gateway_auth(
+        &info,
+        &primary,
+        json!({"access_token": "first", "refresh_token": "revoked", "expires_at": i64::MAX}),
+    );
+    let provider = create_model_provider(info, Some(primary));
+    let models = provider.models_manager(
+        home.path().to_path_buf(),
+        /*config_model_catalog*/ None,
+    );
+    models.set_api_key_model_discovery_enabled(/*enabled*/ true);
+    let factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
+    let catalog = codex_protocol::openai_models::ModelsResponse {
+        models: vec![codex_models_manager::test_support::model_info("gateway-model")],
+    };
+    Mock::given(method("GET"))
+        .and(path("/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&catalog))
+        .expect(1)
+        .mount(&server)
+        .await;
+    assert_eq!(
+        models
+            .raw_model_catalog(RefreshStrategy::Online, factory.clone())
+            .await,
+        catalog
+    );
+
+    Mock::given(method("POST"))
+        .and(path("/token"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({"error": "invalid_grant"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let error = gateway.refresh_access_token("first").await.unwrap_err();
+    assert!(matches!(
+        error
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<codex_login::GatewayAuthError>()),
+        Some(codex_login::GatewayAuthError::LoginRequired)
+    ));
+    assert_eq!(
+        models
+            .raw_model_catalog(RefreshStrategy::Online, factory.clone())
+            .await,
+        codex_protocol::openai_models::ModelsResponse::default()
+    );
+    // Recreate the manager to verify persistent invalidation as well as the in-memory result.
+    let restarted = provider.models_manager(
+        home.path().to_path_buf(),
+        /*config_model_catalog*/ None,
+    );
+    restarted.set_api_key_model_discovery_enabled(/*enabled*/ true);
+    assert_eq!(
+        restarted
+            .raw_model_catalog(RefreshStrategy::Offline, factory)
+            .await,
+        codex_protocol::openai_models::ModelsResponse::default()
+    );
+}
+
+#[tokio::test]
 async fn gateway_login_states_stop_request_retries() {
     let server = MockServer::start().await;
     let home = tempfile::tempdir().unwrap();
@@ -857,11 +949,20 @@ async fn gateway_login_states_stop_request_retries() {
     let provider = create_model_provider(info, Some(primary));
     let gateway = provider.gateway_auth_manager().unwrap().unwrap();
     let error = provider.api_auth().await.err().expect("login required");
+    assert!(matches!(
+        error.details(),
+        CodexErrorDetails::GatewayLoginRequired(_)
+    ));
     assert_eq!(
-        (error.to_string(), error.retry_delay(/*retry_count*/ 1)),
+        (
+            error.to_string(),
+            error.retry_delay(/*retry_count*/ 1),
+            error.to_codex_protocol_error()
+        ),
         (
             codex_login::GatewayAuthError::LoginRequired.to_string(),
-            None
+            None,
+            CodexErrorInfo::Other
         ),
     );
     let cancel = tokio::sync::Notify::new();
@@ -872,6 +973,10 @@ async fn gateway_login_states_stop_request_retries() {
     let check = async {
         url_rx.await.unwrap();
         let error = provider.api_auth().await.err().expect("login in progress");
+        assert!(matches!(
+            error.details(),
+            CodexErrorDetails::InvalidRequest(_)
+        ));
         assert_eq!(
             (error.to_string(), error.retry_delay(/*retry_count*/ 1)),
             (

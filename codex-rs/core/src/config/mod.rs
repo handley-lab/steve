@@ -26,6 +26,7 @@ use codex_config::ResidencyRequirement;
 use codex_config::SandboxModeRequirement;
 use codex_config::Sourced;
 use codex_config::ThreadConfigLoader;
+use codex_config::apply_default_gcp_auth;
 use codex_config::config_toml::CircuitBreakAction;
 use codex_config::config_toml::ConfigToml;
 use codex_config::config_toml::DEFAULT_PROJECT_DOC_MAX_BYTES;
@@ -44,11 +45,11 @@ use codex_config::types::AuthCredentialsStoreMode;
 use codex_config::types::AuthKeyringBackendKind;
 use codex_config::types::History;
 use codex_config::types::McpServerConfig;
-use codex_config::types::McpServerDisabledReason;
 use codex_config::types::MemoriesConfig;
 use codex_config::types::ModelAvailabilityNuxConfig;
 use codex_config::types::Notice;
 use codex_config::types::OAuthCredentialsStoreMode;
+use codex_config::types::QuickDial;
 use codex_config::types::ResumeCwdMode;
 use codex_config::types::SessionPickerViewMode;
 use codex_config::types::ToolSuggestConfig;
@@ -90,6 +91,7 @@ use codex_mcp::McpProtocolMode;
 use codex_mcp::McpServerRegistration;
 use codex_mcp::ResolvedMcpCatalog;
 use codex_model_provider::ProviderCapabilities;
+use codex_model_provider_info::GCP_PROVIDER_ID;
 use codex_model_provider_info::LEGACY_OLLAMA_CHAT_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::OLLAMA_CHAT_PROVIDER_REMOVED_ERROR;
@@ -97,6 +99,7 @@ use codex_model_provider_info::built_in_model_providers;
 use codex_model_provider_info::merge_configured_model_providers;
 use codex_models_manager::ModelsManagerConfig;
 use codex_prompts::ResolvedModelMessages;
+use codex_protocol::MemoryVersion;
 use codex_protocol::config_types::AltScreenMode;
 use codex_protocol::config_types::AutoCompactTokenLimitScope;
 use codex_protocol::config_types::ForcedLoginMethod;
@@ -752,6 +755,9 @@ pub struct Config {
     /// Include a structured error when Guardian's circuit breaker interrupts a turn.
     pub guardian_circuit_break_action: CircuitBreakAction,
 
+    /// Overall Guardian review budget. None means unlimited; cancellation still applies.
+    pub guardian_review_timeout: Option<Duration>,
+
     /// Whether to inject the `<permissions instructions>` developer block.
     pub include_permissions_instructions: bool,
 
@@ -908,6 +914,9 @@ pub struct Config {
     /// 3. built-in defaults
     pub tui_keymap: TuiKeymap,
 
+    /// Saved TUI inputs keyed by a single digit (`0` through `9`).
+    pub tui_quick_dials: BTreeMap<String, QuickDial>,
+
     /// The absolute directory that should be treated as the current working
     /// directory for the session. All relative paths inside the business-logic
     /// layer are resolved against this path.
@@ -1007,7 +1016,9 @@ pub struct Config {
     /// Resolved configuration shared by all Codex SQLite databases.
     pub sqlite: codex_state::SqliteConfig,
 
-    /// Directory where Codex writes log files (defaults to `$STEVE_HOME/log`).
+    /// Directory for log files (defaults to `$STEVE_HOME/log`).
+    /// SQLite logs use this directory only when `log_dir` is explicitly configured
+    /// and no managed `sqlite_home` requirement applies.
     pub log_dir: PathBuf,
 
     /// Settings that govern if and what will be written to `~/.steve/history.jsonl`.
@@ -1151,7 +1162,7 @@ pub struct Config {
     /// Default: `300000` (5 minutes).
     pub background_terminal_max_timeout: u64,
 
-    /// Idle timeout for unsubscribed app-server threads, resolved at server startup.
+    /// Idle timeout for unsubscribed app-server threads.
     pub thread_unload_delay: Duration,
 
     /// Compatibility-only settings retained for legacy `ghost_snapshot`
@@ -1206,7 +1217,7 @@ pub struct Config {
     /// Voluntarily left as Optional because the default value might depend on the client.
     pub analytics_enabled: Option<bool>,
 
-    /// When `false`, disables feedback collection across Codex product surfaces.
+    /// When `false`, disables feedback uploads and background Guardian review retention. Explicit local exports remain available.
     /// Defaults to `true`.
     pub feedback_enabled: bool,
     pub feedback_dsn: Option<String>,
@@ -1428,7 +1439,7 @@ impl MultiAgentV2Config {
             root_agent_usage_hint_text: None,
             subagent_usage_hint_text: None,
             subagent_developer_instructions: None,
-            preserve_fork_prefix: false,
+            preserve_fork_prefix: true,
             multi_agent_mode_hint_text: None,
             tool_namespace: Some(DEFAULT_MULTI_AGENT_V2_TOOL_NAMESPACE.to_string()),
             hide_spawn_agent_metadata: true,
@@ -1697,6 +1708,21 @@ impl Config {
         &self.sqlite
     }
 
+    /// Returns `log_dir` when explicitly set by configuration or managed requirements.
+    pub fn configured_log_dir(&self) -> Option<&Path> {
+        let configured = self
+            .config_layer_stack
+            .effective_config()
+            .as_table()
+            .is_some_and(|table| table.contains_key("log_dir"))
+            || self
+                .config_layer_stack
+                .requirements_toml()
+                .log_dir
+                .is_some();
+        configured.then_some(self.log_dir.as_path())
+    }
+
     /// Resolves the configured, reviewer-catalog, or bundled Guardian policy.
     pub fn resolve_guardian_policy<'a>(
         &'a self,
@@ -1944,9 +1970,12 @@ impl Config {
             requires_read_only_mcp_tools: false,
             codex_home: self.codex_home.to_path_buf(),
             mcp_enterprise_managed_auth: self.mcp_enterprise_managed_auth.clone(),
+            ema_state: Default::default(),
+            mcp_ema_cancellation: self.config_layer_stack.mcp_ema_cancellation().clone(),
             xaa_enabled: self.features.enabled(Feature::UseXaa)
                 && self.mcp_enterprise_managed_auth.is_some(),
             mcp_oauth_credentials_store_mode: self.mcp_oauth_credentials_store_mode,
+            mcp_tool_list_changed: self.features.enabled(Feature::McpToolListChanged),
             oauth_refresh_mode: if self.features.enabled(Feature::McpOAuthRefreshCoordination) {
                 McpOAuthRefreshMode::Coordinated
             } else {
@@ -2071,6 +2100,7 @@ impl Config {
             refreshed_layers.requirements_toml().clone(),
         )?
         .with_cloud_config_binding(refreshed_layers.cloud_config_binding().cloned())
+        .with_applied_config_server(refreshed_layers.applied_config_server().cloned())
         .with_user_and_project_exec_policy_rules_ignored(
             refreshed_layers.ignore_user_and_project_exec_policy_rules(),
         ))
@@ -2345,10 +2375,7 @@ fn filter_mcp_servers_by_requirements(
         if allowed {
             server.disabled_reason = None;
         } else {
-            server.enabled = false;
-            server.disabled_reason = Some(McpServerDisabledReason::Requirements {
-                source: source.clone(),
-            });
+            server.disable_by_requirements(source.clone());
         }
     }
 }
@@ -2381,10 +2408,7 @@ fn filter_plugin_mcp_servers_by_requirements(
         if allowed {
             server.disabled_reason = None;
         } else {
-            server.enabled = false;
-            server.disabled_reason = Some(McpServerDisabledReason::Requirements {
-                source: source.clone(),
-            });
+            server.disable_by_requirements(source.clone());
         }
     }
 }
@@ -3403,6 +3427,7 @@ impl Config {
         codex_home: AbsolutePathBuf,
         config_layer_stack: ConfigLayerStack,
     ) -> std::io::Result<Self> {
+        config_layer_stack.validate_project_mitm_profiles()?;
         // Keep the large config-construction future off small test thread stacks.
         Box::pin(async move {
         if cfg.experimental_thread_store_endpoint.is_some() {
@@ -3414,6 +3439,20 @@ impl Config {
 
         validate_model_providers(&cfg.model_providers)
             .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
+        for (slot, dial) in cfg.tui.iter().flat_map(|tui| &tui.quick_dials) {
+            if !matches!(slot.as_bytes(), [b'0'..=b'9']) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("tui.presets.{slot}: slot must be a single digit from 0 to 9"),
+                ));
+            }
+            dial.validate().map_err(|reason| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("tui.presets.{slot}: {reason}"),
+                )
+            })?;
+        }
         if cfg.model_post_turn_compact_threshold_percent.is_some_and(|percent| percent > 100) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -3587,6 +3626,16 @@ impl Config {
             feature_requirements,
             &mut startup_warnings,
         )?;
+        if let Some(FeatureToml::Config(guardian)) = cfg
+            .features
+            .as_ref()
+            .and_then(|features| features.guardianv2.as_ref())
+            && guardian.async_classifier_mode.is_some()
+        {
+            startup_warnings.push(
+                "`[features.guardianv2].async_classifier_mode` is deprecated and ignored. Async classification always uses conversations; remove this setting from config.toml or profile configuration files.".to_owned(),
+            );
+        }
         let mcp_enterprise_managed_auth = McpEnterpriseManagedAuthConfig::resolve(
             &config_layer_stack,
             cfg.mcp_enterprise_managed_auth.as_ref(),
@@ -3713,7 +3762,20 @@ impl Config {
             ));
         }
 
-        let memories_config: MemoriesConfig = cfg.memories.clone().unwrap_or_default().into();
+        let mut memories = cfg.memories.clone().unwrap_or_default();
+        // Fresh profiles have no V1 context to preserve or warm up before using V2.
+        // Keep explicit selections and transition opt-outs, and fail closed on IO errors.
+        if features.enabled(Feature::MemoryTool)
+            && memories.version.is_none()
+            && memories.dual_write != Some(false)
+            && matches!(
+                tokio::fs::try_exists(codex_home.join(MemoryVersion::V1.directory_name())).await,
+                Ok(false)
+            )
+        {
+            memories.version = Some(MemoryVersion::V2);
+        }
+        let memories_config: MemoriesConfig = memories.into();
         let memories_root = codex_home.join(memories_config.version.directory_name());
 
         let profiles_are_active = effective_permission_selection.profiles_are_active(
@@ -4037,9 +4099,13 @@ impl Config {
             .filter(|value| !value.is_empty());
 
         let configured_model_provider_ids: Vec<_> = cfg.model_providers.keys().cloned().collect();
-        let model_providers =
+        let mut model_providers =
             merge_configured_model_providers(built_in_model_providers(openai_base_url), cfg.model_providers)
                 .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidData, message))?;
+
+        if let Some(provider) = model_providers.get_mut(GCP_PROVIDER_ID) {
+            apply_default_gcp_auth(provider, &resolved_cwd);
+        }
 
         let explicit_model_provider = model_provider.clone();
         let model_override = model.is_some();
@@ -4380,6 +4446,11 @@ impl Config {
             .cloned()
             .or(sqlite_home_env)
             .unwrap_or_else(|| codex_home.clone());
+        let mut sqlite = codex_state::SqliteConfig::from_sqlite_home(sqlite_home);
+        let requirements = config_layer_stack.requirements_toml();
+        if cfg.log_dir.is_some() && requirements.sqlite_home.is_none() {
+            sqlite = sqlite.with_local_logs_home(log_dir.clone());
+        }
         let original_permission_profile = permission_profile.clone();
         apply_requirement_constrained_value(
             "approval_policy",
@@ -4679,7 +4750,7 @@ impl Config {
             memories: memories_config,
             agent_interrupt_message_enabled,
             codex_home,
-            sqlite: codex_state::SqliteConfig::from_sqlite_home(sqlite_home),
+            sqlite,
             log_dir,
             config_layer_stack,
             application_network_policy: Default::default(),
@@ -4707,6 +4778,13 @@ impl Config {
             guardian_transcript_mode,
             guardian_conversation_history_prompt,
             guardian_conversation_history_max_output_tokens,
+            guardian_review_timeout: cfg
+                .auto_review
+                .as_ref()
+                .and_then(|auto_review| auto_review.timeout_ms)
+                .map_or(Some(codex_guardian_reviewer::REVIEW_TIMEOUT), |timeout_ms| {
+                    (timeout_ms != 0).then(|| Duration::from_millis(u64::from(timeout_ms)))
+                }),
             guardian_circuit_break_action: cfg
                 .auto_review
                 .as_ref()
@@ -4873,6 +4951,11 @@ impl Config {
                 .tui
                 .as_ref()
                 .map(|t| t.keymap.clone())
+                .unwrap_or_default(),
+            tui_quick_dials: cfg
+                .tui
+                .as_ref()
+                .map(|t| t.quick_dials.clone())
                 .unwrap_or_default(),
             otel,
         };

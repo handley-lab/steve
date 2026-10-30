@@ -9,7 +9,9 @@ use std::os::unix::fs::PermissionsExt;
 
 use codex_app_server_protocol::build_turns_from_rollout_items;
 use codex_extension_items::ExtensionItem;
+use codex_extension_items::image_generation::GeneratedImageRef;
 use codex_extension_items::image_generation::ImageGenerationFailure;
+use codex_extension_items::image_generation::ImageGenerationInputImage;
 use codex_extension_items::image_generation::ImageGenerationItem;
 use codex_protocol::AgentPath;
 use codex_protocol::ResponseItemId;
@@ -49,6 +51,7 @@ use codex_rollout::RetainedContextEvent;
 use codex_rollout::RolloutConfig;
 use codex_rollout::RolloutItem;
 use codex_rollout::RolloutLine;
+use codex_utils_absolute_path::AbsolutePathBuf;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use tempfile::TempDir;
@@ -116,10 +119,10 @@ fn write_rollout_with_fork(
         model_provider: Some("test-provider".to_string()),
         ..SessionMeta::default()
     };
-    let items = std::iter::once(RolloutItem::SessionMeta(SessionMetaLine {
+    let items = std::iter::once(RolloutItem::SessionMeta(Box::new(SessionMetaLine {
         meta: metadata,
         git: None,
-    }))
+    })))
     .chain(items);
     for item in items {
         let line = RolloutLine {
@@ -242,7 +245,7 @@ fn started(turn_id: &str) -> RolloutItem {
 }
 
 fn compacted(replacement_history: Vec<ResponseItem>) -> RolloutItem {
-    RolloutItem::Compacted(CompactedItem {
+    RolloutItem::Compacted(Box::new(CompactedItem {
         message: "checkpoint".to_string(),
         replacement_history: Some(replacement_history.into_iter().map(Into::into).collect()),
         retained_context: None,
@@ -255,7 +258,7 @@ fn compacted(replacement_history: Vec<ResponseItem>) -> RolloutItem {
         compaction_response_id: None,
         latest_token_usage_record: None,
         resume_metadata: None,
-    })
+    }))
 }
 
 fn completed(turn_id: &str) -> RolloutItem {
@@ -532,13 +535,16 @@ async fn migration_preserves_image_generation_failure_metadata() {
         id: "image-call".to_string(),
         status: "failed".to_string(),
         revised_prompt: Some("paint a blue whale".to_string()),
-        result: String::new(),
+        image: GeneratedImageRef::Inline {
+            result: String::new(),
+        },
         transparent_background: None,
         failure: Some(ImageGenerationFailure::UsageLimitExceeded {
             limit_id: "image_gen".to_string(),
             resets_at: Some(1_786_150_800),
         }),
         saved_path: None,
+        input_images: Vec::new(),
         imagegen_request_id: None,
         generation_id: None,
     };
@@ -547,10 +553,74 @@ async fn migration_preserves_image_generation_failure_metadata() {
             call_id: expected_item.id.clone(),
             status: expected_item.status.clone(),
             revised_prompt: expected_item.revised_prompt.clone(),
-            result: expected_item.result.clone(),
+            image: expected_item.image.clone(),
             transparent_background: expected_item.transparent_background,
             failure: expected_item.failure.clone(),
             saved_path: expected_item.saved_path.clone(),
+            input_images: Vec::new(),
+        }));
+    let path = write_rollout(
+        home.path(),
+        thread_id,
+        SessionSource::Cli,
+        vec![
+            started("image-turn"),
+            image_completion,
+            completed("image-turn"),
+        ],
+    );
+    let store = indexed_store(home.path()).await;
+
+    store
+        .migrate_rollouts(apply_options())
+        .await
+        .expect("migrate legacy image completion");
+
+    let migrated_item = read_rollout(&path)
+        .into_iter()
+        .find_map(|line| match line.item {
+            RolloutItem::EventMsg(EventMsg::ItemCompleted(event)) => Some(event.item),
+            _ => None,
+        })
+        .expect("migrated image completion");
+    let TurnItem::Extension(ExtensionItem::ImageGeneration(migrated_item)) = migrated_item else {
+        panic!("expected migrated extension image-generation item");
+    };
+    assert_eq!(migrated_item, expected_item);
+}
+
+#[tokio::test]
+async fn migration_preserves_image_generation_input_observations() {
+    let home = TempDir::new().expect("create Codex home");
+    let thread_id = ThreadId::new();
+    let expected_item = ImageGenerationItem {
+        id: "image-call".to_string(),
+        status: "completed".to_string(),
+        revised_prompt: Some("paint a blue whale".to_string()),
+        image: GeneratedImageRef::Inline {
+            result: "cG5n".to_string(),
+        },
+        transparent_background: None,
+        failure: None,
+        saved_path: None,
+        input_images: vec![ImageGenerationInputImage {
+            path: AbsolutePathBuf::from_absolute_path(home.path().join("reference.png"))
+                .expect("absolute input path"),
+            sha256: "ab".repeat(32),
+        }],
+        imagegen_request_id: None,
+        generation_id: None,
+    };
+    let image_completion =
+        RolloutItem::EventMsg(EventMsg::ImageGenerationEnd(ImageGenerationEndEvent {
+            call_id: expected_item.id.clone(),
+            status: expected_item.status.clone(),
+            revised_prompt: expected_item.revised_prompt.clone(),
+            image: expected_item.image.clone(),
+            transparent_background: expected_item.transparent_background,
+            failure: expected_item.failure.clone(),
+            saved_path: expected_item.saved_path.clone(),
+            input_images: expected_item.input_images.clone(),
         }));
     let path = write_rollout(
         home.path(),
@@ -2007,10 +2077,10 @@ async fn migration_drops_copied_user_fork_metadata_without_creating_a_history_ba
         SessionSource::Cli,
         Some(parent_id),
         vec![
-            RolloutItem::SessionMeta(SessionMetaLine {
+            RolloutItem::SessionMeta(Box::new(SessionMetaLine {
                 meta: copied_metadata,
                 git: None,
-            }),
+            })),
             copied_response,
             user_message("child question"),
             agent_message("child answer"),
@@ -2072,7 +2142,7 @@ async fn migration_compacts_subagent_prefix_and_does_not_project_it() {
         thread_id,
         SessionSource::SubAgent(SubAgentSource::Other("test".to_string())),
         vec![
-            RolloutItem::Compacted(CompactedItem {
+            RolloutItem::Compacted(Box::new(CompactedItem {
                 message: "superseded checkpoint".repeat(1024),
                 replacement_history: Some(Vec::new()),
                 retained_context: None,
@@ -2085,8 +2155,8 @@ async fn migration_compacts_subagent_prefix_and_does_not_project_it() {
                 compaction_response_id: None,
                 latest_token_usage_record: None,
                 resume_metadata: None,
-            }),
-            RolloutItem::Compacted(CompactedItem {
+            })),
+            RolloutItem::Compacted(Box::new(CompactedItem {
                 message: "latest checkpoint".to_string(),
                 replacement_history: Some(vec![
                     ResponseItem::Message {
@@ -2112,7 +2182,7 @@ async fn migration_compacts_subagent_prefix_and_does_not_project_it() {
                 compaction_response_id: None,
                 latest_token_usage_record: None,
                 resume_metadata: None,
-            }),
+            })),
             started("child-turn"),
             RolloutItem::TurnContext(TurnContextItem {
                 model_provider_id: None,

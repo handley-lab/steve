@@ -3,9 +3,30 @@
 //! checks the previous model when it applies the final selection.
 
 use super::*;
+use crate::history_cell::ForkedThreadHistoryCell;
 use crate::style::accent_color;
 
 impl ChatWidget {
+    pub(crate) fn accept_startup_approval_policy(
+        &mut self,
+        app_policy: &mut Constrained<codex_protocol::protocol::AskForApproval>,
+        server_policy: AskForApproval,
+    ) -> codex_config::ConstraintResult<()> {
+        let server_policy = server_policy.to_core();
+        if app_policy.can_set(&server_policy).is_err() {
+            let local = app_policy.clone();
+            *app_policy = Constrained::new(server_policy, move |candidate| {
+                if *candidate == server_policy {
+                    Ok(())
+                } else {
+                    local.can_set(candidate)
+                }
+            })?;
+            self.config.permissions.approval_policy = app_policy.clone();
+        }
+        Ok(())
+    }
+
     /// Offer the flourish only for a successful primary thread/start without initial work.
     pub(crate) fn mark_fresh_task_for_sparkle(
         &mut self,
@@ -86,8 +107,7 @@ impl ChatWidget {
             });
         }
         self.realtime_conversation_available_for_thread =
-            self.config.features.enabled(Feature::RealtimeConversation)
-                && codex_realtime_webrtc::RealtimeWebrtcSession::is_supported();
+            codex_realtime_webrtc::RealtimeWebrtcSession::is_supported();
         self.bottom_pane
             .set_voice_command_enabled(self.realtime_conversation_available_for_thread);
         self.bottom_pane
@@ -121,9 +141,6 @@ impl ChatWidget {
         self.config.cwd = session.cwd.clone();
         self.config.model_provider_id = session.model_provider_id.clone();
         self.set_daybreak_enabled(self.daybreak_enabled);
-        if self.daybreak_enabled && previous_thread_id != self.thread_id {
-            self.add_info_message("Daybreak is on for new turns.".into(), /*hint*/ None);
-        }
         if connector_scope_changed {
             self.invalidate_connector_scope();
         }
@@ -132,6 +149,7 @@ impl ChatWidget {
         self.config
             .permissions
             .set_workspace_roots(runtime_workspace_roots);
+        self.config.service_tier = session.service_tier.clone();
         self.effective_service_tier = session.service_tier.clone();
         if let Err(err) = self
             .config
@@ -238,6 +256,10 @@ impl ChatWidget {
             self.transcript.active_cell = None;
             self.bump_active_cell_revision();
         }
+        // Emit notices after replacing or removing the placeholder header.
+        if self.daybreak_enabled && previous_thread_id != self.thread_id {
+            self.add_info_message("Daybreak is on for new turns.".into(), /*hint*/ None);
+        }
         self.transcript.saw_copy_source_this_turn = false;
         self.refresh_skills_for_current_cwd(/*force_reload*/ true);
         self.refresh_connector_mentions(/*force_refresh*/ false);
@@ -314,7 +336,7 @@ impl ChatWidget {
             .into()
         };
         self.app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
-            PlainHistoryCell::new(vec![line]),
+            ForkedThreadHistoryCell(PlainHistoryCell::new(vec![line])),
         )));
     }
 

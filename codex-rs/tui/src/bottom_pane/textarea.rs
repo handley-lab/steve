@@ -793,13 +793,17 @@ impl TextArea {
         }
         if self.is_vim_replace_mode()
             && self.mouse_selection_range().is_none()
-            && self.editor_keymap.delete_backward.is_pressed(event)
+            && self.is_delete_backward_key(event)
             && self.apply_vim_insert_action(VimAction::RestoreReplacedCharacter)
         {
             return;
         }
         let keymap = self.editor_keymap.clone();
         self.input_with_keymap(event, &keymap);
+    }
+
+    pub(in crate::bottom_pane) fn is_delete_backward_key(&self, event: KeyEvent) -> bool {
+        self.editor_keymap.delete_backward.is_pressed(event)
     }
 
     fn leave_vim_insert_mode(&mut self) {

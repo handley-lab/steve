@@ -1,4 +1,5 @@
 use super::*;
+use crate::status::StatusAccountDisplay;
 use assert_matches::assert_matches;
 use codex_config::types::ModelAvailabilityNuxConfig;
 use codex_protocol::config_types::ServiceTier;
@@ -131,6 +132,10 @@ async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()
         model.default_service_tier = model
             .is_default
             .then(|| ServiceTier::Fast.request_value().to_string());
+        model.available_access_programs =
+            Some(codex_protocol::openai_models::ModelAccessPrograms {
+                cyber: vec![codex_protocol::turn_input::CyberAccessProgram::Standard],
+            });
     }
     let expected = models.clone();
     Box::pin(app.handle_event(&mut tui, &mut app_server, loaded)).await?;

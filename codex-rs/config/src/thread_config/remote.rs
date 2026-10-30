@@ -21,6 +21,7 @@ use super::ThreadConfigSource;
 use super::UserThreadConfig;
 use proto::thread_config_loader_client::ThreadConfigLoaderClient;
 
+#[allow(clippy::double_must_use)] // Emitted by async_trait in the generated tonic service.
 #[path = "proto/codex.thread_config.v1.rs"]
 mod proto;
 
@@ -205,6 +206,8 @@ fn model_provider_from_proto(
         ),
         accepts_response_continuation: provider.accepts_response_continuation,
         include_internal_metadata: provider.include_internal_metadata,
+        project_id: provider.project_id,
+        location: provider.location,
     };
     Ok((id, info))
 }
@@ -259,6 +262,8 @@ fn model_provider_to_proto(
         auth,
         gateway_oauth: _,
         aws: _,
+        project_id,
+        location,
         wire_api,
         query_params,
         http_headers,
@@ -298,6 +303,8 @@ fn model_provider_to_proto(
         accepts_response_continuation,
         include_internal_metadata,
         remote_compaction: remote_compaction_to_proto(capabilities),
+        project_id,
+        location,
     }
 }
 
@@ -495,6 +502,8 @@ mod tests {
     #[test]
     fn model_provider_proto_roundtrips_through_domain_type() {
         let mut expected = expected_provider();
+        expected.project_id = Some("vertex-project".to_string());
+        expected.location = Some("us-central1".to_string());
         expected.auth = None;
         expected.experimental_bearer_token = Some("synthetic-provider-token".into());
         let proto = model_provider_to_proto("local", expected.clone());
@@ -572,6 +581,8 @@ mod tests {
                             accepts_response_continuation: false,
                             include_internal_metadata: false,
                             remote_compaction: None,
+                            project_id: None,
+                            location: None,
                         }],
                         features: HashMap::from([
                             ("plugins".to_string(), false),
@@ -638,6 +649,8 @@ mod tests {
             aws: None,
             capabilities: None,
             accepts_response_continuation: false,
+            project_id: None,
+            location: None,
             include_internal_metadata: false,
         }
     }

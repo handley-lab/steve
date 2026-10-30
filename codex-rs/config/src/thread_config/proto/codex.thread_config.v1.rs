@@ -79,11 +79,15 @@ pub struct ModelProvider {
     pub supports_standalone_web_search: bool,
     #[prost(string, optional, tag = "19")]
     pub model_catalog_url: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(bool, tag = "20")]
+    #[prost(string, optional, tag = "20")]
+    pub project_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "21")]
+    pub location: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(bool, tag = "23")]
     pub accepts_response_continuation: bool,
-    #[prost(bool, tag = "21")]
+    #[prost(bool, tag = "24")]
     pub include_internal_metadata: bool,
-    #[prost(enumeration = "RemoteCompaction", optional, tag = "22")]
+    #[prost(enumeration = "RemoteCompaction", optional, tag = "25")]
     pub remote_compaction: ::core::option::Option<i32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

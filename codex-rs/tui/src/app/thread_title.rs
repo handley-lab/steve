@@ -37,23 +37,12 @@ struct GeneratedThreadTitle {
 }
 
 impl App {
-    pub(super) fn sync_thread_title_progress(&mut self) {
-        let pending = self.chat_widget.thread_id().is_some_and(|thread_id| {
-            self.pending_thread_titles
-                .keys()
-                .any(|(id, _)| *id == thread_id)
-        });
-        self.chat_widget
-            .set_thread_title_generation_pending(pending);
-    }
-
     pub(super) fn finish_thread_title_generation(
         &mut self,
         thread_id: ThreadId,
         destination: ThreadTitleDestination,
     ) {
         self.pending_thread_titles.remove(&(thread_id, destination));
-        self.sync_thread_title_progress();
     }
 
     /// A saved manual name supersedes any pending title generation for that thread.
@@ -66,7 +55,6 @@ impl App {
                 true
             }
         });
-        self.sync_thread_title_progress();
     }
 
     /// Start a hidden title-generation thread without blocking the UI loop.
@@ -83,7 +71,6 @@ impl App {
             return;
         };
         let cancellation = entry.insert(CancellationToken::new()).clone();
-        self.sync_thread_title_progress();
         let request_handle = app_server.request_handle();
         let model = self.chat_widget.current_model().to_string();
         let config = self.chat_widget.config_ref();
@@ -305,7 +292,7 @@ where
                     .iter()
                     .filter_map(|input| match input {
                         UserInput::Text { text, .. } => {
-                            Some(crate::ide_context::extract_prompt_request_with_offset(text).0)
+                            Some(crate::user_prompt::extract_prompt_request_with_offset(text).0)
                         }
                         _ => None,
                     })

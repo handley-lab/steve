@@ -104,6 +104,15 @@ fn registered_transcript_filters_roles_and_preserves_node_repl_tool_attribution(
         "exact action ".repeat(/*n*/ 1_000)
     );
     let history = vec![
+        serde_json::from_value(serde_json::json!({
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "Inspect the workspace."}],
+            "internal_chat_message_metadata_passthrough": {
+                "content_item_kinds": ["compaction.summary"]
+            }
+        }))
+        .unwrap(),
         ResponseItem::Message {
             status: None,
             encrypted_content: None,
@@ -207,6 +216,10 @@ fn registered_transcript_filters_roles_and_preserves_node_repl_tool_attribution(
         sections,
         vec![ContextSection::ConversationTranscript {
             items: vec![
+                entry(
+                    ConversationTranscriptEntryKind::Assistant,
+                    "Inspect the workspace."
+                ),
                 entry(
                     ConversationTranscriptEntryKind::User,
                     "Inspect the workspace."
@@ -609,5 +622,40 @@ fn encrypted_messages_preserve_order_and_budget_for_both_reviewers() {
         assert!(
             matches!(&entries[1].content, crate::TranscriptContent::Text(text) if text.contains("omitted"))
         );
+        if profile.target == ContextTarget::Sync {
+            let mut limited_profile = profile;
+            limited_profile.transcript = limited;
+            let raw = super::collect_transcript_for_target(&history, &limited, ContextTarget::Sync);
+            let actual = {
+                let context = crate::CollectedContext {
+                    sections: vec![ContextSection::ConversationTranscript { items: raw }],
+                };
+                let profile = &limited_profile;
+                let transcript = profile.prepare_transcript(
+                    context.transcript_entries(),
+                    /*entry_number_offset*/ 0,
+                );
+                context.compose(
+                    ContextPresentation::SyncFull {
+                        session_id: "worker",
+                    },
+                    transcript,
+                )
+            }
+            .unwrap();
+            let expected = crate::CollectedContext {
+                sections: vec![ContextSection::ConversationTranscript {
+                    items: entries.clone(),
+                }],
+            }
+            .compose(
+                ContextPresentation::SyncFull {
+                    session_id: "worker",
+                },
+                limited_profile.prepare_transcript(&entries, /*entry_number_offset*/ 0),
+            )
+            .unwrap();
+            assert_eq!(actual.into_messages(), expected.into_messages());
+        }
     }
 }

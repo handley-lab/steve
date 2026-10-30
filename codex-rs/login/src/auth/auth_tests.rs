@@ -763,6 +763,8 @@ async fn pro_account_with_no_api_key_uses_chatgpt_auth() {
                 },
                 access_token: "test-access-token".to_string(),
                 refresh_token: "test-refresh-token".to_string(),
+                oauth_provenance: None,
+                login_owner_id: None,
                 account_id: None,
             }),
             last_refresh: Some(last_refresh),

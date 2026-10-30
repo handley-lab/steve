@@ -7,13 +7,16 @@ pub use auth::WorkspaceRoutingRequest;
 pub use auth::WorkspaceRoutingResolver;
 pub use auth::WorkspaceRoutingSession;
 
-mod gateway_auth;
 mod oauth;
+mod oauth_session;
 mod outbound_proxy;
 
 pub use codex_config::types::AuthCredentialsStoreMode;
 pub use codex_http_client::BuildCustomCaTransportError as BuildLoginHttpClientError;
 
+pub use auth::AccountOAuthGrant;
+pub use auth::AccountOAuthGrantLease;
+pub use auth::AccountOAuthGrantRevision;
 pub use auth::AuthChangeState;
 pub use auth::AuthConfig;
 pub use auth::AuthDotJson;
@@ -50,10 +53,21 @@ pub use auth_env_telemetry::collect_auth_env_telemetry;
 pub use outbound_proxy::AuthRouteConfig;
 pub use token_data::TokenData;
 
-pub use gateway_auth::GatewayAuthConfig;
-pub use gateway_auth::GatewayAuthError;
-pub use gateway_auth::GatewayAuthManager;
-pub use gateway_auth::GatewayAuthStatus;
-pub use gateway_auth::GatewayAuthStatusChange;
-pub use gateway_auth::GatewayLoginControl;
-pub use gateway_auth::subscribe_gateway_auth_status;
+// Existing inference-gateway names continue to refer to the same grant manager.
+pub use oauth_session::OAuthLoginControl as GatewayLoginControl;
+pub use oauth_session::OAuthSessionConfig as GatewayAuthConfig;
+pub use oauth_session::OAuthSessionError as GatewayAuthError;
+pub use oauth_session::OAuthSessionManager as GatewayAuthManager;
+pub use oauth_session::OAuthSessionStatus as GatewayAuthStatus;
+pub use oauth_session::OAuthSessionStatusChange as GatewayAuthStatusChange;
+pub use oauth_session::subscribe_oauth_session_status as subscribe_gateway_auth_status;
+
+pub use oauth_session::OAuthLoginControl;
+pub use oauth_session::OAuthRequestCredentials;
+pub use oauth_session::OAuthSessionConfig;
+pub use oauth_session::OAuthSessionError;
+pub use oauth_session::OAuthSessionManager;
+pub use oauth_session::OAuthSessionRequest;
+pub use oauth_session::OAuthSessionStatus;
+pub use oauth_session::OAuthSessionStatusChange;
+pub use oauth_session::subscribe_oauth_session_status;

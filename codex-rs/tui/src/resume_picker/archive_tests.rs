@@ -37,6 +37,7 @@ fn archive_picker_state() -> (PickerState, Arc<Mutex<Vec<ThreadId>>>) {
         }
     });
     let state = PickerState::new(
+        crate::backend_id::BackendId::new(),
         FrameRequester::test_dummy(),
         picker_loader,
         ProviderFilter::Any,
@@ -49,6 +50,8 @@ fn archive_picker_state() -> (PickerState, Arc<Mutex<Vec<ThreadId>>>) {
 
 fn set_selected_session(state: &mut PickerState, thread_id: ThreadId) {
     state.all_rows = vec![Row {
+        backend_id: None,
+        history_mode: None,
         path: None,
         preview: String::from("Selected session"),
         thread_id: Some(thread_id),
@@ -176,6 +179,7 @@ fn archived_status_preserves_directory_filter_and_hides_archive_shortcut() {
         }
     });
     let mut state = PickerState::new(
+        crate::backend_id::BackendId::new(),
         FrameRequester::test_dummy(),
         picker_loader,
         ProviderFilter::Any,
@@ -216,7 +220,7 @@ fn archived_status_preserves_directory_filter_and_hides_archive_shortcut() {
         @"Filter: Cwd   Archived  Sort: Updated "
     );
 
-    state.toggle_filter_mode();
+    state.change_filter_mode(super::super::ToolbarValueDirection::Next);
 
     assert_eq!(
         *requested_filters.lock().unwrap(),
@@ -256,6 +260,7 @@ async fn archived_session_restore_resumes_after_completion() {
     let selection = state.handle_unarchive_result(
         thread_id,
         Ok(SessionTarget {
+            backend_id: state.backend_id,
             path: None,
             thread_id,
             cwd: None,
@@ -266,6 +271,7 @@ async fn archived_session_restore_resumes_after_completion() {
     assert!(matches!(
         selection,
         Some(SessionSelection::Resume(SessionTarget {
+            backend_id: _,
             path: None,
             thread_id: resumed_thread_id,
             cwd: None,

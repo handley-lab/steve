@@ -17,6 +17,7 @@ async fn later_page_error_preserves_loaded_sessions() {
                 }
             });
             let mut state = PickerState::new(
+                crate::backend_id::BackendId::new(),
                 FrameRequester::test_dummy(),
                 loader,
                 ProviderFilter::Any,
@@ -34,6 +35,8 @@ async fn later_page_error_preserves_loaded_sessions() {
                     search_token: request.search_token,
                     page: Ok(PickerPage {
                         rows: vec![Row {
+                            backend_id: None,
+                            history_mode: None,
                             path: None,
                             preview: "Loaded session".to_string(),
                             thread_id: Some(thread_id),

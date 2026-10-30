@@ -1,6 +1,7 @@
-//! Request-level coverage for the fresh-startup server defaults overlay.
+//! Startup boundary coverage for server defaults and connection ownership.
 
 use super::*;
+use crate::app::backend_sessions::InitialBackendSessions;
 use crate::app::startup::prepare_fresh_startup_config;
 use crate::app::startup::startup_model;
 use crate::app::startup_bootstrap::bootstrap_server_owned_start;
@@ -15,17 +16,17 @@ fn remote_target() -> AppServerTarget {
     }
 }
 
-async fn run_startup_for_test(
+pub(super) async fn run_startup_for_test(
     tui: &mut crate::tui::Tui,
-    server: AppServerSession,
+    initial_backends: InitialBackendSessions,
     config: Config,
-    bootstrap: AppServerBootstrap,
+    bootstrap: Option<AppServerBootstrap>,
     selection: SessionSelection,
     app_server_target: AppServerTarget,
 ) -> Result<AppExitInfo> {
     App::run(
         tui,
-        server,
+        initial_backends,
         config.clone(),
         config.cwd.to_path_buf(),
         Vec::new(),
@@ -42,7 +43,7 @@ async fn run_startup_for_test(
         /*state_db*/ None,
         Arc::new(EnvironmentManager::default_for_tests()),
         Duration::ZERO,
-        Some(bootstrap),
+        bootstrap,
         /*startup_hooks_browser*/ None,
         /*daemon_startup_warning*/ None,
         /*managed_daemon*/ false,
@@ -196,9 +197,9 @@ async fn agents_overview_startup_restores_saved_grouping() -> Result<()> {
     let endpoint = crate::resolve_remote_addr("ws://127.0.0.1:4500")?;
     let mut run = Box::pin(run_startup_for_test(
         &mut tui,
-        server,
+        InitialBackendSessions::singleton(server),
         config,
-        bootstrap,
+        Some(bootstrap),
         SessionSelection::AgentsOverview,
         AppServerTarget::LocalDaemon {
             allow_embedded_fallback: true,
@@ -263,6 +264,7 @@ async fn cli_fork_omits_implicit_model_and_effort() -> Result<()> {
         .expect("create source rollout"),
     )?;
     let (mut server, requests, proxy) = start_recording_remote_app_server(&config).await?;
+    let backend_id = server.backend_id();
     let mut bootstrap = server.bootstrap(&config).await?;
     let mut target_preset = bootstrap
         .available_models
@@ -301,10 +303,11 @@ async fn cli_fork_omits_implicit_model_and_effort() -> Result<()> {
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let mut run = Box::pin(run_startup_for_test(
         &mut tui,
-        server,
+        InitialBackendSessions::singleton(server),
         config,
-        bootstrap,
+        Some(bootstrap),
         SessionSelection::Fork(crate::resume_picker::SessionTarget {
+            backend_id,
             path: None,
             thread_id: source,
             cwd: None,
@@ -348,9 +351,9 @@ async fn run_until_thread_start(
     tui.pause_events();
     let mut run = Box::pin(run_startup_for_test(
         &mut tui,
-        server,
+        InitialBackendSessions::singleton(server),
         config,
-        bootstrap,
+        Some(bootstrap),
         SessionSelection::StartFresh,
         AppServerTarget::Embedded,
     ));
@@ -376,6 +379,9 @@ async fn run_until_thread_start(
 async fn fresh_startup_uses_server_defaults_with_explicit_and_managed_precedence() -> Result<()> {
     for (choice, managed, expected_model, expected_effort, expected_provider) in [
         ("saved", false, None, None, None),
+        ("embedded_saved", false, None, None, None),
+        ("typed_reviewer", false, None, None, None),
+        ("kv_reviewer", false, None, None, None),
         ("cli_model", true, Some("cli-model"), None, None),
         ("kv_model", false, Some("kv-model"), None, None),
         (
@@ -420,6 +426,8 @@ async fn fresh_startup_uses_server_defaults_with_explicit_and_managed_precedence
 model = "client-model"
 model_reasoning_effort = "low"
 model_provider = "client-provider"
+approval_policy = "never"
+approvals_reviewer = "auto_review"
 [model_providers.client-provider]
 name = "Client provider"
 base_url = "http://127.0.0.1:9/v1"
@@ -435,11 +443,15 @@ wire_api = "responses"
             server_home.path().join("config.toml"),
             format!(
                 "{}\nmodel_provider = \"client-provider\"\n[model_providers.client-provider]\nname = \"Server\"\nbase_url = \"{}/v1\"\nwire_api = \"responses\"\n[model_providers.server-second]\nname = \"OpenAI fixture\"\nbase_url = \"{}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n",
-                if choice == "managed" {
-                    ""
-                } else {
-                    "model = \"server-model\"\nmodel_reasoning_effort = \"high\"\n"
-                },
+            match choice {
+                "managed" => "",
+                "kv_reviewer" => {
+                    "model = \"server-model\"\napproval_policy = { granular = { sandbox_approval = false, rules = false, request_permissions = true, mcp_elicitations = false } }\n"
+                }
+                _ => {
+                    "model = \"server-model\"\nmodel_reasoning_effort = \"high\"\napproval_policy = \"on-request\"\napprovals_reviewer = \"user\"\n"
+                }
+            },
                 models.uri(),
                 models.uri()
             ),
@@ -458,6 +470,7 @@ wire_api = "responses"
             "kv_model" => cli_kv_overrides.extend([
                 ("model".into(), "earlier-model".into()),
                 ("model".into(), "kv-model".into()),
+                ("approval_policy".into(), "never".into()),
             ]),
             "migration" => harness_overrides.model = Some("old-model".into()),
             "cli_provider" => harness_overrides.model_provider = Some("server-second".into()),
@@ -468,6 +481,22 @@ wire_api = "responses"
                 "model_reasoning_effort".to_string(),
                 TomlValue::String("low".to_string()),
             )),
+            "typed_reviewer" => {
+                harness_overrides.approval_policy = Some(AskForApproval::OnRequest.to_core());
+                harness_overrides.approvals_reviewer = Some(ApprovalsReviewer::User);
+                cli_kv_overrides.push(("approval_policy".into(), "never".into()));
+                cli_kv_overrides.push(("approvals_reviewer".into(), "auto_review".into()));
+            }
+            "kv_reviewer" => {
+                cli_kv_overrides.extend([
+                    ("approvals_reviewer".into(), "user".into()),
+                    ("approvals_reviewer".into(), "auto_review".into()),
+                ]);
+                cli_kv_overrides.extend(
+                    ["sandbox_approval", "rules", "mcp_elicitations"]
+                        .map(|key| (format!("approval_policy.granular.{key}"), true.into())),
+                );
+            }
             "profile_model" | "profile_effort" => {
                 let path = client_home.path().join("work.config.toml");
                 std::fs::write(
@@ -483,6 +512,11 @@ wire_api = "responses"
             }
             _ => {}
         }
+        let (target, server_home) = if choice == "embedded_saved" {
+            (AppServerTarget::Embedded, &client_home)
+        } else {
+            (remote_target(), &server_home)
+        };
         let mut launch_choices = crate::app_server_session::StartupLaunchChoices::from_launch(
             &cli_kv_overrides,
             &harness_overrides,
@@ -508,7 +542,7 @@ wire_api = "responses"
             HistoryCapabilities::Current,
             /*blocked_thread_list*/ None,
             /*failed_thread_name*/ None,
-            crate::app_server_session::ThreadParamsMode::Remote,
+            target.thread_params_mode(),
             LoaderOverrides {
                 user_config_path: Some(server_home.path().join("config.toml").abs()),
                 system_requirements_path: Some(server_home.path().join("requirements.toml")),
@@ -517,7 +551,6 @@ wire_api = "responses"
         )
         .await?;
         server = server.with_remote_cwd_override(Some(server_config.cwd.to_path_buf()));
-        let target = remote_target();
         assert!(
             prepare_fresh_startup_config(
                 &mut config,
@@ -550,7 +583,7 @@ wire_api = "responses"
                 ReasoningEffortConfig::High,
             );
         }
-        crate::app_server_session::start_thread_with_request_handle(
+        let started = crate::app_server_session::start_thread_with_request_handle(
             server.request_handle(),
             &crate::local_settings::LocalSettings::from(&config),
             config,
@@ -562,6 +595,44 @@ wire_api = "responses"
         .await?;
         let starts = recorded_params(&requests, "thread/start");
         assert_eq!(starts.len(), 1, "{choice}");
+        let expected_reviewer = match choice {
+            "kv_reviewer" | "profile_model" | "profile_effort" => Some("auto_review"),
+            "typed_reviewer" => Some("user"),
+            _ => None,
+        };
+        assert_eq!(
+            starts[0]["approvalsReviewer"],
+            serde_json::json!(expected_reviewer),
+            "{choice}"
+        );
+        let expected_policy = match choice {
+            "typed_reviewer" => Some(AskForApproval::OnRequest),
+            "kv_model" | "profile_model" | "profile_effort" => Some(AskForApproval::Never),
+            _ => None,
+        };
+        assert_eq!(
+            starts[0]["approvalPolicy"],
+            serde_json::json!(expected_policy),
+            "{choice}"
+        );
+        if choice == "kv_reviewer" {
+            assert_eq!(
+                started.session.approval_policy,
+                AskForApproval::Granular {
+                    sandbox_approval: true,
+                    rules: true,
+                    skill_approval: false,
+                    request_permissions: true,
+                    mcp_elicitations: true,
+                }
+            );
+        }
+        if choice == "embedded_saved" {
+            assert_eq!(
+                started.session.approvals_reviewer,
+                ApprovalsReviewer::AutoReview
+            );
+        }
         assert_eq!(
             (
                 starts[0]["model"].clone(),
@@ -584,6 +655,30 @@ wire_api = "responses"
                 serde_json::json!({"cwd": server_config.cwd.display().to_string(), "includeLayers": true})
             ],
         );
+        if choice == "saved" {
+            assert_eq!(started.session.approvals_reviewer, ApprovalsReviewer::User);
+            let (mut app, _events, mut ops) = make_test_app_with_channels().await;
+            app.app_server_target = target;
+            app.config.permissions.approval_policy =
+                codex_config::Constrained::allow_only(AskForApproval::Never.to_core());
+            app.set_approvals_reviewer_in_app_and_widget(ApprovalsReviewer::AutoReview);
+            app.pending_startup_thread_start = true;
+            let thread_id = started.session.thread_id;
+            app.handle_startup_thread_started(&mut server, Ok(started))
+                .await?;
+            assert_eq!(
+                app.config.permissions.approval_policy.value(),
+                AskForApproval::OnRequest.to_core()
+            );
+            app.chat_widget.insert_str("first turn");
+            app.chat_widget
+                .handle_key_event(KeyEvent::from(KeyCode::Enter));
+            app.submit_thread_op(&mut server, thread_id, next_user_turn_op(&mut ops))
+                .await?;
+            let turn = &recorded_params(&requests, "turn/start")[0];
+            assert_eq!(turn["approvalsReviewer"], "user");
+            assert_eq!(turn["approvalPolicy"], "on-request");
+        }
         server.shutdown().await?;
         proxy.await??;
     }
@@ -775,6 +870,7 @@ async fn fresh_startup_falls_back_only_for_unsupported_config_read() -> Result<(
 async fn startup_reads_server_defaults_before_starting_thread() -> Result<()> {
     let client_home = tempdir()?;
     let server_home = tempdir()?;
+    let projectless_cwd = tempdir()?;
     std::fs::write(
         client_home.path().join("config.toml"),
         "model = \"client-model\"\nmodel_reasoning_effort = \"low\"\n",
@@ -786,6 +882,10 @@ async fn startup_reads_server_defaults_before_starting_thread() -> Result<()> {
     let config = ConfigBuilder::default()
         .codex_home(client_home.path().to_path_buf())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+        .harness_overrides(ConfigOverrides {
+            cwd: Some(projectless_cwd.path().to_path_buf()),
+            ..Default::default()
+        })
         .build()
         .await?;
     let mut server_config = config.clone();
@@ -799,7 +899,7 @@ async fn startup_reads_server_defaults_before_starting_thread() -> Result<()> {
         crate::app_server_session::ThreadParamsMode::Embedded,
         LoaderOverrides {
             user_config_path: Some(server_home.path().join("config.toml").abs()),
-            ..LoaderOverrides::default()
+            ..LoaderOverrides::without_managed_config_for_tests()
         },
     )
     .await?;
@@ -819,6 +919,7 @@ async fn startup_reads_server_defaults_before_starting_thread() -> Result<()> {
     }
     let starts = recorded_params(&requests, "thread/start");
     assert_eq!(starts.len(), 1);
+    assert!(starts[0]["approvalPolicy"]["granular"].is_object());
     assert_eq!(
         (
             &starts[0]["model"],
@@ -850,9 +951,9 @@ async fn startup_read_failure_exits_before_thread_creation() -> Result<()> {
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let result = run_startup_for_test(
         &mut tui,
-        server,
+        InitialBackendSessions::singleton(server),
         config,
-        bootstrap,
+        Some(bootstrap),
         SessionSelection::StartFresh,
         AppServerTarget::Embedded,
     )
@@ -861,5 +962,56 @@ async fn startup_read_failure_exits_before_thread_creation() -> Result<()> {
     assert_eq!(recorded_params(&requests, "config/read").len(), 1);
     assert!(recorded_params(&requests, "thread/start").is_empty());
     proxy.await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn bootstrap_failure_shuts_down_every_initial_backend() -> Result<()> {
+    use codex_app_server_client::AppServerClient;
+    use codex_app_server_client::CloudClient;
+    use codex_app_server_client::CloudOperation;
+
+    let app = make_test_app().await;
+    let (first, mut first_commands, _first_events) = CloudClient::channel(/*capacity*/ 1);
+    let (second, mut second_commands, _second_events) = CloudClient::channel(/*capacity*/ 1);
+    let [first, second] = [first, second].map(|client| {
+        AppServerSession::new(
+            crate::backend_id::BackendId::new(),
+            AppServerClient::Cloud(client),
+            crate::app_server_session::ThreadParamsMode::Embedded,
+        )
+    });
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    let (result, ()) = tokio::join!(
+        run_startup_for_test(
+            &mut tui,
+            InitialBackendSessions::multiple(first, vec![second]),
+            app.config.clone(),
+            /*bootstrap*/ None,
+            SessionSelection::StartFresh,
+            AppServerTarget::Embedded,
+        ),
+        async {
+            let request = first_commands.recv().await.expect("initial account read");
+            assert!(matches!(
+                request.operation,
+                CloudOperation::Request(request)
+                    if matches!(*request, codex_app_server_protocol::ClientRequest::GetAccount { .. })
+            ));
+            request
+                .response
+                .send(Err(std::io::Error::other("bootstrap unavailable")))
+                .unwrap();
+            for commands in [&mut first_commands, &mut second_commands] {
+                let command = commands.recv().await.expect("startup shutdown");
+                assert!(matches!(command.operation, CloudOperation::Shutdown));
+                command
+                    .response
+                    .send(Ok(Ok(serde_json::Value::Null)))
+                    .unwrap();
+            }
+        }
+    );
+    assert!(result.unwrap_err().to_string().contains("account/read"));
     Ok(())
 }
