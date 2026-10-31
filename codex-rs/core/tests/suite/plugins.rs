@@ -1635,11 +1635,24 @@ async fn curated_plugin_skills_follow_auth_switch() -> Result<()> {
 
     for fixture in FIXTURES {
         let server = start_mock_server().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "application/json")
+                    .set_body_json(serde_json::json!({
+                        "data": [{"id": "gpt-5.5", "mode": "chat"}]
+                    })),
+            )
+            .with_priority(1)
+            .mount(&server)
+            .await;
 
         let codex_home = Arc::new(TempDir::new()?);
         std::fs::write(
             codex_home.path().join("config.toml"),
-            r#"[features]
+            r#"model_provider = "openai"
+[features]
 plugins = true
 remote_plugin = false
 
@@ -1686,7 +1699,13 @@ enabled = true
         let mut builder = test_codex()
             .with_home(Arc::clone(&codex_home))
             .with_extensions(skills_extensions())
-            .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+            .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+            .with_config(|config| {
+                config.model_providers.insert(
+                    OPENAI_PROVIDER_ID.to_string(),
+                    config.model_provider.clone(),
+                );
+            });
         let test_codex = builder.build_with_auto_env(&server).await?;
         let initial_skills = loaded_plugin_skills_for_config(&test_codex, &test_codex.config).await;
         assert_loaded_plugin_skills(

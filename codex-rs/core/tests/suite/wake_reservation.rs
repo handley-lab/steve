@@ -161,6 +161,7 @@ async fn interrupt_during_wake_context_construction_does_not_start_turn() -> any
             codex_protocol::openai_models::ModelsResponse {
                 models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
             },
+            codex_models_manager::ModelOrigin::ExplicitConfig,
         ),
         gate_next_lookup: AtomicBool::new(/*v*/ false),
         context_build: Gate::default(),

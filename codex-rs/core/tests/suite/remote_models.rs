@@ -573,6 +573,8 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
         .await;
 
     let remote_model = ModelInfo {
+        non_chat: false,
+        discovered_non_chat: None,
         slug: REMOTE_MODEL_SLUG.to_string(),
         display_name: "Remote Test".to_string(),
         description: Some("A remote model that requires the test shell".to_string()),
@@ -862,6 +864,8 @@ async fn remote_models_apply_legacy_instructions(auth: CodexAuth) -> Result<()> 
 
     let remote_instructions = "Use the remote instructions template only.";
     let remote_model = ModelInfo {
+        non_chat: false,
+        discovered_non_chat: None,
         slug: model.to_string(),
         display_name: "Parallel Remote".to_string(),
         description: Some("A remote model with custom instructions".to_string()),
@@ -1649,6 +1653,7 @@ async fn failed_catalog_refresh_preserves_tool_search_on_the_next_turn() -> Resu
     let manager = test.thread_manager.get_models_manager();
     manager
         .refresh_if_new_etag(
+            &test.config.model_provider_id,
             "changed-etag".into(),
             codex_core::test_support::default_http_client_factory(),
         )

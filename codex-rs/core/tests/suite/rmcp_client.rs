@@ -3633,6 +3633,8 @@ async fn stdio_image_responses_are_sanitized_for_text_only_model() -> anyhow::Re
         &server,
         ModelsResponse {
             models: vec![ModelInfo {
+                non_chat: false,
+                discovered_non_chat: None,
                 slug: text_only_model_slug.to_string(),
                 display_name: "RMCP Text Only".to_string(),
                 description: Some("Test model without image input support".to_string()),

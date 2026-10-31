@@ -4,7 +4,8 @@
 use anyhow::Result;
 use codex_core::config::ConfigBuilder;
 use codex_login::CodexAuth;
-use codex_models_manager::bundled_models_response;
+use codex_models_manager::test_support::model_info;
+use codex_protocol::openai_models::ModelsResponse;
 use core_test_support::responses;
 use core_test_support::test_codex::test_codex;
 use pretty_assertions::assert_eq;
@@ -27,8 +28,11 @@ async fn builtin_openai_catalog_override_preserves_inference(
 ) -> Result<()> {
     let inference = responses::start_mock_server().await;
     let catalog_server = MockServer::start().await;
-    let mut catalog = bundled_models_response()?;
-    catalog.models[0].display_name = "Explicit built-in catalog".into();
+    let mut model = model_info("gpt-5.5");
+    model.display_name = "Explicit built-in catalog".into();
+    let catalog = ModelsResponse {
+        models: vec![model],
+    };
     Mock::given(method("GET"))
         .and(path("/catalog"))
         .and(header("authorization", authorization))

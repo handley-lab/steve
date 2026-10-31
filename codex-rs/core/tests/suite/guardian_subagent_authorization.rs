@@ -373,8 +373,11 @@ async fn code_mode_messaging_fixture(
             }
             config.permissions.approval_policy = Constrained::allow_any(AskForApproval::OnRequest);
             config.approvals_reviewer = ApprovalsReviewer::AutoReview;
-            config.model_catalog =
-                Some(codex_models_manager::bundled_models_response().expect("valid catalog"));
+            config.model_catalog = Some({
+                let mut model = codex_models_manager::test_support::model_info("gpt-5.5");
+                model.auto_review_model_override = Some(model.slug.clone());
+                codex_protocol::openai_models::ModelsResponse { models: vec![model] }
+            });
             config
                 .permissions
                 .set_permission_profile(PermissionProfile::workspace_write())

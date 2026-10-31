@@ -1242,6 +1242,8 @@ async fn model_switch_to_smaller_model_updates_token_context_window() -> Result<
         (smaller_context_window * effective_context_window_percent) / 100;
 
     let base_model = ModelInfo {
+        non_chat: false,
+        discovered_non_chat: None,
         slug: large_model_slug.to_string(),
         display_name: "Larger Model".to_string(),
         description: Some("larger context window model".to_string()),
