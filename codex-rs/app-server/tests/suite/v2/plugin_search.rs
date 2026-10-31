@@ -33,6 +33,7 @@ async fn plugin_search_omits_shared_workspace_results_when_plugin_sharing_disabl
         codex_home.path().join("config.toml"),
         format!(
             r#"chatgpt_base_url = "{}/backend-api/"
+model_provider = "openai"
 
 [features]
 plugins = true
@@ -144,6 +145,7 @@ async fn plugin_search_only_searches_workspace_when_remote_plugin_disabled() -> 
         codex_home.path().join("config.toml"),
         format!(
             r#"chatgpt_base_url = "{}/backend-api/"
+model_provider = "openai"
 
 [features]
 plugins = true
@@ -612,6 +614,7 @@ async fn plugin_search_deduplicates_shared_remote_identities_while_ignoring_loca
         codex_home.path().join("config.toml"),
         format!(
             r#"chatgpt_base_url = "{}/backend-api/"
+model_provider = "openai"
 
 [features]
 plugins = true
@@ -773,6 +776,7 @@ fn write_remote_plugin_search_config(
         codex_home.join("config.toml"),
         format!(
             r#"chatgpt_base_url = "{}/backend-api/"
+model_provider = "openai"
 
 [features]
 plugins = true

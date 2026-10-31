@@ -77,8 +77,9 @@ impl PluginsManager {
             return Ok(Vec::new());
         }
 
-        let use_remote_global_catalog =
-            input.plugins.remote_plugin_enabled && auth.is_some_and(CodexAuth::uses_codex_backend);
+        let use_remote_global_catalog = input.plugins.remote_plugin_enabled
+            && !input.plugins.chatgpt_base_url.trim().is_empty()
+            && auth.is_some_and(CodexAuth::uses_codex_backend);
         let marketplaces = self
             .list_marketplaces_for_config(
                 &input.plugins,
