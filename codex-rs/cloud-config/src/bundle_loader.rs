@@ -186,12 +186,25 @@ pub async fn chatgpt_config_bundle_loader_for_storage(
 }
 
 /// Fetches directly from the network on each load, without reading or writing
-/// the disk cache or starting a background refresher.
-pub async fn chatgpt_config_bundle_loader_for_storage_without_cache(
+/// the disk cache or starting a background refresher. A configured config
+/// server takes precedence and uses that uncached load, stamped with the
+/// config server. A nonempty ChatGPT base URL selects the ChatGPT source.
+pub async fn managed_config_bundle_loader_for_storage_without_cache(
     auth_config: AuthConfig,
     path_style: AccountPathStyle,
+    requirements: &ConfigRequirementsToml,
     enable_codex_api_key_env: bool,
 ) -> std::io::Result<CloudConfigBundleLoader> {
+    if let Some(service_config) = requirements.config_server.as_ref() {
+        let factory =
+            config_server_http_client_factory(service_config, &auth_config.auth_route_config);
+        return Ok(crate::config_server::load_config_server_bundle(
+            service_config.clone(),
+            auth_config.codex_home,
+            factory,
+            /*persistent_cache*/ false,
+        ));
+    }
     if auth_config
         .chatgpt_base_url
         .as_deref()

@@ -30,6 +30,15 @@ pub fn config_server_bundle_loader(
     codex_home: PathBuf,
     factory: HttpClientFactory,
 ) -> CloudConfigBundleLoader {
+    load_config_server_bundle(config, codex_home, factory, /*persistent_cache*/ true)
+}
+
+pub(crate) fn load_config_server_bundle(
+    config: ConfigServer,
+    codex_home: PathBuf,
+    factory: HttpClientFactory,
+    persistent_cache: bool,
+) -> CloudConfigBundleLoader {
     match ConfigServerSource::from_config_server(config.clone(), codex_home.clone(), factory) {
         Ok(source) => {
             let service = CloudConfigBundleService::from_source(
@@ -37,7 +46,15 @@ pub fn config_server_bundle_loader(
                 codex_home,
                 CLOUD_CONFIG_BUNDLE_TIMEOUT,
             );
-            crate::bundle_loader::managed_config_bundle_loader_for_service(service).0
+            if persistent_cache {
+                crate::bundle_loader::managed_config_bundle_loader_for_service(service).0
+            } else {
+                let service = Arc::new(service.without_cache());
+                CloudConfigBundleLoader::from_getter(move || {
+                    let service = Arc::clone(&service);
+                    async move { service.load_startup_bundle_with_timeout().await }
+                })
+            }
         }
         Err(error) => CloudConfigBundleLoader::new(std::future::ready(Err(error))),
     }

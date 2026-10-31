@@ -1,7 +1,7 @@
 //! Loads executor startup configuration and remote authentication without changing CLI policy.
 
 use codex_app_server::in_process::EmbeddedNetworkPolicy;
-use codex_cloud_config::chatgpt_config_bundle_loader;
+use codex_cloud_config::managed_config_bundle_loader;
 use codex_config::LoaderOverrides;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigLoadOptions;
@@ -142,7 +142,7 @@ pub(super) async fn load_exec_server_config(
             REMOTE_AUTH_MODES.to_vec(),
         )
         .await?;
-        let cloud_config_bundle = chatgpt_config_bundle_loader(
+        let cloud_config_bundle = managed_config_bundle_loader(
             auth_manager,
             bootstrap_auth_config
                 .chatgpt_base_url
@@ -153,6 +153,7 @@ pub(super) async fn load_exec_server_config(
                 .auth_route_config
                 .http_client_factory()
                 .clone(),
+            bootstrap_config.config_layer_stack.requirements_toml(),
         );
         builder = builder.cloud_config_bundle(cloud_config_bundle);
     }

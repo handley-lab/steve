@@ -1,5 +1,5 @@
 use codex_app_server::in_process::EmbeddedNetworkPolicy;
-use codex_cloud_config::chatgpt_config_bundle_loader_for_storage;
+use codex_cloud_config::managed_config_bundle_loader_for_storage;
 use codex_config::CloudConfigBundleLoader;
 use codex_config::ConfigLoadOptions;
 use codex_core::config::bootstrap_account_path_style;
@@ -44,12 +44,13 @@ pub(super) async fn bootstrap_cloud_config_bundle(
     )
     .await?;
     let path_style = bootstrap_account_path_style(&bootstrap_config);
-    Ok(chatgpt_config_bundle_loader_for_storage(
+    Ok(managed_config_bundle_loader_for_storage(
         network_policy.bind_bootstrap_auth(
             bootstrap_auth_config(codex_home.as_path(), &bootstrap_config)?,
             path_style,
         ),
         path_style,
+        bootstrap_config.config_layer_stack.requirements_toml(),
         /*enable_codex_api_key_env*/ false,
     )
     .await?)

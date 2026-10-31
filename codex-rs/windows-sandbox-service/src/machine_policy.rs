@@ -4,7 +4,7 @@
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
-use codex_cloud_config::chatgpt_config_bundle_loader_for_storage_without_cache;
+use codex_cloud_config::managed_config_bundle_loader_for_storage_without_cache;
 use codex_config::ConfigLoadOptions;
 use codex_config::ConfigRequirements;
 use codex_config::types::WindowsSandboxModeToml;
@@ -74,13 +74,15 @@ pub(crate) fn validate_provisioning_request(
                 )
                 .await
                 .context("load bootstrap configuration")?;
-                // Use the default cloud-policy endpoint unless managed requirements override it.
+                // The toml ChatGPT URL is not a source. A configured config server
+                // takes precedence; otherwise requirements.chatgpt_base_url does.
                 let path_style = bootstrap_account_path_style(&bootstrap_config);
                 bootstrap_config.config_toml.chatgpt_base_url = None;
-                let cloud_config_bundle = chatgpt_config_bundle_loader_for_storage_without_cache(
+                let cloud_config_bundle = managed_config_bundle_loader_for_storage_without_cache(
                     bootstrap_auth_config(codex_home, &bootstrap_config)
                         .context("resolve cloud configuration authentication")?,
                     path_style,
+                    bootstrap_config.config_layer_stack.requirements_toml(),
                     /*enable_codex_api_key_env*/ false,
                 )
                 .await
