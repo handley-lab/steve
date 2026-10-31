@@ -554,24 +554,48 @@ pub fn build_models_manager(
     config: &Config,
     auth_manager: Arc<AuthManager>,
 ) -> SharedModelsManager {
+    let mut overlay = config.model_catalog.clone();
     let providers = config
         .configured_model_provider_ids()
         .into_iter()
         .map(|id| {
             let info = config.model_providers[&id].clone();
             let provider = create_model_provider(info.clone(), Some(Arc::clone(&auth_manager)));
+            let mut static_catalog = None;
+            if info.is_amazon_bedrock() || info.is_gcp() {
+                if let Some(catalog) = overlay.as_mut() {
+                    let prefix = format!("{id}/");
+                    let mut models = Vec::new();
+                    catalog.models.retain(|model| {
+                        let Some(native) = model.slug.strip_prefix(&prefix) else {
+                            return true;
+                        };
+                        if native.is_empty() {
+                            return true;
+                        }
+                        let mut native_model = model.clone();
+                        native_model.slug = native.to_string();
+                        models.push(native_model);
+                        false
+                    });
+                    if !models.is_empty() {
+                        static_catalog =
+                            Some(codex_protocol::openai_models::ModelsResponse { models });
+                    }
+                }
+            }
             codex_models_manager::multi_provider::ProviderModels {
                 id,
                 name: info.name.clone(),
                 default_model: info.default_model.clone(),
-                manager: provider.models_manager_without_cache(None),
+                manager: provider.models_manager_without_cache(static_catalog),
             }
         })
         .collect();
     let manager: SharedModelsManager = Arc::new(
         codex_models_manager::multi_provider::MultiProviderModelsManager::new(
             providers,
-            config.model_catalog.clone(),
+            overlay,
             &config.model_provider_id,
             config.model.as_deref(),
         ),

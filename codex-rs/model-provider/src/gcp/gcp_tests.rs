@@ -305,10 +305,22 @@ async fn configured_vertex_models_filter_catalog_and_normalize_tool_metadata_wit
         let mut unsupported_variant = configured_model.clone();
         unsupported_variant.slug = format!("{model}-extra");
         let manager = provider.models_manager_without_cache(Some(ModelsResponse {
-            models: vec![unsupported_model, configured_model, unsupported_variant],
+            models: vec![
+                unsupported_model.clone(),
+                configured_model,
+                unsupported_variant.clone(),
+            ],
         }));
+        for model in [&mut unsupported_model, &mut unsupported_variant] {
+            model.use_responses_lite = false;
+            model.tool_mode = Some(ToolMode::Direct);
+            model.apply_patch_tool_type = None;
+        }
 
-        assert_eq!(manager.get_remote_models().await, vec![expected_model]);
+        assert_eq!(
+            manager.get_remote_models().await,
+            vec![unsupported_model, expected_model, unsupported_variant]
+        );
     }
 }
 
