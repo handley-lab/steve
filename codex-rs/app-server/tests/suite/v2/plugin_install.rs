@@ -378,7 +378,7 @@ async fn plugin_install_uses_remote_apps_needing_auth_response() -> Result<()> {
                 id: "alpha".to_string(),
                 name: "Alpha".to_string(),
                 description: Some("Alpha connector".to_string()),
-                install_url: Some("https://chatgpt.com/apps/alpha/alpha".to_string()),
+                install_url: Some(format!("{}/apps/alpha/alpha", server.uri())),
                 category: Some("Developer Tools".to_string()),
             }],
         }
@@ -1351,7 +1351,7 @@ async fn plugin_install_returns_apps_needing_auth() -> Result<()> {
                 id: "alpha".to_string(),
                 name: "Alpha".to_string(),
                 description: Some("Alpha connector".to_string()),
-                install_url: Some("https://chatgpt.com/apps/alpha/alpha".to_string()),
+                install_url: Some(format!("{}/apps/alpha/alpha", server_url)),
                 category: Some("Communication".to_string()),
             }],
         }
@@ -2471,7 +2471,7 @@ async fn plugin_install_includes_formerly_disallowed_apps_needing_auth() -> Resu
                 id: "alpha".to_string(),
                 name: "Alpha".to_string(),
                 description: Some("Alpha connector".to_string()),
-                install_url: Some("https://chatgpt.com/apps/alpha/alpha".to_string()),
+                install_url: Some(format!("{}/apps/alpha/alpha", server_url)),
                 category: None,
             },
             AppSummary {
@@ -2479,8 +2479,7 @@ async fn plugin_install_includes_formerly_disallowed_apps_needing_auth() -> Resu
                 name: "asdk_app_6938a94a61d881918ef32cb999ff937c".to_string(),
                 description: None,
                 install_url: Some(
-                    "https://chatgpt.com/apps/asdk-app-6938a94a61d881918ef32cb999ff937c/asdk_app_6938a94a61d881918ef32cb999ff937c"
-                        .to_string(),
+                    format!("{server_url}/apps/asdk-app-6938a94a61d881918ef32cb999ff937c/asdk_app_6938a94a61d881918ef32cb999ff937c"),
                 ),
                 category: None,
             }],
@@ -2851,6 +2850,7 @@ fn write_connectors_config(codex_home: &std::path::Path, base_url: &str) -> std:
         format!(
             r#"
 chatgpt_base_url = "{base_url}"
+model_provider = "openai"
 mcp_oauth_credentials_store = "file"
 
 [features]
@@ -2986,6 +2986,7 @@ fn configure_remote_plugin_with_apps_test(
         format!(
             r#"
 chatgpt_base_url = "{}/backend-api/"
+model_provider = "openai"
 
 [features]
 plugins = true

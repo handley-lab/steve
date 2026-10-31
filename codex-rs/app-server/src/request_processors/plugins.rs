@@ -1716,12 +1716,12 @@ impl PluginRequestProcessor {
             .await;
         }
 
-        let is_chatgpt_auth = auth.as_ref().is_some_and(CodexAuth::is_chatgpt_auth);
+        let uses_codex_backend = auth.as_ref().is_some_and(CodexAuth::uses_codex_backend);
         let apps_needing_auth = if let Some(app_ids_needing_auth) =
             installation.app_ids_needing_auth
         {
             if app_ids_needing_auth.is_empty()
-                || !config.features.apps_enabled_for_auth(is_chatgpt_auth)
+                || !config.features.apps_enabled_for_auth(uses_codex_backend)
             {
                 Vec::new()
             } else {
@@ -1801,7 +1801,7 @@ impl PluginRequestProcessor {
         if plugin_app_declarations.is_empty()
             || !config
                 .features
-                .apps_enabled_for_auth(auth.is_some_and(CodexAuth::is_chatgpt_auth))
+                .apps_enabled_for_auth(auth.is_some_and(CodexAuth::uses_codex_backend))
         {
             return Vec::new();
         }
