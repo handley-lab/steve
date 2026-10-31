@@ -276,6 +276,7 @@ pub struct HookListEntry {
 #[derive(Clone)]
 pub(crate) struct ClaudeHooksEngine {
     pub(crate) enabled: bool,
+    allow_managed_hooks_only: bool,
     // Per-turn views share configuration; executor overlays copy handlers on mutation.
     pub(crate) handlers: Arc<Vec<ConfiguredHandler>>,
     /// Retain the session inventory without copying it for every hook dispatch.
@@ -296,9 +297,17 @@ impl ClaudeHooksEngine {
         command_runtime: CommandHookRuntime,
         mcp_executor: Arc<dyn HookMcpExecutor>,
     ) -> Self {
+        let allow_managed_hooks_only = config_layer_stack.is_some_and(|config_layer_stack| {
+            config_layer_stack
+                .requirements()
+                .allow_managed_hooks_only
+                .as_ref()
+                .is_some_and(|requirement| requirement.value)
+        });
         if !enabled && plugin_hook_sources.is_empty() {
             return Self {
                 enabled,
+                allow_managed_hooks_only,
                 handlers: Arc::default(),
                 hook_entries: Arc::default(),
                 warnings: Arc::default(),
@@ -325,6 +334,7 @@ impl ClaudeHooksEngine {
         }
         Self {
             enabled,
+            allow_managed_hooks_only,
             handlers: Arc::new(discovered.handlers),
             hook_entries: Arc::new(discovered.hook_entries),
             warnings: discovered.warnings.into(),
@@ -339,6 +349,11 @@ impl ClaudeHooksEngine {
     }
 
     pub(crate) fn set_executor_hooks(&mut self, executor_hooks: Vec<ExecutorPluginHookSource>) {
+        let executor_hooks = if self.allow_managed_hooks_only {
+            Vec::new()
+        } else {
+            executor_hooks
+        };
         if executor_hooks.is_empty()
             && !self.handlers.iter().any(|handler| {
                 matches!(
