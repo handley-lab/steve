@@ -49,7 +49,10 @@ use test_case::test_case;
 use test_case::test_matrix;
 use tokio::sync::Notify;
 use tokio::time::timeout;
+use wiremock::Mock;
 use wiremock::ResponseTemplate;
+use wiremock::matchers::method;
+use wiremock::matchers::path_regex;
 
 const WAIT: Duration = Duration::from_secs(40);
 
@@ -76,6 +79,10 @@ async fn client_with_effort_updates(
     let config = ConfigBuilder::default()
         .codex_home(home.path().to_path_buf())
         .loader_overrides(codex_config::LoaderOverrides::without_managed_config_for_tests())
+        .cli_overrides(vec![(
+            "model_provider".to_string(),
+            toml::Value::String("openai".to_string()),
+        )])
         .build()
         .await?;
     let mut model = construct_model_info_offline("gpt-5.4", &config);
@@ -86,12 +93,14 @@ async fn client_with_effort_updates(
         name: "Fast".to_string(),
         description: "Priority processing.".to_string(),
     }];
+    let native_model = model.slug.clone();
+    model.slug = format!("mock_provider/{native_model}");
     let catalog = home.path().join("catalog.json");
     std::fs::write(
         &catalog,
         serde_json::to_string(&json!({"models": [model]}))?,
     )?;
-    let mut config = MockResponsesConfig::new(&server.uri()).with_model("gpt-5.4").with_provider_name("OpenAI")
+    let mut config = MockResponsesConfig::new(&server.uri()).with_model(&native_model).with_provider_name("OpenAI")
         .with_root_config(&format!("model_catalog_json = {}\nmodel_reasoning_effort = \"high\"\nmodel_post_turn_compact_threshold_percent = 0", serde_json::to_string(&catalog)?));
     config = if overrides {
         config.enable_feature(Feature::ReasoningEffortOverride)
@@ -99,6 +108,17 @@ async fn client_with_effort_updates(
         config.disable_feature(Feature::ReasoningEffortOverride)
     };
     config.with_extra_config(extra_config).write(home.path())?;
+    // The responses helper's one-shot empty /models is mounted first at the default priority.
+    Mock::given(method("GET"))
+        .and(path_regex(".*/models$"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/json")
+                .set_body_json(json!({"data":[{"id":native_model,"mode":"chat"}]})),
+        )
+        .with_priority(1)
+        .mount(server)
+        .await;
     TestAppServer::builder()
         .with_codex_home(home.path())
         .build_initialized_with_timeout(WAIT)
@@ -1013,11 +1033,9 @@ async fn sample_rejects_invalid_sources_and_prompts() -> Result<()> {
 }
 
 #[test_case(false; "unsupported model")]
-#[test_case(true; "unsupported provider")]
+#[test_case(true; "capable provider")]
 #[tokio::test]
-async fn unsupported_effort_updates_keep_inherited_effort(
-    unsupported_provider: bool,
-) -> Result<()> {
+async fn sample_effort_follows_model_capability(capable_provider: bool) -> Result<()> {
     let server = responses::start_mock_server().await;
     let mock = responses::mount_sse_sequence(
         &server,
@@ -1032,14 +1050,14 @@ async fn unsupported_effort_updates_keep_inherited_effort(
     )
     .await;
     let home = TempDir::new()?;
-    let effort_updates = if unsupported_provider {
+    let effort_updates = if capable_provider {
         EffortUpdates::Supported
     } else {
         EffortUpdates::Unsupported
     };
     let mut client =
         client_with_effort_updates(&home, &server, /*overrides*/ true, effort_updates, "").await?;
-    let overrides = if unsupported_provider {
+    let overrides = if capable_provider {
         json!({"model_providers.mock_provider.name":"Another provider"})
     } else {
         json!({})
@@ -1052,13 +1070,14 @@ async fn unsupported_effort_updates_keep_inherited_effort(
         },
     )
     .await?;
+    let sample_effort = ReasoningEffort::Medium;
     let response = sample(
         &mut client,
         ThreadSampleParams {
             thread_id: parent_id,
             expected_turn_id: turn_id.clone(),
             prompt: "Predict".to_string(),
-            effort: Some(ReasoningEffort::Medium),
+            effort: Some(sample_effort.clone()),
             ..Default::default()
         },
     )
@@ -1079,11 +1098,18 @@ async fn unsupported_effort_updates_keep_inherited_effort(
         requests[1].body_json()["reasoning"],
         requests[0].body_json()["reasoning"]
     );
-    assert!(
-        !requests[1]
-            .input()
-            .iter()
-            .any(|item| item["type"] == "configuration_update")
-    );
+    let sample_input = requests[1].input();
+    if capable_provider {
+        assert_eq!(
+            sample_input.last(),
+            Some(&json!({"type":"configuration_update","reasoning":{"effort":sample_effort}}))
+        );
+    } else {
+        assert!(
+            !sample_input
+                .iter()
+                .any(|item| item["type"] == "configuration_update")
+        );
+    }
     Ok(())
 }

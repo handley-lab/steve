@@ -218,9 +218,7 @@ impl SampleTask {
                 .insert(codex_core::McpServersDisabled);
         }
         options.thread_extension_init.insert(SampleThread);
-        let effort = params.effort.filter(|_| {
-            model.supports_reasoning_effort_updates && options.config.model_provider.is_openai()
-        });
+        let effort = params.effort.filter(|_| model.supports_reasoning_effort_updates);
         options.session_source = Some(SessionSource::Custom("thread_sample".to_string()));
         options.thread_source = Some(
             params
