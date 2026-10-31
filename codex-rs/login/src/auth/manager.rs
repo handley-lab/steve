@@ -62,8 +62,8 @@ use crate::token_data::parse_chatgpt_account_user_id;
 use crate::token_data::parse_chatgpt_jwt_claims;
 use codex_config::ManagedAuthPolicy;
 use codex_config::types::AuthCredentialsStoreMode;
-use codex_http_client::HttpClientFactory;
 use codex_http_client::CHATGPT_ACCOUNT_ID_HEADER;
+use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
 use codex_protocol::account::PlanType as AccountPlanType;
 use codex_protocol::auth::PlanType as InternalPlanType;
@@ -109,8 +109,8 @@ pub struct ApiKeyAuth {
 
 #[derive(Debug, Clone)]
 pub struct ChatgptAuth {
-    storage: Arc<dyn AuthStorageBackend>,
     state: ChatgptAuthState,
+    storage: Arc<dyn AuthStorageBackend>,
 }
 
 #[derive(Debug, Clone)]
@@ -638,8 +638,9 @@ impl CodexAuth {
         let state = ChatgptAuthState {
             auth_dot_json: Arc::new(Mutex::new(Some(auth_dot_json))),
         };
+        let dummy_auth_id = NEXT_DUMMY_AUTH_ID.fetch_add(1, Ordering::Relaxed);
         let storage = create_auth_storage(
-            PathBuf::from(format!("dummy-chatgpt-auth-{}", NEXT_DUMMY_AUTH_ID.fetch_add(1, Ordering::Relaxed))),
+            PathBuf::from(format!("dummy-chatgpt-auth-{dummy_auth_id}")),
             AuthCredentialsStoreMode::Ephemeral,
             AuthKeyringBackendKind::default(),
         );

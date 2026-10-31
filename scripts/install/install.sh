@@ -151,7 +151,6 @@ download_verified_file() {
   fi
 }
 
-
 parse_release_metadata() {
   # Bound awk's record size so compact, single-line JSON stays fast on every
   # supported awk implementation. JSON strings cannot contain literal newlines,

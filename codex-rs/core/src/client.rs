@@ -112,6 +112,7 @@ use futures::StreamExt;
 use http::HeaderMap as ApiHeaderMap;
 use http::HeaderValue;
 use http::StatusCode;
+use serde::Deserialize;
 use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::mpsc;
@@ -153,6 +154,7 @@ use codex_model_provider_info::DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::WireApi;
 use codex_protocol::error::CodexErr;
+use codex_protocol::error::CodexErrorDetails;
 use codex_protocol::error::Result;
 use codex_response_debug_context::extract_response_debug_context;
 use codex_response_debug_context::extract_response_debug_context_from_api_error;
@@ -846,9 +848,11 @@ impl ModelClient {
                 .map_err(|error| self.state.provider.map_api_error(error))?,
         );
         let transport = client_setup.build_api_transport(REALTIME_CALLS_ENDPOINT)?;
-        let response = ApiRealtimeCallClient::new(transport, client_setup.api_provider, client_setup.api_auth)
-            .create_with_session_and_headers(sdp, session_config, extra_headers)
-            .await.map_err(|error| self.state.provider.map_api_error(error))?;
+        let response =
+            ApiRealtimeCallClient::new(transport, client_setup.api_provider, client_setup.api_auth)
+                .create_with_session_and_headers(sdp, session_config, extra_headers)
+                .await
+                .map_err(|error| self.state.provider.map_api_error(error))?;
         Ok(RealtimeWebrtcCallStart {
             sdp: response.sdp,
             call_id: response.call_id,
@@ -2814,11 +2818,30 @@ where
                         feedback_tags!(last_model_request_id = upstream_request_id);
                     }
                     let mapped = provider.map_api_error(err);
+                    // Terminal response output is trace evidence. Only streamed done items
+                    // belong to the continuation cache or reach tool dispatch.
+                    let completed_item_count = items_added.len();
+                    if inference_trace_attempt.needs_output_items()
+                        && let CodexErrorDetails::ResponseIncomplete(incomplete) = mapped.details()
+                    {
+                        for raw in &incomplete.partial_output {
+                            // Other discards unknown payloads and cannot be replayed as a trace item.
+                            if let Ok(item) = ResponseItem::deserialize(raw)
+                                && !matches!(item, ResponseItem::Other)
+                                && !item.id().is_some_and(|id| {
+                                    items_added.iter().any(|seen| seen.id() == Some(id))
+                                })
+                            {
+                                items_added.push(item);
+                            }
+                        }
+                    }
                     inference_trace_attempt.record_failed(
                         &mapped,
                         upstream_request_id,
                         &items_added,
                     );
+                    items_added.truncate(completed_item_count);
                     if !logged_error {
                         session_telemetry.see_event_completed_failed(&mapped);
                         logged_error = true;

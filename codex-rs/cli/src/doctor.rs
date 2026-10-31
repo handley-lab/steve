@@ -3189,6 +3189,7 @@ mod tests {
             ApiError::Stream(message()),
             ApiError::ResponseIncomplete(Box::new(
                 codex_protocol::error::ResponseIncompleteError {
+                    partial_output: vec![],
                     reason: message(),
                     response_id: Some(message()),
                     token_usage: None,
