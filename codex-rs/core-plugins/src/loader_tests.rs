@@ -837,7 +837,6 @@ enabled = true
             &policy,
             extra_plugins,
             &store,
-            TargetCuratedMarketplace::OpenAi,
             /*remote_global_catalog_active*/ false,
         )
         .await;

@@ -1632,6 +1632,7 @@ enabled = true
         loaded_plugin_names(&manager, &config).await,
         vec![
             "calendar@openai-curated".to_string(),
+            "linear@openai-api-curated".to_string(),
             "linear@openai-curated".to_string(),
             "remote-only@openai-curated-remote".to_string(),
         ]
@@ -1664,7 +1665,10 @@ enabled = true
 
     assert_eq!(
         loaded_plugin_names(&manager, &config).await,
-        vec!["linear@openai-curated-remote".to_string()]
+        vec![
+            "linear@openai-api-curated".to_string(),
+            "linear@openai-curated-remote".to_string(),
+        ]
     );
 }
 
@@ -1706,6 +1710,8 @@ enabled = true
     assert_eq!(
         loaded_plugin_names(&manager, &config).await,
         vec![
+            "calendar@openai-curated".to_string(),
+            "linear@openai-api-curated".to_string(),
             "linear@openai-curated-remote".to_string(),
             "remote-only@openai-curated-remote".to_string(),
         ]
@@ -1742,13 +1748,20 @@ enabled = true
     manager.write_remote_installed_plugins_cache(vec![remote_installed_plugin("remote-only")]);
     assert_eq!(
         loaded_plugin_names(&manager, &config).await,
-        vec!["remote-only@openai-curated-remote".to_string()]
+        vec![
+            "linear@openai-api-curated".to_string(),
+            "linear@openai-curated".to_string(),
+            "remote-only@openai-curated-remote".to_string(),
+        ]
     );
 
     set_test_auth_mode(&auth_manager, /*auth_mode*/ None).await;
     assert_eq!(
         loaded_plugin_names(&manager, &config).await,
-        vec!["linear@openai-api-curated".to_string()]
+        vec![
+            "linear@openai-api-curated".to_string(),
+            "linear@openai-curated".to_string(),
+        ]
     );
 
     for auth_mode in [AuthMode::ApiKey, AuthMode::BedrockApiKey] {
@@ -1756,7 +1769,10 @@ enabled = true
 
         assert_eq!(
             loaded_plugin_names(&manager, &config).await,
-            vec!["linear@openai-api-curated".to_string()]
+            vec![
+                "linear@openai-api-curated".to_string(),
+                "linear@openai-curated".to_string(),
+            ]
         );
     }
 
@@ -1765,14 +1781,21 @@ enabled = true
         config.model_provider_id = model_provider_id.to_string();
         assert_eq!(
             loaded_plugin_names(&manager, &config).await,
-            vec!["linear@openai-api-curated".to_string()]
+            vec![
+                "linear@openai-api-curated".to_string(),
+                "linear@openai-curated".to_string(),
+            ]
         );
     }
 
     set_test_auth_mode(&auth_manager, Some(AuthMode::Chatgpt)).await;
     assert_eq!(
         loaded_plugin_names(&manager, &config).await,
-        vec!["remote-only@openai-curated-remote".to_string()]
+        vec![
+            "linear@openai-api-curated".to_string(),
+            "linear@openai-curated".to_string(),
+            "remote-only@openai-curated-remote".to_string(),
+        ]
     );
 }
 
@@ -7409,7 +7432,7 @@ enabled = true
             .iter()
             .map(|source| source.plugin_id.as_key())
             .collect::<Vec<_>>(),
-        vec!["linear@openai-curated"]
+        vec!["linear@openai-api-curated", "linear@openai-curated"]
     );
 
     set_test_auth_mode(&auth_manager, Some(AuthMode::ApiKey)).await;
@@ -7422,7 +7445,7 @@ enabled = true
             .iter()
             .map(|source| source.plugin_id.as_key())
             .collect::<Vec<_>>(),
-        vec!["linear@openai-api-curated"]
+        vec!["linear@openai-api-curated", "linear@openai-curated"]
     );
 
     set_test_auth_mode(&auth_manager, /*auth_mode*/ None).await;
@@ -7435,7 +7458,7 @@ enabled = true
             .iter()
             .map(|source| source.plugin_id.as_key())
             .collect::<Vec<_>>(),
-        vec!["linear@openai-api-curated"]
+        vec!["linear@openai-api-curated", "linear@openai-curated"]
     );
 }
 

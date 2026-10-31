@@ -40,7 +40,6 @@ use crate::loader::load_plugins_from_layer_stack;
 use crate::loader::log_plugin_load_errors;
 use crate::loader::materialize_marketplace_plugin_source;
 use crate::loader::plugin_capability_summary_from_root;
-use crate::loader::plugin_is_eligible_for_target_marketplace;
 use crate::loader::refresh_non_curated_plugin_cache_detailed;
 use crate::loader::refresh_non_curated_plugin_cache_force_reinstall_detailed;
 use crate::loader::remote_installed_plugins_to_config;
@@ -930,13 +929,6 @@ impl PluginsManager {
         mut plugins: Vec<LoadedPlugin>,
         auth_mode: Option<AuthMode>,
     ) -> PluginLoadOutcome {
-        let target_curated_marketplace = target_curated_marketplace(auth_mode);
-        plugins.retain(|plugin| {
-            plugin_is_eligible_for_target_marketplace(
-                &plugin.config_name,
-                target_curated_marketplace,
-            )
-        });
         for plugin in &mut plugins {
             let plugin_active = plugin.is_active();
             apply_app_mcp_routing_policy(
@@ -1007,13 +999,11 @@ impl PluginsManager {
         if !config.plugins_enabled {
             return PluginHookLoadOutcome::default();
         }
-        let target_curated_marketplace = target_curated_marketplace(self.auth_mode());
         load_plugin_hooks_from_layer_stack(
             config_layer_stack,
             &config.plugins,
             self.remote_installed_plugin_configs(),
             &self.store,
-            target_curated_marketplace,
             self.remote_global_catalog_active(config),
         )
         .await
@@ -3611,7 +3601,7 @@ impl PluginsManager {
         ));
         let curated_marketplace_path = if include_openai_curated {
             match target_curated_marketplace(self.auth_mode()) {
-                TargetCuratedMarketplace::OpenAi | TargetCuratedMarketplace::OpenAiWithRemote => {
+                TargetCuratedMarketplace::OpenAiWithRemote => {
                     let curated_repo_root = curated_plugins_repo_path(self.codex_home.as_path());
                     curated_repo_root.is_dir().then_some(curated_repo_root)
                 }

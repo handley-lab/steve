@@ -89,7 +89,6 @@ pub struct PluginHookLoadOutcome {
 /// The built-in curated marketplace selection for the current runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetCuratedMarketplace {
-    OpenAi,
     OpenAiWithRemote,
     OpenAiApi,
 }
@@ -228,10 +227,9 @@ pub async fn load_plugin_hooks_from_layer_stack(
     plugin_policy: &codex_config::types::PluginsConfigToml,
     extra_plugins: HashMap<String, PluginConfig>,
     store: &PluginStore,
-    target_curated_marketplace: TargetCuratedMarketplace,
     remote_global_catalog_active: bool,
 ) -> PluginHookLoadOutcome {
-    let mut plugins = load_plugins_from_layer_stack_with_scope(
+    let plugins = load_plugins_from_layer_stack_with_scope(
         config_layer_stack,
         plugin_policy,
         extra_plugins,
@@ -240,9 +238,6 @@ pub async fn load_plugin_hooks_from_layer_stack(
         PluginLoadScope::HooksOnly,
     )
     .await;
-    plugins.retain(|plugin| {
-        plugin_is_eligible_for_target_marketplace(&plugin.config_name, target_curated_marketplace)
-    });
     PluginHookLoadOutcome {
         hook_sources: plugins
             .iter()
@@ -272,8 +267,19 @@ fn merge_configured_plugins_with_remote_installed(
         if extra_plugins.contains_key("visualize@openai-curated-remote") {
             configured_plugins.remove("visualize@openai-bundled");
         }
+        let replaced_curated_names = extra_plugins
+            .keys()
+            .filter_map(|plugin_key| {
+                let plugin_id = PluginId::parse(plugin_key).ok()?;
+                (plugin_id.marketplace_name == REMOTE_GLOBAL_MARKETPLACE_NAME)
+                    .then_some(plugin_id.plugin_name)
+            })
+            .collect::<HashSet<_>>();
         configured_plugins.retain(|plugin_key, _| match PluginId::parse(plugin_key) {
-            Ok(plugin_id) => plugin_id.marketplace_name != crate::OPENAI_CURATED_MARKETPLACE_NAME,
+            Ok(plugin_id) => {
+                plugin_id.marketplace_name != crate::OPENAI_CURATED_MARKETPLACE_NAME
+                    || !replaced_curated_names.contains(&plugin_id.plugin_name)
+            }
             Err(_) => true,
         });
         for (plugin_key, plugin_config) in extra_plugins {
@@ -316,28 +322,6 @@ fn merge_configured_plugins_with_remote_installed(
     }
 
     configured_plugins
-}
-
-pub(crate) fn plugin_is_eligible_for_target_marketplace(
-    plugin_key: &str,
-    target_curated_marketplace: TargetCuratedMarketplace,
-) -> bool {
-    let Ok(plugin_id) = PluginId::parse(plugin_key) else {
-        return true;
-    };
-    match target_curated_marketplace {
-        TargetCuratedMarketplace::OpenAi => {
-            plugin_id.marketplace_name != crate::OPENAI_API_CURATED_MARKETPLACE_NAME
-                && plugin_id.marketplace_name != REMOTE_GLOBAL_MARKETPLACE_NAME
-        }
-        TargetCuratedMarketplace::OpenAiWithRemote => {
-            plugin_id.marketplace_name != crate::OPENAI_API_CURATED_MARKETPLACE_NAME
-        }
-        TargetCuratedMarketplace::OpenAiApi => {
-            plugin_id.marketplace_name != crate::OPENAI_CURATED_MARKETPLACE_NAME
-                && plugin_id.marketplace_name != REMOTE_GLOBAL_MARKETPLACE_NAME
-        }
-    }
 }
 
 fn merge_remote_plugin_config(
