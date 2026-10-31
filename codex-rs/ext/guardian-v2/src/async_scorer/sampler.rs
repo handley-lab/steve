@@ -26,7 +26,7 @@ use codex_model_provider::WorkspaceRoutingContext;
 use codex_protocol::ResponseItemId;
 use codex_protocol::error::CodexErr;
 use codex_protocol::models::ResponseItem;
-use codex_protocol::openai_models::ModelInfo;
+use codex_protocol::openai_models::CatalogModel;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::turn_input::CyberAccessProgram;
 use thiserror::Error;
@@ -62,7 +62,7 @@ pub struct LunaSamplerConfig {
     /// Optional inference service tier.
     pub service_tier: Option<String>,
     /// Classifier-scoped metadata, including encrypted-compaction compatibility.
-    pub model_info: Option<ModelInfo>,
+    pub model_info: Option<CatalogModel>,
     /// Complete input allowance resolved for the classifier model.
     pub max_input_tokens: usize,
     /// Host-provided metrics capability with the owning session's attribution.

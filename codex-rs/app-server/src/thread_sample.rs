@@ -185,16 +185,25 @@ impl SampleTask {
         let model = manager
             .get_models_manager()
             .get_model_info(
+                &options.config.model_provider_id,
                 options.config.model.as_deref().unwrap_or(&snapshot.model),
                 &options.config.to_models_manager_config(),
             )
-            .await;
+            .await
+            .map_err(|error| internal_error(error.to_string()))?;
         options.config.ephemeral = true;
         options
             .config
             .features
             .enable(Feature::ReasoningEffortOverride)
             .map_err(|error| invalid_request(error.to_string()))?;
+        if let Some(interrupt_on_cancel) = params.interrupt_on_cancel {
+            options
+                .config
+                .features
+                .set_enabled(Feature::InterruptOnCancel, interrupt_on_cancel)
+                .map_err(|error| invalid_request(error.to_string()))?;
+        }
         options
             .thread_extension_init
             .insert(codex_core::compact::AutoCompactionDisabled);

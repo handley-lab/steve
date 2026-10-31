@@ -145,6 +145,7 @@ pub(crate) fn new_server_version_warning(
 #[derive(Debug)]
 pub(crate) struct SafetyAccessBlockCell {
     title: &'static str,
+    pub(crate) explanation: Option<String>,
     body: &'static str,
 }
 
@@ -152,6 +153,7 @@ pub(crate) fn new_safety_access_block_event() -> SafetyAccessBlockCell {
     SafetyAccessBlockCell {
         title: "This content can't be shown",
         body: "This request was declined for safety reasons.",
+        explanation: None,
     }
 }
 
@@ -168,7 +170,17 @@ pub(crate) fn new_cyber_policy_error_event(
     };
     SafetyAccessBlockCell {
         title: "This content can’t be shown",
+        explanation: None,
         body,
+    }
+}
+
+impl SafetyAccessBlockCell {
+    fn message(&self) -> String {
+        match &self.explanation {
+            Some(explanation) => format!("{explanation} {}", self.body),
+            None => self.body.to_owned(),
+        }
     }
 }
 
@@ -181,7 +193,7 @@ impl HistoryCell for SafetyAccessBlockCell {
         let mut lines = vec![HyperlinkLine::new(
             vec!["ⓘ ".fg(accent_color()), self.title.bold()].into(),
         )];
-        let body = Line::from(vec!["  ".into(), self.body.dim()]);
+        let body = Line::from(vec!["  ".into(), self.message().dim()]);
         let wrap_width = width.saturating_sub(2).max(1) as usize;
         let wrapped = adaptive_wrap_line(
             &body,
@@ -195,7 +207,7 @@ impl HistoryCell for SafetyAccessBlockCell {
     }
 
     fn raw_lines(&self) -> Vec<Line<'static>> {
-        vec![Line::from(self.title), Line::from(self.body)]
+        vec![Line::from(self.title), Line::from(self.message())]
     }
 
     fn transcript_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {

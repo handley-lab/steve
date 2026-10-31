@@ -225,6 +225,7 @@ fn model_from_preset(preset: &ModelPreset) -> Model {
         default_service_tier: preset.default_service_tier.clone(),
         available_access_programs: preset.available_access_programs.clone().map(Into::into),
         is_default: preset.is_default,
+        is_provider_default: preset.is_provider_default,
     }
 }
 

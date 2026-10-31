@@ -1,6 +1,7 @@
 use url::Host;
 use url::Url;
 
+mod chatgpt_routing_affinity;
 mod client;
 mod client_builder;
 mod client_tls;
@@ -8,6 +9,8 @@ mod custom_ca;
 mod error;
 mod native_roots;
 mod network_policy;
+mod openai_endpoints;
+mod openai_headers;
 mod outbound_proxy;
 mod request;
 mod request_builder;
@@ -19,6 +22,7 @@ mod route_aware_redirect;
 mod tls_backend_fallback;
 mod transport;
 
+pub use crate::chatgpt_routing_affinity::ChatGptRoutingAffinity;
 pub use crate::client::HttpClient;
 pub use crate::client::HttpError;
 pub use crate::client_builder::HttpClientBuilder;
@@ -42,6 +46,12 @@ pub use crate::network_policy::NetworkPolicy;
 pub use crate::network_policy::NetworkPolicyController;
 pub use crate::network_policy::NetworkPolicyDenied;
 pub use crate::network_policy::NetworkPolicyRevision;
+pub use crate::openai_endpoints::OpenAiDestination;
+pub use crate::openai_endpoints::classify_openai_api_url;
+pub use crate::openai_endpoints::is_openai_api_url;
+pub use crate::openai_headers::CHATGPT_ACCOUNT_ID_HEADER;
+pub use crate::openai_headers::OPENAI_ORGANIZATION_HEADER;
+pub use crate::openai_headers::OPENAI_PROJECT_HEADER;
 pub use crate::outbound_proxy::BuildRouteAwareHttpClientError;
 pub use crate::outbound_proxy::ClientRouteClass;
 pub use crate::outbound_proxy::HttpClientFactory;

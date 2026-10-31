@@ -208,7 +208,12 @@ def code_mode_host_debug_symbols(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Path:
     target = pytestconfig.getoption("package_target")
-    binaries = {"steve", "steve-app-server", "steve-code-mode-host"}
+    binaries = {
+        "steve",
+        "steve-app-server",
+        "steve-code-mode-host",
+        "steve-exec-server",
+    }
     if "windows" in target:
         binaries.update({"codex-command-runner", "codex-windows-sandbox-setup"})
 

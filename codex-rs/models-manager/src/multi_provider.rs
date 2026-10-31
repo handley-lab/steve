@@ -1,5 +1,8 @@
 //! A live catalogue composed from the configured providers and one metadata overlay.
 
+use crate::CatalogModel;
+use crate::ModelOrigin;
+
 use crate::manager::ModelListing;
 use crate::manager::ModelProviderError;
 use crate::manager::ModelsManager;
@@ -134,27 +137,82 @@ impl MultiProviderModelsManager {
 }
 
 impl ModelsManager for MultiProviderModelsManager {
+    fn for_originator(&self, originator: &str) -> Option<SharedModelsManager> {
+        let mut changed = false;
+        let providers = self.providers.iter().map(|provider| {
+            let manager = provider.manager.for_originator(originator).unwrap_or_else(|| provider.manager.clone());
+            changed |= !std::sync::Arc::ptr_eq(&manager, &provider.manager);
+            ProviderModels {
+                id: provider.id.clone(),
+                name: provider.name.clone(),
+                default_model: provider.default_model.clone(),
+                manager,
+            }
+        }).collect();
+        changed.then(|| std::sync::Arc::new(Self {
+            providers,
+            metadata: self.metadata.clone(),
+            default_model: self.default_model.clone(),
+        }) as SharedModelsManager)
+    }
+
     fn get_model_info<'a>(
         &'a self,
         provider_id: &'a str,
         model: &'a str,
         config: &'a crate::ModelsManagerConfig,
-    ) -> ModelsManagerFuture<'a, codex_protocol::error::Result<ModelInfo>> {
+    ) -> ModelsManagerFuture<'a, codex_protocol::error::Result<CatalogModel>> {
         Box::pin(async move {
-            let models = self.get_remote_models().await;
             let qualified = format!("{provider_id}/{model}");
-            let mut info = models
-                .into_iter()
-                .find(|candidate| candidate.slug == qualified)
-                .ok_or_else(|| {
-                    codex_protocol::error::CodexErr::InvalidRequest(format!(
-                        "Model `{qualified}` is unavailable for coding"
-                    ))
-                })?;
-            info.slug = model.to_string();
-            Ok(crate::model_info::with_config_overrides(info, config))
+            let provider = self.providers.iter().find(|provider| provider.id == provider_id);
+            let mut selected = None;
+            if let Some(provider) = provider {
+                let available = self.enrich(provider, provider.manager.get_remote_models().await);
+                if let Some(metadata) = available.into_iter().find(|entry| entry.slug == qualified) {
+                    let origin = if self.metadata.contains_key(&qualified) {
+                        ModelOrigin::ExplicitConfig
+                    } else {
+                        provider.manager.get_model_info(provider_id, model, config).await?.origin
+                    };
+                    selected = Some(CatalogModel { model: metadata.into(), origin });
+                }
+            }
+            let mut info = selected.ok_or_else(|| {
+                codex_protocol::error::CodexErr::InvalidRequest(format!(
+                    "Model `{qualified}` is unavailable for coding"
+                ))
+            })?;
+            let mut metadata = std::sync::Arc::unwrap_or_clone(info.model);
+            metadata.slug = model.to_string();
+            info.model = crate::model_info::with_config_overrides(metadata, config).into();
+            Ok(info)
         })
     }
+    fn model_catalog_with_origins(
+        &self,
+        strategy: RefreshStrategy,
+        factory: HttpClientFactory,
+    ) -> ModelsManagerFuture<'_, Vec<CatalogModel>> {
+        Box::pin(async move {
+            let mut models = Vec::new();
+            for provider in &self.providers {
+                for entry in provider.manager.model_catalog_with_origins(strategy, factory.clone()).await {
+                    let qualified = format!("{}/{}", provider.id, entry.model.slug);
+                    let origin = if self.metadata.contains_key(&qualified) {
+                        ModelOrigin::ExplicitConfig
+                    } else {
+                        entry.origin
+                    };
+                    models.extend(self.enrich(provider, vec![std::sync::Arc::unwrap_or_clone(entry.model)]).into_iter().map(|model| CatalogModel {
+                        model: model.into(),
+                        origin,
+                    }));
+                }
+            }
+            models
+        })
+    }
+
     fn set_api_key_model_discovery_enabled(&self, enabled: bool) {
         for provider in &self.providers {
             provider
@@ -267,7 +325,7 @@ mod tests {
             id: id.to_string(),
             name: id.to_string(),
             default_model: default_model.map(str::to_string),
-            manager: Arc::new(StaticModelsManager::new(None, ModelsResponse { models })),
+            manager: Arc::new(StaticModelsManager::new(None, ModelsResponse { models }, ModelOrigin::ExplicitConfig)),
         }
     }
 

@@ -199,11 +199,19 @@ async fn lifecycle_service_tier_uses_the_destination_catalog() -> Result<()> {
     let mut traces = Vec::new();
     let mut failures = Vec::new();
     for (process_tier, destination_tier) in [("priority", "ultrafast"), ("ultrafast", "priority")] {
-        let a = responses::start_mock_server().await;
-        let b = responses::start_mock_server().await;
+        let a = wiremock::MockServer::start().await;
+        let b = wiremock::MockServer::start().await;
+        for endpoint in [&a, &b] {
+            wiremock::Mock::given(wiremock::matchers::path("/v1/models"))
+                .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+                    serde_json::json!({"data": [{"id": "gpt-5.5"}]}),
+                ))
+                .mount(endpoint)
+                .await;
+        }
         let home = tempdir()?;
         let mut model = codex_models_manager::test_support::model_info("test-model");
-        model.slug = "gpt-5.5".to_string();
+        model.slug = "tier/gpt-5.5".to_string();
         model.service_tiers = ["priority", "ultrafast"]
             .into_iter()
             .map(|id| ModelServiceTier {
@@ -233,7 +241,7 @@ model_catalog_json = {catalog:?}
 fast_mode = true
 ultrafast_mode = true
 guardian_approval = false
-api_key_model_discovery = false
+api_key_model_discovery = true
 shell_snapshot = false
 cli_daybreak = false
 [model_providers.tier]
@@ -274,6 +282,7 @@ stream_max_retries = 0
         server
             .turn_start(
                 parent.session.thread_id,
+                "user",
                 uuid::Uuid::new_v4().to_string(),
                 vec![codex_app_server_protocol::UserInput::Text {
                     text: "materialize the source".to_string(),
@@ -296,7 +305,7 @@ stream_max_retries = 0
         tokio::time::timeout(Duration::from_secs(30), async {
             while let Some(event) = server.next_event().await {
                 if let codex_app_server_client::AppServerEvent::ServerNotification(notification) =
-                    event
+                    event.event
                     && let ServerNotification::TurnCompleted(completed) = *notification
                 {
                     assert_eq!(
@@ -416,6 +425,7 @@ stream_max_retries = 0
             server
                 .turn_start(
                     fork.session.thread_id,
+                    "user",
                     uuid::Uuid::new_v4().to_string(),
                     vec![codex_app_server_protocol::UserInput::Text {
                         text: "check the tier".to_string(),
@@ -437,7 +447,7 @@ stream_max_retries = 0
                 .await?;
             tokio::time::timeout(Duration::from_secs(30), async {
                 while let Some(event) = server.next_event().await {
-                    if let codex_app_server_client::AppServerEvent::ServerNotification(notification) = event
+                    if let codex_app_server_client::AppServerEvent::ServerNotification(notification) = event.event
                         && let ServerNotification::TurnCompleted(completed) = *notification {
                         assert_eq!(completed.turn.status, codex_app_server_protocol::TurnStatus::Completed);
                         return;
@@ -481,13 +491,19 @@ async fn lifecycle_service_tier_respects_choices_and_reports_partial_creation() 
         ("destination-tier", HistoryCapabilities::ScopedModelsFail),
         ("unlisted-model", HistoryCapabilities::Current),
     ] {
-        let endpoint = core_test_support::responses::start_mock_server().await;
+        let endpoint = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::path("/v1/models"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({"data": [{"id": "gpt-5.5"}, {"id": "unlisted-model"}]}),
+            ))
+            .mount(&endpoint)
+            .await;
         let home = tempdir()?;
         let mut catalog = codex_protocol::openai_models::ModelsResponse {
-            models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],
+            models: vec![codex_models_manager::test_support::model_info("tier/gpt-5.5")],
         };
         catalog.models.truncate(1);
-        catalog.models[0].slug = "gpt-5.5".to_string();
+        catalog.models[0].slug = "tier/gpt-5.5".to_string();
         catalog.models[0].service_tiers = vec![ModelServiceTier {
             id: "priority".into(),
             name: "Priority".into(),
@@ -510,7 +526,7 @@ model_catalog_json = {catalog_path:?}
 fast_mode = true
 ultrafast_mode = true
 guardian_approval = false
-api_key_model_discovery = false
+api_key_model_discovery = true
 shell_snapshot = false
 [model_providers.tier]
 name = "Selected service"
@@ -590,13 +606,20 @@ experimental_bearer_token = "local-tier-control"
                 };
                 assert_eq!(started.session.service_tier.as_deref(), expected, "{case}");
                 assert_eq!(scoped.is_some(), case == "unlisted-model", "{case}");
-                assert!(
-                    !requests
-                        .lock()
-                        .unwrap()
-                        .iter()
-                        .any(|request| request.method == "thread/settings/update")
-                );
+                let updates = requests
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|request| request.method == "thread/settings/update")
+                    .map(|request| request.params.clone())
+                    .collect::<Vec<_>>();
+                if case == "unlisted-model" {
+                    assert_eq!(updates.len(), 1, "{case}: {updates:?}");
+                    assert_eq!(updates[0].as_ref().unwrap()["serviceTier"], "default");
+                    assert_eq!(updates[0].as_ref().unwrap()["threadId"], started.session.thread_id.to_string());
+                } else {
+                    assert!(updates.is_empty(), "{case}: {updates:?}");
+                }
                 (
                     started.session.thread_id.to_string(),
                     serde_json::json!({"tier": started.session.service_tier}),
@@ -608,7 +631,7 @@ experimental_bearer_token = "local-tier-control"
             loaded.data.contains(&thread_id),
             "created thread remains discoverable"
         );
-        assert!(endpoint.received_requests().await.unwrap().is_empty());
+        assert!(endpoint.received_requests().await.unwrap().iter().all(|request| request.url.path() == "/v1/models"));
         traces.push(serde_json::json!({"case": case, "config": config_text,
             "outcome": outcome, "thread_id": thread_id, "loaded": loaded, "rpc": *requests.lock().unwrap()}));
         if let Some(path) = std::env::var_os("STEVE_TEST_TIER_ERROR_CAPTURE") {

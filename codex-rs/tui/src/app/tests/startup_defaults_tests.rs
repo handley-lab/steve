@@ -119,11 +119,12 @@ wire_api = "responses"
         let (mut server, requests, proxy) =
             start_recording_remote_app_server(&server_config).await?;
         let bootstrap = server.bootstrap(&config).await?;
+        let backend_id = server.backend_id();
         let mut tui = crate::tui::test_support::make_test_tui()?;
         tui.pause_events();
         let mut run = Box::pin(App::run(
             &mut tui,
-            server,
+            crate::app::backend_sessions::InitialBackendSessions::singleton(server),
             config.clone(),
             config.cwd.to_path_buf(),
             Vec::new(),
@@ -133,6 +134,7 @@ wire_api = "responses"
             /*initial_prompt*/ None,
             Vec::new(),
             SessionSelection::Resume(SessionTarget {
+                backend_id,
                 thread_id,
                 path: None,
                 cwd: None,
@@ -743,6 +745,7 @@ async fn fresh_startup_reads_destination_and_cleared_model_uses_catalog() -> Res
             AppServerTarget::Embedded
         };
         let bootstrap = server.bootstrap(&config).await?;
+        let backend_id = server.backend_id();
         assert_eq!(bootstrap.default_model, "stale-client-model");
         let defaults_read = prepare_fresh_startup_config(
             &mut config,
@@ -826,6 +829,66 @@ async fn fresh_startup_reads_destination_and_cleared_model_uses_catalog() -> Res
 }
 
 #[tokio::test]
+async fn fresh_startup_observes_config_edits_after_directory_trust() -> Result<()> {
+    let home = tempdir()?;
+    let destination = tempdir()?;
+    std::fs::create_dir(destination.path().join(".git"))?;
+    let config_path = home.path().join("config.toml");
+    let project = serde_json::to_string(&destination.path().display().to_string())?;
+    let write_tier = |tier: &str| {
+        std::fs::write(
+            &config_path,
+            format!("service_tier = \"{tier}\"\n[projects.{project}]\ntrust_level = \"trusted\"\n"),
+        )
+    };
+    write_tier("priority")?;
+    let config = ConfigBuilder::default()
+        .codex_home(home.path().to_path_buf())
+        .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+        .harness_overrides(ConfigOverrides {
+            cwd: Some(destination.path().to_path_buf()),
+            ..Default::default()
+        })
+        .build()
+        .await?;
+    let (mut server, requests, proxy) = start_recording_app_server_with_history(
+        &config,
+        HistoryCapabilities::Current,
+        /*blocked_thread_list*/ None,
+        /*failed_thread_name*/ None,
+        crate::app_server_session::ThreadParamsMode::Embedded,
+        LoaderOverrides {
+            user_config_path: Some(config_path.clone().abs()),
+            ..LoaderOverrides::default()
+        },
+    )
+    .await?;
+    let bootstrap = server.bootstrap(&config).await?;
+    let reads_before = recorded_params(&requests, "config/read").len();
+    let trust = crate::config_update::read_remote_project_trust(
+        server.request_handle(),
+        config.cwd.as_path(),
+        crate::config_update::ProjectTrustHost::Local,
+    )
+    .await?;
+    assert_eq!(trust, None);
+    // A different process can edit this file even when the app server is embedded.
+    write_tier("flex")?;
+    run_until_thread_start(server, config, bootstrap, &requests).await?;
+    let starts = recorded_params(&requests, "thread/start");
+    assert_eq!(
+        (
+            starts.len(),
+            &starts[0]["serviceTier"],
+            recorded_params(&requests, "config/read").len() - reads_before,
+        ),
+        (1, &serde_json::json!("flex"), 2),
+    );
+    proxy.abort();
+    Ok(())
+}
+
+#[tokio::test]
 async fn fresh_startup_falls_back_only_for_unsupported_config_read() -> Result<()> {
     for capabilities in [
         HistoryCapabilities::ConfigReadUnsupported(-32601),
@@ -851,6 +914,7 @@ async fn fresh_startup_falls_back_only_for_unsupported_config_read() -> Result<(
         )
         .await?;
         let bootstrap = server.bootstrap(&config).await?;
+        let backend_id = server.backend_id();
         run_until_thread_start(server, config, bootstrap, &requests).await?;
         let starts = recorded_params(&requests, "thread/start");
         assert_eq!(starts.len(), 1);

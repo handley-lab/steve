@@ -24,7 +24,6 @@ use tempfile::tempdir;
 use tokio::sync::Notify;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-use tracing_subscriber::layer::SubscriberExt;
 
 use super::*;
 
@@ -101,7 +100,7 @@ async fn refreshes_immediately_periodically_and_stops_when_dropped() {
     // The TUI forwards its typed --oss selection through the raw CLI overrides too.
     let config = Arc::new(
         ConfigBuilder::default()
-            .steve_home(codex_home.path().to_path_buf())
+            .codex_home(codex_home.path().to_path_buf())
             .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
             .harness_overrides(ConfigOverrides {
                 model_provider: Some("ollama".to_string()),
@@ -214,7 +213,11 @@ async fn background_refresh_blocks_invalid_requirements_then_recovers() -> anyho
     let feedback = CodexFeedback::new();
     // This test uses Tokio's current-thread runtime, so spawned refreshes share the subscriber.
     let _subscriber_guard = tracing::subscriber::set_default(
-        tracing_subscriber::registry().with(feedback.logger_layer()),
+        tracing_subscriber::fmt()
+            .with_writer(feedback.make_writer())
+            .with_ansi(false)
+            .with_max_level(tracing::Level::DEBUG)
+            .finish(),
     );
     let worker = spawn_with_interval(&catalog, Duration::from_millis(/*millis*/ 10));
     tokio::time::timeout(Duration::from_secs(/*secs*/ 10), async {
@@ -253,6 +256,7 @@ async fn background_refresh_blocks_invalid_requirements_then_recovers() -> anyho
             .log_attachment(/*logs_override*/ None)
             .buffer,
     )?;
+    eprintln!("captured refresh-worker logs:\n{logs}");
     assert!(logs.contains("model catalog refresh blocked by provider requirements"));
     assert!(logs.contains("error_kind=InvalidData"));
     assert!(!logs.contains("private-provider-token-marker"));
@@ -263,6 +267,20 @@ async fn background_refresh_blocks_invalid_requirements_then_recovers() -> anyho
 #[tokio::test]
 async fn catalog_reload_recovers_after_cloud_failure() -> anyhow::Result<()> {
     let home = tempdir()?;
+    let server = wiremock::MockServer::start().await;
+    let model = codex_models_manager::test_support::model_info("recovered-model");
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/models"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+            serde_json::json!({"models": [model]}),
+        ))
+        .mount(&server)
+        .await;
+    std::fs::write(
+        home.path().join("config.toml"),
+        format!("model_provider = 'openai'\n[model_providers.recovery]\nname = 'Recovery'\nbase_url = '{0}/v1'\nmodel_catalog_url = '{0}/models'", server.uri()),
+    )?;
+
     let failed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let loader_failed = Arc::clone(&failed);
     let loader = CloudConfigBundleLoader::from_getter(move || {
@@ -276,7 +294,7 @@ async fn catalog_reload_recovers_after_cloud_failure() -> anyhow::Result<()> {
                 ))
             } else {
                 Ok(Some(
-                    CloudConfigBundleFixture::enterprise_requirement("model_provider = 'ollama'")
+                    CloudConfigBundleFixture::enterprise_requirement("model_provider = 'recovery'")
                         .into_bundle(),
                 ))
             }
@@ -284,7 +302,7 @@ async fn catalog_reload_recovers_after_cloud_failure() -> anyhow::Result<()> {
     });
     let manager = crate::config_manager::ConfigManager::new_for_tests(
         home.path().to_path_buf(),
-        Vec::new(),
+        vec![("model_provider".to_string(), "openai".into())],
         LoaderOverrides::without_managed_config_for_tests(),
         loader,
     );
@@ -305,7 +323,7 @@ async fn catalog_reload_recovers_after_cloud_failure() -> anyhow::Result<()> {
     failed.store(false, Ordering::SeqCst);
     // Exercise the same online request used by the periodic background worker.
     catalog.list_models(RefreshStrategy::Online).await?;
-    assert_eq!(catalog.current().await?.0.model_provider_id, "ollama");
+    assert_eq!(catalog.current().await?.0.model_provider_id, "recovery");
     assert!(
         !catalog
             .list_models(RefreshStrategy::Offline)
@@ -316,10 +334,19 @@ async fn catalog_reload_recovers_after_cloud_failure() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Repairing a project config after fallback must restore that project's local model catalog.
+/// Repairing a project config after fallback must restore its model metadata overlay.
 #[tokio::test]
 async fn catalog_reload_recovers_original_project_after_startup_fallback() -> anyhow::Result<()> {
     let home = tempdir()?;
+    let server = wiremock::MockServer::start().await;
+    let model = codex_models_manager::test_support::model_info("project-model");
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/models"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+            serde_json::json!({"models": [model]}),
+        ))
+        .mount(&server)
+        .await;
     let project = tempdir()?;
     let project_path = AbsolutePathBuf::from_absolute_path(project.path())?
         .canonicalize()?
@@ -328,13 +355,22 @@ async fn catalog_reload_recovers_original_project_after_startup_fallback() -> an
     std::fs::write(
         home.path().join("config.toml"),
         toml::to_string(&serde_json::json!({
+            "model_provider": "project-fixture",
+            "model_providers": {"project-fixture": {
+                "name": "Project fixture",
+                "base_url": format!("{}/v1", server.uri()),
+                "model_catalog_url": format!("{}/models", server.uri()),
+            }},
             "projects": {project_path.to_string_lossy(): {"trust_level": "trusted"}}
         }))?,
     )?;
     let project_config = project_path.join(".steve/config.toml");
     std::fs::write(&project_config, "model_catalog_json = [")?;
-    let manager = crate::config_manager::ConfigManager::without_managed_config_for_tests(
+    let manager = crate::config_manager::ConfigManager::new_for_tests(
         home.path().to_path_buf(),
+        vec![("model_provider".to_string(), "openai".into())],
+        LoaderOverrides::without_managed_config_for_tests(),
+        CloudConfigBundleLoader::default(),
     );
     let startup = manager
         .load_startup_config(Some(project_path.clone()))
@@ -349,7 +385,8 @@ async fn catalog_reload_recovers_original_project_after_startup_fallback() -> an
     let models = codex_core::build_models_manager(&config, Arc::clone(&auth));
     let catalog = ModelCatalog::new(manager, Some(project_path.clone()), config, models, auth);
     let mut model = codex_models_manager::test_support::model_info("project-model");
-    model.slug = "project-model".into();
+    model.slug = "project-fixture/project-model".into();
+    model.display_name = "Project overlay".into();
     std::fs::write(
         project_path.join(".steve/catalog.json"),
         serde_json::to_vec(&serde_json::json!({"models": [model]}))?,
@@ -358,13 +395,14 @@ async fn catalog_reload_recovers_original_project_after_startup_fallback() -> an
     catalog.invalidate().await;
     let (config, _) = catalog.current().await?;
     assert_eq!(config.cwd.as_path(), project_path);
-    let (models, _) = catalog.list_models(RefreshStrategy::Offline).await?;
+    let (models, _) = catalog.list_models(RefreshStrategy::Online).await?;
     assert_eq!(
         models
             .iter()
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>(),
-        vec!["project-model"]
+        vec!["project-fixture/project-model"]
     );
+    assert_eq!(models[0].display_name, "Project fixture / Project overlay");
     Ok(())
 }

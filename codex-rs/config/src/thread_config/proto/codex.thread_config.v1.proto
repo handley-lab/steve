@@ -52,15 +52,21 @@ message ModelProvider {
   optional string model_catalog_url = 19;
   optional string project_id = 20;
   optional string location = 21;
-  bool accepts_response_continuation = 23;
-  bool include_internal_metadata = 24;
-  optional RemoteCompaction remote_compaction = 25;
+  optional string credential_file = 22;
+  optional ModelProviderCapabilities capabilities = 23;
+  bool accepts_response_continuation = 26;
+  bool include_internal_metadata = 27;
+  optional RemoteCompaction remote_compaction = 28;
 }
 
 enum RemoteCompaction {
   REMOTE_COMPACTION_UNSPECIFIED = 0;
   REMOTE_COMPACTION_UNSUPPORTED = 1;
   REMOTE_COMPACTION_V2 = 2;
+}
+
+message ModelProviderCapabilities {
+  optional bool cyber_access_programs = 1;
 }
 
 message StringMap {

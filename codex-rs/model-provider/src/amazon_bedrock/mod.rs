@@ -343,11 +343,17 @@ impl ModelProvider for AmazonBedrockModelProvider {
         _codex_home: PathBuf,
         config_model_catalog: Option<ModelsResponse>,
     ) -> SharedModelsManager {
+        let origin = if config_model_catalog.is_some() {
+            codex_models_manager::ModelOrigin::ExplicitConfig
+        } else {
+            codex_models_manager::ModelOrigin::Provider
+        };
         Arc::new(StaticModelsManager::new(
             /*auth_manager*/ None,
             config_model_catalog
                 .map(normalize_bedrock_catalog)
                 .unwrap_or_default(),
+            origin,
         ))
     }
 
@@ -355,12 +361,7 @@ impl ModelProvider for AmazonBedrockModelProvider {
         &self,
         config_model_catalog: Option<ModelsResponse>,
     ) -> SharedModelsManager {
-        Arc::new(StaticModelsManager::new(
-            /*auth_manager*/ None,
-            config_model_catalog
-                .map(normalize_bedrock_catalog)
-                .unwrap_or_default(),
-        ))
+        self.models_manager(PathBuf::new(), config_model_catalog)
     }
 }
 

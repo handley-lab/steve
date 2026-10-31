@@ -10,6 +10,8 @@ use crate::version::CODEX_CLI_VERSION;
 use chrono::DateTime;
 use chrono::Local;
 use codex_app_server_protocol::AskForApproval;
+use codex_model_provider::provider_uses_first_party_auth_path;
+use codex_model_provider_info::OPENAI_PROVIDER_ID;
 use codex_model_provider_info::WireApi;
 use codex_protocol::ThreadId;
 use codex_protocol::account::PlanType;
@@ -136,6 +138,7 @@ struct StatusHistoryCell {
     token_usage: StatusTokenUsageData,
     rate_limit_state: Arc<RwLock<StatusRateLimitState>>,
     thread_usage: StatusThreadUsage,
+    plan_type: Option<PlanType>,
 }
 
 #[cfg(test)]
@@ -391,6 +394,7 @@ impl StatusHistoryCell {
             agents_summary,
             rate_limit_state,
             thread_usage,
+            plan_type: _plan_type,
         }
     }
 
@@ -730,7 +734,7 @@ impl StatusHistoryCell {
         let mut lines = Vec::new();
 
         let account_value = self.account.as_ref().map(|account| match account {
-            StatusAccountDisplay::ChatGpt { email, plan } => match (email, plan) {
+            StatusAccountDisplay::ChatGpt { email, plan, .. } => match (email, plan) {
                 (Some(email), Some(plan)) => format!("{email} ({plan})"),
                 (Some(email), None) => email.clone(),
                 (None, Some(plan)) => plan.clone(),
@@ -740,6 +744,11 @@ impl StatusHistoryCell {
                 "API key configured".to_string()
             }
         });
+
+        let workspace = match &self.account {
+            Some(StatusAccountDisplay::ChatGpt { workspace, .. }) => workspace.as_deref(),
+            _ => None,
+        };
 
         let mut labels: Vec<String> = vec!["Model", "Directory", "Permissions", "Agents.md"]
             .into_iter()
@@ -764,6 +773,9 @@ impl StatusHistoryCell {
         }
         if account_value.is_some() {
             push_label(&mut labels, &mut seen, "Account");
+        }
+        if workspace.is_some() {
+            push_label(&mut labels, &mut seen, "ChatGPT workspace");
         }
         if thread_name.is_some() {
             push_label(&mut labels, &mut seen, "Thread name");
@@ -827,6 +839,9 @@ impl StatusHistoryCell {
         if let Some(account_value) = account_value {
             lines.push(formatter.line("Account", vec![Span::from(account_value)]));
         }
+        if let Some(workspace) = workspace {
+            lines.push(formatter.line("ChatGPT workspace", vec![Span::from(workspace.to_owned())]));
+        }
 
         if let Some(thread_name) = thread_name {
             lines.push(formatter.line("Thread name", vec![Span::from(thread_name.to_string())]));
@@ -851,7 +866,9 @@ impl StatusHistoryCell {
         }
 
         lines.extend(self.rate_limit_lines(&rate_limit_state, available_width, &formatter));
-        let thread_usage_lines = self.thread_usage.lines(&formatter, value_width);
+        let thread_usage_lines = self
+            .thread_usage
+            .lines(&formatter, value_width, self.plan_type);
         if !thread_usage_lines.is_empty() {
             lines.push(Line::from(Vec::<Span<'static>>::new()));
             lines.extend(thread_usage_lines);

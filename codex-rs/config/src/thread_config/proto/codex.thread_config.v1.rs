@@ -83,12 +83,21 @@ pub struct ModelProvider {
     pub project_id: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag = "21")]
     pub location: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(bool, tag = "23")]
+    #[prost(string, optional, tag = "22")]
+    pub credential_file: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, optional, tag = "23")]
+    pub capabilities: ::core::option::Option<ModelProviderCapabilities>,
+    #[prost(bool, tag = "26")]
     pub accepts_response_continuation: bool,
-    #[prost(bool, tag = "24")]
+    #[prost(bool, tag = "27")]
     pub include_internal_metadata: bool,
-    #[prost(enumeration = "RemoteCompaction", optional, tag = "25")]
+    #[prost(enumeration = "RemoteCompaction", optional, tag = "28")]
     pub remote_compaction: ::core::option::Option<i32>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ModelProviderCapabilities {
+    #[prost(bool, optional, tag = "1")]
+    pub cyber_access_programs: ::core::option::Option<bool>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StringMap {

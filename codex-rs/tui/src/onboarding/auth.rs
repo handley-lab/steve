@@ -37,11 +37,14 @@ use ratatui::widgets::Wrap;
 use codex_protocol::config_types::ForcedLoginMethod;
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::time::Instant;
 use uuid::Uuid;
 
+use crate::activation_key_guard::ActivationKeyGuard;
 use crate::key_hint::KeyBinding;
 use crate::key_hint::KeyBindingListExt;
 use crate::onboarding::bedrock::BedrockState;
+use crate::onboarding::gcp::GcpState;
 use crate::onboarding::keys;
 use crate::onboarding::onboarding_screen::KeyboardHandler;
 use crate::onboarding::onboarding_screen::StepStateProvider;
@@ -58,11 +61,6 @@ pub(crate) fn mark_url_hyperlink(buf: &mut Buffer, area: Rect, url: &str) {
     crate::terminal_hyperlinks::mark_url_hyperlink(buf, area, url);
 }
 
-/// Marks any underlined buffer cells as an OSC 8 hyperlink.
-pub(crate) fn mark_underlined_hyperlink(buf: &mut Buffer, area: Rect, url: &str) {
-    crate::terminal_hyperlinks::mark_underlined_hyperlink(buf, area, url);
-}
-
 use super::onboarding_screen::StepState;
 
 #[derive(Clone)]
@@ -72,13 +70,17 @@ pub(crate) enum SignInState {
     ApiKeyConfigured,
     Bedrock(BedrockState),
     BedrockConfigured,
+    Gcp(GcpState),
+    GcpConfigured,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SignInOption {
     ApiKey,
     Bedrock,
+    Gcp,
 }
+
 
 const API_KEY_DISABLED_MESSAGE: &str = "API key login is disabled.";
 pub(super) fn onboarding_request_id() -> codex_app_server_protocol::RequestId {
@@ -93,7 +95,15 @@ pub(crate) struct ApiKeyInputState {
 
 impl KeyboardHandler for AuthModeWidget {
     fn handle_key_event(&mut self, key_event: KeyEvent) {
-        if self.handle_bedrock_key_event(&key_event) {
+        if self
+            .activation_key_guard
+            .as_mut()
+            .is_some_and(|guard| guard.consume(KeyBinding::from_event(key_event), key_event.kind))
+            || key_event.kind == KeyEventKind::Release
+        {
+            return;
+        }
+        if self.handle_gcp_key_event(&key_event) || self.handle_bedrock_key_event(&key_event) {
             return;
         }
         if self.handle_api_key_entry_key_event(&key_event) {
@@ -108,33 +118,45 @@ impl KeyboardHandler for AuthModeWidget {
             self.move_highlight(/*delta*/ 1);
             return;
         }
+        if key_event.kind != KeyEventKind::Press {
+            return;
+        }
         if keys::SELECT_FIRST.is_pressed(key_event) {
-            self.select_option_by_index(/*index*/ 0);
+            self.select_option_by_index(/*index*/ 0, key_event);
             return;
         }
         if keys::SELECT_SECOND.is_pressed(key_event) {
-            self.select_option_by_index(/*index*/ 1);
+            self.select_option_by_index(/*index*/ 1, key_event);
+            return;
+        }
+        if keys::SELECT_THIRD.is_pressed(key_event) {
+            self.select_option_by_index(/*index*/ 2, key_event);
             return;
         }
         if keys::CONFIRM.is_pressed(key_event) {
             if matches!(&*self.sign_in_state.read().unwrap(), SignInState::PickMode) {
-                self.handle_sign_in_option(self.highlighted_mode);
+                self.activate_highlighted_mode(key_event);
             }
         }
     }
 
     fn handle_paste(&mut self, pasted: String) {
-        let sign_in_state = self.sign_in_state.read().unwrap();
-        match &*sign_in_state {
-            SignInState::Bedrock(_) => {
-                drop(sign_in_state);
-                let _ = self.handle_bedrock_paste(&pasted);
-            }
+        let mut state = self.sign_in_state.write().unwrap();
+        let input = match &mut *state {
+            SignInState::Bedrock(state) => state.active_input_mut(),
+            SignInState::Gcp(state) => state.active_input_mut(),
             SignInState::ApiKeyEntry(_) => {
-                drop(sign_in_state);
+                drop(state);
                 let _ = self.handle_api_key_entry_paste(pasted);
+                return;
             }
-            _ => {}
+            _ => None,
+        };
+        if let Some(input) = input {
+            input.paste(&pasted);
+            self.set_error(/*message*/ None);
+            drop(state);
+            self.request_frame.schedule_frame();
         }
     }
 }
@@ -144,11 +166,13 @@ impl KeyboardHandler for AuthModeWidget {
 pub(crate) struct AuthModeWidget {
     pub request_frame: FrameRequester,
     pub highlighted_mode: SignInOption,
+    pub(super) activation_key_guard: Option<ActivationKeyGuard>,
     pub error: Arc<RwLock<Option<String>>>,
     pub sign_in_state: Arc<RwLock<SignInState>>,
     pub app_server_request_handle: AppServerRequestHandle,
     pub auth_config: AuthConfig,
     pub bedrock_setup_enabled: bool,
+    pub gcp_setup_enabled: bool,
 }
 
 impl AuthModeWidget {
@@ -165,6 +189,7 @@ impl AuthModeWidget {
         self.sign_in_state.read().is_ok_and(|guard| match &*guard {
             SignInState::ApiKeyEntry(_) => true,
             SignInState::Bedrock(state) => state.is_text_entry_active(),
+            SignInState::Gcp(state) => state.is_text_entry_active(),
             _ => false,
         })
     }
@@ -172,11 +197,12 @@ impl AuthModeWidget {
     /// Returns whether printable quit shortcuts must be treated as text input.
     ///
     /// API-key entry keeps its existing empty-field quit behavior, while
-    /// Bedrock fields accept printable input from their first character.
+    /// Cloud setup fields accept printable input from their first character.
     pub(crate) fn should_suppress_printable_quit(&self) -> bool {
         self.sign_in_state.read().is_ok_and(|guard| match &*guard {
             SignInState::ApiKeyEntry(state) => !state.value.is_empty(),
             SignInState::Bedrock(state) => state.is_text_entry_active(),
+            SignInState::Gcp(state) => state.is_text_entry_active(),
             _ => false,
         })
     }
@@ -201,11 +227,13 @@ impl AuthModeWidget {
             if self.bedrock_setup_enabled {
                 options.push(SignInOption::Bedrock);
             }
+            if self.gcp_setup_enabled { options.push(SignInOption::Gcp); }
         }
         options
     }
 
     fn move_highlight(&mut self, delta: isize) {
+        if !matches!(*self.sign_in_state.read().unwrap(), SignInState::PickMode) { return; }
         let options = self.displayed_sign_in_options();
         if options.is_empty() {
             return;
@@ -220,11 +248,29 @@ impl AuthModeWidget {
         self.highlighted_mode = options[next_index];
     }
 
-    fn select_option_by_index(&mut self, index: usize) {
-        let options = self.displayed_sign_in_options();
-        if let Some(option) = options.get(index).copied() {
-            self.handle_sign_in_option(option);
+    fn select_option_by_index(&mut self, index: usize, key_event: KeyEvent) {
+        if !matches!(*self.sign_in_state.read().unwrap(), SignInState::PickMode) {
+            return;
         }
+        let options = self.displayed_sign_in_options();
+        if let Some(option) = options.get(index).copied()
+        {
+            self.highlighted_mode = option;
+            self.activate_highlighted_mode(key_event);
+        }
+    }
+
+    fn activate_highlighted_mode(&mut self, key_event: KeyEvent) {
+        let option = self.highlighted_mode;
+        {
+            // Enter and printable shortcuts can repeat as plain presses without a release.
+            self.activation_key_guard = Some(ActivationKeyGuard::new_at(
+                KeyBinding::from_event(key_event),
+                Instant::now(),
+                /*key_releases_reported*/ false,
+            ));
+        }
+        self.handle_sign_in_option(option);
     }
 
     fn handle_sign_in_option(&mut self, option: SignInOption) {
@@ -243,6 +289,15 @@ impl AuthModeWidget {
                     self.disallow_api_login();
                 }
             }
+            SignInOption::Gcp => {
+                if self.gcp_setup_enabled && self.is_api_login_allowed() {
+                    *self.sign_in_state.write().unwrap() = SignInState::Gcp(GcpState::default());
+                    self.set_error(/*message*/ None);
+                    self.request_frame.schedule_frame();
+                } else if !self.is_api_login_allowed() {
+                    self.disallow_api_login();
+                }
+            }
         }
     }
 
@@ -255,10 +310,12 @@ impl AuthModeWidget {
     fn render_pick_mode(&self, area: Rect, buf: &mut Buffer) {
         let mut lines: Vec<Line> = vec!["  Choose how you want to use Steve.".into(), "".into()];
 
-        let create_mode_item = |idx: usize,
-                                selected_mode: SignInOption,
-                                text: &str,
-                                description: &str|
+        let options_start = lines.len();
+        let mut compact_options = Vec::new();
+        let mut create_mode_item = |idx: usize,
+                                    selected_mode: SignInOption,
+                                    text: &str,
+                                    description: &str|
          -> Vec<Line<'static>> {
             let is_selected = self.highlighted_mode == selected_mode;
             let caret = if is_selected { ">" } else { " " };
@@ -281,6 +338,7 @@ impl AuthModeWidget {
                     .style(Style::default().add_modifier(Modifier::DIM))
             };
 
+            compact_options.push(line1.clone());
             vec![line1, line2]
         };
 
@@ -302,10 +360,19 @@ impl AuthModeWidget {
                         "Connect using your AWS credentials",
                     ));
                 }
+                SignInOption::Gcp => {
+                    lines.extend(create_mode_item(
+                        idx,
+                        option,
+                        "Use Google Cloud Vertex AI",
+                        "Connect using your Google Cloud credentials",
+                    ));
+                }
             }
             lines.push("".into());
         }
 
+        let options_end = lines.len();
         if !self.is_api_login_allowed() {
             lines.push(
                 "  API key login is disabled by this workspace."
@@ -324,6 +391,14 @@ impl AuthModeWidget {
             lines.push(err.red().into());
         }
 
+        // Keep the options and confirmation hint visible in short terminals.
+        if Paragraph::new(lines.clone())
+            .wrap(Wrap { trim: false })
+            .line_count(area.width)
+            > usize::from(area.height)
+        {
+            lines.splice(options_start..options_end, compact_options);
+        }
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
             .render(area, buf);
@@ -419,7 +494,9 @@ impl AuthModeWidget {
                     *guard = SignInState::PickMode;
                     self.set_error(/*message*/ None);
                     should_request_frame = true;
-                } else if keys::CONFIRM.is_pressed(*key_event) {
+                } else if key_event.kind == KeyEventKind::Press
+                    && keys::CONFIRM.is_pressed(*key_event)
+                {
                     let trimmed = state.value.trim().to_string();
                     if trimmed.is_empty() {
                         self.set_error(Some("API key cannot be empty".to_string()));
@@ -575,10 +652,8 @@ impl StepStateProvider for AuthModeWidget {
     fn get_step_state(&self) -> StepState {
         let sign_in_state = self.sign_in_state.read().unwrap();
         match &*sign_in_state {
-            SignInState::PickMode | SignInState::ApiKeyEntry(_) | SignInState::Bedrock(_) => {
-                StepState::InProgress
-            }
-            SignInState::ApiKeyConfigured | SignInState::BedrockConfigured => StepState::Complete,
+            SignInState::PickMode | SignInState::ApiKeyEntry(_) | SignInState::Bedrock(_) | SignInState::Gcp(_) => StepState::InProgress,
+            SignInState::ApiKeyConfigured | SignInState::BedrockConfigured | SignInState::GcpConfigured => StepState::Complete,
         }
     }
 }
@@ -599,6 +674,14 @@ impl WidgetRef for AuthModeWidget {
             SignInState::Bedrock(state) => {
                 state.render(area, buf, self.error_message());
             }
+            SignInState::Gcp(state) => {
+                state.render(area, buf, self.error_message());
+            }
+            SignInState::GcpConfigured => {
+                Paragraph::new("✓ Google Cloud Vertex AI configured".green())
+                    .wrap(Wrap { trim: false })
+                    .render(area, buf);
+            }
             SignInState::BedrockConfigured => {
                 Paragraph::new("✓ Amazon Bedrock configured".green())
                     .wrap(Wrap { trim: false })
@@ -617,17 +700,22 @@ mod tests {
     use codex_app_server_client::InProcessAppServerClient;
     use codex_app_server_client::InProcessClientStartArgs;
     use codex_arg0::Arg0DispatchPaths;
-    use codex_cloud_config::cloud_config_bundle_loader_for_storage;
+    use codex_cloud_config::managed_config_bundle_loader_for_storage;
+    use codex_features::Feature;
     use pretty_assertions::assert_eq;
     use std::sync::Arc;
     use tempfile::TempDir;
 
-    async fn widget_forced_chatgpt() -> (AuthModeWidget, TempDir) {
+    pub(super) async fn widget_forced_chatgpt() -> (AuthModeWidget, TempDir) {
         let codex_home = TempDir::new().unwrap();
         let codex_home_path = codex_home.path().to_path_buf();
+        std::fs::write(
+            codex_home_path.join("config.toml"),
+            "model_provider = \"openai\"\n",
+        )
+        .unwrap();
         let config = ConfigBuilder::default()
             .loader_overrides(codex_config::LoaderOverrides::without_managed_config_for_tests())
-            .cli_overrides(vec![("model_provider".to_string(), "openai".into())])
             .codex_home(codex_home_path.clone())
             .build()
             .await
@@ -635,14 +723,16 @@ mod tests {
         let path_style = config.chatgpt_path_style;
         let mut auth_config = config.auth_config();
         let client = InProcessAppServerClient::start(InProcessClientStartArgs {
+            required_human_approval: true,
             arg0_paths: Arg0DispatchPaths::default(),
             config: Arc::new(config),
-            cli_overrides: vec![("model_provider".to_string(), "openai".into())],
+            cli_overrides: Vec::new(),
             loader_overrides: Default::default(),
             strict_config: false,
-            cloud_config_bundle: cloud_config_bundle_loader_for_storage(
+            cloud_config_bundle: managed_config_bundle_loader_for_storage(
                 auth_config.clone(),
                 path_style,
+                &Default::default(),
                 /*enable_codex_api_key_env*/ false,
             )
             .await
@@ -671,11 +761,13 @@ mod tests {
         let widget = AuthModeWidget {
             request_frame: FrameRequester::test_dummy(),
             highlighted_mode: SignInOption::ApiKey,
+            activation_key_guard: None,
             error: Arc::new(RwLock::new(None)),
             sign_in_state: Arc::new(RwLock::new(SignInState::PickMode)),
             app_server_request_handle: AppServerRequestHandle::InProcess(client.request_handle()),
             auth_config,
             bedrock_setup_enabled: false,
+            gcp_setup_enabled: false,
         };
         (widget, codex_home)
     }
@@ -721,18 +813,36 @@ mod tests {
 
     #[tokio::test]
     async fn bedrock_option_requires_feature_and_api_login_permission() {
-        let (mut widget, _tmp) = widget_forced_chatgpt().await;
+        let (mut widget, codex_home) = widget_forced_chatgpt().await;
         widget.auth_config.forced_login_method = None;
         assert_eq!(
             widget.displayed_sign_in_options(),
             vec![SignInOption::ApiKey]
         );
 
-        widget.bedrock_setup_enabled = true;
+        std::fs::write(
+            codex_home.path().join("config.toml"),
+            "model_provider = \"openai\"\n[features]\nbedrock_setup_wizard = true\n",
+        )
+        .unwrap();
+        let config = ConfigBuilder::default()
+            .codex_home(codex_home.path().to_path_buf())
+            .build()
+            .await
+            .unwrap();
+        widget.bedrock_setup_enabled = crate::should_show_provider_setup_wizard(
+            crate::LoginStatus::NotAuthenticated,
+            /*requires_openai_auth*/ true,
+            &config,
+            &crate::AppServerTarget::Embedded,
+            Feature::BedrockSetupWizard,
+        );
+        widget.handle_key_event(KeyCode::Char('3').into());
         assert_eq!(
             widget.displayed_sign_in_options(),
             vec![SignInOption::ApiKey, SignInOption::Bedrock]
         );
+        widget.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
 
         let area = Rect::new(0, 0, 76, 19);
         let mut buffer = Buffer::empty(area);
@@ -883,3 +993,10 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod activation_key_tests;
+
+#[cfg(test)]
+#[path = "gcp_tests.rs"]
+mod gcp_tests;

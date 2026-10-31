@@ -3,6 +3,7 @@
 //! Requests outside every active action's lag allowance stop as superseded, not failed.
 //! Expiry also cancels metadata waits before transcript preparation, releasing reservations.
 
+use codex_protocol::openai_models::ModelOrigin;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -206,11 +207,11 @@ impl Classification {
                         models_manager
                             .list_models(refresh, reviewer_config.http_client_factory())
                             .await;
-                        Some(Arc::new(
+                        Some(
                             models_manager
                                 .get_model_info(&reviewer_config.model_provider_id, &review_model_id, &reviewer_config.to_models_manager_config())
-                                .await?,
-                        ))
+                                .await?.model,
+                        )
                     } else {
                         parent_model.clone()
                     }
@@ -274,9 +275,10 @@ impl Classification {
             ..score_authorization
         };
         let action_section = PlannedAction {
-            json: planned_action.clone(),
             tool_descriptions: None,
-            kind: PlannedActionKind::Command,
+            kind: PlannedActionKind::Command {
+                json: planned_action.clone(),
+            },
             reason: None,
         };
         let review_fragments = sync_reviews

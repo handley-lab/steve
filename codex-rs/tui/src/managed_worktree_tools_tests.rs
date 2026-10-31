@@ -130,7 +130,7 @@ async fn creation_attaches_to_original_task_and_survives_service_restart_scenari
         .unwrap_err();
     assert!(error.to_string().contains("MCP server owns"));
     let started = Box::pin(server.start_thread(&config)).await?;
-    assert!(!started.task_tools_available);
+    assert!(started.task_tools_available);
     let thread_id = started.session.thread_id.to_string();
     let _: codex_app_server_protocol::TurnStartResponse = server
         .request_handle()
@@ -343,13 +343,13 @@ async fn creation_attaches_to_original_task_and_survives_service_restart_scenari
         crate::app_server_session::ResumeModelSettings::RestoreFromThread,
     ))
     .await?;
-    assert!(!resumed.task_tools_available);
+    assert!(resumed.task_tools_available);
     assert_eq!(
         value(
             fresh
                 .execute(
                     resumed_server.request_handle(),
-                    thread_id,
+                    thread_id.clone(),
                     "list_worktrees",
                     json!({})
                 )
@@ -362,6 +362,7 @@ async fn creation_attaches_to_original_task_and_survives_service_restart_scenari
         &responses,
         &config,
         &repository,
+        &thread_id,
     ))
     .await?;
     resumed_server.shutdown().await?;

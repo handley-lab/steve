@@ -96,6 +96,7 @@ async fn responses_stream_includes_subagent_header_on_review() {
         accepts_response_continuation: false,
         project_id: None,
         location: None,
+        credential_file: None,
         include_internal_metadata: false,
     };
 
@@ -246,6 +247,7 @@ async fn responses_stream_includes_subagent_header_on_other() {
         accepts_response_continuation: false,
         project_id: None,
         location: None,
+        credential_file: None,
         include_internal_metadata: false,
     };
 
@@ -377,6 +379,7 @@ async fn responses_respects_model_info_overrides_from_config() {
         accepts_response_continuation: false,
         project_id: None,
         location: None,
+        credential_file: None,
         include_internal_metadata: false,
     };
 

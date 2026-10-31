@@ -176,10 +176,16 @@ impl WebSocketConnector {
                 loopback_direct,
             )
             .boxed()
-            .await
+            .await.map(|(inner, response)| {
+                let routing_affinity = codex_http_client::ChatGptRoutingAffinity::from_response(&uri, response.headers());
+                (inner, response, routing_affinity)
+            })
         };
-        let (inner, response) = permit.run(connect).await.map_err(policy_error)??;
-        Ok((WebSocketConnection::new(inner, permit), response))
+        let (inner, response, routing_affinity) =
+            permit.run(connect).await.map_err(policy_error)??;
+        let mut connection = WebSocketConnection::new(inner, permit);
+        connection.routing_affinity = routing_affinity;
+        Ok((connection, response))
     }
 }
 
@@ -203,6 +209,7 @@ fn is_loopback_destination(uri: &Uri) -> bool {
 /// without knowing which concrete network stream route selection produced. Independent revocation
 /// waits preserve both task wakers when the stream and sink are split.
 pub struct WebSocketConnection {
+    routing_affinity: Option<codex_http_client::ChatGptRoutingAffinity>,
     inner: Option<ConnectionInner>,
     permit: NetworkPermit,
     read_revoked: BoxFuture<'static, ()>,
@@ -227,12 +234,18 @@ impl WebSocketConnection {
         let read_permit = permit.clone();
         let write_permit = permit.clone();
         Self {
+            routing_affinity: None,
             inner: Some(inner),
             permit,
             read_revoked: async move { read_permit.revoked().await }.boxed(),
             write_revoked: async move { write_permit.revoked().await }.boxed(),
             read_terminated: false,
         }
+    }
+
+    /// The scoped routing cookie from this connection's handshake, never account cookies.
+    pub fn routing_affinity(&self) -> Option<&codex_http_client::ChatGptRoutingAffinity> {
+        self.routing_affinity.as_ref()
     }
 
     fn poll_policy(

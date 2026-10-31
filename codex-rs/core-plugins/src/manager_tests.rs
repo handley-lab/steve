@@ -3165,7 +3165,11 @@ enabled = false"#,
     );
     assert_eq!(
         manager
-            .plugins_for_config(&config(r#"model = "second""#))
+            .plugins_for_config(&config(
+                r#"model = "second"
+[plugins."sample@test".apps.calendar.tools.list]
+approval_mode = "prompt""#
+            ))
             .await,
         first,
     );
@@ -3436,6 +3440,7 @@ fn loaded_plugins_cache_evicts_least_recently_used_configuration() {
                     release_id: None,
                     auto_provision: None,
                     mcp_servers: HashMap::new(),
+                    apps: HashMap::new(),
                 },
             )]),
             plugin_policy: PluginsConfigToml::default(),
@@ -6154,6 +6159,7 @@ plugins = true
     manager.maybe_start_remote_plugin_caches_refresh(
         &config,
         Some(auth.clone()),
+        /*prefetch_recommendations*/ true,
         /*on_effective_plugins_changed*/ None,
     );
 

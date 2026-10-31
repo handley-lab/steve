@@ -8,23 +8,8 @@ use pretty_assertions::assert_eq;
 #[tokio::test]
 async fn starts_and_forks_use_server_provider_unless_explicitly_selected() -> Result<()> {
     let home = tempfile::tempdir()?;
-    std::fs::write(
-        home.path().join("config.toml"),
-        r#"
-model_provider = "server-provider"
-model = "gpt-5.2"
-[model_providers.server-provider]
-name = "Server provider"
-base_url = "http://127.0.0.1:9/v1"
-wire_api = "responses"
-requires_openai_auth = false
-[model_providers.client-provider]
-name = "Client provider"
-base_url = "http://127.0.0.1:9/v1"
-wire_api = "responses"
-requires_openai_auth = false
-"#,
-    )?;
+    let models = wiremock::MockServer::start().await;
+    write_provider_config(home.path(), &models).await?;
     let server_config = ConfigBuilder::default()
         .codex_home(home.path().to_path_buf())
         .build()
@@ -48,10 +33,15 @@ requires_openai_auth = false
     )?;
     let mut server = crate::start_embedded_app_server_for_picker(&server_config).await?;
     assert_eq!(
-        crate::lookup_session_target_with_app_server(&mut server, &client_config, "Server history")
-            .await?
-            .unwrap()
-            .thread_id,
+        crate::lookup_session_target_with_app_server(
+            crate::resume_picker::SessionPickerAction::Resume,
+            &mut server,
+            &client_config,
+            "Server history"
+        )
+        .await?
+        .unwrap()
+        .thread_id,
         parent
     );
     let resumed = server
@@ -161,6 +151,7 @@ async fn required_provider_overrides_oss_history_selection() -> Result<()> {
         .build()
         .await?;
     let mut server = crate::start_app_server_for_picker(
+        crate::backend_id::BackendId::new(),
         &config,
         &crate::AppServerTarget::Embedded,
         Vec::new(),
@@ -179,6 +170,123 @@ async fn required_provider_overrides_oss_history_selection() -> Result<()> {
     assert_eq!(
         server.history_model_provider(&config).await?,
         Some("openai".into())
+    );
+    server.shutdown().await?;
+    Ok(())
+}
+
+async fn write_provider_config(home: &std::path::Path, models: &wiremock::MockServer) -> std::io::Result<()> {
+    wiremock::Mock::given(wiremock::matchers::path("/v1/models"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+            serde_json::json!({"data": [{"id": "gpt-5.4"}]}),
+        ))
+        .mount(models)
+        .await;
+    std::fs::write(
+        home.join("config.toml"),
+        r#"
+model_provider = "server-provider"
+model = "gpt-5.4"
+[model_providers.server-provider]
+name = "Server provider"
+base_url = "http://127.0.0.1:9/v1"
+wire_api = "responses"
+requires_openai_auth = false
+[model_providers.client-provider]
+name = "Client provider"
+base_url = "http://127.0.0.1:9/v1"
+wire_api = "responses"
+requires_openai_auth = false
+"#.replace("http://127.0.0.1:9", &models.uri()),
+    )?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn resume_discovers_other_providers_and_preserves_the_selected_provider() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let models = wiremock::MockServer::start().await;
+    write_provider_config(home.path(), &models).await?;
+    let original = ConfigBuilder::default()
+        .codex_home(home.path().to_path_buf())
+        .build()
+        .await?;
+    let parent = crate::tests::write_session_rollout(
+        home.path(),
+        "2025-01-02T10-00-00",
+        "2025-01-02T10:00:00Z",
+        "Old provider history",
+        "server-provider",
+        original.cwd.as_path(),
+    )?;
+    let path = home.path().join("config.toml");
+    let updated = std::fs::read_to_string(&path)?.replacen(
+        "model_provider = \"server-provider\"",
+        "model_provider = \"client-provider\"",
+        1,
+    );
+    std::fs::write(path, updated)?;
+    let config = ConfigBuilder::default()
+        .codex_home(home.path().to_path_buf())
+        .build()
+        .await?;
+    let local_settings = LocalSettings::from(&config);
+    let mut server = crate::start_embedded_app_server_for_picker(&config).await?;
+    let named = crate::lookup_session_target_with_app_server(
+        crate::resume_picker::SessionPickerAction::Resume,
+        &mut server,
+        &config,
+        "Old provider history",
+    )
+    .await?
+    .expect("old-provider thread by name");
+    let latest = crate::lookup_latest_session_target_with_app_server(
+        crate::resume_picker::SessionPickerAction::Resume,
+        &mut server,
+        &config,
+        /*cwd_filter*/ None,
+        /*include_non_interactive*/ false,
+    )
+    .await?
+    .expect("old-provider thread via --last");
+    assert_eq!((named.thread_id, latest.thread_id), (parent, parent));
+    assert!(
+        crate::lookup_session_target_with_app_server(
+            crate::resume_picker::SessionPickerAction::Fork,
+            &mut server,
+            &config,
+            "Old provider history",
+        )
+        .await?
+        .is_none()
+    );
+    assert!(
+        crate::lookup_latest_session_target_with_app_server(
+            crate::resume_picker::SessionPickerAction::Fork,
+            &mut server,
+            &config,
+            /*cwd_filter*/ None,
+            /*include_non_interactive*/ false,
+        )
+        .await?
+        .is_none()
+    );
+    let resumed = server
+        .resume_thread(
+            &local_settings,
+            config.clone(),
+            parent,
+            ResumeModelSettings::RestoreFromThread,
+        )
+        .await?;
+    assert_eq!(resumed.session.model_provider_id, "server-provider");
+    assert_eq!(
+        server
+            .start_thread(&config)
+            .await?
+            .session
+            .model_provider_id,
+        "client-provider"
     );
     server.shutdown().await?;
     Ok(())

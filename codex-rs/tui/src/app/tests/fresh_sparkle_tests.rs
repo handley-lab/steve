@@ -68,6 +68,7 @@ async fn choose_model(
             &event,
             AppEvent::OpenReasoningPopup { .. }
                 | AppEvent::UpdateModel(_)
+                | AppEvent::ApplyModelSelection { .. }
                 | AppEvent::SelectSessionModel { .. }
                 | AppEvent::AstraSelectedFromModelPicker { .. }
         ) {
@@ -547,6 +548,7 @@ async fn astra_picker_confirms_the_model_at_application_after_an_automatic_updat
             if matches!(
                 &event,
                 AppEvent::UpdateModel(_)
+                    | AppEvent::ApplyModelSelection { .. }
                     | AppEvent::UpdateReasoningEffort(_)
                     | AppEvent::SelectSessionModel { .. }
                     | AppEvent::ApplyAdvancedReasoning { .. }
@@ -624,6 +626,7 @@ fn astra_picker_xhigh_applies_on_a_bounded_stack() -> Result<()> {
                     if matches!(
                         &event,
                         AppEvent::AstraSelectedFromModelPicker { .. }
+                            | AppEvent::ApplyModelSelection { .. }
                             | AppEvent::UpdateReasoningEffort(_)
                             | AppEvent::PersistModelSelection { .. }
                     ) {

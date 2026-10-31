@@ -1,11 +1,11 @@
 //! Resolves reviewer models and adds policy context and live network state to reviewer configuration.
 //! Both prewarming and reviews finish this setup before context preparation and reuse checks.
 
+use codex_protocol::openai_models::CatalogModel;
 use std::sync::Arc;
 
 use codex_features::Feature;
-use codex_guardian_reviewer::guardian_output_contract_prompt;
-use codex_prompts::GuardianPolicyInstructions;
+use codex_guardian_reviewer::reviewer_instructions;
 use codex_prompts::ResolvedModelMessages;
 use codex_protocol::models::BaseInstructionsProvenance;
 
@@ -13,6 +13,7 @@ use crate::config::Config;
 use crate::config::NetworkProxySpec;
 use crate::context::ContextualUserFragment;
 use crate::context::GuardianConversationHistory;
+
 
 /// Adds the captured model, policy prompt and live network rules before reuse selection.
 pub fn build_guardian_review_session_config(
@@ -33,43 +34,28 @@ pub fn build_guardian_review_session_config(
     guardian_config.model_reasoning_effort = reasoning_effort;
     guardian_config.model_reasoning_summary = Some(reasoning_summary);
     guardian_config.personality = personality;
-    let auto_review = model_messages.auto_review();
-    let tenant_policy_config = guardian_config.resolve_guardian_policy(model_messages);
-    let extra_policy = guardian_config
-        .guardian_extra_policy
-        .as_deref()
-        .unwrap_or_default();
-    let policy_template = guardian_config
-        .guardian_policy_template
-        .as_deref()
-        .unwrap_or(auto_review.policy_template);
-    let mut instructions = GuardianPolicyInstructions::new(
-        guardian_config.guardian_transcript_mode,
-        tenant_policy_config,
-        extra_policy,
-        policy_template,
-        guardian_output_contract_prompt(),
-    )
-    .render()
-    .into_text()
-    .unwrap_or_default();
-    if guardian_config
+    let conversation_history = (guardian_config
         .features
         .enabled(Feature::GuardianConversationHistoryTools)
-        && guardian_config.features.enabled(Feature::Apps)
-    {
-        instructions.push('\n');
-        instructions.push_str(
-            &GuardianConversationHistory {
-                prompt: guardian_config
-                    .guardian_conversation_history_prompt
-                    .as_deref(),
-            }
-            .render()
-            .into_text()
-            .unwrap_or_default(),
-        );
-    }
+        && guardian_config.features.enabled(Feature::Apps))
+    .then(|| {
+        GuardianConversationHistory {
+            prompt: guardian_config
+                .guardian_conversation_history_prompt
+                .as_deref(),
+        }
+        .render()
+        .into_text()
+        .unwrap_or_default()
+    });
+    let instructions = reviewer_instructions(
+        guardian_config.guardian_transcript_mode,
+        guardian_config.resolve_guardian_policy(model_messages),
+        guardian_config.guardian_extra_policy.as_deref(),
+        guardian_config.guardian_policy_template.as_deref(),
+        model_messages,
+        conversation_history.as_deref(),
+    );
     guardian_config.base_instructions = Some(instructions);
     guardian_config.base_instructions_provenance = Some(BaseInstructionsProvenance::Custom);
     if let Some(live_network_config) = live_network_config
@@ -90,13 +76,13 @@ pub fn build_guardian_review_session_config(
     Ok(guardian_config)
 }
 
-/// Resolves the same catalog-backed reviewer for approval and checkpoint migration.
+/// Resolves the explicitly selected reviewer and its provider-scoped catalogue.
 pub(crate) async fn resolve_review_model(
     session: &crate::session::session::Session,
     context: &super::GuardianReviewContext,
 ) -> anyhow::Result<(
     codex_guardian_reviewer::ReviewModel,
-    Arc<codex_protocol::openai_models::ModelInfo>,
+    Arc<CatalogModel>,
     Option<codex_models_manager::manager::SharedModelsManager>,
 )> {
     let turn = context.turn();

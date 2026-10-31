@@ -203,7 +203,7 @@
       ],
       "type": "object"
     },
-    "ModelProviderError": {
+    "ModelCatalogProviderError": {
       "properties": {
         "message": {
           "type": "string"
@@ -328,7 +328,7 @@
     "providerErrors": {
       "default": [],
       "items": {
-        "$ref": "#/definitions/ModelProviderError"
+        "$ref": "#/definitions/ModelCatalogProviderError"
       },
       "type": "array"
     }

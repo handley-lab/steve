@@ -23,7 +23,6 @@ use codex_models_manager::manager::StaticModelsManager;
 use codex_protocol::AgentPath;
 use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::openai_models::ModelInfo;
-use codex_protocol::openai_models::ModelsResponse;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::InterAgentCommunication;
 use codex_protocol::protocol::Op;
@@ -60,12 +59,12 @@ impl ModelsManager for GatedModelsManager {
         self.inner.model_catalog_result(strategy, factory)
     }
 
-    fn raw_model_catalog(
+    fn model_catalog_with_origins(
         &self,
         strategy: RefreshStrategy,
         factory: HttpClientFactory,
-    ) -> ModelsManagerFuture<'_, ModelsResponse> {
-        self.inner.raw_model_catalog(strategy, factory)
+    ) -> ModelsManagerFuture<'_, Vec<codex_models_manager::CatalogModel>> {
+        self.inner.model_catalog_with_origins(strategy, factory)
     }
 
     fn get_remote_models(&self) -> ModelsManagerFuture<'_, Vec<ModelInfo>> {
@@ -98,7 +97,7 @@ impl ModelsManager for GatedModelsManager {
         provider_id: &'a str,
         model: &'a str,
         config: &'a ModelsManagerConfig,
-    ) -> ModelsManagerFuture<'a, codex_protocol::error::Result<ModelInfo>> {
+    ) -> ModelsManagerFuture<'a, codex_protocol::error::Result<codex_models_manager::CatalogModel>> {
         Box::pin(async move {
             if self.gate_next_lookup.swap(/*val*/ false, Ordering::SeqCst) {
                 self.context_build.entered.notify_one();

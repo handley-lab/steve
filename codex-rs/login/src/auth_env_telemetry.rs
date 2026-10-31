@@ -83,6 +83,7 @@ mod tests {
             accepts_response_continuation: false,
             project_id: None,
             location: None,
+            credential_file: None,
             include_internal_metadata: false,
         };
 

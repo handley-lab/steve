@@ -35,6 +35,7 @@ pub use auth::ExternalAuthRefreshContext;
 pub use auth::ExternalAuthRefreshReason;
 pub use auth::OPENAI_API_KEY_ENV_VAR;
 pub use auth::RefreshTokenError;
+pub use auth::RequestAuthChange;
 pub use auth::UnauthorizedRecovery;
 pub use auth::default_client;
 pub use auth::enforce_login_restrictions;

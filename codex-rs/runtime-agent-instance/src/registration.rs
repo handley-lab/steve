@@ -41,7 +41,7 @@ impl RuntimeRegistrationClient {
             return Err(RegistrationError::InvalidEndpoint);
         }
         Ok(Self {
-            http: RouteAwareClientPool::with_chatgpt_cloudflare_cookies_without_redirects_or_request_logging(
+            http: RouteAwareClientPool::new_without_redirects_or_request_logging(
                 factory,
                 ClientRouteClass::Auth,
             ),

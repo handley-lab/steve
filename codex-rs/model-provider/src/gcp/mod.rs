@@ -136,11 +136,12 @@ impl ModelProvider for GcpModelProvider {
         &self,
         config_model_catalog: Option<ModelsResponse>,
     ) -> SharedModelsManager {
+        let origin = codex_models_manager::ModelOrigin::ExplicitConfig;
         let mut model_catalog = config_model_catalog.unwrap_or_default();
         model_catalog.models.retain(|model| {
             matches!(
                 model.slug.as_str(),
-                "gpt-6-astra" | "gpt-6-luna" | "gpt-6.1-sol"
+                "gpt-6-astra" | "gpt-6-luna" | "gpt-6.1-sol" | "gpt-6.1-terra"
             )
         });
         // Vertex supports function tools, namespaces, and client-side tool search, but not
@@ -153,6 +154,7 @@ impl ModelProvider for GcpModelProvider {
         Arc::new(StaticModelsManager::new(
             self.auth_manager.clone(),
             model_catalog,
+            origin,
         ))
     }
 }

@@ -106,6 +106,7 @@ base_url = "http://localhost:11434/v1"
         accepts_response_continuation: false,
         project_id: None,
         location: None,
+        credential_file: None,
         include_internal_metadata: false,
     };
 
@@ -149,6 +150,7 @@ query_params = { api-version = "2025-04-01-preview" }
         accepts_response_continuation: false,
         project_id: None,
         location: None,
+        credential_file: None,
         include_internal_metadata: false,
     };
 
@@ -196,6 +198,7 @@ supports_standalone_web_search = true
         accepts_response_continuation: false,
         project_id: None,
         location: None,
+        credential_file: None,
         include_internal_metadata: false,
     };
 
@@ -274,6 +277,8 @@ fn codex_backend_routes_require_codex_base_url() {
         (None, true),
         (Some(CHATGPT_CODEX_BASE_URL), true),
         (Some("https://chatgpt-staging.com/backend-api/codex/"), true),
+        (Some("https://backend.example.com/api/codex"), false),
+        (Some("https://backend.example.com/api/codex/"), false),
         (Some("https://proxy.example.com/v1"), false),
     ] {
         let provider = ModelProviderInfo::create_openai_provider(base_url.map(str::to_owned));
@@ -396,6 +401,7 @@ fn test_create_amazon_bedrock_provider() {
             accepts_response_continuation: false,
             project_id: None,
             location: None,
+            credential_file: None,
             include_internal_metadata: false,
         }
     );
@@ -577,6 +583,7 @@ fn test_merge_configured_model_providers_keeps_builtin_openai_defaults() {
             "OPENAI_ORGANIZATION".to_string(),
         )])),
         capabilities: Some(ModelProviderCapabilities {
+            cyber_access_programs: None,
             external_web_access: None,
             remote_compaction: Some(RemoteCompactionSupport::V2),
         }),
@@ -596,6 +603,7 @@ fn test_merge_configured_model_providers_keeps_builtin_openai_defaults() {
             "OTHER_ORG".to_string(),
         )])),
         capabilities: Some(ModelProviderCapabilities {
+            cyber_access_programs: None,
             external_web_access: None,
             remote_compaction: Some(RemoteCompactionSupport::V2),
         }),
@@ -760,6 +768,7 @@ fn test_merge_configured_model_providers_applies_amazon_bedrock_transport_overri
 #[test]
 fn test_merge_configured_model_providers_applies_gcp_transport_overrides() {
     let auth = provider_auth_for_test();
+    let credential_file = std::env::current_dir().unwrap().join("adc.json");
     let configured_model_providers = std::collections::HashMap::from([(
         GCP_PROVIDER_ID.to_string(),
         ModelProviderInfo {
@@ -767,6 +776,7 @@ fn test_merge_configured_model_providers_applies_gcp_transport_overrides() {
             project_id: Some("configured-project".to_string()),
             location: Some("us-east4".to_string()),
             auth: Some(auth.clone()),
+            credential_file: Some(credential_file.clone()),
             http_headers: Some(maplit::hashmap! {
                 "x-example-header".to_string() => "value".into(),
             }),
@@ -782,6 +792,7 @@ fn test_merge_configured_model_providers_applies_gcp_transport_overrides() {
     provider.project_id = Some("configured-project".to_string());
     provider.location = Some("us-east4".to_string());
     provider.auth = Some(auth);
+    provider.credential_file = Some(credential_file);
     provider.http_headers = Some(maplit::hashmap! {
         "x-example-header".to_string() => "value".into(),
     });
@@ -817,6 +828,38 @@ fn test_merge_configured_model_providers_applies_gcp_endpoint_override() {
         ),
         Ok(expected)
     );
+}
+
+#[test]
+fn test_merge_configured_gcp_rejects_relative_credential_file() {
+    for credential_file in ["", "adc.json", "../adc.json"] {
+        let provider = ModelProviderInfo {
+            credential_file: Some(credential_file.into()),
+            ..ModelProviderInfo::create_gcp_provider()
+        };
+        assert_eq!(
+            provider.validate(),
+            Err("provider credential_file must be an absolute path".to_string()),
+        );
+
+        let overrides = HashMap::from([(
+            GCP_PROVIDER_ID.to_string(),
+            ModelProviderInfo {
+                credential_file: Some(credential_file.into()),
+                ..Default::default()
+            },
+        )]);
+
+        assert_eq!(
+            merge_configured_model_providers(
+                built_in_model_providers(/*openai_base_url*/ None),
+                overrides,
+            ),
+            Err(
+                "model_providers.gcp provider credential_file must be an absolute path".to_string()
+            ),
+        );
+    }
 }
 
 #[test]

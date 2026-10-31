@@ -10,7 +10,6 @@ use super::LunaSamplerConfig;
 use super::LunaSamplerError;
 use super::MAX_OUTPUT_BYTES;
 use super::SampledScore;
-use super::connection_pool::RequestMode;
 use super::response::PendingResponse;
 use super::telemetry::SamplingTelemetry;
 use super::telemetry::record_retry;
@@ -115,6 +114,7 @@ impl SamplingExecution {
                 | ApiError::Stream(_)
                 | ApiError::ContentFilter
                 | ApiError::ServerOverloaded { .. }
+                | ApiError::PolicyCapacityUnavailable { .. }
                 | ApiError::FlexUnavailable,
             )
             | LunaSamplerError::Api(ApiError::Transport(
@@ -157,6 +157,7 @@ impl SamplingExecution {
                 | ApiError::UsageNotIncluded
                 | ApiError::RateLimit(_)
                 | ApiError::InvalidRequest { .. }
+                | ApiError::InvalidAudioInput { .. }
                 | ApiError::ModelNotFound { .. }
                 | ApiError::InvalidPrompt { .. }
                 | ApiError::MisalignmentPolicyViolation { .. }

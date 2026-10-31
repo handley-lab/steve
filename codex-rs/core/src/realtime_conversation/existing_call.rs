@@ -1,5 +1,6 @@
 use super::RealtimeHandoffState;
 use super::RealtimeInputChannels;
+use super::RealtimeOutput;
 use super::RealtimeSessionKind;
 use super::RealtimeSidebandSessionInitialization;
 use super::RealtimeTranscriptTailFlush;
@@ -30,7 +31,7 @@ pub(super) struct ExistingCallAttachment {
     pub(super) call_id: String,
     pub(super) extra_headers: HeaderMap,
     pub(super) input_channels: RealtimeInputChannels,
-    pub(super) events_tx: Sender<RealtimeEvent>,
+    pub(super) events_tx: Sender<RealtimeOutput>,
     pub(super) handoff_state: RealtimeHandoffState,
     pub(super) session_kind: RealtimeSessionKind,
     pub(super) event_parser: RealtimeEventParser,

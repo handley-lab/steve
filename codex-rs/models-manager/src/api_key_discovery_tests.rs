@@ -1,6 +1,7 @@
 //! Model discovery opt-outs must gate network requests and cached catalog authority.
 
 use super::*;
+use codex_protocol::openai_models::ModelOrigin;
 use pretty_assertions::assert_eq;
 
 #[tokio::test]
@@ -43,7 +44,7 @@ async fn model_discovery_flag_controls_fetches_and_cached_catalogs() {
     assert_eq!(endpoint.fetch_count(), 1);
     assert_eq!(
         manager.get_model_info("fixture", "dynamic", &config).await.unwrap(),
-        models[0]
+        CatalogModel { model: models[0].clone().into(), origin: ModelOrigin::Provider }
     );
 
     // A runtime rollback must also suppress the already-loaded catalog.

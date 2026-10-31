@@ -244,11 +244,53 @@ async fn explicit_cyber_program_follows_feature_without_provider_or_auth_gate() 
     Ok(())
 }
 
-#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(); "chatgpt")]
-#[test_case(CodexAuth::from_api_key("test-api-key"); "api_key")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cyber_access_program_custom_provider_preserves_api_key_feature_gate() -> Result<()> {
+    let server = responses::start_mock_server().await;
+    let test = test_codex()
+        .with_auth(CodexAuth::from_api_key("test-api-key"))
+        .with_config(|config| {
+            config.model_provider_id = "proxy".to_owned();
+            config.model_provider.capabilities =
+                Some(codex_model_provider_info::ModelProviderCapabilities {
+                    cyber_access_programs: Some(true),
+                    ..Default::default()
+                });
+            config
+                .features
+                .disable(Feature::ApiKeyCyberAccessPrograms)
+                .unwrap();
+        })
+        .build_with_auto_env(&server)
+        .await?;
+    let error = submit(&test, Some(CyberAccessProgram::DaybreakBlue))
+        .await
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Cyber access programs are disabled for this API-key session.")
+    );
+    assert!(
+        server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .all(|request| !request.url.path().ends_with("/responses"))
+    );
+    test.codex.shutdown_and_wait().await?;
+    Ok(())
+}
+
+#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(), "openai"; "chatgpt")]
+#[test_case(CodexAuth::from_api_key("test-api-key"), "openai"; "api_key")]
+#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(), "proxy"; "custom_chatgpt")]
+#[test_case(CodexAuth::from_api_key("test-api-key"), "proxy"; "custom_api_key")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cyber_access_program_survives_mid_turn_remote_compaction_v2(
     auth: CodexAuth,
+    provider_id: &'static str,
 ) -> Result<()> {
     core_test_support::skip_if_no_network!(Ok(()));
     let server = responses::start_mock_server().await;
@@ -281,7 +323,8 @@ async fn cyber_access_program_survives_mid_turn_remote_compaction_v2(
                 .expect("explicit test provider");
         })
         .with_auth(auth)
-        .with_config(|config| {
+        .with_config(move |config| {
+            config.model_provider_id = provider_id.to_owned();
             config.model_provider.requires_openai_auth = true;
             config.model_provider.capabilities.get_or_insert_default().remote_compaction =
                 Some(codex_model_provider_info::RemoteCompactionSupport::V2);

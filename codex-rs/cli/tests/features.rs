@@ -255,7 +255,7 @@ async fn features_list_honors_cloud_managed_feature_requirements() -> Result<()>
     let chatgpt_base_url = format!("{}/backend-api", server.uri());
     let codex_home = TempDir::new()?;
     let user_config = format!(
-        "cli_auth_credentials_store = \"file\"\nchatgpt_base_url = \"{chatgpt_base_url}\"\n\n[features]\nfast_mode = true\nin_app_voice = true\n"
+        "model_provider = \"openai\"\nchatgpt_path_style = \"chatgpt_api\"\ncli_auth_credentials_store = \"file\"\nchatgpt_base_url = \"{chatgpt_base_url}\"\n\n[features]\nfast_mode = true\nin_app_voice = true\n"
     );
     std::fs::write(codex_home.path().join("config.toml"), &user_config)?;
 
@@ -400,10 +400,8 @@ fn remote_start_allows_network_access_overrides_before_requiring_terminal() -> R
 }
 
 #[test]
-fn no_daemon_rejects_agents_and_explicit_remote_targets() -> Result<()> {
+fn no_daemon_rejects_queue_and_explicit_remote_targets() -> Result<()> {
     for args in [
-        "--no-daemon agents",
-        "agents --no-daemon",
         "--no-daemon queue --thread example --message hello",
         "--no-daemon --remote ws://localhost:9999 agents",
         "--no-daemon --remote ws://localhost:9999",
@@ -416,9 +414,7 @@ fn no_daemon_rejects_agents_and_explicit_remote_targets() -> Result<()> {
     ] {
         let args = args.split_whitespace().collect::<Vec<_>>();
         let home = TempDir::new()?;
-        let expected = if args.contains(&"agents") {
-            "--no-daemon cannot be used with steve agents."
-        } else if args.contains(&"queue") && !args.contains(&"--remote") {
+        let expected = if args.contains(&"queue") && !args.contains(&"--remote") {
             "--no-daemon cannot be used with steve queue."
         } else {
             "--no-daemon cannot be used with --remote."

@@ -52,7 +52,7 @@ fn cache_identity_tracks_provider_routing_and_effective_api_credentials() {
         ModelProviderInfo::create_openai_provider(Some("https://one.example/v1".into()));
     provider.requires_openai_auth = true;
     let key = identity(&provider, Some(&auth)).unwrap();
-    let other_key = CodexAuth::from_api_key("second-key");
+    let other_key = CodexAuth::from_api_key("sk-proj-fedramp-rotated-test-key");
     assert_ne!(identity(&provider, Some(&other_key)).unwrap(), key);
     let mut other_provider = provider.clone();
     other_provider.base_url = Some("https://two.example/v1".into());
@@ -66,6 +66,18 @@ fn cache_identity_tracks_provider_routing_and_effective_api_credentials() {
         "another-project".into(),
     )]));
     assert_ne!(identity(&other_provider, Some(&auth)).unwrap(), key);
+
+    let mut provider = ModelProviderInfo::create_openai_provider(Some("https://gov.api.openai.com/v1".into()));
+    // Keep identities stable while the endpoint residency test runs in parallel.
+    provider.http_headers = Some(std::collections::HashMap::from([(
+        codex_login::default_client::RESIDENCY_HEADER_NAME.to_string(),
+        "us".into(),
+    )]));
+    let key = identity(&provider, Some(&auth)).unwrap();
+    provider.base_url = Some("https://gov.api.openai.com/v1".into());
+    assert_eq!(identity(&provider, Some(&auth)).unwrap(), key);
+    provider.base_url = Some("https://api.openai.com/v1".into());
+    assert_ne!(identity(&provider, Some(&auth)).unwrap(), key);
 }
 
 #[test]

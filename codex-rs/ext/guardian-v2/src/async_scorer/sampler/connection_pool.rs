@@ -518,7 +518,7 @@ impl ConnectionLease {
         }
         let provider = self.pool.config.provider.info();
         for item in &mut request.input {
-            if let Some(model) = model.filter(|model| !model.used_fallback_model_metadata)
+            if let Some(model) = model.filter(|model| model.origin != codex_models_manager::ModelOrigin::Synthetic)
                 && let ResponseItem::Message { content, .. } = item
             {
                 for content in content {

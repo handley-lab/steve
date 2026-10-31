@@ -344,7 +344,7 @@ impl CatalogRequestProcessor {
         let models = supported_models(models, include_hidden.unwrap_or(false));
         let provider_errors = provider_errors
             .into_iter()
-            .map(|error| codex_app_server_protocol::ModelProviderError {
+            .map(|error| codex_app_server_protocol::ModelCatalogProviderError {
                 provider: error.provider,
                 message: error.message,
             })

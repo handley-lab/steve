@@ -13,6 +13,7 @@ use codex_features::Feature;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
 use codex_protocol::models::BaseInstructions;
+use codex_protocol::openai_models::ModelOrigin;
 use codex_protocol::openai_models::ModelPreset;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::openai_models::ReasoningEffortPreset;
@@ -250,7 +251,7 @@ async fn apply_requested_spawn_agent_model_overrides(
             )?;
             config.model_reasoning_effort = Some(reasoning_effort);
         } else {
-            config.model_reasoning_effort = selected_model_info.default_reasoning_level;
+            config.model_reasoning_effort = selected_model_info.default_reasoning_level.clone();
         }
 
         return Ok(());
@@ -323,14 +324,9 @@ async fn apply_spawn_agent_role(
     let model_info = session
         .services
         .models_manager
-        .get_model_info(
-            &config.model_provider_id,
-            &model,
-            &config.to_models_manager_config(),
-        )
-        .await
-        .map_err(|error| error.to_string())?;
-    if model_info.used_fallback_model_metadata {
+        .get_model_info(&config.model_provider_id, &model, &config.to_models_manager_config())
+        .await.map_err(|error| error.to_string())?;
+    if model_info.origin == ModelOrigin::Synthetic {
         return Ok(());
     }
 

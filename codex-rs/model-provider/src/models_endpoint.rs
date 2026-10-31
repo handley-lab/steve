@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
@@ -11,6 +12,7 @@ use codex_api::ReqwestTransport;
 use codex_api::TransportError;
 use codex_api::auth_header_telemetry;
 use codex_api::map_api_error;
+use codex_features::RuntimeAuthMode;
 use codex_feedback::FeedbackRequestTags;
 use codex_feedback::emit_feedback_request_tags_with_auth_env;
 use codex_http_client::ClientRouteClass;
@@ -33,6 +35,7 @@ use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CoreResult;
 use codex_response_debug_context::extract_response_debug_context;
 use codex_response_debug_context::telemetry_transport_error_message;
+use codex_runtime_agent_instance::RuntimeAuthManager;
 use http::HeaderMap;
 use http::HeaderValue;
 use sha2::Digest;
@@ -44,6 +47,7 @@ use crate::auth::agent_identity_telemetry;
 use crate::auth::resolve_provider_auth;
 use crate::combined_auth::compose_auth;
 use crate::combined_auth::gateway_header;
+use crate::provider::resolve_api_provider;
 
 const MODELS_REFRESH_TIMEOUT: Duration = Duration::from_secs(5);
 const MODELS_ENDPOINT: &str = "/models";
@@ -55,6 +59,7 @@ pub(crate) struct OpenAiModelsEndpoint {
     auth_manager: Option<Arc<AuthManager>>,
     gateway_auth_manager: Option<Result<Arc<GatewayAuthManager>, String>>,
     transport_builder: Arc<dyn ModelsTransportBuilder>,
+    runtime_auth: Option<(Arc<RuntimeAuthManager>, RuntimeAuthMode)>,
 }
 
 impl OpenAiModelsEndpoint {
@@ -65,11 +70,21 @@ impl OpenAiModelsEndpoint {
     ) -> Self {
         let request_logging = provider_info.model_catalog_url.is_none();
         Self {
+            runtime_auth: None,
             provider_info,
             auth_manager,
             gateway_auth_manager,
             transport_builder: Arc::new(RouteAwareModelsTransportBuilder { request_logging }),
         }
+    }
+
+    /// Use the same runtime owner as the harness's model sessions.
+    pub(crate) fn with_runtime_auth(
+        mut self,
+        runtime_auth: Option<(Arc<RuntimeAuthManager>, RuntimeAuthMode)>,
+    ) -> Self {
+        self.runtime_auth = runtime_auth;
+        self
     }
 
     async fn auth(&self) -> Option<CodexAuth> {
@@ -89,7 +104,61 @@ impl OpenAiModelsEndpoint {
         client_version: &str,
         http_client_factory: HttpClientFactory,
     ) -> CoreResult<ModelsEndpointResponse> {
-        let auth = self.auth().await;
+        timeout(
+            MODELS_REFRESH_TIMEOUT,
+            self.fetch_models(client_version, http_client_factory),
+        )
+        .await
+        .map_err(|_| CodexErr::RequestTimeout)?
+    }
+
+    async fn fetch_models(
+        &self,
+        client_version: &str,
+        http_client_factory: HttpClientFactory,
+    ) -> CoreResult<ModelsEndpointResponse> {
+        let provider_info = self.provider_info.clone();
+        let auth_manager = self.auth_manager.clone();
+        let runtime_auth = self.runtime_auth.clone();
+        // A timed-out catalog fetch must not discard a rotated refresh token before
+        // it is saved. Keep credential refresh and registration owned until they finish.
+        let (auth, selected_runtime_auth) = tokio::spawn(async move {
+            let selected_runtime_auth = match runtime_auth {
+                Some((runtime, mode)) => {
+                    crate::validate_runtime_destination(
+                        provider_info
+                            .model_catalog_url
+                            .as_deref()
+                            .map(String::as_str)
+                            .or(provider_info.base_url.as_deref()),
+                    )?;
+                    crate::validate_runtime_provider(
+                        &provider_info,
+                        auth_manager.as_ref(),
+                        &runtime,
+                    )?;
+                    Some((
+                        crate::runtime_auth::select_runtime_auth(
+                            &runtime,
+                            &provider_info.build_header_map()?,
+                        )
+                        .await
+                        .map_err(|error| map_api_error(error.into()))?,
+                        mode,
+                    ))
+                }
+                None => None,
+            };
+            let auth = match &selected_runtime_auth {
+                Some((selected_runtime_auth, _)) => Some(selected_runtime_auth.auth().clone()),
+                None => match auth_manager {
+                    Some(auth_manager) => auth_manager.auth().await,
+                    None => None,
+                },
+            };
+            Ok::<_, CodexErr>((auth, selected_runtime_auth))
+        })
+        .await??;
         let metric_auth_mode = if self.has_provider_api_key()
             || auth.as_ref().is_some_and(CodexAuth::is_api_key_auth)
         {
@@ -110,10 +179,25 @@ impl OpenAiModelsEndpoint {
             catalog_provider.base_url = Some(catalog_url.to_string());
         }
         let api_provider = catalog_provider.to_api_provider(auth_mode)?;
+        let http_client_factory = match &selected_runtime_auth {
+            Some((selected_runtime_auth, _)) => selected_runtime_auth
+                .bind_http_client_factory(http_client_factory)
+                .map_err(|error| map_api_error(error.into()))?,
+            None => http_client_factory,
+        };
+        let primary = if let Some((selected_runtime_auth, mode)) = selected_runtime_auth {
+            crate::validate_runtime_selectors(
+                &api_provider.headers,
+                selected_runtime_auth.runtime().actor().info(),
+            )?;
+            selected_runtime_auth.into_auth_provider(mode)
+        } else {
+            resolve_provider_auth(auth.as_ref(), &self.provider_info)?
+        };
         let resolved = compose_auth(
             &self.provider_info,
             self.gateway_auth_manager.as_ref(),
-            ResolvedProviderAuth::new(resolve_provider_auth(auth.as_ref(), &self.provider_info)?),
+            ResolvedProviderAuth::new(primary),
         )
         .await?;
         let api_auth = resolved.auth;
@@ -154,7 +238,7 @@ impl OpenAiModelsEndpoint {
             agent_identity_telemetry,
             auth_env: self.auth_env(),
         });
-        let (models, etag) = timeout(MODELS_REFRESH_TIMEOUT, async {
+        let (models, etag) = {
             let transport = self
                 .transport_builder
                 .build(http_client_factory, request_url.clone())
@@ -184,9 +268,18 @@ impl OpenAiModelsEndpoint {
                     }
                     map_api_error(error)
                 })
-        })
-        .await
-        .map_err(|_| CodexErr::RequestTimeout)??;
+        }?;
+        if self.provider_info.model_catalog_url.is_some() {
+            let mut slugs = HashSet::new();
+            if models
+                .iter()
+                .any(|model| model.slug.trim().is_empty() || !slugs.insert(&model.slug))
+            {
+                return Err(CodexErr::InvalidRequest(
+                    "model discovery must contain unique, non-empty IDs".to_string(),
+                ));
+            }
+        }
         Ok(ModelsEndpointResponse {
             models,
             etag,
@@ -229,6 +322,7 @@ impl ModelsEndpointClient for OpenAiModelsEndpoint {
             provider_info,
             auth_manager: self.auth_manager.clone(),
             gateway_auth_manager: self.gateway_auth_manager.clone(),
+            runtime_auth: self.runtime_auth.clone(),
             transport_builder: Arc::clone(&self.transport_builder),
         }))
     }
@@ -448,6 +542,7 @@ mod tests {
     use codex_models_manager::manager::OpenAiModelsManager;
     use codex_models_manager::manager::RefreshStrategy;
     use codex_models_manager::test_support::model_info;
+    use codex_models_manager::model_info::model_info_from_slug;
     use codex_protocol::auth::AuthMode;
     use codex_protocol::config_types::ModelProviderAuthInfo;
     use codex_protocol::openai_models::ModelVisibility;
@@ -501,23 +596,53 @@ mod tests {
     async fn api_key_discovery_uses_the_configured_models_route() {
         let mut observations = Vec::new();
         let client_version = codex_models_manager::client_version_to_whole();
-        for (name, base_url, models_url, inference_url) in [
-            ("OpenAI", None, None::<&str>, None),
+        for (api_key, name, base_url, models_url, inference_url) in [
+            ("test-api-key", "OpenAI", None, None::<&str>, None),
             (
+                "test-api-key",
                 "OpenAI",
                 Some("https://example.com/codex"),
                 Some("https://example.com/codex/models"),
                 Some("https://example.com/codex"),
             ),
             (
+                "test-api-key",
                 "Azure",
                 Some("https://example.openai.azure.com/openai/v1"),
                 Some("https://example.openai.azure.com/openai/v1/models"),
                 Some("https://example.openai.azure.com/openai/v1"),
             ),
+            (
+                "sk-proj-fedramp-synthetic-test-key",
+                "OpenAI",
+                None,
+                None,
+                None,
+            ),
+            (
+                "sk-svcacct-fedramp-synthetic-test-key",
+                "OpenAI",
+                None,
+                None,
+                None,
+            ),
+            (
+                "sk-proj-fedramp-synthetic-test-key",
+                "OpenAI",
+                Some("https://example.com/codex"),
+                Some("https://example.com/codex/models"),
+                Some("https://example.com/codex"),
+            ),
+            (
+                "sk-svcacct-fedramp-synthetic-test-key",
+                "Azure",
+                None,
+                None,
+                None,
+            ),
         ] {
             let capture = Arc::new(CaptureModelsUrl(Mutex::new(/*t*/ None)));
-            let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("test-api-key"));
+            let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key(api_key));
             let endpoint = Arc::new(OpenAiModelsEndpoint {
                 provider_info: ModelProviderInfo {
                     name: name.to_string(),
@@ -525,9 +650,14 @@ mod tests {
                 },
                 auth_manager: Some(auth.clone()),
                 gateway_auth_manager: None,
+                runtime_auth: None,
                 transport_builder: capture.clone(),
             });
-            let manager = OpenAiModelsManager::new_without_cache(endpoint.clone(), Some(auth));
+            let provider = crate::provider::create_model_provider(
+                endpoint.provider_info.clone(),
+                Some(auth.clone()),
+            );
+            let manager = OpenAiModelsManager::new_without_cache(endpoint, Some(auth));
             manager.set_api_key_model_discovery_enabled(/*enabled*/ true);
             manager
                 .raw_model_catalog(
@@ -543,8 +673,8 @@ mod tests {
             }));
             observations.push((actual, expected));
             assert_eq!(
-                endpoint
-                    .provider_info
+                provider
+                    .info()
                     .to_api_provider(Some(AuthMode::ApiKey))
                     .map(|provider| provider.base_url)
                     .ok(),
@@ -566,13 +696,18 @@ mod tests {
             let auth_manager = auth.map(AuthManager::from_auth_for_testing);
             let endpoint = Arc::new(OpenAiModelsEndpoint {
                 provider_info: ModelProviderInfo {
-                    experimental_bearer_token: Some("provider-key".into()),
+                    experimental_bearer_token: Some("test-provider-api-key".into()),
                     ..ModelProviderInfo::create_openai_provider(/*base_url*/ None)
                 },
                 auth_manager: auth_manager.clone(),
                 gateway_auth_manager: None,
+                runtime_auth: None,
                 transport_builder: capture.clone(),
             });
+            let provider = crate::provider::create_model_provider(
+                endpoint.provider_info.clone(),
+                auth_manager.clone(),
+            );
             let manager = OpenAiModelsManager::new_without_cache(endpoint, auth_manager);
             manager.set_api_key_model_discovery_enabled(/*enabled*/ true);
             manager
@@ -603,6 +738,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn command_auth_provider_reports_command_auth_without_cached_auth() {
+        let endpoint = OpenAiModelsEndpoint::new(
+            provider_info_with_command_auth(),
+            /*auth_manager*/ None,
+            /*gateway_auth_manager*/ None,
+        );
+
+        assert!(endpoint.provider_info.has_command_auth());
+        endpoint.prepare_catalog_identity().await.unwrap();
+        let auth = CodexAuth::from_api_key("sk-proj-fedramp-command-key");
+        assert_eq!(
+            resolve_api_provider(&endpoint.provider_info, Some(&auth)).is_err(),
+            true
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_without_command_auth_reports_no_command_auth() {
+        let endpoint = OpenAiModelsEndpoint::new(
+            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+            /*auth_manager*/ None,
+            /*gateway_auth_manager*/ None,
+        );
+
+        assert!(!endpoint.provider_info.has_command_auth());
+        endpoint.prepare_catalog_identity().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn model_request_uses_request_time_proxy_policy_and_exact_url() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
@@ -620,6 +784,7 @@ mod tests {
             provider_info: ModelProviderInfo::create_openai_provider(Some(server.uri())),
             auth_manager: None,
             gateway_auth_manager: None,
+            runtime_auth: None,
             transport_builder: Arc::new(RecordingTransportBuilder {
                 observed_request: Arc::clone(&observed_request),
             }),
@@ -666,6 +831,7 @@ mod tests {
             provider_info,
             auth_manager: None,
             gateway_auth_manager: None,
+            runtime_auth: None,
             transport_builder: Arc::new(RecordingTransportBuilder {
                 observed_request: Arc::new(Mutex::new(None)),
             }),
@@ -724,7 +890,6 @@ mod tests {
         .await
         .unwrap();
         let model = codex_protocol::openai_models::ModelInfo {
-            used_fallback_model_metadata: false,
             ..model_info("command-auth-model")
         };
         Mock::given(method("GET"))
@@ -775,9 +940,12 @@ mod tests {
         assert_eq!(manager.try_get_remote_models().unwrap(), bundled.models);
         assert_eq!(
             manager
-                .get_model_info(&model.slug, &Default::default())
-                .await,
-            model_info_from_slug(&model.slug)
+                .get_model_info("fixture", &model.slug, &Default::default())
+                .await.unwrap(),
+            codex_models_manager::CatalogModel {
+                model: model_info_from_slug(&model.slug).into(),
+                origin: codex_models_manager::ModelOrigin::Synthetic,
+            }
         );
         assert_eq!(
             manager
@@ -823,7 +991,6 @@ mod tests {
             let mut model = model_info("provider-model");
             model.visibility = ModelVisibility::List;
             model.supported_in_api = false;
-            model.used_fallback_model_metadata = false;
             let expected = ModelsResponse {
                 models: vec![model],
             };
@@ -929,7 +1096,7 @@ mod tests {
                 .expect_err("ambiguous model identity must be rejected");
             assert_eq!(
                 error.to_string(),
-                "model catalog must contain unique, non-empty model slugs"
+                "model discovery must contain unique, non-empty IDs"
             );
         }
     }
@@ -1036,3 +1203,7 @@ mod tests {
         redirect.verify().await;
     }
 }
+
+#[cfg(test)]
+#[path = "models_endpoint_runtime_auth_tests.rs"]
+mod runtime_auth_tests;

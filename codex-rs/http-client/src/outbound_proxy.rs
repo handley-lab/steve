@@ -163,6 +163,7 @@ impl fmt::Debug for OutboundProxyRoute {
 pub struct HttpClientFactory {
     outbound_proxy_policy: OutboundProxyPolicy,
     system_proxy_fallback: bool,
+    protect_sensitive_headers: bool,
     network_policy: NetworkPolicy,
 }
 
@@ -170,6 +171,7 @@ impl PartialEq for HttpClientFactory {
     fn eq(&self, other: &Self) -> bool {
         self.outbound_proxy_policy == other.outbound_proxy_policy
             && self.system_proxy_fallback == other.system_proxy_fallback
+            && self.protect_sensitive_headers == other.protect_sensitive_headers
             && self.network_policy == other.network_policy
     }
 }
@@ -181,6 +183,7 @@ impl fmt::Debug for HttpClientFactory {
         f.debug_struct("HttpClientFactory")
             .field("outbound_proxy_policy", &self.outbound_proxy_policy)
             .field("system_proxy_fallback", &self.system_proxy_fallback)
+            .field("protect_sensitive_headers", &self.protect_sensitive_headers)
             .field("network_policy", &self.network_policy)
             .finish()
     }
@@ -192,8 +195,21 @@ impl HttpClientFactory {
         Self {
             outbound_proxy_policy,
             system_proxy_fallback: false,
+            protect_sensitive_headers: false,
             network_policy: NetworkPolicy::unmanaged(),
         }
+    }
+
+    /// Follows redirects while keeping headers marked sensitive on the original origin.
+    /// Reqwest's default redirect handling only recognizes standard credential headers.
+    pub fn with_sensitive_header_protection(mut self) -> Self {
+        self.protect_sensitive_headers = true;
+        self
+    }
+
+    /// Whether redirect handling removes sensitive headers when the origin changes.
+    pub fn protects_sensitive_headers(&self) -> bool {
+        self.protect_sensitive_headers
     }
 
     /// Carries the account/configuration owner's application policy into every transport.

@@ -75,6 +75,7 @@ async fn retries_on_early_close() {
         accepts_response_continuation: false,
         project_id: None,
         location: None,
+        credential_file: None,
         include_internal_metadata: false,
     };
 

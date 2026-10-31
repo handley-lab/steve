@@ -18,7 +18,7 @@ CODE_SIGNING_ID = "steve"
 APP = Path("SteveCLI.app")
 EXECUTABLE = APP / "Contents/MacOS/steve"
 SIGNING = Path(__file__).resolve().parent
-HELPERS = ("bin/steve-code-mode-host", "steve-path/rg")
+HELPERS = ("bin/steve-code-mode-host", "bin/steve-exec-server", "steve-path/rg")
 LAUNCHER = """#!/bin/sh
 set -eu
 entry="$0"

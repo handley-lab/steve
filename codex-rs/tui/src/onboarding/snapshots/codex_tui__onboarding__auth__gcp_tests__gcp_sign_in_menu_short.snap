@@ -1,0 +1,10 @@
+---
+source: tui/src/onboarding/gcp_tests.rs
+expression: terminal.backend().to_string()
+---
+  Choose how you want to use Steve.
+
+  1. Provide your own API key
+  2. Use Amazon Bedrock
+> 3. Use Google Cloud Vertex AI
+  Press enter to continue

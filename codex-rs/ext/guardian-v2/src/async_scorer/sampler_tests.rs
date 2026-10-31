@@ -239,12 +239,12 @@ pub(in crate::async_scorer) async fn proxy_websocket_servers_with_http(
     Ok(format!("http://{address}/v1"))
 }
 
-fn sampler_model_info() -> ModelInfo {
+fn sampler_model_info() -> codex_models_manager::CatalogModel {
     let mut model = codex_models_manager::test_support::model_info("test-model");
     model.slug = MODEL.to_owned();
     model.use_responses_lite = true;
     model.comp_hash = None;
-    model
+    codex_models_manager::CatalogModel { model: model.into(), origin: codex_models_manager::ModelOrigin::ExplicitConfig }
 }
 
 pub(in crate::async_scorer) fn sampler_config(base_url: String) -> LunaSamplerConfig {

@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import plistlib
 import subprocess
 import sys
 from pathlib import Path
@@ -37,7 +38,7 @@ def main(configuration: bundle.ProfileConfiguration | None = None):
         name = binary.name
         target = binary
         identifier = name
-        entitlements_name = {"steve": "codex", "steve-code-mode-host": "codex-code-mode-host"}.get(name, name)
+        entitlements_name = {"steve": "codex", "steve-code-mode-host": "codex-code-mode-host", "steve-exec-server": "codex-exec-server"}.get(name, name)
         entitlements = bundle.SIGNING / f"{entitlements_name}.entitlements.plist"
         if provisioned and relative == "bin/steve":
             binary = package / bundle.EXECUTABLE
@@ -134,6 +135,12 @@ def main(configuration: bundle.ProfileConfiguration | None = None):
                     check=True,
                 )
             if relative.startswith("bin/"):
+                # Signing tools may omit the blob when no entitlements are requested.
+                if (
+                    actual.stat().st_size == 0
+                    and plistlib.loads(entitlements.read_bytes()) == {}
+                ):
+                    actual.write_bytes(entitlements.read_bytes())
                 expected = reports / f"{name}-expected.plist"
                 subprocess.run(
                     [

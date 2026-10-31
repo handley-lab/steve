@@ -109,6 +109,7 @@ pub(crate) async fn run_codex_thread_interactive(
         prompt_cache_key: parent_session
             .services
             .model_client
+            .load()
             .prompt_cache_key_policy(),
         allow_provider_model_fallback: false,
         instructions,

@@ -94,7 +94,7 @@ pub async fn list_cached_all_connectors(
     let connectors = codex_connectors::cached_directory_connectors(&cache_context)?;
     Some(merge_directory_and_plugin_connectors(
         &config.chatgpt_base_url,
-        connectors,
+        connectors.to_vec(),
         plugin_apps,
     ))
 }

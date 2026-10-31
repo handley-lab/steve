@@ -4,10 +4,10 @@
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
-use codex_cloud_config::cloud_config_bundle_loader_for_storage_without_cache;
+use codex_cloud_config::chatgpt_config_bundle_loader_for_storage_without_cache;
 use codex_config::ConfigLoadOptions;
-use codex_config::ConfigRequirementsToml;
-use codex_config::WindowsSandboxImplementationToml;
+use codex_config::ConfigRequirements;
+use codex_config::types::WindowsSandboxModeToml;
 use codex_core::config::bootstrap_account_path_style;
 use codex_core::config::bootstrap_auth_config;
 use codex_core::config::load_config_toml_with_layer_stack;
@@ -77,7 +77,7 @@ pub(crate) fn validate_provisioning_request(
                 // Use the default cloud-policy endpoint unless managed requirements override it.
                 let path_style = bootstrap_account_path_style(&bootstrap_config);
                 bootstrap_config.config_toml.chatgpt_base_url = None;
-                let cloud_config_bundle = cloud_config_bundle_loader_for_storage_without_cache(
+                let cloud_config_bundle = chatgpt_config_bundle_loader_for_storage_without_cache(
                     bootstrap_auth_config(codex_home, &bootstrap_config)
                         .context("resolve cloud configuration authentication")?,
                     path_style,
@@ -97,7 +97,7 @@ pub(crate) fn validate_provisioning_request(
                 .await
                 .context("load managed configuration")?;
 
-                Ok::<_, anyhow::Error>(config.config_layer_stack.requirements_toml().clone())
+                Ok::<_, anyhow::Error>(config.config_layer_stack.requirements().clone())
             } => result,
         }
     })?;
@@ -109,18 +109,17 @@ pub(crate) fn validate_provisioning_request(
 fn validate_requirements(
     settings: &WindowsSandboxProvisioningSettings,
     listeners: &WindowsSandboxProxyListeners,
-    requirements: &ConfigRequirementsToml,
+    requirements: &ConfigRequirements,
 ) -> Result<()> {
     if requirements
-        .windows
-        .as_ref()
-        .and_then(|windows| windows.allowed_sandbox_implementations.as_ref())
-        .is_some_and(|allowed| !allowed.contains(&WindowsSandboxImplementationToml::Elevated))
+        .windows_sandbox_mode
+        .can_set(&Some(WindowsSandboxModeToml::Elevated))
+        .is_err()
     {
         bail!("managed policy does not permit the elevated Windows sandbox");
     }
 
-    let Some(network) = requirements.network.as_ref() else {
+    let Some(network) = requirements.network.as_ref().map(|network| &network.value) else {
         return Ok(());
     };
     if network.enabled == Some(false)

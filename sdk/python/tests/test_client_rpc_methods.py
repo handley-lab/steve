@@ -25,6 +25,8 @@ from steve_sdk.generated.v2_all import (
     PlanType,
     ReasoningEffort,
     ReasoningEffortOption,
+    ReviewDelivery,
+    ReviewStartParams,
     ThreadForkParams,
     ThreadListParams,
     ThreadQueueChangedNotification,
@@ -39,6 +41,14 @@ from steve_sdk.models import InitializeResponse, JsonObject, Notification, Unkno
 from steve_sdk.types import ThreadSource
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_inline_review_delivery_round_trips_as_an_enum() -> None:
+    wire = {"threadId": "thread-1", "target": {"type": "uncommittedChanges"}, "delivery": "inline"}
+    params = ReviewStartParams.model_validate(wire)
+
+    assert params.delivery is ReviewDelivery.inline
+    assert params.model_dump(mode="json", by_alias=True) == wire
 
 
 @pytest.mark.parametrize(

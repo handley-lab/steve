@@ -182,7 +182,7 @@ pub struct ReasoningEffortOption {
 pub struct ModelListResponse {
     pub data: Vec<Model>,
     #[serde(default)]
-    pub provider_errors: Vec<ModelProviderError>,
+    pub provider_errors: Vec<ModelCatalogProviderError>,
     /// Opaque cursor to pass to the next call to continue after the last item.
     /// If None, there are no more items to return.
     pub next_cursor: Option<String>,
@@ -196,7 +196,7 @@ pub struct ModelListResponse {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
-pub struct ModelProviderError {
+pub struct ModelCatalogProviderError {
     pub provider: String,
     pub message: String,
 }

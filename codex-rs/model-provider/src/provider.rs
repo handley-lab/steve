@@ -8,6 +8,7 @@ use codex_api::ApiError;
 use codex_api::Provider;
 use codex_api::SharedAuthProvider;
 use codex_api::TransportError;
+use codex_features::RuntimeAuthMode;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_login::GatewayAuthManager;
@@ -19,8 +20,10 @@ use codex_models_manager::manager::OpenAiModelsManager;
 use codex_models_manager::manager::SharedModelsManager;
 use codex_models_manager::manager::StaticModelsManager;
 use codex_protocol::account::ProviderAccount;
+use codex_protocol::auth::RefreshTokenFailedError;
 use codex_protocol::error::CodexErr;
 use codex_protocol::openai_models::ModelsResponse;
+use codex_runtime_agent_instance::RuntimeAuthManager;
 
 use crate::ProviderCapabilities;
 #[cfg(test)]
@@ -121,6 +124,11 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
     /// manager throughout the codebase; that is a larger refactor than this change.
     fn auth_manager(&self) -> Option<Arc<AuthManager>>;
 
+    /// Runtime authentication selected for this provider's inference destination.
+    fn runtime_auth(&self) -> Option<&(Arc<RuntimeAuthManager>, RuntimeAuthMode)> {
+        None
+    }
+
     /// Returns the gateway credential manager shared with inference and model discovery.
     /// Hosts use this handle for explicit login; configured setup failures remain errors.
     fn gateway_auth_manager(&self) -> std::io::Result<Option<Arc<GatewayAuthManager>>> {
@@ -165,31 +173,53 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
     fn api_provider(&self) -> ModelProviderFuture<'_, codex_protocol::error::Result<Provider>> {
         Box::pin(async move {
             let auth = self.auth().await;
-            self.info()
-                .to_api_provider(auth.as_ref().map(CodexAuth::auth_mode))
+            self.api_provider_for_auth(auth.as_ref())
         })
     }
 
+    /// Returns the endpoint and authentication for one API client.
+    /// Providers with credential-dependent routing should resolve both from the same auth read.
+    fn api_provider_and_auth(
+        &self,
+    ) -> ModelProviderFuture<'_, codex_protocol::error::Result<(Provider, SharedAuthProvider)>>
+    {
+        Box::pin(async move { Ok((self.api_provider().await?, self.api_auth().await?)) })
+    }
+
     /// Resolves routing for Responses HTTP, compaction, and WebSocket handshakes.
-    #[expect(
-        clippy::await_holding_invalid_type,
-        reason = "serialize discovery and the session's first successful routing transition"
-    )]
     fn responses_api_provider<'a>(
         &'a self,
         routing_context: &'a WorkspaceRoutingContext,
     ) -> ModelProviderFuture<'a, codex_protocol::error::Result<ResolvedResponsesProvider>> {
         Box::pin(async move {
-            let mut provider = self.api_provider().await?;
+            let provider = self.api_provider().await?;
+            let auth = self.auth().await;
+            self.route_responses_api_provider(provider, auth.as_ref(), routing_context)
+                .await
+        })
+    }
+
+    /// Applies workspace routing using the credentials already selected for this request.
+    #[expect(
+        clippy::await_holding_invalid_type,
+        reason = "serialize discovery and the session's first successful routing transition"
+    )]
+    fn route_responses_api_provider<'a>(
+        &'a self,
+        mut provider: Provider,
+        auth: Option<&'a CodexAuth>,
+        routing_context: &'a WorkspaceRoutingContext,
+    ) -> ModelProviderFuture<'a, codex_protocol::error::Result<ResolvedResponsesProvider>> {
+        Box::pin(async move {
             if provider_uses_first_party_auth_path(self.info())
                 && self.info().supports_codex_backend_routes()
-                && let Some(auth) = self.auth().await.filter(CodexAuth::is_chatgpt_auth)
+                && let Some(auth) = auth.filter(|auth| auth.is_chatgpt_auth())
                 && let Some(auth_manager) = self.auth_manager()
             {
                 let mut previously_routed = routing_context.previously_routed.lock().await;
                 if let Some(routing) = auth_manager
                     .workspace_routing(
-                        &auth,
+                        auth,
                         WorkspaceRoutingRequest {
                             provider_base_url: provider.base_url.clone(),
                             chatgpt_base_url: routing_context.chatgpt_base_url.clone(),
@@ -197,7 +227,11 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
                             session: routing_context.session.clone(),
                         },
                     )
-                    .await?
+                    .await
+                    .map_err(|error| match error.downcast::<RefreshTokenFailedError>() {
+                        Ok(rejection) => CodexErr::RefreshTokenFailed(rejection),
+                        Err(error) => error.into(),
+                    })?
                 {
                     crate::workspace_routing::apply_workspace_routing(&mut provider, routing)?;
                     *previously_routed = true;
@@ -208,6 +242,14 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
                 redirect_policy: ClientRedirectPolicy::Reject,
             })
         })
+    }
+
+    /// Adapt routing from the same frozen credential selected for the request.
+    fn api_provider_for_auth(
+        &self,
+        auth: Option<&CodexAuth>,
+    ) -> codex_protocol::error::Result<Provider> {
+        resolve_api_provider(self.info(), auth)
     }
 
     /// Returns the provider base URL that will be used at request time.
@@ -227,6 +269,14 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
         })
     }
 
+    /// Adds provider-owned credentials, such as gateway OAuth, to already selected primary auth.
+    fn compose_auth(
+        &self,
+        resolved: ResolvedProviderAuth,
+    ) -> ModelProviderFuture<'_, codex_protocol::error::Result<ResolvedProviderAuth>> {
+        Box::pin(async move { Ok(resolved) })
+    }
+
     /// Returns request credentials and supplied identity metadata.
     fn api_auth_for_scope(
         &self,
@@ -238,6 +288,13 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
             let auth = self.auth().await;
             resolve_provider_auth_for_scope(auth.as_ref(), self.info())
         })
+    }
+
+    /// Resolve auth together with metadata needed to route and admit this request.
+    fn request_auth(
+        &self,
+    ) -> ModelProviderFuture<'_, codex_protocol::error::Result<ResolvedProviderAuth>> {
+        self.api_auth_for_scope()
     }
 
     /// Creates the model manager implementation appropriate for this provider.
@@ -256,7 +313,7 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
         config_model_catalog: Option<ModelsResponse>,
     ) -> SharedModelsManager {
         let model_catalog = config_model_catalog.unwrap_or_default();
-        Arc::new(StaticModelsManager::new(self.auth_manager(), model_catalog))
+        Arc::new(StaticModelsManager::new(self.auth_manager(), model_catalog, codex_models_manager::ModelOrigin::ExplicitConfig))
     }
 
     /// Creates a model manager that can use a caller-provided cache for remote catalogs.
@@ -280,7 +337,15 @@ pub type ModelProviderFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a
 /// Shared runtime model provider handle.
 pub type SharedModelProvider = Arc<dyn ModelProvider>;
 
-fn provider_uses_first_party_auth_path(provider: &ModelProviderInfo) -> bool {
+/// Resolve the explicitly configured endpoint for the selected authentication.
+pub fn resolve_api_provider(
+    info: &ModelProviderInfo,
+    auth: Option<&CodexAuth>,
+) -> codex_protocol::error::Result<Provider> {
+    info.to_api_provider(auth.map(CodexAuth::auth_mode))
+}
+
+pub fn provider_uses_first_party_auth_path(provider: &ModelProviderInfo) -> bool {
     provider.requires_openai_auth
         && provider.env_key.is_none()
         && provider.experimental_bearer_token.is_none()
@@ -288,10 +353,19 @@ fn provider_uses_first_party_auth_path(provider: &ModelProviderInfo) -> bool {
         && provider.aws.is_none()
 }
 
-/// Creates the default runtime model provider for configured provider metadata.
+/// Creates the default model provider for configured provider metadata.
+/// Harnesses with runtime identity use [`crate::ProviderAuthContext::model_provider`].
 pub fn create_model_provider(
     provider_info: ModelProviderInfo,
     auth_manager: Option<Arc<AuthManager>>,
+) -> SharedModelProvider {
+    create_model_provider_with_runtime(provider_info, auth_manager, /*runtime_auth*/ None)
+}
+
+pub(crate) fn create_model_provider_with_runtime(
+    provider_info: ModelProviderInfo,
+    auth_manager: Option<Arc<AuthManager>>,
+    runtime_auth: Option<(Arc<RuntimeAuthManager>, RuntimeAuthMode)>,
 ) -> SharedModelProvider {
     if provider_info.is_amazon_bedrock() {
         return Arc::new(AmazonBedrockModelProvider::new(provider_info, auth_manager));
@@ -299,20 +373,10 @@ pub fn create_model_provider(
     if provider_info.is_gcp() {
         return Arc::new(GcpModelProvider::new(provider_info, auth_manager));
     }
-    let gateway_auth_manager = provider_info.gateway_oauth.as_ref().map(|config| {
-        provider_info.validate()?;
-        let manager = auth_manager
-            .as_ref()
-            .ok_or_else(|| "gateway_oauth requires auth runtime configuration".to_string())?;
-        crate::shared_state::process_shared_state()
-            .gateway_auth(config, &manager.runtime_config())
-            .map_err(|_| "failed to create provider OAuth HTTP client".to_string())
-    });
-    let auth_manager = auth_manager_for_provider(auth_manager, &provider_info);
     Arc::new(ConfiguredModelProvider::new(
         provider_info,
         auth_manager,
-        gateway_auth_manager,
+        runtime_auth,
     ))
 }
 
@@ -323,6 +387,8 @@ struct ConfiguredModelProvider {
     auth_manager: Option<Arc<AuthManager>>,
     // Construct eagerly; report setup failures when auth is requested because the factory is infallible.
     gateway_auth_manager: Option<Result<Arc<GatewayAuthManager>, String>>,
+    runtime_auth: Option<(Arc<RuntimeAuthManager>, RuntimeAuthMode)>,
+    catalog_runtime_auth: Option<(Arc<RuntimeAuthManager>, RuntimeAuthMode)>,
 }
 
 enum ModelsCacheConfig {
@@ -335,13 +401,68 @@ impl ConfiguredModelProvider {
     fn new(
         info: ModelProviderInfo,
         auth_manager: Option<Arc<AuthManager>>,
-        gateway_auth_manager: Option<Result<Arc<GatewayAuthManager>, String>>,
+        runtime_auth: Option<(Arc<RuntimeAuthManager>, RuntimeAuthMode)>,
     ) -> Self {
+        let gateway_auth_manager = info.gateway_oauth.as_ref().map(|config| {
+            info.validate()?;
+            let manager = auth_manager
+                .as_ref()
+                .ok_or_else(|| "gateway_oauth requires auth runtime configuration".to_string())?;
+            crate::shared_state::process_shared_state()
+                .gateway_auth(config, &manager.runtime_config())
+                .map_err(|_| "failed to create provider OAuth HTTP client".to_string())
+        });
+        let auth_manager = auth_manager_for_provider(auth_manager, &info);
+        let runtime_for_destination = |destination: Option<&str>| {
+            runtime_auth.clone().filter(|_| {
+                destination.is_none_or(|url| {
+                    codex_http_client::classify_openai_api_url(url)
+                        != codex_http_client::OpenAiDestination::Other
+                })
+            })
+        };
+        let inference_runtime_auth = runtime_for_destination(info.base_url.as_deref());
+        // Catalog overrides are absolute URLs and can have a different origin from inference.
+        let catalog_runtime_auth = runtime_for_destination(
+            info.model_catalog_url
+                .as_deref()
+                .map(String::as_str)
+                .or(info.base_url.as_deref()),
+        );
         Self {
             info,
             auth_manager,
             gateway_auth_manager,
+            runtime_auth: inference_runtime_auth,
+            catalog_runtime_auth,
         }
+    }
+
+    async fn resolve_auth(
+        &self,
+    ) -> codex_protocol::error::Result<ResolvedProviderAuth> {
+        let resolved = if let Some((runtime, mode)) = &self.runtime_auth {
+            crate::validate_runtime_destination(self.info.base_url.as_deref())?;
+            crate::validate_runtime_provider(&self.info, self.auth_manager.as_ref(), runtime)?;
+            let headers = self.info.build_header_map()?;
+            let selected = crate::runtime_auth::select_runtime_auth(runtime, &headers)
+                .await
+                .map_err(|error| self.map_api_error(error.into()))?;
+            crate::validate_runtime_selectors(&headers, selected.runtime().actor().info())?;
+            ResolvedProviderAuth {
+                auth: selected.clone().into_auth_provider(*mode),
+                agent_identity_telemetry: None,
+                runtime: Some(selected),
+            }
+        } else {
+            let auth = self.auth().await;
+            if provider_uses_first_party_auth_path(&self.info) {
+                resolve_provider_auth_for_scope(auth.as_ref(), &self.info)?
+            } else {
+                ResolvedProviderAuth::new(resolve_provider_auth(auth.as_ref(), &self.info)?)
+            }
+        };
+        self.compose_auth(resolved).await
     }
 
     fn create_models_manager(
@@ -353,13 +474,17 @@ impl ConfiguredModelProvider {
             return Arc::new(StaticModelsManager::new(
                 self.auth_manager.clone(),
                 model_catalog,
+                codex_models_manager::ModelOrigin::ExplicitConfig,
             ));
         }
-        let endpoint = Arc::new(OpenAiModelsEndpoint::new(
-            self.info.clone(),
-            self.auth_manager.clone(),
-            self.gateway_auth_manager.clone(),
-        ));
+        let endpoint = Arc::new(
+            OpenAiModelsEndpoint::new(
+                self.info.clone(),
+                self.auth_manager.clone(),
+                self.gateway_auth_manager.clone(),
+            )
+            .with_runtime_auth(self.catalog_runtime_auth.clone()),
+        );
         let auth_manager = self.auth_manager.clone();
         let manager = match cache {
             ModelsCacheConfig::Disk { codex_home } => {
@@ -409,35 +534,55 @@ impl ModelProvider for ConfiguredModelProvider {
         })
     }
 
+    fn runtime_auth(&self) -> Option<&(Arc<RuntimeAuthManager>, RuntimeAuthMode)> {
+        self.runtime_auth.as_ref()
+    }
+
+    fn request_auth(
+        &self,
+    ) -> ModelProviderFuture<'_, codex_protocol::error::Result<ResolvedProviderAuth>> {
+        Box::pin(self.resolve_auth())
+    }
+
     fn api_auth(
         &self,
     ) -> ModelProviderFuture<'_, codex_protocol::error::Result<SharedAuthProvider>> {
         Box::pin(async move {
-            let auth = self.auth().await;
-            let primary = resolve_provider_auth(auth.as_ref(), &self.info)?;
-            Ok(compose_auth(
-                &self.info,
-                self.gateway_auth_manager.as_ref(),
-                ResolvedProviderAuth::new(primary),
-            )
-            .await?
-            .auth)
+            Ok(self.resolve_auth().await?.auth)
         })
+    }
+
+    fn api_provider_and_auth(
+        &self,
+    ) -> ModelProviderFuture<'_, codex_protocol::error::Result<(Provider, SharedAuthProvider)>>
+    {
+        Box::pin(async move {
+            let auth = self.auth().await;
+            let provider = self.api_provider_for_auth(auth.as_ref())?;
+            let primary = resolve_provider_auth(auth.as_ref(), &self.info)?;
+            let auth = self
+                .compose_auth(ResolvedProviderAuth::new(primary))
+                .await?
+                .auth;
+            Ok((provider, auth))
+        })
+    }
+
+    fn compose_auth(
+        &self,
+        resolved: ResolvedProviderAuth,
+    ) -> ModelProviderFuture<'_, codex_protocol::error::Result<ResolvedProviderAuth>> {
+        Box::pin(compose_auth(
+            &self.info,
+            self.gateway_auth_manager.as_ref(),
+            resolved,
+        ))
     }
 
     fn api_auth_for_scope(
         &self,
     ) -> ModelProviderFuture<'_, codex_protocol::error::Result<ResolvedProviderAuth>> {
-        Box::pin(async move {
-            let resolved = if provider_uses_first_party_auth_path(&self.info) {
-                let auth = self.auth().await;
-                resolve_provider_auth_for_scope(auth.as_ref(), &self.info)?
-            } else {
-                let auth = self.auth().await;
-                ResolvedProviderAuth::new(resolve_provider_auth(auth.as_ref(), &self.info)?)
-            };
-            compose_auth(&self.info, self.gateway_auth_manager.as_ref(), resolved).await
-        })
+        Box::pin(self.resolve_auth())
     }
 
     fn account_state(&self) -> ProviderAccountResult {
@@ -511,6 +656,8 @@ impl ModelProvider for ConfiguredModelProvider {
 mod tests {
     use std::future::Future;
     use std::num::NonZeroU64;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
     use std::task::Context;
     use std::task::Waker;
     use std::time::Duration;
@@ -590,6 +737,7 @@ mod tests {
             accepts_response_continuation: false,
             project_id: None,
             location: None,
+            credential_file: None,
             include_internal_metadata: false,
         }
     }
@@ -696,6 +844,7 @@ mod tests {
                     name: "Cambridge".to_string(),
                     base_url: Some("https://hpc.example/v1".to_string()),
                     capabilities: Some(codex_model_provider_info::ModelProviderCapabilities {
+                        cyber_access_programs: None,
                         external_web_access: None,
                         remote_compaction: Some(RemoteCompactionSupport::V2),
                     }),
@@ -708,6 +857,7 @@ mod tests {
                     name: "Azure".to_string(),
                     base_url: Some("https://example.openai.azure.com/openai/v1".to_string()),
                     capabilities: Some(codex_model_provider_info::ModelProviderCapabilities {
+                        cyber_access_programs: None,
                         external_web_access: None,
                         remote_compaction: Some(RemoteCompactionSupport::Unsupported),
                     }),
@@ -723,8 +873,30 @@ mod tests {
         }
     }
 
+    struct RotatingAuth(AtomicUsize);
+
+    impl codex_login::ExternalAuth for RotatingAuth {
+        fn resolve(&self) -> codex_login::ExternalAuthFuture<'_, CodexAuth> {
+            Box::pin(async move {
+                let key = if self.0.fetch_add(1, Ordering::SeqCst).is_multiple_of(2) {
+                    "sk-proj-fedramp-synthetic-test-key"
+                } else {
+                    "commercial-key"
+                };
+                Ok(CodexAuth::from_api_key(key))
+            })
+        }
+
+        fn refresh(
+            &self,
+            _context: codex_login::ExternalAuthRefreshContext,
+        ) -> codex_login::ExternalAuthFuture<'_, CodexAuth> {
+            self.resolve()
+        }
+    }
+
     #[tokio::test]
-    async fn configured_provider_runtime_base_url_uses_configured_base_url() {
+    async fn configured_provider_resolves_default_and_explicit_endpoints() {
         let provider = create_model_provider(
             provider_for("https://example.test/v1".to_string()),
             /*auth_manager*/ None,
@@ -737,6 +909,82 @@ mod tests {
                 .expect("runtime base URL should resolve"),
             Some("https://example.test/v1".to_string())
         );
+        assert_eq!(
+            provider.api_provider_and_auth().await.unwrap().0.base_url,
+            "https://example.test/v1"
+        );
+
+        let home = tempfile::tempdir().unwrap();
+        let auth = AuthManager::from_auth_for_testing_with_home(
+            CodexAuth::from_api_key("initial-key"),
+            home.path().to_path_buf(),
+        );
+        let provider = create_model_provider(
+            ModelProviderInfo {
+                requires_openai_auth: true,
+                ..ModelProviderInfo::create_openai_provider(Some("https://selected.example/v1".into()))
+            },
+            Some(auth.clone()),
+        );
+        for (api_key, expected_base_url) in [
+            ("legacy-key", "https://selected.example/v1"),
+            (
+                "sk-proj-fedramp-synthetic-test-key",
+                "https://selected.example/v1",
+            ),
+            ("commercial-key", "https://selected.example/v1"),
+        ] {
+            codex_login::login_with_api_key(
+                home.path(),
+                api_key,
+                codex_login::AuthCredentialsStoreMode::File,
+                codex_login::AuthKeyringBackendKind::default(),
+            )
+            .unwrap();
+            auth.reload().await;
+            let (api_provider, api_auth) = provider.api_provider_and_auth().await.unwrap();
+            assert_eq!(api_provider.base_url, expected_base_url);
+            let headers = api_auth.to_auth_headers().unwrap();
+            assert_eq!(
+                headers[http::header::AUTHORIZATION].to_str().unwrap(),
+                format!("Bearer {api_key}")
+            );
+        }
+        assert_eq!(provider.info().base_url.as_deref(), Some("https://selected.example/v1"));
+
+        let rotating_auth = Arc::new(RotatingAuth(AtomicUsize::new(0)));
+        auth.set_external_auth(rotating_auth.clone()).await.unwrap();
+        for (api_key, expected_base_url, expected_fedramp_header) in [
+            ("commercial-key", "https://selected.example/v1", None),
+            (
+                "sk-proj-fedramp-synthetic-test-key",
+                "https://selected.example/v1",
+                Some("true"),
+            ),
+            ("commercial-key", "https://selected.example/v1", None),
+        ] {
+            let reads_before = rotating_auth.0.load(Ordering::SeqCst);
+            let (api_provider, api_auth) = provider.api_provider_and_auth().await.unwrap();
+            assert_eq!(rotating_auth.0.load(Ordering::SeqCst), reads_before + 1);
+            let headers = api_auth.to_auth_headers().unwrap();
+            let expected_authorization = format!("Bearer {api_key}");
+            assert_eq!(
+                (
+                    api_provider.base_url.as_str(),
+                    headers
+                        .get(http::header::AUTHORIZATION)
+                        .and_then(|value| value.to_str().ok()),
+                    headers
+                        .get("X-OpenAI-Fedramp")
+                        .and_then(|value| value.to_str().ok()),
+                ),
+                (
+                    expected_base_url,
+                    Some(expected_authorization.as_str()),
+                    expected_fedramp_header,
+                )
+            );
+        }
     }
 
     #[test]
@@ -1159,7 +1407,7 @@ printf '%s\n' '{"AccessKeyId":"exported","SecretAccessKey":"secret"}'
                     .await
                     .unwrap();
                 assert_eq!(metadata.slug, "configured-model");
-                assert!(metadata.used_fallback_model_metadata);
+                assert_eq!(metadata.origin, codex_models_manager::ModelOrigin::Synthetic);
             }
         }
     }
@@ -1534,11 +1782,12 @@ printf '%s\n' '{"AccessKeyId":"exported","SecretAccessKey":"secret"}'
             let count = server.received_requests().await.unwrap().len() - before;
             eprintln!(
                 "T18_EVIDENCE {}",
-                json!({"kind": "unsupported-schema", "explicit": explicit,
+                json!({"kind": "id-only-schema", "explicit": explicit,
                 "response_body": response, "request_count": count, "models": models.models.iter().map(|m| &m.slug).collect::<Vec<_>>() })
             );
             assert_eq!(count, 1);
-            assert!(models.models.is_empty());
+            assert_eq!(models.models.len(), 1);
+            assert_eq!(models.models[0].slug, "id-only-provider");
         }
     }
 
@@ -1692,5 +1941,22 @@ printf '%s\n' '{"AccessKeyId":"exported","SecretAccessKey":"secret"}'
         }
         destination.verify().await;
         redirect.verify().await;
+    }
+}
+
+pub(crate) mod test_support {
+    use super::*;
+
+    /// Use an injected runtime with a local transport fixture. Production callers use the
+    /// destination-aware `ProviderAuthContext::model_provider` factory.
+    pub fn runtime_model_provider(
+        info: ModelProviderInfo,
+        credentials: Arc<AuthManager>,
+        runtime: (Arc<RuntimeAuthManager>, RuntimeAuthMode),
+    ) -> SharedModelProvider {
+        let mut provider =
+            ConfiguredModelProvider::new(info, Some(credentials), Some(runtime.clone()));
+        provider.runtime_auth = Some(runtime);
+        Arc::new(provider)
     }
 }

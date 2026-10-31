@@ -225,7 +225,9 @@ pub fn create_client_without_redirects_or_request_logging(
     let builder = default_http_client_builder()
         .without_redirects()
         .without_request_logging();
-    if !http_client_factory.network_policy().is_managed() {
+    if !http_client_factory.network_policy().is_managed()
+        && !http_client_factory.protects_sensitive_headers()
+    {
         return build_default_client(builder);
     }
     let mut pool = RouteAwareClientPool::with_builder(
@@ -276,7 +278,9 @@ fn create_client_for_route_with_builder(
     route_class: ClientRouteClass,
     builder: HttpClientBuilder,
 ) -> Result<HttpClient, BuildRouteAwareHttpClientError> {
-    if http_client_factory.network_policy().is_managed() {
+    if http_client_factory.network_policy().is_managed()
+        || http_client_factory.protects_sensitive_headers()
+    {
         let mut pool = codex_http_client::RouteAwareClientPool::with_builder(
             http_client_factory.clone(),
             route_class,
@@ -398,6 +402,7 @@ pub async fn create_transport_for_routes_async(
             OutboundProxyPolicy::ReqwestDefault
         );
         if !http_client_factory.network_policy().is_managed()
+            && !http_client_factory.protects_sensitive_headers()
             && (transport_default_proxy || sandboxed)
         {
             return ReqwestTransport::from_http_client(build_default_client(

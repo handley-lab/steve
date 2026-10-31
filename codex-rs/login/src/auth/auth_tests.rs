@@ -67,26 +67,32 @@ fn login_with_api_key_overwrites_existing_auth_json() {
             "account_id": "stale-acc"
         }
     });
-    std::fs::write(
-        &auth_path,
-        serde_json::to_string_pretty(&stale_auth).unwrap(),
-    )
-    .unwrap();
-
-    super::login_with_api_key(
-        dir.path(),
+    for api_key in [
         "sk-new",
-        AuthCredentialsStoreMode::File,
-        AuthKeyringBackendKind::default(),
-    )
-    .expect("login_with_api_key should succeed");
+        "sk-proj-fedramp-synthetic-test-key",
+        "sk-svcacct-fedramp-synthetic-test-key",
+    ] {
+        std::fs::write(
+            &auth_path,
+            serde_json::to_string_pretty(&stale_auth).unwrap(),
+        )
+        .unwrap();
 
-    let storage = FileAuthStorage::new(dir.path().to_path_buf());
-    let auth = storage
-        .try_read_auth_json(&auth_path)
-        .expect("auth.json should parse");
-    assert_eq!(auth.openai_api_key.as_deref(), Some("sk-new"));
-    assert!(auth.tokens.is_none(), "tokens should be cleared");
+        super::login_with_api_key(
+            dir.path(),
+            api_key,
+            AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
+        )
+        .expect("login_with_api_key should succeed");
+
+        let storage = FileAuthStorage::new(dir.path().to_path_buf());
+        let auth = storage
+            .try_read_auth_json(&auth_path)
+            .expect("auth.json should parse");
+        assert_eq!(auth.openai_api_key.as_deref(), Some(api_key));
+        assert!(auth.tokens.is_none(), "tokens should be cleared");
+    }
 }
 
 #[tokio::test]
@@ -415,6 +421,8 @@ async fn stored_agent_identity_jwt_keeps_auth_json_unchanged() -> anyhow::Result
         AuthKeyringBackendKind::Direct,
         Some(&authapi_base_url),
         &crate::test_support::transport_default_auth_route_config(),
+        /*cached_auth*/ None,
+        /*allowed_auth_modes*/ None,
     )
     .await?
     .expect("auth should load");
@@ -733,6 +741,8 @@ async fn pro_account_with_no_api_key_uses_chatgpt_auth() {
         AuthKeyringBackendKind::Direct,
         /*agent_identity_authapi_base_url*/ None,
         &crate::test_support::transport_default_auth_route_config(),
+        /*cached_auth*/ None,
+        /*allowed_auth_modes*/ None,
     )
     .await
     .unwrap()
@@ -783,30 +793,62 @@ async fn loads_api_key_from_auth_json() {
     let dir = tempdir().unwrap();
     let _access_token_guard = remove_access_token_env_var();
     let auth_file = dir.path().join("auth.json");
-    std::fs::write(
-        auth_file,
-        r#"{"OPENAI_API_KEY":"sk-test-key","tokens":null,"last_refresh":null}"#,
-    )
-    .unwrap();
+    for (api_key, expected_fedramp) in [
+        ("sk-test-key", false),
+        ("sk-proj-fedramp-synthetic-test-key", true),
+        ("sk-svcacct-fedramp-synthetic-test-key", true),
+        ("sk-proj-synthetic-test-key", false),
+        ("sk-svcacct-synthetic-test-key", false),
+        ("sk-proj-fedramp", false),
+        ("sk-svcacct-fedrampish-test-key", false),
+        ("sk-proj-FEDRAMP-test-key", false),
+        ("sk-admin-fedramp-test-key", false),
+        ("other-sk-proj-fedramp-test-key", false),
+    ] {
+        std::fs::write(
+            &auth_file,
+            json!({"OPENAI_API_KEY": api_key, "tokens": null, "last_refresh": null}).to_string(),
+        )
+        .unwrap();
 
-    let auth = super::load_auth(
-        dir.path(),
-        /*enable_codex_api_key_env*/ false,
+        let auth = super::load_auth(
+            dir.path(),
+            /*enable_codex_api_key_env*/ false,
+            AuthCredentialsStoreMode::File,
+            /*allowed_login_methods*/ None,
+            /*forced_chatgpt_workspace_id*/ None,
+            /*chatgpt_base_url*/ None,
+            AuthKeyringBackendKind::Direct,
+            /*agent_identity_authapi_base_url*/ None,
+            &crate::test_support::transport_default_auth_route_config(),
+            /*cached_auth*/ None,
+            /*allowed_auth_modes*/ None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(auth.auth_mode(), AuthMode::ApiKey);
+        assert_eq!(auth.api_key(), Some(api_key));
+        assert_eq!(
+            (auth.get_token().unwrap(), auth.is_fedramp_account()),
+            (api_key.to_string(), expected_fedramp)
+        );
+
+        assert!(auth.get_token_data().is_err());
+    }
+}
+
+#[test]
+fn logout_does_not_create_a_missing_file_store() -> std::io::Result<()> {
+    let root = tempdir()?;
+    let missing_home = root.path().join("missing");
+    assert!(!logout(
+        &missing_home,
         AuthCredentialsStoreMode::File,
-        /*allowed_login_methods*/ None,
-        /*forced_chatgpt_workspace_id*/ None,
-        /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::Direct,
-        /*agent_identity_authapi_base_url*/ None,
-        &crate::test_support::transport_default_auth_route_config(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(auth.auth_mode(), AuthMode::ApiKey);
-    assert_eq!(auth.api_key(), Some("sk-test-key"));
-
-    assert!(auth.get_token_data().is_err());
+        AuthKeyringBackendKind::default()
+    )?);
+    assert!(!missing_home.exists());
+    Ok(())
 }
 
 #[test]
@@ -897,6 +939,8 @@ async fn refresh_failure_is_scoped_to_the_matching_auth_snapshot() {
         AuthKeyringBackendKind::Direct,
         /*agent_identity_authapi_base_url*/ None,
         &crate::test_support::transport_default_auth_route_config(),
+        /*cached_auth*/ None,
+        /*allowed_auth_modes*/ None,
     )
     .await
     .expect("load auth")
@@ -912,9 +956,11 @@ async fn refresh_failure_is_scoped_to_the_matching_auth_snapshot() {
     updated_tokens.refresh_token = "new-refresh-token".to_string();
     let updated_auth = CodexAuth::from_auth_dot_json(
         updated_auth_dot_json,
+        create_auth_storage(codex_home.path().to_path_buf(), AuthCredentialsStoreMode::File, AuthKeyringBackendKind::Direct),
         /*chatgpt_base_url*/ None,
         /*agent_identity_authapi_base_url*/ None,
         &crate::test_support::transport_default_auth_route_config(),
+        /*cached_auth*/ None,
     )
     .await
     .expect("updated auth should parse");
@@ -1630,6 +1676,8 @@ async fn load_auth_reads_access_token_from_env() {
         AuthKeyringBackendKind::Direct,
         Some(&authapi_base_url),
         &crate::test_support::transport_default_auth_route_config(),
+        /*cached_auth*/ None,
+        /*allowed_auth_modes*/ None,
     )
     .await
     .expect("env auth should load")
@@ -1679,6 +1727,8 @@ async fn load_auth_reads_personal_access_token_from_env() {
             AuthKeyringBackendKind::default(),
             /*agent_identity_authapi_base_url*/ None,
             &crate::test_support::transport_default_auth_route_config(),
+            /*cached_auth*/ None,
+            /*allowed_auth_modes*/ None,
         )
         .await
         .expect("env auth should load")
@@ -1853,6 +1903,8 @@ async fn load_auth_keeps_codex_api_key_env_precedence() {
         AuthKeyringBackendKind::Direct,
         /*agent_identity_authapi_base_url*/ None,
         &crate::test_support::transport_default_auth_route_config(),
+        /*cached_auth*/ None,
+        /*allowed_auth_modes*/ None,
     )
     .await
     .expect("env auth should load")
@@ -2550,6 +2602,8 @@ async fn plan_type_maps_known_plan() {
         AuthKeyringBackendKind::Direct,
         /*agent_identity_authapi_base_url*/ None,
         &crate::test_support::transport_default_auth_route_config(),
+        /*cached_auth*/ None,
+        /*allowed_auth_modes*/ None,
     )
     .await
     .expect("load auth")
@@ -2583,6 +2637,8 @@ async fn plan_type_maps_self_serve_business_usage_based_plan() {
         AuthKeyringBackendKind::Direct,
         /*agent_identity_authapi_base_url*/ None,
         &crate::test_support::transport_default_auth_route_config(),
+        /*cached_auth*/ None,
+        /*allowed_auth_modes*/ None,
     )
     .await
     .expect("load auth")
@@ -2619,6 +2675,8 @@ async fn plan_type_maps_enterprise_cbp_usage_based_plan() {
         AuthKeyringBackendKind::Direct,
         /*agent_identity_authapi_base_url*/ None,
         &crate::test_support::transport_default_auth_route_config(),
+        /*cached_auth*/ None,
+        /*allowed_auth_modes*/ None,
     )
     .await
     .expect("load auth")
@@ -2655,6 +2713,8 @@ async fn plan_type_maps_unknown_to_unknown() {
         AuthKeyringBackendKind::Direct,
         /*agent_identity_authapi_base_url*/ None,
         &crate::test_support::transport_default_auth_route_config(),
+        /*cached_auth*/ None,
+        /*allowed_auth_modes*/ None,
     )
     .await
     .expect("load auth")
@@ -2688,6 +2748,8 @@ async fn missing_plan_type_maps_to_unknown() {
         AuthKeyringBackendKind::Direct,
         /*agent_identity_authapi_base_url*/ None,
         &crate::test_support::transport_default_auth_route_config(),
+        /*cached_auth*/ None,
+        /*allowed_auth_modes*/ None,
     )
     .await
     .expect("load auth")

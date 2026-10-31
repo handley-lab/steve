@@ -21,7 +21,6 @@ use super::ThreadConfigSource;
 use super::UserThreadConfig;
 use proto::thread_config_loader_client::ThreadConfigLoaderClient;
 
-#[allow(clippy::double_must_use)] // Emitted by async_trait in the generated tonic service.
 #[path = "proto/codex.thread_config.v1.rs"]
 mod proto;
 
@@ -173,6 +172,7 @@ fn model_provider_from_proto(
             )));
         }
     };
+    let remote_compaction = remote_compaction_from_proto(provider.remote_compaction)?;
     let info = ModelProviderInfo {
         default_model: None,
         name: provider.name,
@@ -198,16 +198,22 @@ fn model_provider_from_proto(
         requires_openai_auth: provider.requires_openai_auth,
         supports_websockets: provider.supports_websockets,
         supports_standalone_web_search: provider.supports_standalone_web_search,
-        capabilities: remote_compaction_from_proto(provider.remote_compaction)?.map(
-            |remote_compaction| ModelProviderCapabilities {
+        capabilities: if provider.capabilities.is_some() || remote_compaction.is_some() {
+            Some(ModelProviderCapabilities {
+                cyber_access_programs: provider
+                    .capabilities
+                    .and_then(|capabilities| capabilities.cyber_access_programs),
                 external_web_access: None,
-                remote_compaction: Some(remote_compaction),
-            },
-        ),
+                remote_compaction,
+            })
+        } else {
+            None
+        },
         accepts_response_continuation: provider.accepts_response_continuation,
         include_internal_metadata: provider.include_internal_metadata,
         project_id: provider.project_id,
         location: provider.location,
+        credential_file: provider.credential_file.map(Into::into),
     };
     Ok((id, info))
 }
@@ -253,6 +259,7 @@ fn model_provider_to_proto(
     provider: ModelProviderInfo,
 ) -> proto::ModelProvider {
     let ModelProviderInfo {
+        default_model: _,
         name,
         base_url,
         model_catalog_url,
@@ -277,6 +284,7 @@ fn model_provider_to_proto(
         supports_standalone_web_search,
         accepts_response_continuation,
         include_internal_metadata,
+        credential_file,
         capabilities,
     } = provider;
 
@@ -285,10 +293,14 @@ fn model_provider_to_proto(
         name,
         base_url,
         model_catalog_url: model_catalog_url.map(RedactedString::into_inner),
+        credential_file: credential_file.map(|path| path.to_string_lossy().into_owned()),
         env_key,
         env_key_instructions,
         experimental_bearer_token: experimental_bearer_token.map(RedactedString::into_inner),
         auth: auth.map(model_provider_auth_to_proto),
+        capabilities: capabilities.map(|capabilities| proto::ModelProviderCapabilities {
+            cyber_access_programs: capabilities.cyber_access_programs,
+        }),
         wire_api: proto_wire_api(wire_api).into(),
         query_params: query_params.map(proto_string_map),
         http_headers: http_headers.map(proto_string_map),
@@ -504,14 +516,28 @@ mod tests {
         let mut expected = expected_provider();
         expected.project_id = Some("vertex-project".to_string());
         expected.location = Some("us-central1".to_string());
+        expected.credential_file = Some(workspace_dir().join("adc.json").into_path_buf());
         expected.auth = None;
         expected.experimental_bearer_token = Some("synthetic-provider-token".into());
-        let proto = model_provider_to_proto("local", expected.clone());
-        assert!(proto.supports_standalone_web_search);
-        let (id, actual) = model_provider_from_proto(proto).expect("model provider from proto");
-
-        assert_eq!(id, "local");
-        assert_eq!(actual, expected);
+        for capabilities in [
+            None,
+            Some(ModelProviderCapabilities::default()),
+            Some(ModelProviderCapabilities {
+                cyber_access_programs: Some(false),
+                ..Default::default()
+            }),
+            Some(ModelProviderCapabilities {
+                cyber_access_programs: Some(true),
+                ..Default::default()
+            }),
+        ] {
+            expected.capabilities = capabilities;
+            let proto = model_provider_to_proto("local", expected.clone());
+            assert!(proto.supports_standalone_web_search);
+            let (id, actual) = model_provider_from_proto(proto).expect("model provider from proto");
+            assert_eq!(id, "local");
+            assert_eq!(actual, expected);
+        }
     }
 
     #[test]
@@ -542,6 +568,10 @@ mod tests {
                             model_catalog_url: Some(
                                 "http://127.0.0.1:8061/api/codex/models".to_string(),
                             ),
+                            capabilities: Some(proto::ModelProviderCapabilities {
+                                cyber_access_programs: Some(true),
+                            }),
+                            credential_file: None,
                             env_key: None,
                             env_key_instructions: None,
                             experimental_bearer_token: None,
@@ -615,6 +645,7 @@ mod tests {
 
     fn expected_provider() -> ModelProviderInfo {
         ModelProviderInfo {
+            default_model: None,
             name: "Local".to_string(),
             base_url: Some("http://127.0.0.1:8061/api/codex".to_string()),
             model_catalog_url: Some("http://127.0.0.1:8061/api/codex/models".into()),
@@ -647,10 +678,14 @@ mod tests {
             supports_standalone_web_search: true,
             gateway_oauth: None,
             aws: None,
-            capabilities: None,
+            capabilities: Some(ModelProviderCapabilities {
+                cyber_access_programs: Some(true),
+                ..Default::default()
+            }),
             accepts_response_continuation: false,
             project_id: None,
             location: None,
+            credential_file: None,
             include_internal_metadata: false,
         }
     }
@@ -755,6 +790,7 @@ mod tests {
             accepts_response_continuation: continuation,
             include_internal_metadata: metadata,
             capabilities: remote_compaction.map(|remote_compaction| ModelProviderCapabilities {
+                cyber_access_programs: None,
                 external_web_access: None,
                 remote_compaction: Some(remote_compaction),
             }),

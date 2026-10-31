@@ -213,7 +213,7 @@ fn shared_oidc_transport_honors_custom_ca_in_cli_blocking_context() {
         ])
         .env(CHILD_ENV, "1")
         .env(
-            "CODEX_CA_CERTIFICATE",
+            "STEVE_CA_CERTIFICATE",
             "/invalid-oidc-test-ca/credential.pem",
         )
         .output()

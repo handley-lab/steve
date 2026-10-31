@@ -106,6 +106,7 @@ pub(super) async fn exercise(
     model: &wiremock::MockServer,
     config: &Config,
     repository: &Path,
+    existing_thread: &str,
 ) -> color_eyre::Result<()> {
     let mut config = config.clone();
     config.cwd = codex_utils_absolute_path::AbsolutePathBuf::from_absolute_path(
@@ -180,6 +181,20 @@ pub(super) async fn exercise(
     history.extend(requests);
     assert_eq!(approvals, 0);
     assert_eq!(listed["data"][0]["root"], created["worktree"]["root"]);
+    let (renamed, requests, approvals) = model_call(
+        server,
+        model,
+        &thread,
+        "set_thread_title",
+        json!({"threadId":existing_thread,"title":"Checkout preparation"}),
+    )
+    .await?;
+    history.extend(requests);
+    assert_eq!(approvals, 0);
+    assert_eq!(
+        renamed,
+        json!({"threadId":existing_thread,"title":"Checkout preparation"})
+    );
     let other_attachments: ThreadAttachmentListResponse = server
         .request_handle()
         .request_typed(ClientRequest::ThreadAttachmentList {
@@ -208,7 +223,7 @@ pub(super) async fn exercise(
         .map(|request| {
             let mut body = request.body_json();
             // Keep every request and input item, but focus schema fingerprints on
-            // the worktree tools so unrelated built-in changes do not churn this test.
+            // the local TUI namespace so unrelated built-ins do not churn this test.
             body["tools"]
                 .as_array_mut()
                 .expect("request tools")
@@ -249,7 +264,7 @@ pub(super) async fn exercise(
     insta::assert_snapshot!(
         "managed_worktree_model_creation",
         context_snapshot::format_context_snapshot(
-            "Model request history for creating, polling and listing a task-attached checkout through MCP, without a separate creation confirmation. Separate assertions verify retained cwd/environment roots, not sandbox enforcement.",
+            "Model request history for creating, polling and listing a task-attached checkout, then renaming another task through MCP. Separate assertions verify retained cwd/environment roots, not sandbox enforcement.",
             &entries,
             &ContextSnapshotOptions::default()
                 .rewrite_known_segments()

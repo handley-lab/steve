@@ -291,6 +291,7 @@ async fn daybreak_queries_the_target_and_preserves_off_unknown_and_errors() {
         client_version: "0.0.0".into(),
         experimental_api: true,
         mcp_server_openai_form_elicitation: false,
+        required_human_approval: true,
         opt_out_notification_methods: Vec::new(),
         channel_capacity: 8,
     })

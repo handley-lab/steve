@@ -1,16 +1,10 @@
+use anyhow::Context;
 use anyhow::Result;
 use app_test_support::ChatGptAuthFixture;
 use app_test_support::write_chatgpt_auth;
-use codex_app_server::in_process::EmbeddedNetworkPolicy;
-use codex_cloud_config::cloud_config_bundle_loader_for_storage;
-use codex_config::CloudConfigBundleLoader;
-use codex_config::ConfigLoadOptions;
 use codex_config::ConfigRequirementsToml;
 use codex_config::LoaderOverrides;
 use codex_config::types::AuthCredentialsStoreMode;
-use codex_core::config::bootstrap_account_path_style;
-use codex_core::config::bootstrap_auth_config;
-use codex_core::config::load_config_toml_with_layer_stack;
 use codex_protocol::permissions::NetworkSandboxPolicy;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use pretty_assertions::assert_eq;
@@ -24,6 +18,7 @@ use wiremock::matchers::header;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
+use super::bootstrap_cloud_config_bundle;
 use super::super::DebugSandboxConfigOptions;
 use super::super::ManagedRequirementsMode;
 use super::super::load_debug_sandbox_config_with_codex_home;
@@ -42,7 +37,7 @@ enabled = true
 "#;
 
 #[tokio::test]
-async fn debug_sandbox_bootstraps_cloud_managed_permission_profile_from_backend() -> Result<()> {
+async fn sandbox_fetches_managed_profile_only_when_local_policy_allows_backend() -> Result<()> {
     for (style_toml, request_path) in [
         ("", "/backend-api/api/codex/config/bundle"),
         (
@@ -87,37 +82,45 @@ async fn debug_sandbox_bootstraps_cloud_managed_permission_profile_from_backend(
         AuthCredentialsStoreMode::File,
     )?;
 
-    let options = DebugSandboxConfigOptions {
+    let mut options = DebugSandboxConfigOptions {
         sandbox_state: Default::default(),
-        permissions_profile: Some("managed-cloud".to_string()),
+        permissions_profile: None,
         cwd: Some(codex_home.path().to_path_buf()),
         managed_requirements_mode: ManagedRequirementsMode::Include,
         loader_overrides: LoaderOverrides::without_managed_config_for_tests(),
     };
-    let cwd = AbsolutePathBuf::from_absolute_path(codex_home.path())?;
-    let bootstrap_config = load_config_toml_with_layer_stack(
-        codex_home.path(),
-        Some(&cwd),
-        Vec::new(),
-        ConfigLoadOptions {
-            loader_overrides: options.loader_overrides.clone(),
-            strict_config: false,
-            cloud_config_bundle: CloudConfigBundleLoader::default(),
-        },
-    )
-    .await?;
-    let path_style = bootstrap_account_path_style(&bootstrap_config);
-    let cloud_config_bundle = cloud_config_bundle_loader_for_storage(
-        EmbeddedNetworkPolicy::load(&options.loader_overrides)
+    let bootstrap = async |options: &DebugSandboxConfigOptions| {
+        bootstrap_cloud_config_bundle(
+            &[],
+            options,
+            || AbsolutePathBuf::from_absolute_path(codex_home.path()),
+            /*strict_config*/ false,
+        )
+        .await
+    };
+    let requirements = codex_home.path().join("requirements.toml");
+    std::fs::write(&requirements, "[application.network]\nenabled = true\n")?;
+    options.loader_overrides.system_requirements_path = Some(requirements);
+    let denied = bootstrap(&options)
+        .await?
+        .get()
+        .await
+        .expect_err("local policy denies the bundle endpoint");
+    assert_eq!(
+        denied.to_string(),
+        "destination denied by application network policy"
+    );
+    assert!(
+        server
+            .received_requests()
             .await
-            .bind_bootstrap_auth(
-                bootstrap_auth_config(codex_home.path(), &bootstrap_config)?,
-                path_style,
-            ),
-        path_style,
-        /*enable_codex_api_key_env*/ false,
-    )
-    .await?;
+            .context("mock request log")?
+            .is_empty()
+    );
+
+    options.permissions_profile = Some("managed-cloud".to_string());
+    options.loader_overrides = LoaderOverrides::without_managed_config_for_tests();
+    let cloud_config_bundle = bootstrap(&options).await?;
     let config = load_debug_sandbox_config_with_codex_home(
         Vec::new(),
         /*codex_linux_sandbox_exe*/ None,
@@ -164,5 +167,27 @@ async fn debug_sandbox_bootstraps_cloud_managed_permission_profile_from_backend(
     server.verify().await;
     }
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn sandbox_state_skips_cloud_bootstrap() -> Result<()> {
+    let options = DebugSandboxConfigOptions {
+        sandbox_state: crate::SandboxStateArgs {
+            sandbox_state_json: Some("{}".into()),
+            ..Default::default()
+        },
+        permissions_profile: None,
+        cwd: None,
+        managed_requirements_mode: ManagedRequirementsMode::Include,
+        loader_overrides: LoaderOverrides::without_managed_config_for_tests(),
+    };
+    bootstrap_cloud_config_bundle(
+        &[],
+        &options,
+        || panic!("supplied state must skip STEVE_HOME resolution"),
+        /*strict_config*/ false,
+    )
+    .await?;
     Ok(())
 }
