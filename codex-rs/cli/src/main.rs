@@ -2302,6 +2302,9 @@ async fn run_configured_proxy_command(
             toml::Value::try_from(metadata)?,
         );
     }
+    if let Some(provider) = providers.remove("openai") {
+        client.insert("openai_base_url".into(), provider["base_url"].clone());
+    }
     client.insert("model_providers".into(), toml::Value::Table(providers));
     client.insert(
         "features".into(),
