@@ -377,11 +377,8 @@ impl LocalAgentControl {
                 })?;
         }
         config.service_tier = self.root_service_tier();
-        if let Some(model) = stored_model {
-            config.model = Some(model);
-        }
         if config.model_provider_id != stored_model_provider {
-            config.model_provider = config
+            let stored_model_provider_info = config
                 .model_providers
                 .get(&stored_model_provider)
                 .cloned()
@@ -390,7 +387,16 @@ impl LocalAgentControl {
                         "Model provider `{stored_model_provider}` not found"
                     ))
                 })?;
+            let Some(stored_model) = stored_model.clone() else {
+                return Err(CodexErr::InvalidRequest(format!(
+                    "Model for provider `{stored_model_provider}` was not recorded"
+                )));
+            };
+            config.model_provider = stored_model_provider_info;
             config.model_provider_id = stored_model_provider;
+            config.model = Some(stored_model);
+        } else if let Some(model) = stored_model {
+            config.model = Some(model);
         }
         let parent_thread_id = owner_thread_id
             .or_else(|| initial_history.get_resumed_parent_thread_id())
