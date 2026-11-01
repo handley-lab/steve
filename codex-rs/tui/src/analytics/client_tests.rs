@@ -46,12 +46,17 @@ pub(in crate::analytics) async fn live(
 ) -> (tempfile::TempDir, Live) {
     let home = tempfile::tempdir().unwrap();
     let mut config = ConfigBuilder::default()
+        .cli_overrides(vec![(
+            "model_provider".to_string(),
+            toml::Value::String("openai".to_string()),
+        )])
         .codex_home(home.path().to_path_buf())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
         .build()
         .await
         .unwrap();
     config.chatgpt_base_url = format!("{}/backend-api", server.uri());
+    config.chatgpt_path_style = codex_config::AccountPathStyle::ChatgptApi;
     config.cli_auth_credentials_store_mode = codex_login::AuthCredentialsStoreMode::File;
     sign_in(home.path(), "account-a", "user-a", plan);
     Mock::given(method("GET"))
@@ -133,7 +138,7 @@ async fn analytics_requires_local_chatgpt_authentication() {
         }
         assert_eq!(
             live.session().await.err(),
-            Some("Sign in locally with ChatGPT to view Analytics.".to_string())
+            Some("Supply account credentials to view Analytics.".to_string())
         );
         assert!(report_requests(&server).await.is_empty());
     }
@@ -264,7 +269,7 @@ async fn analytics_matches_app_account_routes_and_parameters() {
             vec![
                 ("group_by", "day"),
                 ("breakdown_by", "model"),
-                ("modes", "steve"),
+                ("modes", "codex"),
                 ("modes", "work"),
             ],
         ),
