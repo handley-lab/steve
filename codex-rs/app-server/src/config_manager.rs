@@ -538,13 +538,10 @@ impl ConfigManager {
             |config, _overrides, layers| {
                 let requested_provider = requested_provider
                     .as_deref()
-                    .or(config.model_provider.as_deref())
-                    .unwrap_or("openai");
+                    .or(config.model_provider.as_deref());
                 // Validate the saved route even when a client sends a provider override.
-                for provider in [
-                    saved_provider.unwrap_or(requested_provider),
-                    requested_provider,
-                ] {
+                let named = [saved_provider, requested_provider];
+                for provider in named.into_iter().flatten() {
                     if let Some(required) = layers.required_model_provider()
                         && required != provider
                     {
