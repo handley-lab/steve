@@ -165,7 +165,7 @@ async fn prepare_from_package(
     let source_entrypoint = metadata["entrypoint"].as_str().unwrap_or_default();
     let winget = cfg!(windows)
         && metadata["layoutVersion"] == 1
-        && source_entrypoint == format!("codex-{target}.exe");
+        && source_entrypoint == format!("steve-{target}.exe");
     anyhow::ensure!(
         metadata["target"] == target && (source_entrypoint == entrypoint || winget),
         "the CLI package does not match this platform or executable"
@@ -234,8 +234,8 @@ async fn prepare_from_package(
         .tempdir_in(&releases)?;
     let mut staged_digests = BTreeMap::new();
     let digest = package_tree(source, Some(stage.path()), &mut staged_digests)?;
-    let staged_exe = if cfg!(target_os = "macos") && stage.path().join("CodexCLI.app").is_dir() {
-        Path::new("CodexCLI.app/Contents/MacOS/codex")
+    let staged_exe = if cfg!(target_os = "macos") && stage.path().join("SteveCLI.app").is_dir() {
+        Path::new("SteveCLI.app/Contents/MacOS/steve")
     } else {
         Path::new(source_entrypoint)
     };

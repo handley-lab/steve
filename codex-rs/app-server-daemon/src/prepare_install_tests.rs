@@ -183,7 +183,7 @@ async fn provisioned_macos_bundle_seeds_from_its_running_executable() {
     let launcher = package(&source, "0.1.0-internal-test.202609091200.1");
     codex_utils_cargo_bin::write_executable(&launcher, "#!/bin/sh\necho codex 0.0.0\n")
         .expect("launcher");
-    let bundle = source.join("CodexCLI.app/Contents/MacOS/codex");
+    let bundle = source.join("SteveCLI.app/Contents/MacOS/steve");
     std::fs::create_dir_all(bundle.parent().expect("bundle parent")).expect("bundle dir");
     std::fs::write(&bundle, b"provisioned executable").expect("bundle executable");
     let home = temp.path().join("home");
@@ -200,7 +200,7 @@ async fn provisioned_macos_bundle_seeds_from_its_running_executable() {
     let selected = std::fs::canonicalize(home.join("packages/app-server-daemon/current"))
         .expect("selected release");
     assert_eq!(
-        std::fs::read(selected.join("CodexCLI.app/Contents/MacOS/codex"))
+        std::fs::read(selected.join("SteveCLI.app/Contents/MacOS/steve"))
             .expect("bundled executable"),
         b"provisioned executable"
     );
