@@ -11,8 +11,8 @@ python_sdk_exports(
     ] + glob(
         ["src/**/*.py"],
         exclude = [
-            "src/openai_codex/generated/notification_registry.py",
-            "src/openai_codex/generated/v2_all.py",
+            "src/steve_sdk/generated/notification_registry.py",
+            "src/steve_sdk/generated/v2_all.py",
         ],
     ),
     schema = "//bazel/schema:stable",
