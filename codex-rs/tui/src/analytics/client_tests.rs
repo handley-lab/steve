@@ -45,11 +45,8 @@ pub(in crate::analytics) async fn live(
     plan: &str,
 ) -> (tempfile::TempDir, Live) {
     let home = tempfile::tempdir().unwrap();
+    std::fs::write(home.path().join("config.toml"), r#"model_provider = "openai""#).unwrap();
     let mut config = ConfigBuilder::default()
-        .cli_overrides(vec![(
-            "model_provider".to_string(),
-            toml::Value::String("openai".to_string()),
-        )])
         .codex_home(home.path().to_path_buf())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
         .build()

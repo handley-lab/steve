@@ -685,10 +685,7 @@ pub(crate) async fn start_embedded_app_server_for_picker(
         &mut target,
         Arg0DispatchPaths::default(),
         config.clone(),
-        vec![(
-            "model_provider".to_string(),
-            toml::Value::String(config.model_provider_id.clone()),
-        )],
+        Vec::new(),
         LoaderOverrides::without_managed_config_for_tests(),
         /*strict_config*/ false,
         CloudConfigBundleLoader::default(),
