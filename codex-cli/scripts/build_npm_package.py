@@ -449,6 +449,9 @@ def run_npm_pack(staging_dir: Path, output_path: Path) -> Path:
         except json.JSONDecodeError as exc:
             raise RuntimeError("Failed to parse npm pack output.") from exc
 
+        if isinstance(pack_output, dict):
+            pack_output = list(pack_output.values())
+
         if not pack_output:
             raise RuntimeError("npm pack did not produce an output tarball.")
 
