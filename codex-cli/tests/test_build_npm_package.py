@@ -30,34 +30,34 @@ class NpmPackageTest(unittest.TestCase):
                 suffix = ".exe" if platform["os"] == "win32" else ""
                 metadata = {
                     "layoutVersion": 1,
-                    "variant": "codex",
+                    "variant": "steve",
                     "version": "1.2.3",
                     "target": target,
-                    "entrypoint": f"bin/codex{suffix}",
-                    "execServer": f"bin/codex-exec-server{suffix}",
-                    "resourcesDir": "codex-resources",
-                    "pathDir": "codex-path",
+                    "entrypoint": f"bin/steve{suffix}",
+                    "execServer": f"bin/steve-exec-server{suffix}",
+                    "resourcesDir": "steve-resources",
+                    "pathDir": "steve-path",
                 }
                 files = [
                     metadata["entrypoint"],
                     metadata["execServer"],
-                    f"bin/codex-code-mode-host{suffix}",
-                    f"codex-path/rg{suffix}",
+                    f"bin/steve-code-mode-host{suffix}",
+                    f"steve-path/rg{suffix}",
                 ]
                 if platform["os"] == "linux":
-                    files.append("codex-resources/bwrap")
+                    files.append("steve-resources/bwrap")
                 elif platform["os"] == "win32":
                     files.extend(
                         [
-                            "codex-resources/codex-command-runner.exe",
-                            "codex-resources/codex-windows-sandbox-setup.exe",
+                            "steve-resources/steve-command-runner.exe",
+                            "steve-resources/steve-windows-sandbox-setup.exe",
                         ]
                     )
                 for name in files:
                     destination = source / name
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(executable, destination)
-                (source / "codex-package.json").write_text(json.dumps(metadata))
+                (source / "steve-package.json").write_text(json.dumps(metadata))
                 original = {
                     path.relative_to(source).as_posix(): path.read_bytes()
                     for path in source.rglob("*")
@@ -94,9 +94,9 @@ class NpmPackageTest(unittest.TestCase):
                         if member.isfile() and member.name.startswith(prefix)
                     }
                 expected = original.copy()
-                metadata = json.loads(expected.pop("codex-package.json"))
+                metadata = json.loads(expected.pop("steve-package.json"))
                 expected.pop(metadata.pop("execServer"))
-                self.assertEqual(json.loads(actual.pop("codex-package.json")), metadata)
+                self.assertEqual(json.loads(actual.pop("steve-package.json")), metadata)
                 self.assertEqual(actual, expected)
                 self.assertEqual(
                     {

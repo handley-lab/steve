@@ -392,9 +392,9 @@ def copy_native_binaries(
                 shutil.rmtree(dest_target_dir)
             shutil.copytree(target_dir, dest_target_dir)
             # standalone exec-server is a binary that is equal to codex exec-server, do not publish it to npm
-            for name in ("codex-exec-server", "codex-exec-server.exe"):
+            for name in ("steve-exec-server", "steve-exec-server.exe"):
                 (dest_target_dir / "bin" / name).unlink(missing_ok=True)
-            metadata_path = dest_target_dir / "codex-package.json"
+            metadata_path = dest_target_dir / "steve-package.json"
             if metadata_path.is_file():
                 metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
                 metadata.pop("execServer", None)
