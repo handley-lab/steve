@@ -15,11 +15,11 @@ help:
 # `codex`
 alias c := codex
 codex *args:
-    cargo run --bin codex -- {args}
+    cargo run --bin steve -- {args}
 
 # `codex exec`
 exec *args:
-    cargo run --bin codex -- exec {args}
+    cargo run --bin steve -- exec {args}
 
 # Start `codex exec-server` and run codex-tui.
 [no-cd]
@@ -30,11 +30,11 @@ tui-with-exec-server *args:
 
 # Run the CLI version of the file-search crate.
 file-search *args:
-    cargo run --bin codex-file-search -- {args}
+    cargo run --bin steve-file-search -- {args}
 
 # Run the standalone code-mode host from source.
 code-mode-host *args:
-    cargo run --bin codex-code-mode-host -- {args}
+    cargo run --bin steve-code-mode-host -- {args}
 
 # Assemble a local Codex package.
 [no-cd]
@@ -44,7 +44,7 @@ assemble-steve-package *args:
 # Build the CLI and run the app-server test client
 app-server-test-client *args:
     cargo build -p codex-cli
-    cargo run -p codex-app-server-test-client -- --codex-bin ./target/debug/codex {args}
+    cargo run -p codex-app-server-test-client -- --codex-bin ./target/debug/steve {args}
 
 # Format the justfile, Rust, Bazel/Starlark, Python SDK code, and Python scripts.
 fmt:
@@ -124,21 +124,21 @@ bench-e2e-smoke:
 [no-cd]
 [unix]
 bazel-codex *args:
-    bazel run //codex-rs/cli:codex --run_under="cd $PWD &&" -- "$@"
+    bazel run //codex-rs/cli:steve --run_under="cd $PWD &&" -- "$@"
 
 [windows]
 bazel-codex *args:
-    bazel run //codex-rs/cli:codex --run_under='cd /d "{{ invocation_directory_native() }}" &&' -- @($args | Select-Object -Skip 1)
+    bazel run //codex-rs/cli:steve --run_under='cd /d "{{ invocation_directory_native() }}" &&' -- @($args | Select-Object -Skip 1)
 
 # Build and run the standalone code-mode host from source using Bazel.
 [no-cd]
 [unix]
 bazel-code-mode-host *args:
-    bazel run //codex-rs/code-mode-host:codex-code-mode-host --run_under="cd $PWD &&" -- "$@"
+    bazel run //codex-rs/code-mode-host:steve-code-mode-host --run_under="cd $PWD &&" -- "$@"
 
 [windows]
 bazel-code-mode-host *args:
-    bazel run //codex-rs/code-mode-host:codex-code-mode-host --run_under='cd /d "{{ invocation_directory_native() }}" &&' -- @($args | Select-Object -Skip 1)
+    bazel run //codex-rs/code-mode-host:steve-code-mode-host --run_under='cd /d "{{ invocation_directory_native() }}" &&' -- @($args | Select-Object -Skip 1)
 
 [no-cd]
 bazel-lock-update:
