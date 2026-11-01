@@ -215,7 +215,7 @@ def code_mode_host_debug_symbols(
         "steve-exec-server",
     }
     if "windows" in target:
-        binaries.update({"codex-command-runner", "codex-windows-sandbox-setup"})
+        binaries.update({"steve-command-runner", "steve-windows-sandbox-setup"})
 
     if "apple-darwin" in target:
         markers = {

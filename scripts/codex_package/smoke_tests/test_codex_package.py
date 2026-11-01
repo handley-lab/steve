@@ -497,11 +497,11 @@ def test_windows_debug_symbols_resolve_packaged_code(
     # Cargo embeds an underscored PDB name; Bazel uses the binary's name.
     # Offer the archived PDB under both names so dumpbin still verifies that
     # its signature matches the packaged executable, regardless of builder.
-    cargo_symbols = code_mode_host_debug_symbols.with_name("codex_code_mode_host.pdb")
+    cargo_symbols = code_mode_host_debug_symbols.with_name("steve_code_mode_host.pdb")
     shutil.copy2(code_mode_host_debug_symbols, cargo_symbols)
     symbols = (code_mode_host_debug_symbols, cargo_symbols)
     host = code_mode_host_debug_symbols.with_suffix(".exe")
-    shutil.copy2(package.cli.with_name("codex-code-mode-host.exe"), host)
+    shutil.copy2(package.cli.with_name("steve-code-mode-host.exe"), host)
     result = subprocess.run(
         ["dumpbin", "/PDBPATH", str(host)],
         cwd=package.directory,
