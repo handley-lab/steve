@@ -1003,7 +1003,7 @@ impl LocalAgentControl {
 
     async fn resume_single_agent_from_rollout(
         &self,
-        config: Config,
+        mut config: Config,
         thread_id: ThreadId,
         session_source: SessionSource,
     ) -> CodexResult<(ThreadId, MultiAgentVersion)> {
@@ -1071,6 +1071,26 @@ impl LocalAgentControl {
             .await;
         let inherited_exec_policy =
             inherited_exec_policy_for_source(&state, Some(&session_source), &config).await;
+        if config.model_provider_id != stored_thread.model_provider {
+            let stored_model_provider = stored_thread.model_provider.clone();
+            let stored_model_provider_info = config
+                .model_providers
+                .get(&stored_model_provider)
+                .cloned()
+                .ok_or_else(|| {
+                    CodexErr::InvalidRequest(format!(
+                        "Model provider `{stored_model_provider}` not found"
+                    ))
+                })?;
+            let Some(stored_model) = stored_thread.model.clone() else {
+                return Err(CodexErr::InvalidRequest(format!(
+                    "Model for provider `{stored_model_provider}` was not recorded"
+                )));
+            };
+            config.model_provider = stored_model_provider_info;
+            config.model_provider_id = stored_model_provider;
+            config.model = Some(stored_model);
+        }
 
         let resumed_thread = state
             .resume_thread_with_history_with_source(ResumeThreadWithHistoryOptions {
