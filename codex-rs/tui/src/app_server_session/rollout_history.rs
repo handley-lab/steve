@@ -168,6 +168,12 @@ impl AppServerSession {
             model_settings.clone(),
             permission_overrides,
         );
+        let apply_override_service_tier = self.thread_params_mode().settings_owner()
+            == ThreadSettingsOwner::Client
+            && matches!(
+                model_settings,
+                ResumeModelSettings::OverrideFromCurrentConfig(_)
+            );
         if self.thread_params_mode().settings_owner() == ThreadSettingsOwner::Client
             && let ResumeModelSettings::OverrideFromCurrentConfig(model) = model_settings {
             params.model_provider = self.explicit_model_provider(&config);
@@ -262,6 +268,10 @@ impl AppServerSession {
         if self.task_tools_available(thread_id) {
             self.remember_task_tool_thread(thread_id);
             started.task_tools_available = true;
+        }
+        if apply_override_service_tier {
+            self.apply_default_service_tier(&config, &started.session)
+                .await?;
         }
         Ok(started)
     }

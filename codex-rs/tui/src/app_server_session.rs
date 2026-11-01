@@ -4304,53 +4304,54 @@ mod tests {
 
     #[tokio::test]
     async fn persisted_resume_does_not_forward_implicit_service_tier() -> Result<()> {
-        let codex_home = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            codex_home.path().join("config.toml"),
-            "model_provider = \"openai\"\nmodel = \"gpt-5.5\"\n",
-        )?;
-        let mut config = build_config(&codex_home).await;
-        config.model = Some("gpt-5.5".to_string());
-        config.service_tier = None;
-        config
-            .features
-            .enable(Feature::FastMode)
-            .expect("enable fast mode");
-        let thread_id = ThreadId::from_string(
-            &create_fake_rollout(
-                codex_home.path(),
-                "2025-01-05T12-00-00",
-                "2025-01-05T12:00:00Z",
-                "Saved user message",
-                Some(config.model_provider_id.as_str()),
-                /*git_info*/ None,
-            )
-            .expect("create source rollout"),
-        )?;
-        let mut app_server = crate::start_embedded_app_server_for_picker(&config).await?;
-        let mut preset = crate::test_support::TEST_MODEL_PRESETS
-            .iter()
-            .find(|preset| preset.model == "gpt-5.5")
-            .expect("gpt-5.5 test preset")
-            .clone();
-        preset.service_tiers = vec![ModelServiceTier {
+        let home = tempfile::tempdir()?;
+        let catalog = wiremock::MockServer::start().await;
+        let mut live_model = codex_models_manager::test_support::model_info("gpt-5.5");
+        live_model.service_tiers = vec![ModelServiceTier {
             id: ServiceTier::Fast.request_value().to_string(),
             name: "fast".to_string(),
             description: "Fast tier".to_string(),
         }];
-        preset.default_service_tier = Some(ServiceTier::Fast.request_value().to_string());
-        app_server.available_models = vec![preset];
-
-        let resumed = app_server
-            .resume_thread(
-                &LocalSettings::from(&config),
-                config,
-                thread_id,
-                ResumeModelSettings::RestoreFromThread,
-            )
+        live_model.default_service_tier = Some(ServiceTier::Fast.request_value().to_string());
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/models"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+                codex_protocol::openai_models::ModelsResponse { models: vec![live_model] },
+            ))
+            .mount(&catalog)
+            .await;
+        std::fs::write(home.path().join("config.toml"), format!(r#"
+model_provider = "fixture"
+model = "gpt-5.5"
+[model_providers.fixture]
+name = "Fixture"
+base_url = "{base}/v1"
+wire_api = "responses"
+requires_openai_auth = false
+model_catalog_url = "{base}/models"
+"#, base=catalog.uri()))?;
+        let mut config = ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .build()
             .await?;
-
-        assert_eq!(resumed.session.service_tier, None);
+        config.features.enable(Feature::FastMode).expect("enable fast mode");
+        config.service_tier = None;
+        let thread_id = ThreadId::from_string(&create_fake_rollout(
+            home.path(), "2025-01-05T12-00-00", "2025-01-05T12:00:00Z",
+            "Saved user message", Some("fixture"), None,
+        ).expect("create saved rollout"))?;
+        let mut app_server = crate::start_embedded_app_server_for_picker(&config).await?;
+        let restored = app_server.resume_thread(
+            &LocalSettings::from(&config), config.clone(), thread_id,
+            ResumeModelSettings::RestoreFromThread,
+        ).await?;
+        assert_eq!(restored.session.model_provider_id, "fixture");
+        assert_eq!(restored.session.service_tier, None);
+        let followed = app_server.resume_thread(
+            &LocalSettings::from(&config), config, thread_id,
+            ResumeModelSettings::PreserveExistingThread,
+        ).await?;
+        assert_eq!(followed.session.service_tier, None);
         app_server.shutdown().await?;
         Ok(())
     }
