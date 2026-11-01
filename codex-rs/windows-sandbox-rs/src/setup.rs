@@ -358,7 +358,6 @@ fn run_setup_refresh_inner(
         deny_write_paths,
         proxy_ports: offline_proxy_settings.proxy_ports,
         allow_local_binding: offline_proxy_settings.allow_local_binding,
-        otel: None,
         real_user: crate::runtime_ownership::current_setup_user()?,
         user_profile: std::env::var_os("USERPROFILE")
             .filter(|value| !value.is_empty())
