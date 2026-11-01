@@ -360,7 +360,7 @@ impl RouteAwareClientPool {
             builder = builder.with_rustls_tls();
         }
         builder
-            .build_for_resolved_route(&self.http_client_factory, self.route_class, route)
+            .build_for_resolved_route(self.route_class, route)
             .map_err(Into::into)
     }
 }

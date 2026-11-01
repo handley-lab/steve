@@ -305,7 +305,6 @@ impl RouteAwareClientPool {
     ) -> Result<Self, BuildRouteAwareHttpClientError> {
         let mut pool = Self::with_builder(http_client_factory, route_class, client_builder);
         let client = pool.client_builder_for_route().build_for_resolved_route(
-            &pool.http_client_factory,
             pool.route_class,
             &route,
         )?;
