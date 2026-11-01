@@ -91,7 +91,7 @@ async fn migration_requires_consent_and_preserves_shared_database_mode() -> Resu
             .find(|line| line.starts_with("Error: migration failed"))
             .unwrap()
             .replace(home.path().to_str().unwrap(), "[HOME]"),
-        @"Error: migration failed for [HOME]/logs_2.sqlite. Keep all Codex instances stopped. Correct the error and rerun codex migrate-nfs-db"
+        @"Error: migration failed for [HOME]/logs_2.sqlite. Keep all Steve instances stopped. Correct the error and rerun steve migrate-nfs-db"
     );
     assert_eq!(
         std::fs::read(sqlite.logs_db_path())?,
