@@ -12,15 +12,15 @@
         }
       }
     },
-    "codex-provisioned-bazel": {
+    "steve-provisioned-bazel": {
       "platforms": {
         "macos-aarch64": {
-          "regex": "^codex-provisioned-package-aarch64-apple-darwin-bazel\\.tar\\.gz$",
-          "path": "bin/codex"
+          "regex": "^steve-provisioned-package-aarch64-apple-darwin-bazel\\.tar\\.gz$",
+          "path": "bin/steve"
         },
         "macos-x86_64": {
-          "regex": "^codex-provisioned-package-x86_64-apple-darwin-bazel\\.tar\\.gz$",
-          "path": "bin/codex"
+          "regex": "^steve-provisioned-package-x86_64-apple-darwin-bazel\\.tar\\.gz$",
+          "path": "bin/steve"
         }
       }
     }
