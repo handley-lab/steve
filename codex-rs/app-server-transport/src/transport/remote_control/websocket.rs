@@ -1415,13 +1415,13 @@ pub(super) async fn connect_remote_control_websocket(
     let websocket_connect_result =
         tokio::time::timeout(REMOTE_CONTROL_WEBSOCKET_CONNECT_TIMEOUT, async {
             let factory = auth.http_client_factory.clone();
+            let tls_mode = if request.uri().scheme_str() == Some("ws") {
+                codex_websocket_client::WebSocketTlsMode::TungsteniteDefault
+            } else {
+                codex_websocket_client::WebSocketTlsMode::ExplicitCodexTls
+            };
             let connector = tokio::task::spawn_blocking(move || {
-                codex_websocket_client::WebSocketConnector::new(&factory).or_else(|_| {
-                    codex_websocket_client::WebSocketConnector::new_with_tls_mode(
-                        &factory,
-                        codex_websocket_client::WebSocketTlsMode::TungsteniteDefault,
-                    )
-                })
+                codex_websocket_client::WebSocketConnector::new_with_tls_mode(&factory, tls_mode)
             })
             .await
             .map_err(io::Error::other)?
