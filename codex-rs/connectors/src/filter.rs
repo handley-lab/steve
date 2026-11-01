@@ -111,7 +111,10 @@ mod tests {
             filtered,
             vec![
                 named_app("connector_68df038e0ba48191908c8434991bbac2", "Gmail"),
-                plugin_connector_to_app_info("connector_missing".to_string()),
+                plugin_connector_to_app_info(
+                    "https://chatgpt.example",
+                    "connector_missing".to_string(),
+                ),
             ]
         );
     }
