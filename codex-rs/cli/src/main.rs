@@ -2316,7 +2316,9 @@ async fn run_configured_proxy_command(
                 .into(),
         )])),
     );
-    let client = toml::to_string(&client)?.into_bytes();
+    let client = toml::to_string(&client)?;
+    let _: codex_config::config_toml::ConfigToml = toml::from_str(&client)?;
+    let client = client.into_bytes();
     let listen = args.listen.expect("configured mode requires listen");
     let path = args
         .client_config
