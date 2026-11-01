@@ -551,7 +551,7 @@ jobs:
         run: |
           $target = "${{ matrix.target }}"
           $source = Join-Path $env:CARGO_TARGET_DIR "$target/release/steve-exec-server.exe"
-          foreach ($stem in @("codex-package", "codex-app-server-package")) {
+          foreach ($stem in @("steve-package", "steve-app-server-package")) {
             $package = Join-Path $env:RUNNER_TEMP "verify-executor-$stem-$target"
             New-Item -ItemType Directory -Path $package | Out-Null
             tar -xzf "dist/$target/$stem-$target.tar.gz" -C $package
