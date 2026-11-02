@@ -74,6 +74,7 @@ async fn recap_generation_uses_bounded_structured_request_and_inserts_result() -
     })
     .collect();
     let (model_server, _completions) = start_streaming_sse_server(vec![chunks]).await;
+    model_server.set_models(&[MODEL]).await;
     let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
     let codex_home = tempdir()?;
     std::fs::write(
@@ -104,6 +105,10 @@ stream_max_retries = 0
         stream_max_retries: Some(0),
         ..ModelProviderInfo::default()
     };
+    app.config.model_providers.insert(
+        app.config.model_provider_id.clone(),
+        app.config.model_provider.clone(),
+    );
 
     let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
     let started = app_server.start_thread(&app.config).await?;
@@ -194,6 +199,7 @@ stream_max_retries = 0
     let model_requests = model_server.requests().await;
     assert_eq!(model_requests.len(), 1);
     let request: Value = serde_json::from_slice(&model_requests[0])?;
+    assert_eq!(request["model"], MODEL);
     let prompt = request["input"]
         .as_array()
         .and_then(|items| items.iter().rfind(|item| item["role"] == "user"))
@@ -483,9 +489,10 @@ async fn recap_generation_uses_remote_workspace_cwd() -> Result<()> {
 async fn temporary_recap_threads_disable_memories_and_remote_mcp_servers() -> Result<()> {
     let (mut app, _app_event_rx, _op_rx) = make_test_app_with_channels().await;
     let codex_home = tempdir()?;
+    let fixture_config = std::fs::read_to_string(app.config.codex_home.join("config.toml"))?;
     std::fs::write(
         codex_home.path().join("config.toml"),
-        "features.context_management.experimental_mode = true\n[mcp_servers.filesystem]\ncommand = 'true'\n",
+        format!("features.context_management.experimental_mode = true\n{fixture_config}\n[mcp_servers.filesystem]\ncommand = 'true'\n"),
     )?;
     app.config.codex_home = codex_home.path().to_path_buf().abs();
     app.config.sqlite = codex_state::SqliteConfig::new_for_testing(codex_home.path().abs());

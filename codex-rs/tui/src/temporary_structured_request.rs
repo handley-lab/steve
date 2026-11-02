@@ -43,6 +43,13 @@ pub(crate) struct TemporaryStructuredThreadOptions {
     pub(crate) mcp_server_names: Vec<String>,
 }
 
+fn native_model_id<'a>(model: &'a str, provider: &str) -> &'a str {
+    model
+        .strip_prefix(provider)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .unwrap_or(model)
+}
+
 /// Start an ephemeral thread without widening permissions or exposing tools and environment access.
 ///
 /// Structured prompts can contain untrusted transcript text, so the effective app-server config is
@@ -60,6 +67,9 @@ pub(crate) async fn start_temporary_thread(
         active_permission_profile,
         mcp_server_names,
     } = options;
+    // UI catalogue IDs include the provider; the app-server accepts it separately.
+    // Strip only this provider's prefix so native IDs containing slashes stay intact.
+    let model = native_model_id(&model, &model_provider).to_string();
     let custom_permission_profile =
         active_permission_profile.filter(|profile| !profile.starts_with(':'));
     let mut config = std::collections::HashMap::from([
@@ -343,3 +353,18 @@ pub(crate) async fn run_temporary_structured_turn(
 #[cfg(test)]
 #[path = "temporary_structured_request_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod model_selection_tests {
+    use super::native_model_id;
+
+    #[test]
+    fn converts_only_the_selected_provider_prefix_once() {
+        assert_eq!(native_model_id("fixture/model", "fixture"), "model");
+        assert_eq!(native_model_id("model", "fixture"), "model");
+        assert_eq!(native_model_id("fixture/org/model", "fixture"), "org/model");
+        assert_eq!(native_model_id("org/model", "fixture"), "org/model");
+        assert_eq!(native_model_id("fixture/fixture/model", "fixture"), "fixture/model");
+        assert_eq!(native_model_id("fixture-other/model", "fixture"), "fixture-other/model");
+    }
+}
