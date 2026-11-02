@@ -52,7 +52,13 @@ pub(super) async fn continue_with_rewrite(
             "the blocked turn is no longer the latest turn"
         );
         let mut config = app.chat_widget.config_ref().clone();
-        config.model = Some(app.chat_widget.current_model().to_string());
+        config.model = Some(
+            crate::temporary_structured_request::native_model_id(
+                app.chat_widget.current_model(),
+                &config.model_provider_id,
+            )
+            .to_string(),
+        );
         config.model_reasoning_effort = app.chat_widget.current_reasoning_effort();
         config.daybreak_enabled = app.chat_widget.daybreak_enabled;
         let selected_profile = app.selected_server_profile(thread_id);
