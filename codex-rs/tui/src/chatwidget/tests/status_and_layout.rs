@@ -1034,6 +1034,59 @@ async fn status_line_secondary_only_non_weekly_limit_omits_primary_limit_item() 
 }
 
 #[tokio::test]
+async fn account_rate_limit_wire_id_drives_cadence_state_and_status() {
+    for limit_id in [None, Some("codex")] {
+        let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+        set_chatgpt_auth(&mut chat);
+        let mut ordinary = snapshot(/*percent*/ 75.0);
+        ordinary.limit_id = limit_id.map(str::to_string);
+        ordinary.primary.as_mut().unwrap().window_duration_mins = Some(5 * 60);
+        ordinary.spend_control_reached = Some(false);
+        ordinary.credits = Some(CreditsSnapshot {
+            has_credits: true,
+            unlimited: false,
+            balance: Some("17.5".into()),
+        });
+        chat.on_rate_limit_snapshot(Some(ordinary));
+
+        assert_eq!(
+            chat.rate_limit_refresh_interval(),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(chat.codex_spend_control_reached, Some(false));
+        assert_eq!(
+            chat.status_line_value_for_item(crate::bottom_pane::StatusLineItem::FiveHourLimit),
+            Some("5h 25% left".into())
+        );
+        assert_eq!(
+            chat.rate_limit_snapshots_by_limit_id["codex"].limit_name,
+            "steve"
+        );
+        assert!(!chat.rate_limit_snapshots_by_limit_id.contains_key("steve"));
+
+        let mut unrelated = snapshot(/*percent*/ 99.0);
+        unrelated.limit_id = Some("steve".into());
+        unrelated.spend_control_reached = Some(true);
+        chat.on_rate_limit_snapshot(Some(unrelated));
+        assert_eq!(
+            chat.rate_limit_refresh_interval(),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(chat.codex_spend_control_reached, Some(false));
+        assert_eq!(chat.rate_limit_snapshots_by_limit_id.len(), 2);
+
+        chat.on_rolling_rate_limit_snapshot(snapshot(/*percent*/ 90.0));
+        assert_eq!(
+            chat.rate_limit_snapshots_by_limit_id["codex"]
+                .credits
+                .as_ref()
+                .and_then(|credits| credits.balance.as_deref()),
+            Some("17.5")
+        );
+    }
+}
+
+#[tokio::test]
 async fn rate_limit_snapshot_keeps_prior_credits_when_missing_from_headers() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 
@@ -1059,7 +1112,7 @@ async fn rate_limit_snapshot_keeps_prior_credits_when_missing_from_headers() {
     }));
     let initial_balance = chat
         .rate_limit_snapshots_by_limit_id
-        .get("steve")
+        .get("codex")
         .and_then(|snapshot| snapshot.credits.as_ref())
         .and_then(|credits| credits.balance.as_deref());
     assert_eq!(initial_balance, Some("17.5"));
@@ -1083,7 +1136,7 @@ async fn rate_limit_snapshot_keeps_prior_credits_when_missing_from_headers() {
 
     let display = chat
         .rate_limit_snapshots_by_limit_id
-        .get("steve")
+        .get("codex")
         .expect("rate limits should be cached");
     let credits = display
         .credits
@@ -1114,7 +1167,7 @@ async fn rolling_rate_limit_snapshot_preserves_prior_individual_limit() {
 
     let display = chat
         .rate_limit_snapshots_by_limit_id
-        .get("steve")
+        .get("codex")
         .expect("rate limits should be cached");
     let individual_limit = display
         .individual_limit
@@ -1127,7 +1180,7 @@ async fn rolling_rate_limit_snapshot_preserves_prior_individual_limit() {
     chat.on_rate_limit_snapshot(Some(snapshot(/*percent*/ 30.0)));
     let display = chat
         .rate_limit_snapshots_by_limit_id
-        .get("steve")
+        .get("codex")
         .expect("rate limits should be cached");
     assert!(display.individual_limit.is_none());
 }
@@ -1208,7 +1261,7 @@ async fn rate_limit_snapshots_keep_separate_entries_per_limit_id() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 
     chat.on_rate_limit_snapshot(Some(RateLimitSnapshot {
-        limit_id: Some("steve".to_string()),
+        limit_id: Some("codex".to_string()),
         limit_name: Some("steve".to_string()),
         normal_model_slug: None,
         primary: Some(RateLimitWindow {
@@ -1247,7 +1300,7 @@ async fn rate_limit_snapshots_keep_separate_entries_per_limit_id() {
 
     let codex = chat
         .rate_limit_snapshots_by_limit_id
-        .get("steve")
+        .get("codex")
         .expect("steve snapshot should exist");
     let other = chat
         .rate_limit_snapshots_by_limit_id
@@ -1619,7 +1672,7 @@ async fn rate_limit_usage_warnings_keep_explicit_rolling_workspace_limit() {
 
 #[tokio::test]
 async fn rate_limit_usage_warnings_keep_newly_reached_workspace_limit() {
-    for (limit_id, should_warn) in [("steve", true), ("codex_other", false)] {
+    for (limit_id, should_warn) in [("codex", true), ("codex_other", false), ("steve", false)] {
         let (mut chat, mut rx, _) = make_chatwidget_manual(Some("gpt-5")).await;
         chat.has_chatgpt_account = true;
 

@@ -16,6 +16,10 @@ pub(super) const NUDGE_MODEL_SLUG: &str = crate::model_catalog::LUNA_MODEL;
 pub(super) const RATE_LIMIT_SWITCH_PROMPT_THRESHOLD: f64 = 90.0;
 pub(super) const RATE_LIMIT_SWITCH_PROMPT_VIEW_ID: &str = "rate-limit-switch-prompt";
 
+// The account API and rolling rate-limit headers use this bucket ID independently of UI branding.
+pub(super) const ACCOUNT_RATE_LIMIT_ID: &str = "codex";
+const ACCOUNT_RATE_LIMIT_LABEL: &str = "steve";
+
 const RATE_LIMIT_WARNING_THRESHOLDS: [f64; 4] = [50.0, 75.0, 90.0, 95.0];
 const PRIMARY_LIMIT_FALLBACK_LABEL: &str = "usage";
 const SECONDARY_LIMIT_FALLBACK_LABEL: &str = "secondary usage";
@@ -201,7 +205,8 @@ impl ChatWidget {
             .rate_limit_snapshots_by_limit_id
             .iter()
             .filter(|(limit_id, snapshot)| {
-                limit_id.as_str() == "steve" || snapshot.limit_name == self.current_model()
+                limit_id.as_str() == ACCOUNT_RATE_LIMIT_ID
+                    || snapshot.limit_name == self.current_model()
             })
             .flat_map(|(_, snapshot)| snapshot.primary.iter().chain(snapshot.secondary.iter()))
             .map(|window| window.used_percent)
@@ -263,8 +268,8 @@ impl ChatWidget {
             let limit_id = snapshot
                 .limit_id
                 .clone()
-                .unwrap_or_else(|| "steve".to_string());
-            let is_codex_limit = limit_id.eq_ignore_ascii_case("steve");
+                .unwrap_or_else(|| ACCOUNT_RATE_LIMIT_ID.to_string());
+            let is_codex_limit = limit_id.eq_ignore_ascii_case(ACCOUNT_RATE_LIMIT_ID);
             if is_codex_limit
                 && self
                     .usage_notice_state
@@ -380,7 +385,13 @@ impl ChatWidget {
                 let limit_label = snapshot
                     .limit_name
                     .clone()
-                    .unwrap_or_else(|| limit_id.clone());
+                    .unwrap_or_else(|| {
+                        if is_codex_limit {
+                            ACCOUNT_RATE_LIMIT_LABEL.to_string()
+                        } else {
+                            limit_id.clone()
+                        }
+                    });
                 let display = rate_limit_snapshot_display_for_limit(
                     &snapshot,
                     limit_label,

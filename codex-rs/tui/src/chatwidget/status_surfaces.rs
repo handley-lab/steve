@@ -794,7 +794,7 @@ impl ChatWidget {
             StatusLineItem::FiveHourLimit => {
                 let (window, is_secondary) = self
                     .rate_limit_snapshots_by_limit_id
-                    .get("steve")
+                    .get(rate_limits::ACCOUNT_RATE_LIMIT_ID)
                     .and_then(five_hour_status_window)?;
                 let label = limit_label_for_window(window.window_minutes, is_secondary);
                 self.status_line_limit_display(Some(window), &label)
@@ -802,7 +802,7 @@ impl ChatWidget {
             StatusLineItem::WeeklyLimit => {
                 let (window, is_secondary) = self
                     .rate_limit_snapshots_by_limit_id
-                    .get("steve")
+                    .get(rate_limits::ACCOUNT_RATE_LIMIT_ID)
                     .and_then(weekly_status_window)?;
                 let label = limit_label_for_window(window.window_minutes, is_secondary);
                 self.status_line_limit_display(Some(window), &label)

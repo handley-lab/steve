@@ -371,7 +371,7 @@ impl ChatWidget {
         preview_data.renderer = self.status_line_renderer();
         preview_data.pull_request_url = self.status_line_pull_request_url().map(str::to_owned);
 
-        if self.rate_limit_snapshots_by_limit_id.contains_key("steve") {
+        if self.rate_limit_snapshots_by_limit_id.contains_key(rate_limits::ACCOUNT_RATE_LIMIT_ID) {
             for item in [
                 StatusSurfacePreviewItem::FiveHourLimit,
                 StatusSurfacePreviewItem::WeeklyLimit,
