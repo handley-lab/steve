@@ -7,6 +7,43 @@ use crate::app::startup::startup_model;
 use crate::app::startup_bootstrap::bootstrap_server_owned_start;
 use pretty_assertions::assert_eq;
 
+const STARTUP_FIXTURE_DEFAULT_MODEL: &str = "gpt-6.1-sol";
+
+async fn startup_provider_fixture() -> Result<crate::test_support::TestHome> {
+    let home = crate::test_support::provider_test_home().await?;
+    let models = [
+        "gpt-5.5",
+        "gpt-5.6-sol",
+        "gpt-6.1-sol",
+        "client-model",
+        "stale-client-model",
+        "server-model",
+    ]
+    .into_iter()
+    .map(|slug| {
+        let mut model = codex_models_manager::test_support::model_info(slug);
+        if slug == "gpt-6.1-sol" {
+            model.display_name = "GPT-6.1-Sol".into();
+        }
+        model
+    })
+    .collect();
+    crate::test_support::advertise_test_models(&home, models).await;
+    Ok(home)
+}
+
+fn seed_startup_provider(
+    path: &Path,
+    fixture: &crate::test_support::TestHome,
+) -> std::io::Result<()> {
+    crate::test_support::seed_test_provider_without_model(
+        path,
+        fixture,
+        "startup-test",
+        STARTUP_FIXTURE_DEFAULT_MODEL,
+    )
+}
+
 fn remote_target() -> AppServerTarget {
     AppServerTarget::Remote {
         endpoint: crate::RemoteAppServerEndpoint::WebSocket {
@@ -182,11 +219,12 @@ wire_api = "responses"
 
 #[tokio::test]
 async fn agents_overview_startup_restores_saved_grouping() -> Result<()> {
-    let home = tempdir()?;
+    let home = startup_provider_fixture().await?;
     std::fs::write(
         home.path().join("config.toml"),
         "[tui]\nagents_overview_grouping = \"status\"\nanimations = false\n",
     )?;
+    seed_startup_provider(&home.path().join("config.toml"), &home)?;
     let config = ConfigBuilder::default()
         .codex_home(home.path().to_path_buf())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
@@ -244,11 +282,12 @@ async fn agents_overview_startup_restores_saved_grouping() -> Result<()> {
 
 #[tokio::test]
 async fn cli_fork_omits_implicit_model_and_effort() -> Result<()> {
-    let home = tempdir()?;
+    let home = startup_provider_fixture().await?;
     std::fs::write(
         home.path().join("config.toml"),
         "model = \"gpt-5.5\"\nmodel_reasoning_effort = \"low\"\nfeatures.fast_mode = true\n",
     )?;
+    seed_startup_provider(&home.path().join("config.toml"), &home)?;
     let config = ConfigBuilder::default()
         .codex_home(home.path().to_path_buf())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
@@ -274,16 +313,16 @@ async fn cli_fork_omits_implicit_model_and_effort() -> Result<()> {
         .find(|preset| preset.show_in_picker)
         .expect("visible migration target")
         .clone();
-    target_preset.id = "server-model".into();
-    target_preset.model = "server-model".into();
+    target_preset.id = "startup-test/server-model".into();
+    target_preset.model = "startup-test/server-model".into();
     bootstrap.available_models.push(target_preset);
     let client_preset = bootstrap
         .available_models
         .iter_mut()
-        .find(|preset| preset.model == "gpt-5.5")
+        .find(|preset| preset.model == "startup-test/gpt-5.5")
         .expect("client model in catalog");
     client_preset.upgrade = Some(codex_protocol::openai_models::ModelUpgrade {
-        id: "server-model".into(),
+        id: "startup-test/server-model".into(),
         migration_config_key: "test-fork-migration".into(),
         model_link: None,
         upgrade_copy: None,
@@ -292,8 +331,8 @@ async fn cli_fork_omits_implicit_model_and_effort() -> Result<()> {
     });
     assert!(
         crate::app::startup_prompts::should_show_model_migration_prompt(
-            "gpt-5.5",
-            "server-model",
+            "startup-test/gpt-5.5",
+            "startup-test/server-model",
             &Default::default(),
             &bootstrap.available_models,
         )
@@ -302,6 +341,7 @@ async fn cli_fork_omits_implicit_model_and_effort() -> Result<()> {
         home.path().join("config.toml"),
         "model = \"server-model\"\nmodel_reasoning_effort = \"high\"\n",
     )?;
+    seed_startup_provider(&home.path().join("config.toml"), &home)?;
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let mut run = Box::pin(run_startup_for_test(
         &mut tui,
@@ -690,8 +730,8 @@ wire_api = "responses"
 #[tokio::test]
 async fn fresh_startup_reads_destination_and_cleared_model_uses_catalog() -> Result<()> {
     for (remote, override_cwd) in [(false, false), (true, false), (true, true)] {
-        let client_home = tempdir()?;
-        let server_home = tempdir()?;
+        let client_home = startup_provider_fixture().await?;
+        let server_home = startup_provider_fixture().await?;
         let destination = tempdir()?;
         let launch_cwd = tempdir()?;
         std::fs::write(
@@ -702,6 +742,8 @@ async fn fresh_startup_reads_destination_and_cleared_model_uses_catalog() -> Res
             server_home.path().join("config.toml"),
             "model_reasoning_effort = \"high\"\nsandbox_mode = \"read-only\"\nmodel_reasoning_summary = \"concise\"\n",
         )?;
+        seed_startup_provider(&client_home.path().join("config.toml"), &client_home)?;
+        seed_startup_provider(&server_home.path().join("config.toml"), &server_home)?;
         let mut config = ConfigBuilder::default()
             .codex_home(client_home.path().to_path_buf())
             .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
@@ -727,7 +769,7 @@ async fn fresh_startup_reads_destination_and_cleared_model_uses_catalog() -> Res
             mode,
             LoaderOverrides {
                 user_config_path: Some(server_home.path().join("config.toml").abs()),
-                ..LoaderOverrides::default()
+                ..LoaderOverrides::without_managed_config_for_tests()
             },
         )
         .await?;
@@ -771,7 +813,8 @@ async fn fresh_startup_reads_destination_and_cleared_model_uses_catalog() -> Res
             crate::app_server_session::StartupLaunchChoices::default(),
         )
         .await?;
-        assert_eq!(started.session.model, selected_model);
+        assert!(selected_model.is_empty(), "server owns the cleared model choice");
+        assert_eq!(started.session.model, format!("startup-test/{STARTUP_FIXTURE_DEFAULT_MODEL}"));
         assert!(
             !started
                 .session
@@ -803,7 +846,7 @@ async fn fresh_startup_reads_destination_and_cleared_model_uses_catalog() -> Res
             insta::assert_snapshot!(rendered, @r"
             › Ask Steve to do anything
 
-              GPT-6.1-Sol high · <PROJECT>
+              startup-test/gpt-6.1-sol high · <PROJECT>
             ");
         }
         let expected_cwd = if override_cwd {
@@ -830,7 +873,7 @@ async fn fresh_startup_reads_destination_and_cleared_model_uses_catalog() -> Res
 
 #[tokio::test]
 async fn fresh_startup_observes_config_edits_after_directory_trust() -> Result<()> {
-    let home = tempdir()?;
+    let home = startup_provider_fixture().await?;
     let destination = tempdir()?;
     std::fs::create_dir(destination.path().join(".git"))?;
     let config_path = home.path().join("config.toml");
@@ -839,7 +882,8 @@ async fn fresh_startup_observes_config_edits_after_directory_trust() -> Result<(
         std::fs::write(
             &config_path,
             format!("service_tier = \"{tier}\"\n[projects.{project}]\ntrust_level = \"trusted\"\n"),
-        )
+        )?;
+        seed_startup_provider(&config_path, &home)
     };
     write_tier("priority")?;
     let config = ConfigBuilder::default()
@@ -859,7 +903,7 @@ async fn fresh_startup_observes_config_edits_after_directory_trust() -> Result<(
         crate::app_server_session::ThreadParamsMode::Embedded,
         LoaderOverrides {
             user_config_path: Some(config_path.clone().abs()),
-            ..LoaderOverrides::default()
+            ..LoaderOverrides::without_managed_config_for_tests()
         },
     )
     .await?;
@@ -894,11 +938,12 @@ async fn fresh_startup_falls_back_only_for_unsupported_config_read() -> Result<(
         HistoryCapabilities::ConfigReadUnsupported(-32601),
         HistoryCapabilities::ConfigReadUnsupported(-32600),
     ] {
-        let home = tempdir()?;
+        let home = startup_provider_fixture().await?;
         std::fs::write(
             home.path().join("config.toml"),
             "model = \"client-model\"\nmodel_reasoning_effort = \"low\"\n",
         )?;
+        seed_startup_provider(&home.path().join("config.toml"), &home)?;
         let config = ConfigBuilder::default()
             .codex_home(home.path().to_path_buf())
             .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
@@ -932,8 +977,8 @@ async fn fresh_startup_falls_back_only_for_unsupported_config_read() -> Result<(
 
 #[tokio::test]
 async fn startup_reads_server_defaults_before_starting_thread() -> Result<()> {
-    let client_home = tempdir()?;
-    let server_home = tempdir()?;
+    let client_home = startup_provider_fixture().await?;
+    let server_home = startup_provider_fixture().await?;
     let projectless_cwd = tempdir()?;
     std::fs::write(
         client_home.path().join("config.toml"),
@@ -943,6 +988,8 @@ async fn startup_reads_server_defaults_before_starting_thread() -> Result<()> {
         server_home.path().join("config.toml"),
         "model = \"server-model\"\nmodel_reasoning_effort = \"high\"\n",
     )?;
+    seed_startup_provider(&client_home.path().join("config.toml"), &client_home)?;
+    seed_startup_provider(&server_home.path().join("config.toml"), &server_home)?;
     let config = ConfigBuilder::default()
         .codex_home(client_home.path().to_path_buf())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
