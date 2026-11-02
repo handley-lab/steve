@@ -790,6 +790,10 @@ async fn command_center_new_preserves_only_selected_server_profiles() -> Result<
         home.path().join("config.toml"),
         "approval_policy = \"never\"\napprovals_reviewer = \"auto_review\"\ndefault_permissions = \":workspace\"\n[permissions.server-only]\nextends = \":read-only\"\n",
     )?;
+    crate::test_support::seed_test_provider_from_config(
+        &home.path().join("config.toml"),
+        &app.config,
+    )?;
     let server_config = ConfigBuilder::default()
         .codex_home(home.path().into())
         .build()
@@ -963,6 +967,14 @@ async fn command_center_new_preserves_only_selected_server_profiles() -> Result<
 #[tokio::test]
 async fn command_center_new_restores_blank_drafts_and_builtin_permissions() -> Result<()> {
     let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+    crate::test_support::advertise_test_models(
+        app._test_codex_home.as_ref().expect("test home"),
+        ["gpt-5.6-sol", "gpt-local-choice", "gpt-5.5"]
+            .into_iter()
+            .map(codex_models_manager::test_support::model_info)
+            .collect(),
+    )
+    .await;
     trust_launch_folder(&mut app);
     app.app_server_target = AppServerTarget::Remote {
         endpoint: crate::resolve_remote_addr("ws://127.0.0.1:8765")?,
@@ -992,7 +1004,7 @@ async fn command_center_new_restores_blank_drafts_and_builtin_permissions() -> R
     app.select_agents_overview_thread(&mut tui, &mut server, startup)
         .await?;
     assert_eq!(app.chat_widget.thread_id(), Some(startup));
-    app.chat_widget.set_model("gpt-local-choice");
+    app.chat_widget.set_model("test-provider/gpt-local-choice");
     app.start_fresh_session(
         &mut tui,
         &mut server,
@@ -1011,7 +1023,10 @@ async fn command_center_new_restores_blank_drafts_and_builtin_permissions() -> R
     let other = app.chat_widget.thread_id().unwrap();
     app.select_agents_overview_thread(&mut tui, &mut server, startup)
         .await?;
-    assert_eq!(app.chat_widget.current_model(), "gpt-local-choice");
+    assert_eq!(
+        app.chat_widget.current_model(),
+        "test-provider/gpt-local-choice"
+    );
     app.select_agents_overview_thread(&mut tui, &mut server, first)
         .await?;
     assert_eq!(app.chat_widget.thread_id(), Some(first));
@@ -1136,7 +1151,7 @@ async fn command_center_new_restores_blank_drafts_and_builtin_permissions() -> R
         app.chat_widget.composer_text_with_pending(),
         "Background draft"
     );
-    assert_eq!(app.chat_widget.current_model(), "gpt-5.5");
+    assert_eq!(app.chat_widget.current_model(), "test-provider/gpt-5.5");
     let op = app
         .chat_widget
         .submit_user_message_as_plain_user_turn(crate::chatwidget::UserMessage::from("Hello"))
@@ -1153,7 +1168,7 @@ async fn command_center_new_restores_blank_drafts_and_builtin_permissions() -> R
         (
             &serde_json::Value::Null,
             &serde_json::json!("on-request"),
-            &serde_json::json!("gpt-5.5")
+            &serde_json::json!("test-provider/gpt-5.5")
         )
     );
     server.shutdown().await?;
@@ -1259,6 +1274,10 @@ async fn command_center_new_checkout_and_worktree_preserve_source_and_default_br
         }
         let (mut app, mut events, _) = make_test_app_with_channels().await;
         app.config.codex_home = home.clone().abs();
+        crate::test_support::seed_test_provider_from_config(
+            &home.join("config.toml"),
+            &app.config,
+        )?;
         app.config.cwd = selected.cwd.clone().abs();
         app.chat_widget.windows_sandbox_local_server = cfg!(target_os = "windows");
         app.harness_overrides.cwd = Some(selected.cwd.clone());
