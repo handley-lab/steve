@@ -25,7 +25,35 @@ pub(super) fn reserve_response() -> GetAccountRateLimitsResponse {
     .unwrap()
 }
 
-pub(super) fn configure_reserve_catalog(app: &mut App) {
+pub(super) fn accept_recovery_catalog(
+    app: &mut App,
+    events: &mut tokio::sync::mpsc::UnboundedReceiver<AppEvent>,
+    models: Vec<codex_protocol::openai_models::ModelPreset>,
+) {
+    // Attachment invalidates the widget's old catalog. Deliver the requested
+    // fixture reply before exercising recovery, retaining unrelated UI events.
+    let mut retained = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        match event {
+            AppEvent::FetchModels { request_id } => {
+                app.chat_widget
+                    .on_models_loaded(request_id, Ok(models.clone()));
+            }
+            event => retained.push(event),
+        }
+    }
+    for event in retained {
+        app.app_event_tx.send(event);
+    }
+    app.model_catalog = app.chat_widget.model_catalog();
+}
+
+pub(super) fn configure_reserve_catalog(
+    app: &mut App,
+    events: &mut tokio::sync::mpsc::UnboundedReceiver<AppEvent>,
+) {
+    app.config.fallback_model = Some("gpt-reserve".into());
+    app.config.chatgpt_base_url = "https://chatgpt.com".into();
     let mut models = app.model_catalog.try_list_models().unwrap();
     let mut reserve = models
         .iter()
@@ -34,15 +62,28 @@ pub(super) fn configure_reserve_catalog(app: &mut App) {
         .clone();
     reserve.model = "gpt-reserve".into();
     reserve.show_in_picker = false;
+    reserve.default_reasoning_effort = ReasoningEffortConfig::Medium;
+    reserve.supported_reasoning_efforts =
+        vec![codex_protocol::openai_models::ReasoningEffortPreset {
+            effort: ReasoningEffortConfig::Medium,
+            description: "Reserve test effort".into(),
+        }];
     models.push(reserve);
     let original = models
         .iter_mut()
         .find(|model| model.model == "gpt-5.5")
         .unwrap();
-    let mut high = original.supported_reasoning_efforts[0].clone();
-    high.effort = ReasoningEffortConfig::High;
-    original.supported_reasoning_efforts.push(high);
-    Arc::make_mut(&mut app.model_catalog).models = models;
+    original.supported_reasoning_efforts =
+        [ReasoningEffortConfig::Medium, ReasoningEffortConfig::High]
+            .into_iter()
+            .map(
+                |effort| codex_protocol::openai_models::ReasoningEffortPreset {
+                    effort,
+                    description: "Recovery test effort".into(),
+                },
+            )
+            .collect();
+    Arc::make_mut(&mut app.model_catalog).models = models.clone();
     let mut tui = crate::tui::test_support::make_test_tui().unwrap();
     let mut init = app.chatwidget_init_for_forked_or_resumed_thread(
         &mut tui,
@@ -51,22 +92,27 @@ pub(super) fn configure_reserve_catalog(app: &mut App) {
     );
     init.has_chatgpt_account = true;
     init.has_codex_backend_auth = true;
+    init.requires_openai_auth = true;
     app.replace_chat_widget(ChatWidget::new_with_app_event(init));
     app.chat_widget
         .handle_thread_session(app.primary_session_configured.clone().unwrap());
+    accept_recovery_catalog(app, events, models);
     app.chat_widget.set_model("gpt-5.5");
 }
 
 #[tokio::test]
 async fn luna_reserve_recovery_survives_task_reconstruction() -> Result<()> {
-    let (mut app, _events, _ops) = make_test_app_with_channels().await;
+    let (mut app, mut events, _ops) = make_test_app_with_channels().await;
     let (mut server, requests, proxy) =
         backend_banner_fallback_tests::start_fallback_thread(&mut app).await?;
-    configure_reserve_catalog(&mut app);
+    configure_reserve_catalog(&mut app, &mut events);
+    requests.lock().unwrap().clear();
     app.chat_widget
         .set_reasoning_effort(Some(ReasoningEffortConfig::High));
     app.chat_widget.update_backend_banner(&reserve_response());
     app.apply_backend_banner_fallback(&mut server).await;
+
+    let models = app.model_catalog.try_list_models()?;
     let mut resumed = app.primary_session_configured.clone().unwrap();
     resumed.model = "gpt-reserve".into();
     resumed.collaboration_mode = Some(Box::new(app.chat_widget.effective_collaboration_mode()));
@@ -78,9 +124,11 @@ async fn luna_reserve_recovery_survives_task_reconstruction() -> Result<()> {
     );
     init.has_chatgpt_account = true;
     init.has_codex_backend_auth = true;
+    init.requires_openai_auth = true;
     // No in-memory transition state is inherited: resume must recover the persisted target.
     app.replace_chat_widget(ChatWidget::new_with_app_event(init));
     app.chat_widget.handle_thread_session(resumed);
+    accept_recovery_catalog(&mut app, &mut events, models);
     assert_eq!(app.chat_widget.current_model(), "gpt-reserve");
     let mut recovered = reserve_response();
     recovered.ordinary_usage_allowed = Some(true);
@@ -120,7 +168,7 @@ async fn luna_reserve_entry_dispatches_an_already_queued_turn_with_accepted_sett
         let (mut app, mut events, _ops) = make_test_app_with_channels().await;
         let (mut server, requests, proxy) =
             backend_banner_fallback_tests::start_fallback_thread(&mut app).await?;
-        configure_reserve_catalog(&mut app);
+        configure_reserve_catalog(&mut app, &mut events);
         app.chat_widget
             .set_feature_enabled(Feature::FastMode, /*enabled*/ true);
         app.chat_widget.set_service_tier(Some("fast".into()));
@@ -152,11 +200,14 @@ async fn luna_reserve_entry_dispatches_an_already_queued_turn_with_accepted_sett
         app.handle_event(&mut tui, &mut server, pending).await?;
         let sent = requests.lock().unwrap().clone();
         let methods: Vec<_> = sent.iter().map(|request| request.method.as_str()).collect();
-        assert_eq!(methods, ["thread/settings/update", "turn/start"]);
+        assert_eq!(
+            methods,
+            ["thread/settings/update", "model/list", "turn/start"]
+        );
         let settings: ThreadSettingsUpdateParams =
             serde_json::from_value(sent[0].params.clone().unwrap())?;
         let turn: codex_app_server_protocol::TurnStartParams =
-            serde_json::from_value(sent[1].params.clone().unwrap())?;
+            serde_json::from_value(sent[2].params.clone().unwrap())?;
         assert_eq!(
             (
                 turn.model,
@@ -185,7 +236,7 @@ async fn luna_reserve_recovery_restores_task_and_pending_turn_after_fresh_backen
         let (mut app, mut events, _ops) = make_test_app_with_channels().await;
         let (mut server, requests, proxy) =
             backend_banner_fallback_tests::start_fallback_thread(&mut app).await?;
-        configure_reserve_catalog(&mut app);
+        configure_reserve_catalog(&mut app, &mut events);
         app.chat_widget
             .set_feature_enabled(Feature::FastMode, /*enabled*/ false);
         app.chat_widget
@@ -306,10 +357,10 @@ async fn luna_reserve_recovery_restores_task_and_pending_turn_after_fresh_backen
 
 #[tokio::test]
 async fn luna_reserve_recovery_requires_permission_and_no_remaining_blocker() -> Result<()> {
-    let (mut app, _events, _ops) = make_test_app_with_channels().await;
+    let (mut app, mut events, _ops) = make_test_app_with_channels().await;
     let (mut server, requests, proxy) =
         backend_banner_fallback_tests::start_fallback_thread(&mut app).await?;
-    configure_reserve_catalog(&mut app);
+    configure_reserve_catalog(&mut app, &mut events);
     app.chat_widget.update_backend_banner(&reserve_response());
     app.apply_backend_banner_fallback(&mut server).await;
     requests.lock().unwrap().clear();
@@ -353,10 +404,10 @@ async fn luna_reserve_recovery_requires_permission_and_no_remaining_blocker() ->
 #[tokio::test]
 async fn luna_reserve_recovery_does_not_override_manual_choice_or_account_change() -> Result<()> {
     for change_account in [false, true] {
-        let (mut app, _events, _ops) = make_test_app_with_channels().await;
+        let (mut app, mut events, _ops) = make_test_app_with_channels().await;
         let (mut server, requests, proxy) =
             backend_banner_fallback_tests::start_fallback_thread(&mut app).await?;
-        configure_reserve_catalog(&mut app);
+        configure_reserve_catalog(&mut app, &mut events);
         app.chat_widget.update_backend_banner(&reserve_response());
         app.apply_backend_banner_fallback(&mut server).await;
         requests.lock().unwrap().clear();

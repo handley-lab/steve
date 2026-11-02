@@ -60,6 +60,7 @@ async fn settings_pickers_preserve_the_reading_anchor_through_open_and_close() -
     app.sync_tui_theme_selection("base16-ocean-dark".to_string());
     hold_older_history(&mut app, &mut tui);
     let held = transcript_buffer(&mut app);
+    super::fresh_sparkle_tests::configure_model_picker_catalog(&mut app).await;
 
     for (command, close) in [
         ("/model", KeyCode::Esc),
@@ -120,6 +121,7 @@ async fn settings_pickers_preserve_the_reading_anchor_through_open_and_close() -
 #[tokio::test]
 async fn settings_picker_save_failures_reveal_their_errors() -> Result<()> {
     let (mut app, mut events, _op_rx) = make_test_app_with_channels().await;
+    super::fresh_sparkle_tests::configure_model_picker_catalog(&mut app).await;
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let mut server = start_config_write_test_app_server(&app).await?;
     tui.set_owned_screen(/*owned*/ true)?;
@@ -137,11 +139,11 @@ async fn settings_picker_save_failures_reveal_their_errors() -> Result<()> {
         },
         AppEvent::TerminalTitleSetup { items: vec![] },
         AppEvent::PersistModelSelection {
-            model: "gpt-5.5".into(),
+            model: "test-provider/gpt-5.5".into(),
             effort: Some(ReasoningEffortConfig::High),
         },
         AppEvent::ApplyAdvancedReasoning {
-            model: "gpt-5.5".into(),
+            model: "test-provider/gpt-5.5".into(),
             effort: ReasoningEffortConfig::Ultra,
         },
         AppEvent::PersistPlanModeReasoningEffort(Some(ReasoningEffortConfig::High)),
@@ -231,7 +233,7 @@ async fn settings_confirmations_reveal_their_history_output() -> Result<()> {
     for (event, output) in [
         (
             AppEvent::SelectSessionModel {
-                model: "gpt-5.5".into(),
+                model: "test-provider/gpt-5.5".into(),
                 effort: Some(ReasoningEffortConfig::High),
                 service_tier: None,
             },
@@ -300,6 +302,11 @@ async fn keymap_daemon_validates_before_saving_or_applying_bindings() -> Result<
         let mut tui = crate::tui::test_support::make_test_tui()?;
         let path = app.local_settings.user_config_path.clone();
         std::fs::write(&path, "# retained config\n")?;
+        crate::test_support::seed_test_provider(
+            app.config.codex_home.as_path(),
+            app._test_codex_home.as_ref().expect("test home"),
+        )?;
+        let retained_config = std::fs::read_to_string(&path)?;
         let original_keymap = app.local_settings.tui.keymap.clone();
         let (mut server, requests, proxy) = start_recording_app_server_with_history(
             &app.config,
@@ -348,7 +355,7 @@ async fn keymap_daemon_validates_before_saving_or_applying_bindings() -> Result<
                 vec!["home", "ctrl-a", "super-left", "f12"],
             );
         } else {
-            assert_eq!(std::fs::read_to_string(&path)?, "# retained config\n");
+            assert_eq!(std::fs::read_to_string(&path)?, retained_config);
             assert_eq!(app.local_settings.tui.keymap, original_keymap);
             assert_eq!(
                 crate::keymap_setup::active_binding_specs(&app.keymap, "editor", "move_line_start")

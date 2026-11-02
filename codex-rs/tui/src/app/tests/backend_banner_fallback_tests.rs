@@ -23,7 +23,57 @@ pub(super) fn fallback_response() -> GetAccountRateLimitsResponse {
     .unwrap()
 }
 
+pub(super) async fn advertise_recovery_models(app: &App) {
+    let models = [
+        "gpt-5.6-sol",
+        "gpt-5.5",
+        "gpt-5.6-terra",
+        "gpt-reserve",
+        "cyber-test-model",
+    ]
+    .into_iter()
+    .map(|model| {
+        let mut info = codex_models_manager::test_support::model_info(model);
+        info.supported_reasoning_levels =
+            [ReasoningEffortConfig::Medium, ReasoningEffortConfig::High]
+                .into_iter()
+                .map(
+                    |effort| codex_protocol::openai_models::ReasoningEffortPreset {
+                        effort,
+                        description: "Recovery test effort".into(),
+                    },
+                )
+                .collect();
+        info
+    })
+    .collect();
+    wiremock::Mock::given(wiremock::matchers::path("/models"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(codex_protocol::openai_models::ModelsResponse { models }),
+        )
+        .with_priority(1)
+        .mount(&app._test_codex_home.as_ref().expect("test home")._models)
+        .await;
+}
+
 fn configure_fallback_model(app: &mut App) {
+    app.config.fallback_model = Some("gpt-5.6-terra".into());
+    app.config.chatgpt_base_url = "https://chatgpt.com".into();
+    let session = app.primary_session_configured.clone().unwrap_or_else(|| {
+        test_thread_session(
+            app.active_thread_id.expect("fallback thread"),
+            app.config.cwd.to_path_buf(),
+        )
+    });
+    let mut tui = crate::tui::test_support::make_test_tui().unwrap();
+    let mut init =
+        app.chatwidget_init_for_forked_or_resumed_thread(&mut tui, app.config.clone(), None);
+    init.has_chatgpt_account = true;
+    init.has_codex_backend_auth = true;
+    init.requires_openai_auth = true;
+    app.replace_chat_widget(ChatWidget::new_with_app_event(init));
+    app.chat_widget.handle_thread_session(session);
     set_chatgpt_auth(&mut app.chat_widget);
     set_fast_mode_test_catalog_for_models(&mut app.chat_widget, "gpt-5.5", "gpt-5.6-terra");
     app.model_catalog = app.chat_widget.model_catalog();
@@ -33,6 +83,7 @@ fn configure_fallback_model(app: &mut App) {
 pub(super) async fn start_fallback_thread(
     app: &mut App,
 ) -> Result<session_lifecycle_requests::RecordingAppServer> {
+    advertise_recovery_models(app).await;
     let (mut server, requests, proxy) = session_lifecycle_requests::start_recording_app_server(
         &app.config,
         /*blocked_thread_list*/ None,
@@ -166,7 +217,13 @@ async fn backend_banner_fallback_updates_task_settings_and_keeps_notice() -> Res
             .restore_user_message_to_composer(UserMessage::from("continue"));
         app.chat_widget
             .handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert_matches!(next_user_turn_op(&mut ops), AppCommand::UserTurn { model, collaboration_mode: Some(mode), .. }
+        let turn = std::iter::from_fn(|| events.try_recv().ok())
+            .find_map(|event| match event {
+                AppEvent::CodexOp(turn @ AppCommand::UserTurn { .. }) => Some(turn),
+                _ => None,
+            })
+            .expect("rebuilt widget submits through the app event channel");
+        assert_matches!(turn, AppCommand::UserTurn { model, collaboration_mode: Some(mode), .. }
             if model == "gpt-5.6-terra" && mode == expected_mode);
         server.shutdown().await?;
         proxy.await??;
@@ -281,7 +338,7 @@ async fn backend_banner_fallback_handles_settings_failure_and_queued_manual_sele
         if use_reserve {
             app.primary_session_configured =
                 Some(test_thread_session(id, app.config.cwd.to_path_buf()));
-            super::luna_reserve_recovery_tests::configure_reserve_catalog(&mut app);
+            super::luna_reserve_recovery_tests::configure_reserve_catalog(&mut app, &mut events);
         } else {
             configure_fallback_model(&mut app);
         }
@@ -431,7 +488,7 @@ async fn backend_banner_fallback_handles_settings_failure_and_queued_manual_sele
 #[tokio::test]
 async fn backend_banner_fallback_preserves_permissions_for_first_eligible_cyber_model() -> Result<()>
 {
-    let mut app = make_test_app().await;
+    let (mut app, mut events, _ops) = make_test_app_with_channels().await;
     assert!(
         app.apply_permission_profile_selection(PermissionProfileSelection {
             profile_id: codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_READ_ONLY.into(),
@@ -441,6 +498,7 @@ async fn backend_banner_fallback_preserves_permissions_for_first_eligible_cyber_
         })
         .await
     );
+    advertise_recovery_models(&app).await;
     let mut server = crate::start_embedded_app_server_for_picker(&app.config).await?;
     let started = server.start_thread(&app.config).await?;
     let thread_id = started.session.thread_id;
@@ -457,7 +515,8 @@ async fn backend_banner_fallback_preserves_permissions_for_first_eligible_cyber_
     cyber_model.model = "cyber-test-model".into();
     cyber_model.model_specialty = Some(MODEL_SPECIALTY_CYBER.into());
     models.push(cyber_model.clone());
-    app.model_catalog = Arc::new(ModelCatalog::new(models));
+    app.model_catalog = Arc::new(ModelCatalog::new(models.clone()));
+    app.config.fallback_model = Some(cyber_model.model.clone());
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let mut init = app.chatwidget_init_for_forked_or_resumed_thread(
         &mut tui,
@@ -468,6 +527,7 @@ async fn backend_banner_fallback_preserves_permissions_for_first_eligible_cyber_
     app.replace_chat_widget(ChatWidget::new_with_app_event(init));
     app.chat_widget
         .handle_thread_session(app.primary_session_configured.clone().unwrap());
+    super::luna_reserve_recovery_tests::accept_recovery_catalog(&mut app, &mut events, models);
     app.chat_widget.set_model("gpt-5.5");
     app.chat_widget
         .set_reasoning_effort(Some(ReasoningEffortConfig::Medium));
@@ -481,9 +541,20 @@ async fn backend_banner_fallback_preserves_permissions_for_first_eligible_cyber_
     app.chat_widget.update_backend_banner(&response);
     app.apply_backend_banner_fallback(&mut server).await;
     assert_eq!(app.chat_widget.current_model(), cyber_model.model);
-    let settings = next_thread_settings_updated(&mut server, thread_id)
-        .await
-        .thread_settings;
+    let expected_model = format!("{}/{}", app.config.model_provider_id, cyber_model.model);
+    // The initializer can have an older settings notification queued. Await the
+    // accepted fallback model before checking its unchanged permission profile.
+    let settings = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let settings = next_thread_settings_updated(&mut server, thread_id)
+                .await
+                .thread_settings;
+            if settings.model == expected_model {
+                break settings;
+            }
+        }
+    })
+    .await?;
     assert_eq!(
         (
             settings.model,
@@ -493,7 +564,7 @@ async fn backend_banner_fallback_preserves_permissions_for_first_eligible_cyber_
             settings.active_permission_profile.unwrap().id
         ),
         (
-            cyber_model.model,
+            expected_model,
             Some(ReasoningEffortConfig::Medium),
             AskForApproval::UnlessTrusted,
             ApprovalsReviewer::User,

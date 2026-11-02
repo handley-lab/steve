@@ -63,6 +63,14 @@ async fn luna_reserve_periodic_refresh_adapts_without_an_experiment_banner() -> 
         ),
     )?;
     let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+    let provider_config = std::fs::read_to_string(app.config.codex_home.join("config.toml"))?;
+    std::fs::write(
+        home.path().join("config.toml"),
+        format!(
+            "chatgpt_base_url = {:?}\ncli_auth_credentials_store = \"file\"\n{provider_config}",
+            backend.uri(),
+        ),
+    )?;
     app.config.codex_home = home.path().to_path_buf().abs();
     app.config.chatgpt_base_url = backend.uri();
     app.config.sqlite = codex_state::SqliteConfig::new_for_testing(home.path().abs());
@@ -143,6 +151,14 @@ async fn backend_banner_limit_error_refreshes_again_after_intervening_rolling_ha
         ),
     )?;
     let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+    let provider_config = std::fs::read_to_string(app.config.codex_home.join("config.toml"))?;
+    std::fs::write(
+        home.path().join("config.toml"),
+        format!(
+            "chatgpt_base_url = {:?}\ncli_auth_credentials_store = \"file\"\n{provider_config}",
+            server.uri(),
+        ),
+    )?;
     app.config.codex_home = home.path().to_path_buf().abs();
     app.config.chatgpt_base_url = server.uri();
     app.config.sqlite = codex_state::SqliteConfig::new_for_testing(home.path().abs());

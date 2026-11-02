@@ -8,6 +8,43 @@ use crate::terminal_probe::DefaultColors;
 use codex_protocol::openai_models::ReasoningEffortPreset;
 use pretty_assertions::assert_eq;
 
+pub(super) async fn configure_model_picker_catalog(app: &mut App) {
+    let models = ["gpt-5.6-sol", "gpt-5.5", "gpt-6-astra"]
+        .into_iter()
+        .map(|model| {
+            let mut info = codex_models_manager::test_support::model_info(model);
+            info.supported_reasoning_levels = [
+                ReasoningEffortConfig::Low,
+                ReasoningEffortConfig::Medium,
+                ReasoningEffortConfig::High,
+                ReasoningEffortConfig::XHigh,
+                ReasoningEffortConfig::Ultra,
+            ]
+            .into_iter()
+            .map(|effort| ReasoningEffortPreset {
+                effort,
+                description: "Test reasoning effort".into(),
+            })
+            .collect();
+            info
+        })
+        .collect();
+    wiremock::Mock::given(wiremock::matchers::path("/models"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(codex_protocol::openai_models::ModelsResponse { models }),
+        )
+        .with_priority(1)
+        .mount(&app._test_codex_home.as_ref().expect("test home")._models)
+        .await;
+    crate::chatwidget::tests::helpers::set_fast_mode_test_catalog_for_models(
+        &mut app.chat_widget,
+        "test-provider/gpt-5.5",
+        "test-provider/gpt-6-astra",
+    );
+    app.model_catalog = app.chat_widget.model_catalog();
+}
+
 fn started(model: &str) -> AppServerStartedThread {
     let mut session = test_thread_session(ThreadId::new(), test_path_buf("/tmp/project"));
     session.model = model.into();
@@ -58,9 +95,22 @@ async fn choose_model(
         description: "Test reasoning effort".to_string(),
     }];
     preset.default_reasoning_effort = ReasoningEffortConfig::Medium;
+    let session_only = key == KeyCode::Char('s');
+    if session_only {
+        // Searchable model rows reserve plain characters for search. Enter the
+        // reasoning child to use its explicit session-only selection action.
+        preset
+            .supported_reasoning_efforts
+            .push(ReasoningEffortPreset {
+                effort: ReasoningEffortConfig::High,
+                description: "High test reasoning effort".into(),
+            });
+    }
     app.chat_widget.open_model_popup_with_presets(vec![preset]);
-    app.chat_widget
-        .handle_key_event(KeyEvent::new(key, KeyModifiers::NONE));
+    app.chat_widget.handle_key_event(KeyEvent::new(
+        if session_only { KeyCode::Enter } else { key },
+        KeyModifiers::NONE,
+    ));
 
     let mut sparkle_offers = 0;
     while let Ok(event) = events.try_recv() {
@@ -75,15 +125,24 @@ async fn choose_model(
             if let AppEvent::AstraSelectedFromModelPicker { thread_id, .. } = &event {
                 assert_eq!(Some(*thread_id), app.chat_widget.thread_id());
             }
+            let opens_reasoning = matches!(&event, AppEvent::OpenReasoningPopup { .. });
             let changes_model = matches!(&event, AppEvent::AstraSelectedFromModelPicker { model, .. }
                 if app.chat_widget.current_model() != model);
             app.handle_event(tui, server, event).await?;
+            if session_only && opens_reasoning {
+                app.chat_widget
+                    .handle_key_event(KeyEvent::new(key, KeyModifiers::NONE));
+            }
             if changes_model && app.chat_widget.current_model() == model {
                 sparkle_offers += 1;
             }
         }
     }
-    assert!(!app.chat_widget.has_active_view());
+    assert!(
+        !app.chat_widget.has_active_view(),
+        "{key:?}: {}",
+        render_bottom_popup(&app.chat_widget, 80)
+    );
     Ok(sparkle_offers)
 }
 
@@ -98,10 +157,11 @@ async fn only_a_confirmed_empty_new_task_shows_the_sparkle() -> Result<()> {
         "parent_owned",
     ] {
         let (mut app, _events, _ops) = make_test_app_with_channels().await;
+        configure_model_picker_catalog(&mut app).await;
         app.local_settings.tui.animations = true;
         app.local_settings.tui.effects.starfield = true;
         let mut tui = crate::tui::test_support::make_test_tui()?;
-        let mut thread = started("gpt-6-astra");
+        let mut thread = started("test-provider/gpt-6-astra");
         let presentation = if scenario == "empty_resume" {
             ThreadAttachPresentation::SessionLineage
         } else {
@@ -129,8 +189,8 @@ async fn only_a_confirmed_empty_new_task_shows_the_sparkle() -> Result<()> {
         )
         .await?;
         assert_eq!(visible(&app.chat_widget), scenario == "fresh", "{scenario}");
-        app.chat_widget.set_model("gpt-5.5");
-        app.chat_widget.set_model("gpt-6-astra");
+        app.chat_widget.set_model("test-provider/gpt-5.5");
+        app.chat_widget.set_model("test-provider/gpt-6-astra");
         assert!(
             !visible(&app.chat_widget),
             "automatic model update: {scenario}"
@@ -142,9 +202,10 @@ async fn only_a_confirmed_empty_new_task_shows_the_sparkle() -> Result<()> {
 #[tokio::test]
 async fn disconnected_sparkle_input_routed_by_app_consumes_the_opportunity_without_drawing()
 -> Result<()> {
-    for model in ["gpt-5.5", "gpt-6-astra"] {
+    for model in ["test-provider/gpt-5.5", "test-provider/gpt-6-astra"] {
         for edited in [false, true] {
             let (mut app, _events, _ops) = make_test_app_with_channels().await;
+            configure_model_picker_catalog(&mut app).await;
             app.local_settings.tui.animations = true;
             app.local_settings.tui.effects.starfield = true;
             let mut server = start_config_write_test_app_server(&app).await?;
@@ -156,7 +217,10 @@ async fn disconnected_sparkle_input_routed_by_app_consumes_the_opportunity_witho
                 /*initial_user_message*/ None,
             )
             .await?;
-            assert_eq!(visible(&app.chat_widget), model == "gpt-6-astra");
+            assert_eq!(
+                visible(&app.chat_widget),
+                model == "test-provider/gpt-6-astra"
+            );
             app.app_server_target = AppServerTarget::Remote {
                 endpoint: crate::resolve_remote_addr("ws://127.0.0.1:9")?,
             };
@@ -174,9 +238,9 @@ async fn disconnected_sparkle_input_routed_by_app_consumes_the_opportunity_witho
             assert_eq!(app.chat_widget.composer_text_with_pending(), "");
             app.chat_widget.set_footer_hint_override(/*items*/ None);
             app.chat_widget.pause_unavailable_thread();
-            app.chat_widget.set_model("gpt-6-astra");
+            app.chat_widget.set_model("test-provider/gpt-6-astra");
             app.chat_widget
-                .on_sparkle_model_selected_from_picker("gpt-6-astra");
+                .on_sparkle_model_selected_from_picker("test-provider/gpt-6-astra");
             assert_eq!(
                 visible(&app.chat_widget),
                 !edited,
@@ -200,6 +264,7 @@ async fn commands_can_precede_the_sparkle_but_inserted_or_typed_drafts_cannot() 
         "cancel_picker",
     ] {
         let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+        configure_model_picker_catalog(&mut app).await;
         app.local_settings.tui.animations = true;
         app.local_settings.tui.effects.starfield = true;
         app.local_settings.tui.disable_paste_burst = Some(true);
@@ -207,7 +272,7 @@ async fn commands_can_precede_the_sparkle_but_inserted_or_typed_drafts_cannot() 
         let mut tui = crate::tui::test_support::make_test_tui()?;
         app.replace_chat_widget_with_app_server_thread(
             &mut tui,
-            started("gpt-5.5"),
+            started("test-provider/gpt-5.5"),
             ThreadAttachPresentation::Fresh,
             /*initial_user_message*/ None,
         )
@@ -250,6 +315,7 @@ async fn commands_can_precede_the_sparkle_but_inserted_or_typed_drafts_cannot() 
             "" | "cancel_picker" => {}
             _ => unreachable!(),
         }
+        configure_model_picker_catalog(&mut app).await;
         type_into(&mut app.chat_widget, "/model");
         app.chat_widget
             .handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -257,7 +323,7 @@ async fn commands_can_precede_the_sparkle_but_inserted_or_typed_drafts_cannot() 
             assert!(app.chat_widget.has_active_view());
             app.chat_widget
                 .handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-            app.chat_widget.set_model("gpt-6-astra");
+            app.chat_widget.set_model("test-provider/gpt-6-astra");
         } else {
             assert_eq!(
                 choose_model(
@@ -265,7 +331,7 @@ async fn commands_can_precede_the_sparkle_but_inserted_or_typed_drafts_cannot() 
                     &mut tui,
                     &mut server,
                     &mut events,
-                    "gpt-6-astra",
+                    "test-provider/gpt-6-astra",
                     KeyCode::Enter,
                 )
                 .await?,
@@ -284,13 +350,14 @@ async fn commands_can_precede_the_sparkle_but_inserted_or_typed_drafts_cannot() 
 #[tokio::test]
 async fn overlays_shortcuts_and_key_chords_leave_the_main_sparkle_untouched() -> Result<()> {
     let (mut app, _events, _ops) = make_test_app_with_channels().await;
+    configure_model_picker_catalog(&mut app).await;
     app.local_settings.tui.animations = true;
     app.local_settings.tui.effects.starfield = true;
     let mut server = start_config_write_test_app_server(&app).await?;
     let mut tui = crate::tui::test_support::make_test_tui()?;
     app.replace_chat_widget_with_app_server_thread(
         &mut tui,
-        started("gpt-6-astra"),
+        started("test-provider/gpt-6-astra"),
         ThreadAttachPresentation::Fresh,
         /*initial_user_message*/ None,
     )
@@ -349,12 +416,13 @@ async fn overlays_shortcuts_and_key_chords_leave_the_main_sparkle_untouched() ->
 async fn a_command_pending_on_fresh_astra_start_can_finish_before_the_sparkle() -> Result<()> {
     for (command, visible_after) in [("/status", true), ("/mention", false)] {
         let (mut app, _events, _ops) = make_test_app_with_channels().await;
+        configure_model_picker_catalog(&mut app).await;
         app.chat_widget.local_settings.tui.animations = true;
         app.chat_widget.local_settings.tui.effects.starfield = true;
         app.pending_startup_thread_start = true;
         app.chat_widget.handle_paste(command.into());
         let mut server = crate::start_embedded_app_server_for_picker(&app.config).await?;
-        app.handle_startup_thread_started(&mut server, Ok(started("gpt-6-astra")))
+        app.handle_startup_thread_started(&mut server, Ok(started("test-provider/gpt-6-astra")))
             .await?;
         assert_eq!(
             (
@@ -381,12 +449,13 @@ async fn only_confirmed_picker_model_changes_can_arm_the_sparkle() -> Result<()>
         "old_task",
     ] {
         let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+        configure_model_picker_catalog(&mut app).await;
         app.local_settings.tui.animations = true;
         app.local_settings.tui.effects.starfield = true;
         app.local_settings.tui.disable_paste_burst = Some(true);
         let mut server = start_config_write_test_app_server(&app).await?;
         let mut tui = crate::tui::test_support::make_test_tui()?;
-        let thread = started("gpt-5.5");
+        let thread = started("test-provider/gpt-5.5");
         let original_id = thread.session.thread_id;
         app.replace_chat_widget_with_app_server_thread(
             &mut tui,
@@ -396,6 +465,7 @@ async fn only_confirmed_picker_model_changes_can_arm_the_sparkle() -> Result<()>
         )
         .await?;
         assert!(!visible(&app.chat_widget));
+        configure_model_picker_catalog(&mut app).await;
         type_into(&mut app.chat_widget, "/model");
         app.chat_widget.handle_key_event(KeyCode::Enter.into());
         assert!(app.chat_widget.has_active_view());
@@ -409,7 +479,7 @@ async fn only_confirmed_picker_model_changes_can_arm_the_sparkle() -> Result<()>
                 };
                 app.chat_widget.handle_key_event(key);
                 assert!(!app.chat_widget.has_active_view());
-                app.chat_widget.set_model("gpt-6-astra");
+                app.chat_widget.set_model("test-provider/gpt-6-astra");
             }
             "same_model" => {
                 assert_eq!(
@@ -418,16 +488,16 @@ async fn only_confirmed_picker_model_changes_can_arm_the_sparkle() -> Result<()>
                         &mut tui,
                         &mut server,
                         &mut events,
-                        "gpt-5.5",
+                        "test-provider/gpt-5.5",
                         KeyCode::Enter,
                     )
                     .await?,
                     0
                 );
-                app.chat_widget.set_model("gpt-6-astra");
+                app.chat_widget.set_model("test-provider/gpt-6-astra");
             }
             "automatic_while_open" => {
-                app.chat_widget.set_model("gpt-6-astra");
+                app.chat_widget.set_model("test-provider/gpt-6-astra");
                 app.chat_widget
                     .handle_key_event(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
                 assert!(!app.chat_widget.has_active_view());
@@ -439,7 +509,7 @@ async fn only_confirmed_picker_model_changes_can_arm_the_sparkle() -> Result<()>
                         &mut tui,
                         &mut server,
                         &mut events,
-                        "gpt-6-astra",
+                        "test-provider/gpt-6-astra",
                         KeyCode::Enter,
                     )
                     .await?,
@@ -449,18 +519,18 @@ async fn only_confirmed_picker_model_changes_can_arm_the_sparkle() -> Result<()>
             "old_task" => {
                 app.replace_chat_widget_with_app_server_thread(
                     &mut tui,
-                    started("gpt-5.5"),
+                    started("test-provider/gpt-5.5"),
                     ThreadAttachPresentation::Fresh,
                     /*initial_user_message*/ None,
                 )
                 .await?;
-                app.chat_widget.set_model("gpt-6-astra");
+                app.chat_widget.set_model("test-provider/gpt-6-astra");
                 app.handle_event(
                     &mut tui,
                     &mut server,
                     AppEvent::AstraSelectedFromModelPicker {
                         thread_id: original_id,
-                        model: "gpt-6-astra".into(),
+                        model: "test-provider/gpt-6-astra".into(),
                         action: AstraModelPickerAction::UpdateModel,
                     },
                 )
@@ -491,6 +561,7 @@ async fn astra_picker_confirms_the_model_at_application_after_an_automatic_updat
         ("advanced changes model", KeyCode::Enter, true),
     ] {
         let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+        configure_model_picker_catalog(&mut app).await;
         app.config.model = Some("gpt-5.5".into());
         app.local_settings.tui.animations = true;
         app.local_settings.tui.effects.starfield = true;
@@ -505,12 +576,12 @@ async fn astra_picker_confirms_the_model_at_application_after_an_automatic_updat
         )
         .await?;
         if switches_away {
-            app.chat_widget.set_model("gpt-6-astra");
+            app.chat_widget.set_model("test-provider/gpt-6-astra");
         }
         assert!(!visible(&app.chat_widget));
 
         let mut preset = crate::test_support::TEST_MODEL_PRESETS[0].clone();
-        preset.model = "gpt-6-astra".into();
+        preset.model = "test-provider/gpt-6-astra".into();
         preset.default_reasoning_effort = if picker.starts_with("advanced") {
             ReasoningEffortConfig::Ultra
         } else {
@@ -534,15 +605,15 @@ async fn astra_picker_confirms_the_model_at_application_after_an_automatic_updat
         assert!(app.chat_widget.has_active_view());
         if !picker.contains("queued") {
             app.chat_widget.set_model(if switches_away {
-                "gpt-5.5"
+                "test-provider/gpt-5.5"
             } else {
-                "gpt-6-astra"
+                "test-provider/gpt-6-astra"
             });
             assert!(app.chat_widget.has_active_view());
         }
         app.chat_widget.handle_key_event(key.into());
         if picker.contains("queued") {
-            app.chat_widget.set_model("gpt-6-astra");
+            app.chat_widget.set_model("test-provider/gpt-6-astra");
         }
         while let Ok(event) = events.try_recv() {
             if matches!(
@@ -558,7 +629,11 @@ async fn astra_picker_confirms_the_model_at_application_after_an_automatic_updat
             }
         }
         assert!(!app.chat_widget.has_active_view(), "{picker}");
-        assert_eq!(app.chat_widget.current_model(), "gpt-6-astra", "{picker}");
+        assert_eq!(
+            app.chat_widget.current_model(),
+            "test-provider/gpt-6-astra",
+            "{picker}"
+        );
         assert_eq!(visible(&app.chat_widget), switches_away, "{picker}");
         if picker.starts_with("default") && !picker.contains("queued") {
             let rendered = render_with_sparkle_palette(&app.chat_widget);
@@ -593,6 +668,7 @@ fn astra_picker_xhigh_applies_on_a_bounded_stack() -> Result<()> {
                 .build()?;
             runtime.block_on(Box::pin(async {
                 let (mut app, mut events, _ops) = Box::pin(make_test_app_with_channels()).await;
+                configure_model_picker_catalog(&mut app).await;
                 app.config.model = Some("gpt-5.5".into());
                 let mut server = Box::pin(start_config_write_test_app_server(&app)).await?;
                 let mut tui = crate::tui::test_support::make_test_tui()?;
@@ -606,7 +682,7 @@ fn astra_picker_xhigh_applies_on_a_bounded_stack() -> Result<()> {
                 .await?;
 
                 let mut preset = crate::test_support::TEST_MODEL_PRESETS[0].clone();
-                preset.model = "gpt-6-astra".into();
+                preset.model = "test-provider/gpt-6-astra".into();
                 preset.default_reasoning_effort = ReasoningEffortConfig::XHigh;
                 preset.supported_reasoning_efforts = vec![
                     ReasoningEffortPreset {
@@ -639,7 +715,10 @@ fn astra_picker_xhigh_applies_on_a_bounded_stack() -> Result<()> {
                         app.chat_widget.current_model(),
                         app.chat_widget.current_reasoning_effort(),
                     ),
-                    ("gpt-6-astra", Some(ReasoningEffortConfig::XHigh)),
+                    (
+                        "test-provider/gpt-6-astra",
+                        Some(ReasoningEffortConfig::XHigh)
+                    ),
                 );
                 server.shutdown().await?;
                 Ok(())
@@ -652,6 +731,7 @@ fn astra_picker_xhigh_applies_on_a_bounded_stack() -> Result<()> {
 #[tokio::test]
 async fn session_only_astra_picker_shows_stars_only_on_an_untouched_task() -> Result<()> {
     let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+    configure_model_picker_catalog(&mut app).await;
     app.config.model = Some("gpt-5.5".into());
     app.config.model_reasoning_effort = Some(ReasoningEffortConfig::Medium);
     app.local_settings.tui.animations = true;
@@ -660,13 +740,18 @@ async fn session_only_astra_picker_shows_stars_only_on_an_untouched_task() -> Re
     let config_path = app.config.codex_home.join("config.toml");
     let defaults = "model = 'gpt-5.5'\nmodel_reasoning_effort = 'medium'\n";
     std::fs::write(&config_path, defaults)?;
+    crate::test_support::seed_test_provider(
+        app.config.codex_home.as_path(),
+        app._test_codex_home.as_ref().expect("test home"),
+    )?;
+    let defaults = std::fs::read(&config_path)?;
     let mut server = start_config_write_test_app_server(&app).await?;
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let mut snapshots = Vec::new();
 
     for scenario in ["untouched", "typed then erased"] {
         let thread = server.start_thread(&app.config).await?;
-        assert_eq!(thread.session.model, "gpt-5.5");
+        assert_eq!(thread.session.model, "test-provider/gpt-5.5");
         app.replace_chat_widget_with_app_server_thread(
             &mut tui,
             thread,
@@ -679,6 +764,7 @@ async fn session_only_astra_picker_shows_stars_only_on_an_untouched_task() -> Re
             type_into(&mut app.chat_widget, "x");
             app.chat_widget.handle_key_event(KeyCode::Backspace.into());
         }
+        configure_model_picker_catalog(&mut app).await;
         type_into(&mut app.chat_widget, "/model");
         app.chat_widget.handle_key_event(KeyCode::Enter.into());
         assert!(app.chat_widget.has_active_view());
@@ -688,13 +774,13 @@ async fn session_only_astra_picker_shows_stars_only_on_an_untouched_task() -> Re
                 &mut tui,
                 &mut server,
                 &mut events,
-                "gpt-6-astra",
+                "test-provider/gpt-6-astra",
                 KeyCode::Char('s'),
             )
             .await?,
             1
         );
-        assert_eq!(app.chat_widget.current_model(), "gpt-6-astra");
+        assert_eq!(app.chat_widget.current_model(), "test-provider/gpt-6-astra");
 
         let rendered = render_with_sparkle_palette(&app.chat_widget);
         let lines = rendered.lines().collect::<Vec<_>>();
@@ -708,7 +794,7 @@ async fn session_only_astra_picker_shows_stars_only_on_an_untouched_task() -> Re
             scenario == "untouched"
         );
         snapshots.push(format!("{scenario}:\n{composer}"));
-        assert_eq!(std::fs::read(&config_path)?, defaults.as_bytes());
+        assert_eq!(std::fs::read(&config_path)?, defaults.as_slice());
         assert_eq!(
             (&app.config.model, &app.config.model_reasoning_effort),
             (
@@ -725,7 +811,7 @@ async fn session_only_astra_picker_shows_stars_only_on_an_untouched_task() -> Re
                 &mut tui,
                 &mut server,
                 &mut events,
-                "gpt-6-astra",
+                "test-provider/gpt-6-astra",
                 KeyCode::Char('s'),
             )
             .await?,
@@ -742,13 +828,14 @@ async fn session_only_astra_picker_shows_stars_only_on_an_untouched_task() -> Re
 #[tokio::test]
 async fn a_read_only_command_can_return_to_active_stars_but_mention_ends_them() -> Result<()> {
     let (mut app, _events, _ops) = make_test_app_with_channels().await;
+    configure_model_picker_catalog(&mut app).await;
     app.local_settings.tui.animations = true;
     app.local_settings.tui.effects.starfield = true;
     app.local_settings.tui.disable_paste_burst = Some(true);
     let mut tui = crate::tui::test_support::make_test_tui()?;
     app.replace_chat_widget_with_app_server_thread(
         &mut tui,
-        started("gpt-6-astra"),
+        started("test-provider/gpt-6-astra"),
         ThreadAttachPresentation::Fresh,
         /*initial_user_message*/ None,
     )
@@ -772,6 +859,7 @@ async fn a_read_only_command_can_return_to_active_stars_but_mention_ends_them() 
 async fn early_input_and_real_work_consume_the_sparkle() -> Result<()> {
     for scenario in ["untouched", "typed_then_erased", "paste", "turn", "review"] {
         let (mut app, _events, _ops) = make_test_app_with_channels().await;
+        configure_model_picker_catalog(&mut app).await;
         app.chat_widget.local_settings.tui.animations = true;
         app.chat_widget.local_settings.tui.effects.starfield = true;
         app.pending_startup_thread_start = true;
@@ -786,7 +874,7 @@ async fn early_input_and_real_work_consume_the_sparkle() -> Result<()> {
             _ => unreachable!(),
         }
         let mut server = crate::start_embedded_app_server_for_picker(&app.config).await?;
-        let thread = started("gpt-6-astra");
+        let thread = started("test-provider/gpt-6-astra");
         let thread_id = thread.session.thread_id;
         app.handle_startup_thread_started(&mut server, Ok(thread))
             .await?;
