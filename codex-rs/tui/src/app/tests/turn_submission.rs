@@ -113,7 +113,8 @@ async fn worktree_creation_rejects_running_agent_before_allocation() -> Result<(
 async fn turn_start_failure_is_shown_without_exiting() -> Result<()> {
     let (mut app, mut app_event_rx, mut op_rx) = make_test_app_with_channels().await;
     // This case exercises turn/start rejection independently of Daybreak discovery.
-    app.chat_widget.set_feature_enabled(Feature::CliDaybreak, false);
+    app.chat_widget
+        .set_feature_enabled(Feature::CliDaybreak, false);
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
     let thread_id = ThreadId::from_string("123e4567-e89b-12d3-a456-426614174000")?;
@@ -142,8 +143,10 @@ async fn turn_start_failure_is_shown_without_exiting() -> Result<()> {
             AppEvent::InsertHistoryCell(cell) => Some(cell),
             _ => None,
         })
-        .find(|cell| lines_to_single_string(&cell.display_lines(80))
-            .contains("Failed to start turn: turn/start failed"))
+        .find(|cell| {
+            lines_to_single_string(&cell.display_lines(80))
+                .contains("Failed to start turn: turn/start failed")
+        })
         .expect("turn/start failure should be added to history");
     let transcript = app
         .transcript_cells
@@ -368,6 +371,11 @@ async fn launch_permissions_preserve_server_owned_constrained_profile() -> Resul
 #[tokio::test]
 async fn unsupported_legacy_permissions_are_shown_without_exiting() -> Result<()> {
     let (mut app, mut app_event_rx, mut op_rx) = make_test_app_with_channels().await;
+    // This scenario exercises legacy sandbox serialization on a synthetic thread,
+    // not account-scoped Daybreak discovery (covered by the safety integration tests).
+    app.config.features.disable(Feature::CliDaybreak);
+    app.chat_widget
+        .set_feature_enabled(Feature::CliDaybreak, false);
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
     let thread_id = ThreadId::new();
