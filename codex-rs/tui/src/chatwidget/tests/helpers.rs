@@ -6,28 +6,54 @@ use codex_app_server_protocol::PluginAvailability;
 use codex_utils_absolute_path::test_support::PathExt;
 use pretty_assertions::assert_eq;
 
-pub(super) async fn test_config() -> (tempfile::TempDir, Config) {
-    // Start from the built-in defaults so tests do not inherit host/system config.
+pub(super) async fn test_config() -> (crate::test_support::TestHome, Config) {
+    // Keep fixture config and model discovery independent of host/system config.
     let codex_home = tempfile::Builder::new()
         .prefix("chatwidget-tests-")
         .tempdir()
         .expect("tempdir");
+    let models = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::path("/models"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+            codex_protocol::openai_models::ModelsResponse {
+                models: ["gpt-5.6-sol", "gpt-5.5", "gpt-test"]
+                    .into_iter()
+                    .map(codex_models_manager::test_support::model_info)
+                    .collect(),
+            },
+        ))
+        .mount(&models)
+        .await;
+    let codex_home = crate::test_support::TestHome {
+        home: codex_home,
+        _models: models,
+    };
     // Embedded servers reload the fixture home without the widget's CLI overrides.
     std::fs::write(
         codex_home.path().join("config.toml"),
-        "model_provider = \"openai\"\n",
+        format!(
+            r#"model_provider = "test-provider"
+
+[model_providers.test-provider]
+name = "OpenAI"
+base_url = "{0}/v1"
+model_catalog_url = "{0}/models"
+requires_openai_auth = true
+"#,
+            codex_home._models.uri()
+        ),
     )
     .expect("write test provider");
-    let mut config = Config::load_default_with_cli_overrides_for_codex_home(
-        codex_home.path().to_path_buf(),
-        vec![(
-            "model_provider".to_string(),
-            toml::Value::String("openai".to_string()),
-        )],
-    )
-    .await
-    .expect("config");
-    // Keep generic UI snapshots stable when the bundled catalog default changes.
+    let mut config = ConfigBuilder::default()
+        .codex_home(codex_home.path().to_path_buf())
+        .loader_overrides(codex_config::LoaderOverrides {
+            ignore_project_config: true,
+            ..codex_config::LoaderOverrides::without_managed_config_for_tests()
+        })
+        .build()
+        .await
+        .expect("config");
+    // Keep generic UI snapshots on one explicit fixture model.
     config.model = Some("gpt-5.6-sol".to_string());
     config.codex_home = codex_home.path().abs();
     config.sqlite = codex_state::SqliteConfig::new_for_testing(codex_home.path().abs());

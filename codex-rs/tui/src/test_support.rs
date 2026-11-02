@@ -8,6 +8,17 @@ pub(crate) use codex_utils_absolute_path::test_support::test_path_buf;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+pub(crate) struct TestHome {
+    pub(crate) home: tempfile::TempDir,
+    pub(crate) _models: wiremock::MockServer,
+}
+
+impl TestHome {
+    pub(crate) fn path(&self) -> &std::path::Path {
+        self.home.path()
+    }
+}
+
 pub(crate) static TEST_MODEL_PRESETS: LazyLock<Vec<ModelPreset>> = LazyLock::new(|| {
     let model = codex_models_manager::test_support::model_info("gpt-5.5");
     let mut presets = vec![ModelPreset::from(model)];

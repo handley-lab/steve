@@ -802,7 +802,7 @@ pub(crate) struct ChatWidget {
     last_non_retry_error: Option<(String, String)>,
     // Keep fixture storage alive until all other widget fields have been dropped.
     #[cfg(test)]
-    pub(crate) test_codex_home: Option<tempfile::TempDir>,
+    pub(crate) test_codex_home: Option<crate::test_support::TestHome>,
 }
 
 #[cfg_attr(not(test), allow(dead_code))]

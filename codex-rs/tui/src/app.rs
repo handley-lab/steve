@@ -690,7 +690,7 @@ pub(crate) struct App {
     recap: recap::RecapState,
     // App fixtures keep their home alive across widget replacement; drop it last.
     #[cfg(test)]
-    _test_codex_home: Option<tempfile::TempDir>,
+    _test_codex_home: Option<crate::test_support::TestHome>,
 }
 
 struct PendingMcpLoginStart {
