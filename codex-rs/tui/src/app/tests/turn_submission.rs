@@ -76,6 +76,10 @@ async fn worktree_creation_rejects_running_agent_before_allocation() -> Result<(
     );
     app.agent_navigation.set_running(child, /*is_running*/ true);
     let mut tui = crate::tui::test_support::make_test_tui()?;
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
     while events.try_recv().is_ok() {}
 

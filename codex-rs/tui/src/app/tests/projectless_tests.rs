@@ -274,7 +274,7 @@ async fn local_projectless_defaults_respect_trust_scope_and_explicit_settings() 
             true,
         ),
     ] {
-        let home = tempfile::tempdir()?;
+        let home = crate::test_support::provider_test_home().await?;
         let parent = tempfile::tempdir()?;
         let cwd = parent.path().join("notes");
         std::fs::create_dir(&cwd)?;
@@ -290,6 +290,7 @@ async fn local_projectless_defaults_respect_trust_scope_and_explicit_settings() 
             home.path().join("config.toml"),
             format!("{settings}{shared_settings}"),
         )?;
+        crate::test_support::seed_test_provider(home.path(), &home)?;
         let overrides = ConfigOverrides {
             cwd: Some(cwd),
             ..Default::default()
@@ -303,6 +304,7 @@ async fn local_projectless_defaults_respect_trust_scope_and_explicit_settings() 
         if expected_approval.is_some() {
             // The client loaded an approval policy that the server will not see.
             std::fs::write(home.path().join("config.toml"), shared_settings)?;
+            crate::test_support::seed_test_provider(home.path(), &home)?;
         }
         let original_approval = if settings.is_empty() && !project_marker {
             Approval::Granular(codex_protocol::protocol::GranularApprovalConfig {

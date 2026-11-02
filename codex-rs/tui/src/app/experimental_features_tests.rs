@@ -6,6 +6,21 @@ use pretty_assertions::assert_eq;
 #[tokio::test]
 async fn experimental_features_use_selected_server_profile_and_preserve_task_settings() -> Result<()>
 {
+    let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+    let provider_overrides = vec![
+        (
+            "model_provider".into(),
+            app.config.model_provider_id.clone().into(),
+        ),
+        (
+            "model".into(),
+            app.config.model.clone().expect("fixture model").into(),
+        ),
+        (
+            format!("model_providers.{}", app.config.model_provider_id),
+            toml::Value::try_from(&app.config.model_provider)?,
+        ),
+    ];
     let home = tempfile::tempdir()?;
     let selected = AbsolutePathBuf::from_absolute_path(home.path().join("work.config.toml"))?;
     let managed = home.path().join("managed.toml");
@@ -22,12 +37,13 @@ async fn experimental_features_use_selected_server_profile_and_preserve_task_set
     let config = ConfigBuilder::default()
         .codex_home(home.path().to_path_buf())
         .loader_overrides(loader.clone())
+        .cli_overrides(provider_overrides.clone())
         .build()
         .await?;
     let client = Box::pin(crate::start_embedded_app_server(
         Default::default(),
         config.clone(),
-        Vec::new(),
+        provider_overrides,
         loader,
         /*strict_config*/ false,
         Default::default(),
@@ -44,7 +60,6 @@ async fn experimental_features_use_selected_server_profile_and_preserve_task_set
         crate::app_server_session::ThreadParamsMode::Remote,
     );
     let thread = server.start_thread(&config).await?.session.thread_id;
-    let (mut app, mut events, _ops) = make_test_app_with_channels().await;
     let before = (app.config.clone(), app.chat_widget.config_ref().clone());
     let updates = vec![
         ("network_proxy".to_string(), false),
