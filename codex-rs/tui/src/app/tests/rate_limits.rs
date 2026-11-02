@@ -108,7 +108,16 @@ fn deliver_usage_limit_error(app: &mut App) {
 #[tokio::test]
 async fn backend_banner_state_survives_widget_replacement() -> Result<()> {
     for dismiss in [false, true] {
+        let backend = wiremock::MockServer::start().await;
         let (mut app, _rx, _op_rx) = make_test_app_with_channels().await;
+        app.config.chatgpt_base_url = backend.uri();
+        let mut tui = crate::tui::test_support::make_test_tui()?;
+        let init = app.chatwidget_init_for_forked_or_resumed_thread(
+            &mut tui,
+            app.config.clone(),
+            /*initial_user_message*/ None,
+        );
+        app.replace_chat_widget(ChatWidget::new_with_app_event(init));
         set_chatgpt_auth(&mut app.chat_widget);
         let mut response = account_rate_limits_response(rate_limit_snapshot(
             /*used_percent*/ 100, /*rate_limit_reached_type*/ None,
@@ -126,7 +135,6 @@ async fn backend_banner_state_survives_widget_replacement() -> Result<()> {
             app.chat_widget
                 .handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         }
-        let mut tui = crate::tui::test_support::make_test_tui()?;
         let init = app.chatwidget_init_for_forked_or_resumed_thread(
             &mut tui,
             app.config.clone(),
@@ -150,6 +158,7 @@ async fn backend_banner_state_survives_widget_replacement() -> Result<()> {
         response.rate_limit_upsell = None;
         app.chat_widget.update_backend_banner(&response);
         assert!(!render_bottom_popup(&app.chat_widget, /*width*/ 90).contains("View usage"));
+        assert!(backend.received_requests().await.expect("mock request log").is_empty());
     }
     Ok(())
 }
