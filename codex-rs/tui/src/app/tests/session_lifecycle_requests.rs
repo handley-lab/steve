@@ -4844,6 +4844,10 @@ fn fresh_session_applies_requested_name() -> Result<()> {
                 let codex_home = tempdir()?;
                 app.config.codex_home = codex_home.path().to_path_buf().abs();
                 app.config.sqlite = SqliteConfig::new_for_testing(codex_home.path().abs());
+                crate::test_support::seed_test_provider_from_config(
+                    &app.config.codex_home.join("config.toml"),
+                    &app.config,
+                )?;
                 let (mut app_server, requests, proxy) = start_recording_app_server(
                     &app.config,
                     /*blocked_thread_list*/ None,
@@ -4946,6 +4950,10 @@ fn session_lifecycle_avoids_redundant_subagent_metadata_reads() -> Result<()> {
                 );
                 let (started_tx, started_rx) = oneshot::channel();
                 let (release_tx, release_rx) = oneshot::channel();
+                crate::test_support::seed_test_provider_from_config(
+                    &app.config.codex_home.join("config.toml"),
+                    &app.config,
+                )?;
                 let (mut app_server, requests, proxy) = start_recording_app_server(
                     &app.config,
                     Some((root_thread_id, started_tx, release_rx)),

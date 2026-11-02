@@ -59,7 +59,15 @@ fn turn_completed_notification(turn_id: &str, status: TurnStatus) -> ServerNotif
 #[tokio::test]
 async fn managed_workspace_default_respects_read_only_availability() -> color_eyre::Result<()> {
     for read_only_allowed in [true, false] {
-        let codex_home = tempdir()?;
+        let codex_home = crate::test_support::provider_test_home().await?;
+        crate::test_support::advertise_test_models(
+            &codex_home,
+            ["gpt-test", "gpt-5.2"]
+                .into_iter()
+                .map(codex_models_manager::test_support::model_info)
+                .collect(),
+        )
+        .await;
         let requirements_path = codex_home.path().join("requirements.toml");
         std::fs::write(
             &requirements_path,
@@ -164,6 +172,14 @@ async fn preserves_custom_permissions_and_disables_required_mcp_servers() -> col
     let (chat_widget, _, _, _) =
         crate::chatwidget::tests::make_chatwidget_manual_with_sender().await;
     let mut config = chat_widget.config_ref().clone();
+    crate::test_support::advertise_test_models(
+        chat_widget.test_codex_home.as_ref().expect("test home"),
+        ["gpt-5.6-sol", "gpt-5.2"]
+            .into_iter()
+            .map(codex_models_manager::test_support::model_info)
+            .collect(),
+    )
+    .await;
     let codex_home = tempdir()?;
     let denied_path = codex_home.path().join("denied");
     let denied_key = toml::Value::String(denied_path.display().to_string());
@@ -183,6 +199,10 @@ async fn preserves_custom_permissions_and_disables_required_mcp_servers() -> col
     config.sqlite =
         codex_state::SqliteConfig::new_for_testing(codex_home.path().to_path_buf().abs());
 
+    crate::test_support::seed_test_provider_from_config(
+        &config.codex_home.join("config.toml"),
+        &config,
+    )?;
     let app_server = crate::start_embedded_app_server_for_picker(&config).await?;
     let response = start_temporary_thread(
         &app_server.request_handle(),

@@ -7,6 +7,20 @@ use pretty_assertions::assert_eq;
 #[tokio::test]
 async fn fork_current_session_preserves_conversation_ultra() -> Result<()> {
     let mut app = make_test_app().await;
+    let mut ultra_model = codex_models_manager::test_support::model_info("gpt-5.4");
+    ultra_model.supported_reasoning_levels =
+        vec![codex_protocol::openai_models::ReasoningEffortPreset {
+            effort: ReasoningEffortConfig::Ultra,
+            description: "Ultra reasoning fixture".into(),
+        }];
+    crate::test_support::advertise_test_models(
+        app._test_codex_home.as_ref().expect("test home"),
+        vec![
+            codex_models_manager::test_support::model_info("gpt-5.6-sol"),
+            ultra_model,
+        ],
+    )
+    .await;
     let codex_home = tempdir()?;
     app.config.codex_home = codex_home.path().to_path_buf().abs();
     app.config.sqlite = codex_state::SqliteConfig::new_for_testing(codex_home.path().abs());
@@ -31,6 +45,10 @@ async fn fork_current_session_preserves_conversation_ultra() -> Result<()> {
     });
     app.ensure_thread_channel(source_thread_id);
     let mut tui = crate::tui::test_support::make_test_tui()?;
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut app_server = crate::start_embedded_app_server_for_picker(&app.config).await?;
 
     let control = Box::pin(app.handle_event(

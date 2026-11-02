@@ -2860,6 +2860,10 @@ fn selected_and_resumed_threads_use_server_capability_for_v1_and_v2_children() -
             app.config.codex_home.join("config.toml"),
             "thread_unload_delay_secs = 0\n",
         )?;
+        crate::test_support::seed_test_provider_from_config(
+            &app.config.codex_home.join("config.toml"),
+            &app.config,
+        )?;
         let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(
             &app.config,
         ))
@@ -8489,6 +8493,7 @@ async fn remote_resume_keeps_server_only_cwd_out_of_local_config() -> Result<()>
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn in_app_resume_uses_configured_or_explicit_cwd() -> Result<()> {
+    let provider_home = crate::test_support::provider_test_home().await?;
     let temp_dir = tempdir()?;
     let codex_home = temp_dir.path().join("codex-home");
     let launch_cwd = temp_dir.path().join("launch");
@@ -8538,6 +8543,7 @@ async fn in_app_resume_uses_configured_or_explicit_cwd() -> Result<()> {
             )
             .map_err(std::io::Error::other)?;
         }
+        crate::test_support::seed_test_provider(&codex_home, &provider_home)?;
         let config = ConfigBuilder::default()
             .codex_home(codex_home.clone())
             .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
@@ -8686,6 +8692,7 @@ async fn in_app_resume_uses_configured_or_explicit_cwd() -> Result<()> {
 
 #[tokio::test]
 async fn remembered_current_cwd_stays_at_launch_across_in_app_resumes() -> Result<()> {
+    let provider_home = crate::test_support::provider_test_home().await?;
     let temp_dir = tempdir()?;
     let codex_home = temp_dir.path().join("codex-home");
     let launch_cwd = temp_dir.path().join("launch");
@@ -8703,6 +8710,7 @@ async fn remembered_current_cwd_stays_at_launch_across_in_app_resumes() -> Resul
         codex_protocol::config_types::TrustLevel::Trusted,
     )
     .map_err(std::io::Error::other)?;
+    crate::test_support::seed_test_provider(&codex_home, &provider_home)?;
     let config = ConfigBuilder::default()
         .codex_home(codex_home.clone())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
