@@ -4241,7 +4241,7 @@ mod tests {
 
     #[tokio::test]
     async fn linked_worktree_sessions_follow_directory_scope() {
-        let root = tempfile::tempdir().expect("temporary repository");
+        let root = crate::test_support::provider_test_home().await.expect("temporary repository");
         let primary = root.path().join("primary");
         let linked = root.path().join("linked");
         let admin = primary.join(".git/worktrees/linked");

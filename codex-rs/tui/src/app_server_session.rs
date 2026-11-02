@@ -3096,8 +3096,12 @@ mod tests {
 
     #[tokio::test]
     async fn bootstrap_reads_account_when_no_prefetched_account_is_available() -> Result<()> {
-        let codex_home = tempfile::tempdir()?;
-        let config = build_config(&codex_home).await;
+        let codex_home = crate::test_support::provider_test_home().await?;
+        let config = ConfigBuilder::default()
+            .codex_home(codex_home.path().to_path_buf())
+            .loader_overrides(codex_config::LoaderOverrides::without_managed_config_for_tests())
+            .build()
+            .await?;
         let mut app_server = crate::start_embedded_app_server_for_picker(&config).await?;
         let next_request_id = app_server.next_request_id;
 
@@ -3172,8 +3176,20 @@ mod tests {
 
     #[tokio::test]
     async fn bootstrap_empty_catalog_reports_configuration_error() -> Result<()> {
-        let codex_home = tempfile::tempdir()?;
-        let mut config = build_config(&codex_home).await;
+        let codex_home = crate::test_support::provider_test_home().await?;
+        let mut config = ConfigBuilder::default()
+            .codex_home(codex_home.path().to_path_buf())
+            .loader_overrides(codex_config::LoaderOverrides::without_managed_config_for_tests())
+            .build()
+            .await?;
+        codex_home._models.reset().await;
+        wiremock::Mock::given(wiremock::matchers::path("/models"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200)
+                    .set_body_json(codex_protocol::openai_models::ModelsResponse::default()),
+            )
+            .mount(&codex_home._models)
+            .await;
         config.model = None;
         config.model_catalog = Some(codex_protocol::openai_models::ModelsResponse::default());
         let mut app_server = crate::start_embedded_app_server_for_picker(&config).await?;
@@ -3183,7 +3199,7 @@ mod tests {
             .await
             .err()
             .expect("bootstrap requires a model");
-        insta::assert_snapshot!(error.to_string(), @"No models are available. Set `model` explicitly or check your model catalog configuration.");
+        insta::assert_snapshot!(error.to_string(), @"Set `model` explicitly before starting a session.");
 
         app_server.shutdown().await?;
         Ok(())
@@ -3546,14 +3562,32 @@ mod tests {
 
     #[tokio::test]
     async fn shared_thread_start_preserves_explicit_session_overrides() -> Result<()> {
-        let codex_home = tempfile::tempdir()?;
+        let codex_home = crate::test_support::provider_test_home().await?;
         let workspace = codex_home.path().join("workspace");
         std::fs::create_dir(&workspace)?;
         std::fs::write(
             codex_home.path().join("config.toml"),
             "sandbox_mode = \"workspace-write\"\n[sandbox_workspace_write]\nnetwork_access = true\n",
         )?;
-        let server_config = build_config(&codex_home).await;
+        crate::test_support::seed_test_provider(codex_home.path(), &codex_home)?;
+        codex_home._models.reset().await;
+        wiremock::Mock::given(wiremock::matchers::path("/models"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_json(
+                    codex_protocol::openai_models::ModelsResponse {
+                        models: ["gpt-test", "gpt-5"]
+                            .into_iter()
+                            .map(codex_models_manager::test_support::model_info)
+                            .collect(),
+                    },
+                ),
+            )
+            .mount(&codex_home._models)
+            .await;
+        let server_config = ConfigBuilder::default()
+            .codex_home(codex_home.path().to_path_buf())
+            .build()
+            .await?;
         let config = ConfigBuilder::default()
             .codex_home(codex_home.path().to_path_buf())
             .harness_overrides(ConfigOverrides {
@@ -3622,7 +3656,7 @@ mod tests {
                 ),
                 (
                     NetworkSandboxPolicy::Restricted,
-                    "gpt-5",
+                    "test-provider/gpt-5",
                     AskForApproval::Never,
                     workspace.as_path(),
                 )
@@ -4181,6 +4215,7 @@ mod tests {
             let config = ConfigBuilder::default()
                 .codex_home(home.path().to_path_buf())
                 .harness_overrides(ConfigOverrides {
+                    model_provider: Some("openai".to_string()),
                     cwd: Some(workspace.clone()),
                     ..ConfigOverrides::default()
                 })

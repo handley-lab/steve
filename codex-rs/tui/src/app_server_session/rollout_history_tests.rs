@@ -4,6 +4,7 @@ use super::super::ResumeModelSettings;
 use super::super::ThreadParamsMode;
 use crate::legacy_core::config::Config;
 use crate::legacy_core::config::ConfigBuilder;
+use crate::test_support::TestHome;
 use app_test_support::create_fake_paginated_rollout;
 use app_test_support::create_fake_rollout;
 use codex_app_server_protocol::ThreadHistoryMode;
@@ -12,9 +13,9 @@ use codex_protocol::ThreadId;
 use color_eyre::eyre::Result;
 use futures::FutureExt;
 use pretty_assertions::assert_eq;
-use tempfile::TempDir;
 
-async fn build_config(temp_dir: &TempDir) -> Config {
+async fn build_config(temp_dir: &TestHome) -> Config {
+    crate::test_support::seed_test_provider(temp_dir.path(), temp_dir).expect("fixture provider");
     ConfigBuilder::default()
         .codex_home(temp_dir.path().to_path_buf())
         .build()
@@ -24,7 +25,7 @@ async fn build_config(temp_dir: &TempDir) -> Config {
 
 #[tokio::test]
 async fn remote_resume_restores_saved_server_profile_without_permission_overrides() -> Result<()> {
-    let home = tempfile::tempdir()?;
+    let home = crate::test_support::provider_test_home().await?;
     std::fs::write(
         home.path().join("config.toml"),
         "default_permissions = \":workspace\"\n[permissions.server-only]\nextends = \":read-only\"\n",
@@ -237,7 +238,7 @@ async fn remote_resume_restores_saved_server_profile_without_permission_override
 
 #[tokio::test]
 async fn viewing_thread_reads_history_without_resuming_it() -> Result<()> {
-    let codex_home = tempfile::tempdir()?;
+    let codex_home = crate::test_support::provider_test_home().await?;
     let config = build_config(&codex_home).await;
     let thread_id = ThreadId::from_string(
         &create_fake_rollout(
@@ -281,7 +282,9 @@ fn only_active_writer_failures_offer_read_only_view() {
 
 #[tokio::test]
 async fn legacy_resume_preserves_history_mode_after_picker_server_replacement() -> Result<()> {
-    let codex_home = tempfile::tempdir().expect("tempdir");
+    let codex_home = crate::test_support::provider_test_home()
+        .await
+        .expect("test home");
     let config = build_config(&codex_home).await;
     let thread_id = ThreadId::from_string(
         &create_fake_rollout(
@@ -324,7 +327,9 @@ async fn cached_legacy_resume_revalidates_history_across_migration_settings() ->
     for (startup_enabled, workspace_enabled) in
         [(false, false), (false, true), (true, false), (true, true)]
     {
-        let codex_home = tempfile::tempdir().expect("tempdir");
+        let codex_home = crate::test_support::provider_test_home()
+            .await
+            .expect("test home");
         // Keep the large setup futures off the test thread's stack.
         let config = Box::pin(build_config(&codex_home)).await;
         let legacy_thread_id = ThreadId::from_string(
@@ -385,7 +390,9 @@ async fn cached_legacy_resume_revalidates_history_across_migration_settings() ->
 
 #[tokio::test]
 async fn rollout_maintenance_contention_disables_cached_legacy_resume_shortcut() -> Result<()> {
-    let codex_home = tempfile::tempdir().expect("tempdir");
+    let codex_home = crate::test_support::provider_test_home()
+        .await
+        .expect("test home");
     let config = build_config(&codex_home).await;
     let thread_id = ThreadId::from_string(
         &create_fake_paginated_rollout(
@@ -430,7 +437,9 @@ async fn rollout_maintenance_contention_disables_cached_legacy_resume_shortcut()
 
 #[tokio::test]
 async fn stale_legacy_history_mode_is_revalidated_before_resume() -> Result<()> {
-    let codex_home = tempfile::tempdir().expect("tempdir");
+    let codex_home = crate::test_support::provider_test_home()
+        .await
+        .expect("test home");
     let config = build_config(&codex_home).await;
     let thread_id = ThreadId::from_string(
         &create_fake_paginated_rollout(
