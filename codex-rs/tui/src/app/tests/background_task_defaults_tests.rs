@@ -11,6 +11,8 @@ use crate::tui::test_support::make_test_tui;
 use codex_state::SqliteConfig;
 use pretty_assertions::assert_eq;
 
+const BACKGROUND_FIXTURE_DEFAULT_MODEL: &str = "gpt-5.6-sol";
+
 async fn confirm_permission_selection(
     app: &mut App,
     server: &mut AppServerSession,
@@ -236,7 +238,7 @@ async fn command_center_new_reads_server_defaults_for_actual_destination() -> Re
                     "client-model"
                 },
                 if mode == "local-default-provider" {
-                    "model_provider = \"ollama\"\n"
+                    "model_provider = \"fixture-alternate\"\n"
                 } else {
                     ""
                 }
@@ -252,7 +254,7 @@ async fn command_center_new_reads_server_defaults_for_actual_destination() -> Re
                     "model = \"server-model\"\n"
                 },
                 if mode == "local" || mode == "local-cli-provider" || mode == "local-cli-model" {
-                    "model_provider = \"ollama\"\n"
+                    "model_provider = \"fixture-alternate\"\n"
                 } else {
                     ""
                 }
@@ -273,18 +275,56 @@ async fn command_center_new_reads_server_defaults_for_actual_destination() -> Re
         }
         let mut app = make_test_app_with_channels().await.0;
         trust_launch_folder(&mut app);
+        crate::test_support::advertise_test_models(
+            app._test_codex_home.as_ref().expect("test home"),
+            [
+                "gpt-5.6-sol",
+                "gpt-5.2",
+                "client-model",
+                "server-model",
+                "destination-model",
+                "cli-model",
+                "profile-model",
+                "managed-model",
+            ]
+            .into_iter()
+            .map(codex_models_manager::test_support::model_info)
+            .collect(),
+        )
+        .await;
+
         if mode == "local" && explicit_cwd {
-            app.harness_overrides.model_provider = Some("openai".into());
+            app.harness_overrides.model_provider = Some("test-provider".into());
         }
         if mode == "local-cli-provider" {
-            app.cli_kv_overrides
-                .push(("model_provider".into(), TomlValue::String("openai".into())));
+            app.cli_kv_overrides.push((
+                "model_provider".into(),
+                TomlValue::String("test-provider".into()),
+            ));
         }
         if mode == "local-cli-model" {
             app.harness_overrides.model = Some("cli-model".into());
         }
         app.chat_widget.set_service_tier(Some("priority".into()));
         app.harness_overrides.cwd = Some(launch.path().to_path_buf());
+        let fixture = app._test_codex_home.as_ref().expect("test home");
+        for path in [
+            client_home.path().join("config.toml"),
+            server_home.path().join("config.toml"),
+        ] {
+            crate::test_support::seed_test_provider_without_model(
+                &path,
+                fixture,
+                "test-provider",
+                BACKGROUND_FIXTURE_DEFAULT_MODEL,
+            )?;
+            crate::test_support::seed_test_provider_without_model(
+                &path,
+                fixture,
+                "fixture-alternate",
+                BACKGROUND_FIXTURE_DEFAULT_MODEL,
+            )?;
+        }
         app.config = ConfigBuilder::default()
             .codex_home(client_home.path().to_path_buf())
             .loader_overrides(app.loader_overrides.clone())
@@ -317,7 +357,7 @@ async fn command_center_new_reads_server_defaults_for_actual_destination() -> Re
             thread_mode,
             LoaderOverrides {
                 user_config_path: Some(server_home.path().join("config.toml").abs()),
-                ..LoaderOverrides::default()
+                ..LoaderOverrides::without_managed_config_for_tests()
             },
         )
         .await?;
@@ -364,6 +404,9 @@ async fn command_center_new_reads_server_defaults_for_actual_destination() -> Re
             explicit_cwd.then(|| destination.path().to_path_buf().abs()),
         )
         .await?;
+        if mode == "remote-null-fast" {
+            assert_eq!(app.chat_widget.current_model(), format!("test-provider/{BACKGROUND_FIXTURE_DEFAULT_MODEL}"));
+        }
         let cwd = match expected_cwd {
             "launch" => launch.path().display().to_string(),
             "destination" => destination.path().display().to_string(),
@@ -391,9 +434,13 @@ async fn command_center_new_reads_server_defaults_for_actual_destination() -> Re
                 } else {
                     serde_json::json!(cwd)
                 },
-                &serde_json::json!(expected_model),
+                &if mode == "remote-null-fast" {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::json!(expected_model)
+                },
                 &if mode == "local-cli-provider" || (mode == "local" && explicit_cwd) {
-                    serde_json::json!("openai")
+                    serde_json::json!("test-provider")
                 } else {
                     serde_json::Value::Null
                 },
@@ -443,6 +490,24 @@ async fn command_center_new_preserves_explicit_choices_and_managed_defaults() ->
         }
         let mut app = make_test_app_with_channels().await.0;
         trust_launch_folder(&mut app);
+        crate::test_support::advertise_test_models(
+            app._test_codex_home.as_ref().expect("test home"),
+            [
+                "gpt-5.6-sol",
+                "gpt-5.2",
+                "client-model",
+                "server-model",
+                "destination-model",
+                "cli-model",
+                "profile-model",
+                "managed-model",
+            ]
+            .into_iter()
+            .map(codex_models_manager::test_support::model_info)
+            .collect(),
+        )
+        .await;
+
         match choice {
             "cli_effort" => app.cli_kv_overrides.push((
                 "model_reasoning_effort".into(),
@@ -462,6 +527,32 @@ async fn command_center_new_preserves_explicit_choices_and_managed_defaults() ->
                 app.loader_overrides.user_config_profile = Some("work".parse()?);
             }
             _ => {}
+        }
+        let fixture = app._test_codex_home.as_ref().expect("test home");
+        for path in [
+            client_home.path().join("config.toml"),
+            server_home.path().join("config.toml"),
+        ] {
+            crate::test_support::seed_test_provider_without_model(
+                &path,
+                fixture,
+                "test-provider",
+                BACKGROUND_FIXTURE_DEFAULT_MODEL,
+            )?;
+            crate::test_support::seed_test_provider_without_model(
+                &path,
+                fixture,
+                "fixture-alternate",
+                BACKGROUND_FIXTURE_DEFAULT_MODEL,
+            )?;
+        }
+        if let Some(path) = app.loader_overrides.user_config_path.as_ref() {
+            crate::test_support::seed_test_provider_without_model(
+                path.as_path(),
+                fixture,
+                "test-provider",
+                BACKGROUND_FIXTURE_DEFAULT_MODEL,
+            )?;
         }
         app.config = ConfigBuilder::default()
             .codex_home(client_home.path().to_path_buf())
@@ -494,7 +585,7 @@ async fn command_center_new_preserves_explicit_choices_and_managed_defaults() ->
             LoaderOverrides {
                 user_config_path: Some(server_home.path().join("config.toml").abs()),
                 system_requirements_path: Some(server_home.path().join("requirements.toml")),
-                ..LoaderOverrides::default()
+                ..LoaderOverrides::without_managed_config_for_tests()
             },
         )
         .await?;
