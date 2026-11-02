@@ -24,6 +24,10 @@ pub(super) async fn completed_history_app(
     let codex_home = tempdir()?;
     app.config.codex_home = codex_home.path().to_path_buf().abs();
     app.config.sqlite = SqliteConfig::new_for_testing(codex_home.path().abs());
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     // The inline scrollback row cap fixes the page boundary used by this regression.
     app.local_settings.transcript_mode = crate::transcript_mode::TranscriptMode::Terminal;
     app.local_settings.tui.alternate_screen = codex_config::types::AltScreenMode::Never;

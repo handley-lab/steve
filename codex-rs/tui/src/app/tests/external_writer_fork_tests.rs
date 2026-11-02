@@ -121,6 +121,10 @@ async fn external_writer_fork_opens_editable_thread_without_taking_source_lease(
     let codex_home = tempdir()?;
     app.config.codex_home = codex_home.path().to_path_buf().abs();
     app.config.sqlite = codex_state::SqliteConfig::new_for_testing(codex_home.path().abs());
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let thread_id = ThreadId::from_string(
         &create_fake_rollout(
             codex_home.path(),

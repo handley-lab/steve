@@ -34,6 +34,10 @@ async fn history_fixture(
     let codex_home = tempdir()?;
     app.config.codex_home = codex_home.path().to_path_buf().abs();
     app.config.sqlite = SqliteConfig::new_for_testing(codex_home.path().abs());
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let filename_timestamp = "2026-01-02T00-00-00";
     let timestamp = "2026-01-02T00:00:00Z";
     let id = create_fake_paginated_rollout(

@@ -34,6 +34,10 @@ async fn check_fork_dispatch(mode: ThreadParamsMode) -> Result<()> {
                 "sandbox_mode = \"workspace-write\"\n[sandbox_workspace_write]\nwritable_roots = [{root}]\n"
             ),
         )?;
+        crate::test_support::seed_test_provider_from_config(
+            &home.path().join("config.toml"),
+            &app.config,
+        )?;
     }
     app.config.codex_home = client_home.path().to_path_buf().abs();
     app.config.sqlite = codex_state::SqliteConfig::new_for_testing(client_home.path().abs());

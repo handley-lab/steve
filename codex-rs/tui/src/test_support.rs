@@ -117,3 +117,54 @@ requires_openai_auth = false
         ),
     )
 }
+
+/// Keep a replacement fixture file on its existing mock provider and model.
+pub(crate) fn seed_test_provider_from_config(
+    path: &std::path::Path,
+    config: &crate::legacy_core::config::Config,
+) -> std::io::Result<()> {
+    let existing = match std::fs::read_to_string(path) {
+        Ok(existing) => existing,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(err) => return Err(err),
+    };
+    let parsed: toml::Value = toml::from_str(&existing).map_err(std::io::Error::other)?;
+    let provider = config.model_provider_id.as_str();
+    if parsed
+        .get("model_provider")
+        .and_then(toml::Value::as_str)
+        .is_some_and(|selected| selected != provider)
+    {
+        return Ok(());
+    }
+    let mut prefix = String::new();
+    if parsed.get("model_provider").is_none() {
+        prefix.push_str(&format!(
+            "model_provider = {}\n",
+            toml::Value::String(provider.to_string())
+        ));
+    }
+    if parsed.get("model").is_none()
+        && let Some(model) = config.model.as_deref()
+    {
+        let model = crate::temporary_structured_request::native_model_id(model, provider);
+        prefix.push_str(&format!(
+            "model = {}\n",
+            toml::Value::String(model.to_string())
+        ));
+    }
+    let definition = if parsed
+        .get("model_providers")
+        .and_then(|providers| providers.get(provider))
+        .is_none()
+    {
+        format!(
+            "\n[model_providers.{}]\n{}",
+            toml::Value::String(provider.to_string()),
+            toml::to_string(&config.model_provider).map_err(std::io::Error::other)?
+        )
+    } else {
+        String::new()
+    };
+    std::fs::write(path, format!("{prefix}{existing}{definition}"))
+}
