@@ -241,6 +241,14 @@ async fn check_thread_title_generation(scenario: TitleScenario) -> color_eyre::R
     if cancel {
         template = template.set_delay(std::time::Duration::from_secs(/*secs*/ 60));
     }
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/v1/models"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"data": [{"id": "gpt-5.2"}]})),
+        )
+        .mount(&server)
+        .await;
     let response = responses::mount_response_once(&server, template).await;
     let codex_home = tempdir()?;
     let provider_id = "thread-title-test";
@@ -275,6 +283,10 @@ async fn check_thread_title_generation(scenario: TitleScenario) -> color_eyre::R
         stream_max_retries: Some(0),
         ..ModelProviderInfo::default()
     };
+    app.config.model_providers.insert(
+        app.config.model_provider_id.clone(),
+        app.config.model_provider.clone(),
+    );
 
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let mut app_server = crate::start_embedded_app_server_for_picker(&app.config).await?;

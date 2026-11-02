@@ -56,6 +56,7 @@ async fn command_start_before_message_completion_does_not_duplicate_preamble() -
     ])
     .await;
 
+    model_server.set_models(&["mock-model"]).await;
     let (mut app, mut app_events, _ops) = make_test_app_with_channels().await;
     let codex_home = tempdir()?;
     MockResponsesConfig::new(model_server.uri())
@@ -80,6 +81,10 @@ async fn command_start_before_message_completion_does_not_duplicate_preamble() -
         stream_max_retries: Some(0),
         ..ModelProviderInfo::default()
     };
+    app.config.model_providers.insert(
+        app.config.model_provider_id.clone(),
+        app.config.model_provider.clone(),
+    );
 
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;

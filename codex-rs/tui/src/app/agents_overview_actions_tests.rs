@@ -748,6 +748,7 @@ async fn lifecycle_removes_background_and_current_tasks_without_losing_the_dashb
             },
         ]])
         .await;
+        server.set_models(&["gpt-5.2"]).await;
         app.config.model = Some("gpt-5.2".into());
         app.config.model_provider_id = "lifecycle-test".into();
         app.config.model_provider = ModelProviderInfo {
@@ -757,6 +758,10 @@ async fn lifecycle_removes_background_and_current_tasks_without_losing_the_dashb
             stream_max_retries: Some(0),
             ..ModelProviderInfo::default()
         };
+        app.config.model_providers.insert(
+            app.config.model_provider_id.clone(),
+            app.config.model_provider.clone(),
+        );
         app_test_support::MockResponsesConfig::new(server.uri())
             .with_model("gpt-5.2")
             .with_model_provider("lifecycle-test")
@@ -825,6 +830,7 @@ async fn lifecycle_removes_background_and_current_tasks_without_losing_the_dashb
         } else {
             id
         };
+        app_server.bootstrap(&app.config).await?;
         let resumed = Box::pin(app_server.resume_thread(
             &app.local_settings,
             app.config.clone(),
@@ -887,6 +893,7 @@ async fn lifecycle_removes_background_and_current_tasks_without_losing_the_dashb
                     .is_some()
             );
             std::fs::remove_dir(&blocked_archive)?;
+            app_server.bootstrap(&app.config).await?;
             let resumed = Box::pin(app_server.resume_thread(
                 &app.local_settings,
                 app.config.clone(),

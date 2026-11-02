@@ -28,11 +28,43 @@ use crate::legacy_core::config::ConfigBuilder;
 use crate::resume_source_kinds;
 use crate::tests::start_test_embedded_app_server;
 
-async fn build_config(temp_dir: &TempDir) -> std::io::Result<Config> {
-    ConfigBuilder::default()
+async fn build_config(temp_dir: &TempDir) -> std::io::Result<(Config, wiremock::MockServer)> {
+    let models = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::path("/v1/models"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(json!({"data": [{"id": "lookup-model"}]})),
+        )
+        .mount(&models)
+        .await;
+    std::fs::write(
+        temp_dir.path().join("config.toml"),
+        format!(
+            r#"model = "lookup-model"
+model_provider = "lookup-test"
+
+[model_providers.lookup-test]
+name = "Lookup test"
+base_url = "{0}/v1"
+default_model = "lookup-model"
+
+[model_providers.another-provider]
+name = "Other lookup test"
+base_url = "{0}/v1"
+default_model = "lookup-model"
+"#,
+            models.uri()
+        ),
+    )?;
+    let config = ConfigBuilder::default()
         .codex_home(temp_dir.path().to_path_buf())
+        .loader_overrides(codex_config::LoaderOverrides {
+            ignore_project_config: true,
+            ..codex_config::LoaderOverrides::without_managed_config_for_tests()
+        })
         .build()
-        .await
+        .await?;
+    Ok((config, models))
 }
 
 async fn state_runtime(config: &Config) -> std::io::Result<Arc<codex_state::StateRuntime>> {
@@ -178,7 +210,7 @@ fn write_rollout(
 #[tokio::test]
 async fn resolves_name_and_preview_from_server_list() -> color_eyre::Result<()> {
     let temp_dir = TempDir::new()?;
-    let config = build_config(&temp_dir).await?;
+    let (config, _models) = build_config(&temp_dir).await?;
     let runtime = state_runtime(&config).await?;
     let named_id = ThreadId::new();
     let named_path = write_rollout(
@@ -211,6 +243,7 @@ async fn resolves_name_and_preview_from_server_list() -> color_eyre::Result<()> 
     let other_id = ThreadId::new();
     let mut other_config = config.clone();
     other_config.model_provider_id = "another-provider".to_string();
+    other_config.model_provider = other_config.model_providers["another-provider"].clone();
     let other_path = write_rollout(
         &other_config,
         other_id,
@@ -277,7 +310,7 @@ async fn resolves_name_and_preview_from_server_list() -> color_eyre::Result<()> 
 #[tokio::test]
 async fn rejects_duplicate_labels_across_server_pages() -> color_eyre::Result<()> {
     let temp_dir = TempDir::new()?;
-    let config = build_config(&temp_dir).await?;
+    let (config, _models) = build_config(&temp_dir).await?;
     let runtime = state_runtime(&config).await?;
     let mut relevant_ids = Vec::new();
     for index in 0..102 {
@@ -348,7 +381,7 @@ async fn rejects_duplicate_labels_across_server_pages() -> color_eyre::Result<()
 #[tokio::test]
 async fn skips_stale_listed_thread_before_valid_label() -> color_eyre::Result<()> {
     let temp_dir = TempDir::new()?;
-    let config = build_config(&temp_dir).await?;
+    let (config, _models) = build_config(&temp_dir).await?;
     let runtime = state_runtime(&config).await?;
     let stale_id = ThreadId::new();
     let stale_path = write_rollout(
@@ -418,7 +451,7 @@ async fn skips_stale_listed_thread_before_valid_label() -> color_eyre::Result<()
 #[tokio::test]
 async fn verifies_name_uniqueness_across_server_pages() -> color_eyre::Result<()> {
     let temp_dir = TempDir::new()?;
-    let config = build_config(&temp_dir).await?;
+    let (config, _models) = build_config(&temp_dir).await?;
     let runtime = state_runtime(&config).await?;
     let thread_id = ThreadId::new();
     let path = write_rollout(

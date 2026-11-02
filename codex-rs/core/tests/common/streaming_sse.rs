@@ -20,6 +20,7 @@ pub struct StreamingSseChunk {
 /// Minimal streaming SSE server for tests that need gated per-chunk delivery.
 pub struct StreamingSseServer {
     uri: String,
+    models: Arc<TokioMutex<Vec<String>>>,
     requests: Arc<TokioMutex<Vec<Vec<u8>>>>,
     request_notify: Arc<Notify>,
     shutdown: oneshot::Sender<()>,
@@ -29,6 +30,10 @@ pub struct StreamingSseServer {
 impl StreamingSseServer {
     pub fn uri(&self) -> &str {
         &self.uri
+    }
+
+    pub async fn set_models(&self, model_ids: &[&str]) {
+        *self.models.lock().await = model_ids.iter().map(|id| (*id).to_string()).collect();
     }
 
     pub async fn requests(&self) -> Vec<Vec<u8>> {
@@ -51,7 +56,7 @@ impl StreamingSseServer {
 }
 
 /// Starts a lightweight HTTP server that supports:
-/// - GET /v1/models -> empty models response
+/// - GET /v1/models -> model IDs supplied with `set_models`, empty by default
 /// - GET responses routes -> 426 to select the HTTP fallback
 /// - POST responses and Guardian routes -> SSE stream gated per-chunk, served in order
 ///
@@ -82,6 +87,8 @@ pub async fn start_streaming_sse_server(
     let request_notify = Arc::new(Notify::new());
     let requests_for_task = Arc::clone(&requests);
     let request_notify_for_task = Arc::clone(&request_notify);
+    let models = Arc::new(TokioMutex::new(Vec::<String>::new()));
+    let models_for_task = Arc::clone(&models);
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
 
     let task = tokio::spawn(async move {
@@ -93,6 +100,7 @@ pub async fn start_streaming_sse_server(
                     let state = Arc::clone(&state);
                     let requests = Arc::clone(&requests_for_task);
                     let request_notify = Arc::clone(&request_notify_for_task);
+                    let models = Arc::clone(&models_for_task);
                     tokio::spawn(async move {
                         let (request, body_prefix) = read_http_request(&mut stream).await;
                         let Some((method, path)) = parse_request_line(&request) else {
@@ -100,7 +108,7 @@ pub async fn start_streaming_sse_server(
                             return;
                         };
 
-                        if method == "GET" && path == "/v1/models" {
+                        if method == "GET" && path.split('?').next() == Some("/v1/models") {
                             if read_request_body(&mut stream, &request, body_prefix)
                                 .await
                                 .is_err()
@@ -109,7 +117,7 @@ pub async fn start_streaming_sse_server(
                                 return;
                             }
                             let body = serde_json::json!({
-                                "data": [],
+                                "data": models.lock().await.iter().map(|id| serde_json::json!({"id": id})).collect::<Vec<_>>(),
                                 "object": "list"
                             })
                             .to_string();
@@ -170,6 +178,7 @@ pub async fn start_streaming_sse_server(
     (
         StreamingSseServer {
             uri,
+            models,
             requests,
             request_notify,
             shutdown: shutdown_tx,
@@ -390,6 +399,30 @@ mod tests {
             parsed,
             serde_json::json!({
                 "data": [],
+                "object": "list"
+            })
+        );
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn get_models_returns_only_configured_ids() {
+        let (server, _) = start_streaming_sse_server(Vec::new()).await;
+        server.set_models(&["model-a", "other/model"]).await;
+        let mut stream = connect(server.uri()).await;
+        send_request(
+            &mut stream,
+            "GET /v1/models?client_version=1.0 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
+        )
+        .await;
+        let response = read_to_end(&mut stream).await;
+        let (headers, body) = split_response(&response);
+        assert_eq!(status_code(headers), 200);
+        let parsed: serde_json::Value = serde_json::from_str(body).expect("parse json body");
+        assert_eq!(
+            parsed,
+            serde_json::json!({
+                "data": [{"id": "model-a"}, {"id": "other/model"}],
                 "object": "list"
             })
         );
