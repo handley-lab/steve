@@ -17,6 +17,7 @@ use codex_app_server_protocol::UserInput;
 pub(super) struct SafetyBufferedRetry {
     pub(super) thread_id: ThreadId,
     pub(super) turn_id: String,
+    /// Native model ID from the source thread's safety-buffering notification.
     pub(super) model: String,
     pub(super) turn: AppCommand,
     pub(super) prompt: UserMessage,
@@ -46,7 +47,17 @@ impl App {
             return;
         }
 
-        let retry_config = self.chat_widget.config_ref().clone();
+        let mut retry_config = self.chat_widget.config_ref().clone();
+        retry_config.model = Some(
+            crate::temporary_structured_request::native_model_id(
+                self.chat_widget.current_model(),
+                &retry_config.model_provider_id,
+            )
+            .to_string(),
+        );
+        // The guards above establish that this widget belongs to the retry target.
+        // Core notifications use native IDs; catalogue selection and turn/start use qualified IDs.
+        let model = format!("{}/{}", retry_config.model_provider_id, model);
         let input_state = self.chat_widget.capture_thread_input_state();
         if self.pending_server_profiles.contains_key(&thread_id) {
             self.fail_safety_buffered_branch(
