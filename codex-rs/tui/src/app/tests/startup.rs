@@ -1615,6 +1615,10 @@ async fn check_subagent_approval_routing(routing: ApprovalRouting) -> Result<()>
     let codex_home = tempdir()?;
     app.config.codex_home = codex_home.path().to_path_buf().abs();
     app.config.sqlite = codex_state::SqliteConfig::new_for_testing(codex_home.path().abs());
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
     let parent = app_server.start_thread(&app.config).await?;
     let parent_thread_id = if owned_parent {
@@ -1936,6 +1940,10 @@ async fn windows_sandbox_config_refresh_uses_connected_server() -> Result<()> {
         app.config.codex_home.join("config.toml"),
         "[windows]\nsandbox = \"unelevated\"\n",
     )?;
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     app.chat_widget.windows_sandbox_config.mode =
         Some(codex_app_server_protocol::WindowsSandboxSetupMode::Elevated);
     assert!(app.refresh_windows_sandbox_config(&server).await);
@@ -2021,11 +2029,18 @@ async fn check_provider_resume_retries(reopen_via: ProviderResumeRoute) -> Resul
     for provider_configured in [false, true] {
         let mut app = Box::pin(make_test_app()).await;
         let home = app.config.codex_home.clone();
-        let definition = "[model_providers.missing_provider]\nname = 'Saved provider'\nbase_url = 'http://127.0.0.1:12345/v1'\nwire_api = 'responses'\n";
+        let definition = format!(
+            "[model_providers.missing_provider]\nname = 'Saved provider'\nbase_url = '{0}/v1'\nmodel_catalog_url = '{0}/models'\ndefault_model = 'gpt-5.6-sol'\nrequires_openai_auth = false\nwire_api = 'responses'\n",
+            app._test_codex_home
+                .as_ref()
+                .expect("test home")
+                ._models
+                .uri(),
+        );
         let config = if provider_configured {
-            format!("[tui]\nresume_cwd = 'current'\n{definition}")
+            format!("thread_unload_delay_secs = 0\n[tui]\nresume_cwd = 'current'\n{definition}")
         } else {
-            "[tui]\nresume_cwd = 'current'\n".to_string()
+            "thread_unload_delay_secs = 0\n[tui]\nresume_cwd = 'current'\n".to_string()
         };
         std::fs::write(home.join("config.toml"), config)?;
         crate::legacy_core::config::set_project_trust_level(
@@ -2045,6 +2060,16 @@ async fn check_provider_resume_retries(reopen_via: ProviderResumeRoute) -> Resul
             )
             .map_err(|err| color_eyre::eyre::eyre!(err.to_string()))?,
         )?;
+        crate::test_support::seed_test_provider_from_config(
+            &app.config.codex_home.join("config.toml"),
+            &app.config,
+        )?;
+        let saved_path = app_test_support::rollout_path(
+            home.as_path(),
+            "2025-01-05T12-00-00",
+            &thread_id.to_string(),
+        );
+        let saved_bytes = std::fs::read(&saved_path)?;
         let mut server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
         let mut tui = crate::tui::test_support::make_test_tui()?;
         let target = crate::resume_picker::SessionTarget {
@@ -2055,8 +2080,22 @@ async fn check_provider_resume_retries(reopen_via: ProviderResumeRoute) -> Resul
             history_mode: None,
         };
         Box::pin(app.resume_target_session(&mut tui, &mut server, target.clone())).await?;
-        assert!(app.chat_widget.has_provider_error());
+        assert_eq!(app.chat_widget.has_provider_error(), !provider_configured);
         assert_eq!(app.chat_widget.thread_id(), Some(thread_id));
+        assert_eq!(
+            app.chat_widget
+                .capture_thread_input_state()
+                .unwrap()
+                .provider_error,
+            (!provider_configured).then(|| {
+                codex_app_server_protocol::ModelProviderError::ModelProviderNotConfigured {
+                    model_provider: "missing_provider".into(),
+                }
+            })
+        );
+        if !provider_configured {
+            assert_eq!(std::fs::read(&saved_path)?, saved_bytes);
+        }
         let turns = app.thread_event_channels[&thread_id]
             .store
             .lock()
@@ -2064,18 +2103,24 @@ async fn check_provider_resume_retries(reopen_via: ProviderResumeRoute) -> Resul
             .snapshot()
             .turns;
         assert!(serde_json::to_string(&turns)?.contains("Saved provider history"));
-        assert!(!app.ignore_same_thread_resume(&target));
+        assert_eq!(app.ignore_same_thread_resume(&target), provider_configured);
+        let mut expected_provider_error = !provider_configured;
         app.chat_widget
             .apply_external_edit("Preserved draft".into());
         for current_provider in ["other_provider", "missing_provider"] {
             if !matches!(reopen_via, ProviderResumeRoute::SameThread) {
+                let current: toml::Value =
+                    toml::from_str(&std::fs::read_to_string(home.join("config.toml"))?)?;
+                let other_provider = current["model_provider"]
+                    .as_str()
+                    .expect("explicit bootstrap provider");
                 let other_id = ThreadId::from_string(
                     &app_test_support::create_fake_rollout(
                         home.as_path(),
                         "2025-01-05T13-00-00",
                         "2025-01-05T13:00:00Z",
                         "Other chat",
-                        Some("openai"),
+                        Some(other_provider),
                         /*git_info*/ None,
                     )
                     .expect("other chat"),
@@ -2083,16 +2128,17 @@ async fn check_provider_resume_retries(reopen_via: ProviderResumeRoute) -> Resul
                 Box::pin(app.select_agents_overview_thread(&mut tui, &mut server, other_id))
                     .await?;
                 assert_eq!(app.chat_widget.thread_id(), Some(other_id));
-                assert!(
+                assert_eq!(
                     app.agents_overview.input_states[&thread_id]
                         .provider_error
-                        .is_some()
+                        .is_some(),
+                    expected_provider_error,
                 );
             }
             std::fs::write(
                 home.join("config.toml"),
                 format!(
-                    "model_provider = '{current_provider}'\n[tui]\nresume_cwd = 'current'\n{definition}\n{}",
+                    "model_provider = '{current_provider}'\nthread_unload_delay_secs = 0\n[tui]\nresume_cwd = 'current'\n{definition}\n{}",
                     definition.replace("missing_provider", "other_provider")
                 ),
             )?;
@@ -2115,19 +2161,58 @@ async fn check_provider_resume_retries(reopen_via: ProviderResumeRoute) -> Resul
                 }
             }
             let input = app.chat_widget.capture_thread_input_state().unwrap();
-            let expected_error = (current_provider != "missing_provider").then(|| {
-                codex_app_server_protocol::ModelProviderError::ModelProviderMismatch {
-                    model_provider: "missing_provider".into(),
-                    current_model_provider: current_provider.into(),
-                }
-            });
-            assert_eq!(input.provider_error, expected_error);
+            assert_eq!(input.provider_error, None);
+            expected_provider_error = false;
+            let resumed = server
+                .thread_read(thread_id, /*include_turns*/ true)
+                .await?;
+            assert_eq!(resumed.model_provider, "missing_provider");
+            assert_eq!(
+                resumed.model.as_deref(),
+                Some("missing_provider/gpt-5.6-sol")
+            );
+            assert!(serde_json::to_string(&resumed.turns)?.contains("Saved provider history"));
             assert_eq!(app.chat_widget.thread_id(), Some(thread_id));
             assert_eq!(
                 app.chat_widget.composer_text_with_pending(),
                 "Preserved draft"
             );
         }
+        let before_override = server.thread_read(thread_id, true).await?.turns;
+        let explicit = ConfigBuilder::default()
+            .codex_home(home.to_path_buf())
+            .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+            .harness_overrides(ConfigOverrides {
+                model_provider: Some("other_provider".into()),
+                model: Some("gpt-5.6-sol".into()),
+                cwd: Some(app.config.cwd.to_path_buf()),
+                ..Default::default()
+            })
+            .build()
+            .await?;
+        // Invocation overrides apply on cold resume; an already loaded route is retained.
+        server.thread_unsubscribe(thread_id).await?;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while let Some(event) = server.next_event().await {
+                if matches!(&event.event, codex_app_server_client::AppServerEvent::ServerNotification(notification)
+                    if matches!(notification.as_ref(), ServerNotification::ThreadClosed(closed) if closed.thread_id == thread_id.to_string())) { return; }
+            }
+            panic!("thread stream ended before cold-resume boundary");
+        }).await?;
+        server.model_provider_override = Some("other_provider".into());
+        let selected = server
+            .resume_thread(
+                &app.local_settings,
+                explicit,
+                thread_id,
+                crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig(None),
+            )
+            .await?;
+        assert_eq!(selected.session.thread_id, thread_id);
+        assert_eq!(selected.session.model_provider_id, "other_provider");
+        assert_eq!(selected.session.model, "other_provider/gpt-5.6-sol");
+        assert_eq!(selected.turns, before_override);
+        server.model_provider_override = None;
         server.shutdown().await?;
     }
     Ok(())
