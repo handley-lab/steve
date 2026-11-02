@@ -3986,3 +3986,158 @@ async fn interrupted_fork_snapshot_uses_persisted_mid_turn_history_without_live_
         1,
     );
 }
+
+#[tokio::test]
+async fn models_manager_reuse_tracks_provider_scope() {
+    let a = MockServer::start().await;
+    let b = MockServer::start().await;
+    let catalog = |marker: &str| {
+        let mut model = codex_models_manager::test_support::model_info("test-model");
+        model.slug = "scope-test-model".to_string();
+        model.model_messages = Some(codex_protocol::openai_models::ModelMessages {
+            instructions_template: Some(marker.to_string()),
+            ..Default::default()
+        });
+        model.experimental_supported_tools = vec![marker.to_string()];
+        ModelsResponse {
+            models: vec![model],
+        }
+    };
+    for (server, marker) in [(&a, "catalog-a"), (&b, "catalog-b")] {
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/models"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(catalog(marker)))
+            .mount(server)
+            .await;
+    }
+    let home = tempdir().expect("home");
+    let mut config = test_config().await;
+    config.codex_home = home.path().abs();
+    config.cwd = home.path().abs();
+    config.model = Some("scope-test-model".to_string());
+    config.base_instructions = None;
+    config.model_catalog = None;
+    config
+        .features
+        .enable(Feature::ApiKeyModelDiscovery)
+        .expect("enable discovery");
+    config
+        .features
+        .disable(Feature::GuardianApproval)
+        .expect("disable Guardian");
+    config
+        .features
+        .disable(Feature::ShellSnapshot)
+        .expect("disable snapshots");
+    config.model_provider.base_url = Some(a.uri());
+    config.model_provider.model_catalog_url = Some(format!("{}/models", a.uri()).into());
+    config.model_provider.experimental_bearer_token = Some("credential-a".into());
+    config.model_provider_id = "scope-provider".to_string();
+    config.model_providers.insert(
+        config.model_provider_id.clone(),
+        config.model_provider.clone(),
+    );
+    config
+        .model_providers
+        .insert("alias".to_string(), config.model_provider.clone());
+    config.config_layer_stack = config
+        .config_layer_stack
+        .with_user_config(
+            &config.codex_home.join("config.toml").abs(),
+            toml::from_str("[model_providers.alias]\n[model_providers.scope-provider]").expect("configured providers"),
+        )
+        .expect("provider config layers");
+    let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("unused"));
+    let process_manager = build_models_manager(&config, Arc::clone(&auth));
+    let manager = ThreadManager::new(
+        &config,
+        auth,
+        Arc::clone(&process_manager),
+        crate::CodexAppsToolsCache::default(),
+        SessionSource::Exec,
+        Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
+        empty_extension_registry(),
+        Arc::new(crate::test_support::EmptyUserInstructionsProvider),
+        None,
+        passthrough_image_store(),
+        thread_store_from_config(&config, None),
+        None,
+        TEST_INSTALLATION_ID.to_string(),
+        None,
+        None,
+    );
+    let mut alias = config.clone();
+    alias.model_provider_id = "alias".to_string();
+    alias
+        .model_providers
+        .insert("alias".to_string(), alias.model_provider.clone());
+    assert_eq!(
+        alias.configured_model_provider_ids(),
+        config.configured_model_provider_ids()
+    );
+    let mut changed = config.clone();
+    changed.model_provider.base_url = Some(b.uri());
+    changed.model_provider.model_catalog_url = Some(format!("{}/models", b.uri()).into());
+    changed.model_provider.experimental_bearer_token = Some("credential-b".into());
+    changed.model_providers.insert(
+        changed.model_provider_id.clone(),
+        changed.model_provider.clone(),
+    );
+    let mut other_definition = config.clone();
+    other_definition
+        .model_providers
+        .insert("alias".to_string(), changed.model_provider.clone());
+    for (name, selected, marker, reuse) in [
+        ("identical", config.clone(), "catalog-a", true),
+        ("same-info-new-id", alias, "catalog-a", false),
+        ("same-id-new-definition", changed, "catalog-b", false),
+        (
+            "nonselected-new-definition",
+            other_definition,
+            "catalog-a",
+            false,
+        ),
+    ] {
+        let started = manager
+            .start_thread(StartThreadOptions {
+                environments: Some(Vec::new()),
+                ..StartThreadOptions::new(selected)
+            })
+            .await
+            .expect(name);
+        assert_eq!(
+            Arc::ptr_eq(
+                &started.thread.session.services.models_manager,
+                &process_manager
+            ),
+            reuse,
+            "{name}"
+        );
+        let info = started
+            .thread
+            .session
+            .services
+            .thread_extension_data
+            .get::<codex_protocol::openai_models::ModelInfo>()
+            .expect("resolved catalog metadata");
+        assert_eq!(
+            info.experimental_supported_tools,
+            vec![marker.to_string()],
+            "{name}"
+        );
+    }
+    let mut explicit = StartThreadOptions::new(config);
+    explicit.config.model_provider_id = "alias".to_string();
+    explicit.environments = Some(Vec::new());
+    explicit
+        .thread_extension_init
+        .insert(Arc::clone(&process_manager));
+    let started = manager
+        .start_thread(explicit)
+        .await
+        .expect("explicit manager override");
+    assert!(Arc::ptr_eq(
+        &started.thread.session.services.models_manager,
+        &process_manager
+    ));
+}

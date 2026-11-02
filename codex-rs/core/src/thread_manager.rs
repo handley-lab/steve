@@ -123,6 +123,7 @@ use codex_utils_git_discovery::GitRootDiscovery;
 use futures::StreamExt;
 use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::future::Future;
@@ -527,6 +528,8 @@ pub(crate) struct ThreadManagerState {
     auth_manager: Arc<AuthManager>,
     models_manager: SharedModelsManager,
     models_manager_provider: ModelProviderInfo,
+    models_manager_provider_id: String,
+    models_manager_provider_definitions: BTreeMap<String, ModelProviderInfo>,
     models_manager_catalog: Option<codex_protocol::openai_models::ModelsResponse>,
     models_manager_api_key_discovery: bool,
     git_root_discovery: Arc<GitRootDiscovery>,
@@ -550,16 +553,25 @@ pub(crate) struct ThreadManagerState {
     ops_log: Option<SharedCapturedOps>,
 }
 
+fn models_manager_provider_definitions(config: &Config) -> BTreeMap<String, ModelProviderInfo> {
+    config
+        .configured_model_provider_ids()
+        .into_iter()
+        .map(|id| {
+            let info = config.model_providers[&id].clone();
+            (id, info)
+        })
+        .collect()
+}
+
 pub fn build_models_manager(
     config: &Config,
     auth_manager: Arc<AuthManager>,
 ) -> SharedModelsManager {
     let mut overlay = config.model_catalog.clone();
-    let providers = config
-        .configured_model_provider_ids()
+    let providers = models_manager_provider_definitions(config)
         .into_iter()
-        .map(|id| {
-            let info = config.model_providers[&id].clone();
+        .map(|(id, info)| {
             let provider = create_model_provider(info.clone(), Some(Arc::clone(&auth_manager)));
             let mut static_catalog = None;
             if info.is_amazon_bedrock() || info.is_gcp() {
@@ -742,6 +754,8 @@ impl ThreadManager {
                 agent_control_factory: None,
                 models_manager,
                 models_manager_provider: config.model_provider.clone(),
+                models_manager_provider_id: config.model_provider_id.clone(),
+                models_manager_provider_definitions: models_manager_provider_definitions(config),
                 models_manager_catalog: config.model_catalog.clone(),
                 models_manager_api_key_discovery: config
                     .features
@@ -956,6 +970,11 @@ impl ThreadManager {
                 agent_control_factory: None,
                 models_manager: create_model_provider(provider.clone(), Some(auth_manager.clone()))
                     .models_manager(codex_home, /*config_model_catalog*/ None),
+                models_manager_provider_id: OPENAI_PROVIDER_ID.to_string(),
+                models_manager_provider_definitions: BTreeMap::from([(
+                    OPENAI_PROVIDER_ID.to_string(),
+                    provider.clone(),
+                )]),
                 models_manager_provider: provider,
                 models_manager_catalog: None,
                 models_manager_api_key_discovery: false,
@@ -2641,6 +2660,9 @@ impl ThreadManagerState {
             forked_from_thread_id.filter(|_| matches!(&initial_history, InitialHistory::Forked(_)));
         if thread_extension_init.get::<SharedModelsManager>().is_none()
             && (config.model_provider != self.models_manager_provider
+                || config.model_provider_id != self.models_manager_provider_id
+                || models_manager_provider_definitions(&config)
+                    != self.models_manager_provider_definitions
                 || config.model_catalog != self.models_manager_catalog
                 || config.features.enabled(Feature::ApiKeyModelDiscovery)
                     != self.models_manager_api_key_discovery)
