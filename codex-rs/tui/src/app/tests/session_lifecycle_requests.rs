@@ -4483,6 +4483,17 @@ async fn changing_directory_preserves_project_trust_permissions_history_and_hook
         &app.config.codex_home.join("config.toml"),
         &app.config,
     )?;
+    // This scenario isolates directory permissions and hooks, not automatic service-tier selection.
+    let config_path = app.config.codex_home.join("config.toml");
+    let mut host_config: toml::Table = toml::from_str(&fs::read_to_string(&config_path)?)?;
+    host_config
+        .entry("notice")
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+        .as_table_mut()
+        .expect("notice table")
+        .insert("fast_default_opt_out".into(), toml::Value::Boolean(true));
+    fs::write(&config_path, toml::to_string(&host_config)?)?;
+
     let (mut server, requests, proxy) =
         start_recording_app_server(&app.config, no_list, background).await?;
     let (rec, plain, req) = (recorded_params, crate::key_hint::plain, &requests);

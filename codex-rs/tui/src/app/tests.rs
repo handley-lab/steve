@@ -3585,7 +3585,15 @@ async fn server_only_profile_selection_keeps_turns_on_the_selected_profile() -> 
     let turn = next_user_turn_op(&mut ops);
     app.submit_thread_op(&mut server, thread_id, turn).await?;
     server.startup_interrupt(thread_id).await?;
-    let settings = next_thread_settings_updated(&mut server, thread_id).await;
+    let settings = next_thread_settings_updated_matching(&mut server, thread_id, |notification| {
+        notification
+            .thread_settings
+            .active_permission_profile
+            .as_ref()
+            .is_some_and(|profile| profile.id == "server-only")
+            && notification.thread_settings.approvals_reviewer.to_core() == ApprovalsReviewer::User
+    })
+    .await;
     app.enqueue_thread_notification(
         thread_id,
         ServerNotification::ThreadSettingsUpdated(settings),
@@ -3608,7 +3616,15 @@ async fn server_only_profile_selection_keeps_turns_on_the_selected_profile() -> 
         },
     )
     .await;
-    let settings = next_thread_settings_updated(&mut server, thread_id).await;
+    let settings = next_thread_settings_updated_matching(&mut server, thread_id, |notification| {
+        notification
+            .thread_settings
+            .active_permission_profile
+            .as_ref()
+            .is_some_and(|profile| profile.id == "server-only")
+            && notification.thread_settings.approvals_reviewer.to_core() == ApprovalsReviewer::User
+    })
+    .await;
     app.enqueue_thread_notification(
         thread_id,
         ServerNotification::ThreadSettingsUpdated(settings),
