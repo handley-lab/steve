@@ -49,6 +49,13 @@ async fn delegated_core_events_keep_private_output_hidden_and_deliver_final_spee
         ]),
     ])
     .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"data": [{"id": "mock-model"}]})),
+        )
+        .mount(&model_server)
+        .await;
     Mock::given(method("POST"))
         .and(path("/v1/live"))
         .respond_with(
@@ -91,7 +98,7 @@ async fn delegated_core_events_keep_private_output_hidden_and_deliver_final_spee
     let codex_home = tempfile::tempdir()?;
     MockResponsesConfig::new(&model_server.uri())
         .with_root_config(&format!(
-            "experimental_realtime_ws_base_url = {:?}\nexperimental_realtime_webrtc_call_base_url = {:?}",
+            "experimental_realtime_ws_model = \"mock-realtime\"\nexperimental_realtime_ws_base_url = {:?}\nexperimental_realtime_webrtc_call_base_url = {:?}",
             realtime_server.uri(),
             format!("{}/v1", model_server.uri()),
         ))
@@ -115,6 +122,11 @@ async fn delegated_core_events_keep_private_output_hidden_and_deliver_final_spee
         stream_max_retries: Some(0),
         ..ModelProviderInfo::default()
     };
+    app.config.model_providers.insert(
+        app.config.model_provider_id.clone(),
+        app.config.model_provider.clone(),
+    );
+    app.config.experimental_realtime_ws_model = Some("mock-realtime".to_string());
     app.config.experimental_realtime_ws_base_url = Some(realtime_server.uri().to_string());
     app.config.experimental_realtime_webrtc_call_base_url =
         Some(format!("{}/v1", model_server.uri()));
@@ -158,10 +170,19 @@ async fn delegated_core_events_keep_private_output_hidden_and_deliver_final_spee
         loop {
             tokio::select! {
                 event = app_server.next_event() => {
-                    app.handle_backend_event(
-                        &app_server,
-                        event.expect("embedded app-server should stay connected"),
-                    ).await;
+                    let event = event.expect("embedded app-server should stay connected");
+                    if let AppServerEvent::ServerNotification(notification) = &event.event {
+                        match notification.as_ref() {
+                            ServerNotification::ThreadRealtimeError(error) => {
+                                panic!("realtime fixture failed: {error:?}");
+                            }
+                            ServerNotification::Error(error) => {
+                                panic!("delegated fixture turn failed: {error:?}");
+                            }
+                            _ => {}
+                        }
+                    }
+                    app.handle_backend_event(&app_server, event).await;
                     app.drain_active_thread_events(&mut tui).await?;
                 }
                 event = app_events.recv() => {
