@@ -8825,6 +8825,11 @@ async fn prompt_edit_reverts_earlier_and_first_visible_prompts_in_place_scenario
     use codex_protocol::protocol::ItemCompletedEvent;
     use codex_protocol::user_input::UserInput;
     let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
+    crate::test_support::advertise_test_models(
+        app._test_codex_home.as_ref().expect("test home"),
+        ["gpt-5.6-sol", "gpt-5.4"].into_iter()
+            .map(codex_models_manager::test_support::model_info).collect(),
+    ).await;
     let config = app.chat_widget.config_ref().clone();
     let filename_ts = "2025-01-05T12-00-00";
     let source_thread_id = app_test_support::create_fake_paginated_rollout(
@@ -8983,6 +8988,16 @@ async fn prompt_edit_reverts_earlier_and_first_visible_prompts_in_place_scenario
         )
         .await?
         .goal;
+    app.enqueue_thread_notification(
+        source_thread_id,
+        ServerNotification::ThreadGoalUpdated(
+            codex_app_server_protocol::ThreadGoalUpdatedNotification {
+                thread_id: source_thread_id.to_string(),
+                turn_id: None,
+                goal: goal.clone(),
+            },
+        ),
+    ).await?;
     let mut tui = crate::tui::test_support::make_test_tui()?;
     tui.set_owned_screen(/*owned*/ true)?;
     let size = Size::new(/*width*/ 80, /*height*/ 24);
@@ -9037,12 +9052,26 @@ async fn prompt_edit_reverts_earlier_and_first_visible_prompts_in_place_scenario
         mention_bindings: Vec::new(),
     };
 
+    let selected_model = format!("{}/gpt-5.4", app.config.model_provider_id);
     Box::pin(app.handle_event(
         &mut tui,
         &mut app_server,
-        AppEvent::UpdateModel("gpt-5.4".into()),
+        AppEvent::UpdateModel(selected_model.clone()),
     ))
     .await?;
+    let updated = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let updated = next_thread_settings_updated(&mut app_server, source_thread_id).await;
+            if crate::temporary_structured_request::native_model_id(
+                &updated.thread_settings.model, &app.config.model_provider_id,
+            ) == "gpt-5.4" {
+                break updated;
+            }
+        }
+    }).await?;
+    app.enqueue_thread_notification(
+        source_thread_id, ServerNotification::ThreadSettingsUpdated(updated),
+    ).await?;
     app.app_server_target = crate::AppServerTarget::Remote {
         endpoint: crate::RemoteAppServerEndpoint::WebSocket {
             websocket_url: "ws://127.0.0.1:4500".to_string(),
@@ -9149,7 +9178,7 @@ async fn prompt_edit_reverts_earlier_and_first_visible_prompts_in_place_scenario
         &child,
         &app.thread_event_channels[&child_id].store
     ));
-    assert_eq!(app.chat_widget.current_model(), "gpt-5.4");
+    assert_eq!(app.chat_widget.current_model(), selected_model);
     assert!(render_bottom_popup(&app.chat_widget, /*width*/ 120).contains("Goal paused"));
     assert!(matches!(control, AppRunControl::Continue));
     let reverted_thread_id = app
