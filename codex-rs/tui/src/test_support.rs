@@ -168,3 +168,54 @@ pub(crate) fn seed_test_provider_from_config(
     };
     std::fs::write(path, format!("{prefix}{existing}{definition}"))
 }
+
+/// Replace only the fixture-owned live catalog; selected model defaults stay unchanged.
+pub(crate) async fn advertise_test_models(
+    home: &TestHome,
+    models: Vec<codex_protocol::openai_models::ModelInfo>,
+) {
+    home._models.reset().await;
+    wiremock::Mock::given(wiremock::matchers::path("/models"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(codex_protocol::openai_models::ModelsResponse { models }),
+        )
+        .mount(&home._models)
+        .await;
+}
+
+/// Give a positive fixture a live provider without setting its config `model`.
+pub(crate) fn seed_test_provider_without_model(
+    path: &std::path::Path,
+    fixture: &TestHome,
+    provider: &str,
+    default_model: &str,
+) -> std::io::Result<()> {
+    let existing = match std::fs::read_to_string(path) {
+        Ok(existing) => existing,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(err) => return Err(err),
+    };
+    let parsed: toml::Value = toml::from_str(&existing).map_err(std::io::Error::other)?;
+    let selected = if parsed.get("model_provider").is_none() {
+        format!(
+            "model_provider = {}\n",
+            toml::Value::String(provider.into())
+        )
+    } else {
+        String::new()
+    };
+    let definition = if parsed
+        .get("model_providers")
+        .and_then(|p| p.get(provider))
+        .is_none()
+    {
+        format!(
+            "\n[model_providers.{provider}]\nname = 'Fixture provider'\nbase_url = '{0}/v1'\nmodel_catalog_url = '{0}/models'\ndefault_model = '{default_model}'\nrequires_openai_auth = false\n",
+            fixture._models.uri(),
+        )
+    } else {
+        String::new()
+    };
+    std::fs::write(path, format!("{selected}{existing}{definition}"))
+}
