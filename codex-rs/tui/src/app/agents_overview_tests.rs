@@ -615,8 +615,12 @@ async fn shared_overview_seeds_once_and_retains_locally_resumed_history() -> Res
 
     // An unloaded row can be selected through the same flow as a loaded row.
     std::fs::write(
-        app.config.codex_home.join("config.toml"),
+        app.local_settings.user_config_path.as_path(),
         "[tui]\nresume_cwd = \"session\"\n",
+    )?;
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
     )?;
     crate::legacy_core::config::set_project_trust_level(
         app.config.codex_home.as_path(),

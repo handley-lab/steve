@@ -150,6 +150,14 @@ async fn review_regression_agents_overview_creation_is_fresh_but_returning_is_no
     let has_stars = |text: &str| text.chars().any(|ch| "⠁⠂⠄⠈⠐⠠⡀⢀".contains(ch));
     for model in ["gpt-6-astra", "gpt-5.5"] {
         let (mut app, _events, _ops) = make_test_app_with_channels().await;
+        crate::test_support::advertise_test_models(
+            app._test_codex_home.as_ref().expect("test home"),
+            ["gpt-6-astra", "gpt-5.5"]
+                .into_iter()
+                .map(codex_models_manager::test_support::model_info)
+                .collect(),
+        )
+        .await;
         trust_launch_folder(&mut app);
         app.cli_kv_overrides.extend([
             ("tui.animations".into(), TomlValue::Boolean(true)),
@@ -162,13 +170,13 @@ async fn review_regression_agents_overview_creation_is_fresh_but_returning_is_no
         app.new_agents_overview_session(&mut tui, &mut server, /*cwd*/ None)
             .await?;
         let original = app.chat_widget.thread_id().expect("new dashboard task");
-        assert_eq!(app.chat_widget.current_model(), model);
+        assert_eq!(app.chat_widget.current_model(), format!("test-provider/{model}"));
         let created = render(&app.chat_widget);
         assert_eq!(has_stars(&created), model == "gpt-6-astra", "{model}");
         if model != "gpt-6-astra" {
-            app.chat_widget.set_model("gpt-6-astra");
+            app.chat_widget.set_model("test-provider/gpt-6-astra");
             app.chat_widget
-                .on_sparkle_model_selected_from_picker("gpt-6-astra");
+                .on_sparkle_model_selected_from_picker("test-provider/gpt-6-astra");
             assert!(has_stars(&render(&app.chat_widget)));
         }
         app.harness_overrides.model = Some("gpt-6-astra".into());
@@ -181,13 +189,13 @@ async fn review_regression_agents_overview_creation_is_fresh_but_returning_is_no
         let returned = render(&app.chat_widget);
         assert!(!has_stars(&returned));
         app.chat_widget
-            .on_sparkle_model_selected_from_picker("gpt-6-astra");
+            .on_sparkle_model_selected_from_picker("test-provider/gpt-6-astra");
         assert!(!has_stars(&render(&app.chat_widget)));
         if model == "gpt-6-astra" {
             let before_footer = |output: &str| {
                 output
                     .lines()
-                    .take_while(|line| !line.contains("GPT-6-Astra"))
+                    .take_while(|line| !line.contains("test-provider/gpt-6-astra"))
                     .collect::<Vec<_>>()
                     .join("\n")
             };

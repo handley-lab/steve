@@ -257,8 +257,9 @@ async fn external_writer_fork_opens_editable_thread_without_taking_source_lease(
 async fn external_writer_fork_failure_keeps_the_locked_view_and_draft() -> Result<()> {
     let (mut app, mut events, _operations) = make_test_app_with_channels().await;
     let thread_id = ThreadId::new();
-    app.chat_widget
-        .handle_thread_session(test_thread_session(thread_id, app.config.cwd.to_path_buf()));
+    let mut session = test_thread_session(thread_id, app.config.cwd.to_path_buf());
+    session.model = format!("{}/gpt-test", app.config.model_provider_id);
+    app.chat_widget.handle_thread_session(session);
     app.chat_widget.insert_str("Retained draft");
     app.chat_widget.show_external_writer_thread();
     let mut server = crate::start_embedded_app_server_for_picker(&app.config).await?;
