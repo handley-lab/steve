@@ -5,4 +5,4 @@ expression: "render_bottom_popup(&app.chat_widget, 80)"
 ---
 › Ask Steve to do anything
 
-  GPT-6.1-Sol default · /tmp/project · child-0 [worker] · ← for agents
+  test-provider/gpt-5.6-sol default · /tmp/project · child-0 [worker] · ← for a…
