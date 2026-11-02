@@ -37,10 +37,11 @@ To build V8 from source instead, set `V8_FROM_SOURCE=1`; that uses rusty_v8's
 separate native toolchain and source-download path and takes substantially more
 time and disk. See [V8 build provenance](third_party/v8/README.md).
 
-The manual `Steve binary build` workflow prepares an x86-64 Linux/glibc package
-from an exact commit. It checks the linked V8 sandbox and extracted package,
-then uploads the archive, SHA-256 checksum and build provenance as a CI artifact.
-It does not publish a release. macOS and Windows distribution remain unverified.
+The manual `Steve binary build` workflow defines native x86-64 and ARM64 builds
+for Linux/glibc, macOS and Windows from an exact commit. Each job checks the
+linked V8 sandbox and extracted package, then uploads an archive, SHA-256
+checksum and build provenance as a CI artifact. These jobs still need hosted
+validation. They do not sign, notarize or publish releases.
 
 ## Separate configuration
 

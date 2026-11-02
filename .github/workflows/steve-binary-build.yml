@@ -12,15 +12,35 @@ permissions:
   contents: read
 
 jobs:
-  linux:
-    runs-on: ubuntu-22.04
+  build:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: windows-2022
+            target: x86_64-pc-windows-msvc
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
     env:
       STEVE_REPO_ROOT: ${{ github.workspace }}
       CARGO_BUILD_JOBS: "2"
       CARGO_INCREMENTAL: "0"
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-      TARGET: x86_64-unknown-linux-gnu
+      TARGET: ${{ matrix.target }}
     steps:
       - name: Require an exact source commit
         env:
@@ -37,20 +57,38 @@ jobs:
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           echo "STABLE_GIT_COMMIT=$CANDIDATE_SHA" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
+        with:
+          targets: ${{ matrix.target }}
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          python-version: "3.12"
-      - name: Install native build dependencies
+          python-version: "3.13"
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential pkg-config libcap-dev libasound2-dev zstd
+      - name: Install macOS archive dependency
+        if: runner.os == 'macOS'
+        run: command -v zstd >/dev/null || brew install zstd
+      - name: Configure MSVC environment
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-msvc-env
+        with:
+          target: ${{ matrix.target }}
+      - name: Configure SQLite for Windows x86-64
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        run: echo 'LIBSQLITE3_FLAGS=SQLITE_DISABLE_INTRINSIC' >> "$GITHUB_ENV"
+      - name: Install Windows archive helper
+        if: runner.os == 'Windows'
+        uses: meta/install-dotslash@1e4e7b3e07eaca387acb98f1d4720e0bee8dbb6a # v2
       - name: Verify V8 artifact pair
         uses: ./.github/actions/setup-rusty-v8
         with:
           target: ${{ env.TARGET }}
       - name: Check package builder
-        run: python3 -m unittest discover -s scripts/codex_package -p 'test_*.py'
+        run: python -m unittest discover -s scripts/codex_package -p 'test_*.py'
       - name: Build and finalize sandbox helper
+        if: runner.os == 'Linux'
         working-directory: codex-rs
         run: |
           cargo build --locked --release --target "$TARGET" --bin bwrap
@@ -62,44 +100,85 @@ jobs:
         run: |
           cargo build --locked --release --target "$TARGET" \
             --bin steve --bin steve-code-mode-host --bin steve-exec-server
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cargo build --locked --release --target "$TARGET" \
+              --bin steve-command-runner --bin steve-windows-sandbox-setup
+          fi
           cargo test --locked --release --target "$TARGET" -p codex-v8-poc \
             --features sandbox --lib sandbox_feature_matches_linked_v8
-      - name: Assemble package
+      - name: Assemble, extract and check native package
         run: |
-          binaries="$PWD/codex-rs/target/$TARGET/release"
-          python3 scripts/build_codex_package.py --target "$TARGET" \
-            --cargo-profile release --package-dir dist/steve \
-            --entrypoint-bin "$binaries/steve" \
-            --code-mode-host-bin "$binaries/steve-code-mode-host" \
-            --exec-server-bin "$binaries/steve-exec-server" \
-            --bwrap-bin "$binaries/bwrap"
-          cp LICENSE NOTICE dist/steve/
-          tar -czf "dist/steve-$TARGET.tar.gz" -C dist/steve .
-      - name: Check extracted distribution and record provenance
-        run: |
-          mkdir dist/extracted
-          tar -xzf "dist/steve-$TARGET.tar.gz" -C dist/extracted
-          dist/extracted/bin/steve --version
-          dist/extracted/bin/steve --help
-          dist/extracted/bin/steve completion bash > /dev/null
-          dist/extracted/steve-path/rg --version
-          test "$(sha256sum dist/extracted/steve-resources/bwrap | cut -d ' ' -f 1)" = "$STEVE_BWRAP_SHA256"
-          {
-            echo "commit=$STABLE_GIT_COMMIT"
-            echo "target=$TARGET"
-            echo "v8_source=https://github.com/openai/codex/releases"
-            echo "scope=Linux package build and smoke checks; full suite not certified"
-            rustc --version
-            cargo --version
-          } > dist/build-info.txt
-          cp LICENSE NOTICE dist/
-          cp "$(dirname "$RUSTY_V8_ARCHIVE")/rusty_v8_ptrcomp_sandbox_release_$TARGET.sha256" dist/v8.sha256
-          (cd dist && sha256sum "steve-$TARGET.tar.gz" > SHA256SUMS)
+          python - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          import sys
+          import tarfile
+          import zipfile
+
+          root = Path(os.environ['STEVE_REPO_ROOT'])
+          sys.path.insert(0, str(root / 'scripts'))
+          from codex_package.archive import write_archive
+
+          target = os.environ['TARGET']
+          windows = os.environ['RUNNER_OS'] == 'Windows'
+          suffix = '.exe' if windows else ''
+          binaries = root / 'codex-rs' / 'target' / target / 'release'
+          dist = root / 'dist'
+          package = dist / 'steve'
+          command = [sys.executable, str(root / 'scripts/build_codex_package.py'),
+                     '--target', target, '--cargo-profile', 'release',
+                     '--package-dir', str(package)]
+          for flag, name in [('--entrypoint-bin', 'steve'),
+                             ('--code-mode-host-bin', 'steve-code-mode-host'),
+                             ('--exec-server-bin', 'steve-exec-server')]:
+              command += [flag, str(binaries / (name + suffix))]
+          if windows:
+              for name in ['steve-command-runner', 'steve-windows-sandbox-setup']:
+                  command += ['--' + name + '-bin', str(binaries / (name + suffix))]
+          elif 'linux' in target:
+              command += ['--bwrap-bin', str(binaries / 'bwrap')]
+          subprocess.run(command, check=True)
+          for name in ['LICENSE', 'NOTICE']:
+              shutil.copy2(root / name, package / name)
+          archive = dist / ('steve-' + target + ('.zip' if windows else '.tar.gz'))
+          write_archive(package, archive, force=False)
+          extracted = dist / 'extracted'
+          if windows:
+              with zipfile.ZipFile(archive) as source:
+                  source.extractall(extracted)
+          else:
+              with tarfile.open(archive) as source:
+                  source.extractall(extracted, filter='data')
+          cli = extracted / 'bin' / ('steve' + suffix)
+          for args in [['--version'], ['--help'], ['completion', 'bash']]:
+              subprocess.run([str(cli), *args], check=True, timeout=60)
+          subprocess.run([str(extracted / 'steve-path' / ('rg' + suffix)), '--version'],
+                         check=True, timeout=60)
+          if 'linux' in target:
+              digest = hashlib.sha256((extracted / 'steve-resources/bwrap').read_bytes()).hexdigest()
+              assert digest == os.environ['STEVE_BWRAP_SHA256']
+          info = [f"commit={os.environ['STABLE_GIT_COMMIT']}", f'target={target}',
+                  'v8_source=https://github.com/openai/codex/releases',
+                  'scope=native package build and smoke checks; full suite not certified',
+                  'signing=no release signing or notarization performed']
+          for tool in ['rustc', 'cargo']:
+              info.append(subprocess.check_output([tool, '--version'], text=True).strip())
+          (dist / 'build-info.txt').write_text('\n'.join(info) + '\n')
+          for name in ['LICENSE', 'NOTICE']:
+              shutil.copy2(root / name, dist / name)
+          manifest = Path(os.environ['RUSTY_V8_ARCHIVE']).parent / f'rusty_v8_ptrcomp_sandbox_release_{target}.sha256'
+          shutil.copy2(manifest, dist / 'v8.sha256')
+          (dist / 'SHA256SUMS').write_text(hashlib.sha256(archive.read_bytes()).hexdigest() + '  ' + archive.name + '\n')
+          PY
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          name: steve-linux-x86_64-${{ inputs.candidate_sha }}
+          name: steve-${{ matrix.target }}-${{ inputs.candidate_sha }}
           path: |
             dist/steve-*.tar.gz
+            dist/steve-*.zip
             dist/SHA256SUMS
             dist/build-info.txt
             dist/LICENSE

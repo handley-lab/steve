@@ -158,6 +158,7 @@ int main(void) {
                 for name, digest in actual_manifest["sha256"].items():
                     self.assertEqual(hashlib.sha256(actual[name]).hexdigest(), digest)
 
+    @unittest.skipIf(sys.platform == "win32", "macOS archives require Unix executable modes")
     def test_macos_package_preserves_prebuilt_resource_binaries(self) -> None:
         for variant_name in ("steve", "steve-app-server"):
             for target in ("aarch64-apple-darwin", "x86_64-apple-darwin"):
@@ -225,34 +226,42 @@ int main(void) {
                         )
 
     def test_app_server_package_places_code_mode_host_beside_entrypoint(self) -> None:
+        spec = TARGET_SPECS[default_target()]
+        suffix = spec.exe_suffix
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             package_dir = root / "package"
             package_dir.mkdir()
             inputs = PackageInputs(
-                entrypoint_bin=touch_executable(root / "steve-app-server"),
-                code_mode_host_bin=touch_executable(root / "steve-code-mode-host"),
-                exec_server_bin=touch_executable(root / "steve-exec-server"),
-                rg_bin=touch_executable(root / "rg"),
-                bwrap_bin=touch_executable(root / "bwrap"),
-                codex_command_runner_bin=None,
-                codex_windows_sandbox_setup_bin=None,
+                entrypoint_bin=touch_executable(root / f"steve-app-server{suffix}"),
+                code_mode_host_bin=touch_executable(root / f"steve-code-mode-host{suffix}"),
+                exec_server_bin=touch_executable(root / f"steve-exec-server{suffix}"),
+                rg_bin=touch_executable(root / f"rg{suffix}"),
+                bwrap_bin=touch_executable(root / "bwrap") if spec.is_linux else None,
+                codex_command_runner_bin=(
+                    touch_executable(root / "steve-command-runner.exe")
+                    if spec.is_windows else None
+                ),
+                codex_windows_sandbox_setup_bin=(
+                    touch_executable(root / "steve-windows-sandbox-setup.exe")
+                    if spec.is_windows else None
+                ),
             )
 
             build_package_dir(
                 package_dir,
                 "1.2.3",
                 PACKAGE_VARIANTS["steve-app-server"],
-                TARGET_SPECS["x86_64-unknown-linux-musl"],
+                spec,
                 inputs,
             )
             validate_package_dir(
                 package_dir,
                 PACKAGE_VARIANTS["steve-app-server"],
-                TARGET_SPECS["x86_64-unknown-linux-musl"],
+                spec,
             )
 
-            self.assertTrue((package_dir / "bin" / "steve-code-mode-host").is_file())
+            self.assertTrue((package_dir / "bin" / f"steve-code-mode-host{suffix}").is_file())
 
 
 def touch_executable(path: Path) -> Path:
