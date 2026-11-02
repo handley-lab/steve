@@ -10,7 +10,7 @@ async fn only_direct_launch_choices_override_saved_permissions() -> color_eyre::
     let profile = home.path().join("work.config.toml");
     std::fs::write(
         &profile,
-        "default_permissions = \":read-only\"\napproval_policy = \"never\"\napprovals_reviewer = \"auto_review\"\n",
+        "model_provider = \"openai\"\ndefault_permissions = \":read-only\"\napproval_policy = \"never\"\napprovals_reviewer = \"auto_review\"\n",
     )?;
     let builder = ConfigBuilder::default()
         .codex_home(home.path().to_path_buf())

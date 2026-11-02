@@ -63,3 +63,57 @@ where
 }
 
 pub(crate) use crate::boxed_future;
+
+pub(crate) async fn provider_test_home() -> std::io::Result<TestHome> {
+    let home = TestHome {
+        home: tempfile::TempDir::new()?,
+        _models: wiremock::MockServer::start().await,
+    };
+    wiremock::Mock::given(wiremock::matchers::path("/models"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+            codex_protocol::openai_models::ModelsResponse {
+                models: vec![codex_models_manager::test_support::model_info("gpt-test")],
+            },
+        ))
+        .mount(&home._models)
+        .await;
+    seed_test_provider(home.path(), &home)?;
+    Ok(home)
+}
+
+// Persist the provider because embedded app servers reload their fixture home.
+pub(crate) fn seed_test_provider(
+    home: &std::path::Path,
+    fixture: &TestHome,
+) -> std::io::Result<()> {
+    let config_path = home.join("config.toml");
+    let existing = match std::fs::read_to_string(&config_path) {
+        Ok(existing) => existing,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(err) => return Err(err),
+    };
+    let config: toml::Value = toml::from_str(&existing).map_err(std::io::Error::other)?;
+    if config.get("model_provider").is_some() {
+        return Ok(());
+    }
+    let model = if config.get("model").is_none() {
+        "model = \"gpt-test\"\n"
+    } else {
+        ""
+    };
+    std::fs::write(
+        config_path,
+        format!(
+            r#"{model}model_provider = "test-provider"
+{existing}
+[model_providers.test-provider]
+name = "Test provider"
+base_url = "{0}/v1"
+model_catalog_url = "{0}/models"
+default_model = "gpt-test"
+requires_openai_auth = false
+"#,
+            fixture._models.uri(),
+        ),
+    )
+}

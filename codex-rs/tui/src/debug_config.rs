@@ -731,6 +731,10 @@ interrupt_message = false
         )
         .expect("write config");
         let config = ConfigBuilder::default()
+            .harness_overrides(crate::legacy_core::config::ConfigOverrides {
+                model_provider: Some("openai".to_string()),
+                ..Default::default()
+            })
             .codex_home(codex_home.path().to_path_buf())
             .fallback_cwd(Some(codex_home.path().to_path_buf()))
             .loader_overrides(LoaderOverrides::without_managed_config_for_tests())

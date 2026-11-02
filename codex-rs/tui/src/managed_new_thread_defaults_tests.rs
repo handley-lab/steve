@@ -10,6 +10,10 @@ use pretty_assertions::assert_eq;
 async fn test_config() -> (tempfile::TempDir, Config) {
     let codex_home = tempfile::tempdir().expect("tempdir");
     let config = ConfigBuilder::default()
+        .harness_overrides(ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .codex_home(codex_home.path().to_path_buf())
         .build()
         .await
@@ -155,7 +159,7 @@ async fn managed_defaults_win_when_a_project_setting_shadows_the_selected_profil
     let project = tempfile::tempdir().expect("project");
     std::fs::write(
         home.path().join("work.config.toml"),
-        "model = \"profile-model\"\n",
+        "model_provider = \"openai\"\nmodel = \"profile-model\"\n",
     )
     .expect("profile");
     std::fs::create_dir(project.path().join(".steve")).expect("project config directory");

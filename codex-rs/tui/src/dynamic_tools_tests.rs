@@ -2,18 +2,18 @@ use super::*;
 use crate::app_server_session::AppServerSession;
 use crate::app_server_session::ResumeModelSettings;
 use crate::legacy_core::config::ConfigBuilder;
+use crate::test_support::TestHome;
 use app_test_support::create_fake_paginated_rollout;
 use app_test_support::create_fake_rollout;
 use app_test_support::rollout_path;
 use codex_protocol::ThreadId;
 use core_test_support::responses;
 use pretty_assertions::assert_eq;
-use tempfile::TempDir;
 
 async fn test_server(
     tool_arguments: Value,
-) -> color_eyre::Result<(TempDir, AppServerSession, String, String)> {
-    let codex_home = tempfile::tempdir()?;
+) -> color_eyre::Result<(TestHome, AppServerSession, String, String)> {
+    let codex_home = crate::test_support::provider_test_home().await?;
     let config = ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())
         .build()
@@ -146,6 +146,13 @@ async fn oversized_read_preserves_answer_in_next_model_request() -> color_eyre::
     let (_home, app_server, source, target) =
         test_server(json!({"padding": "supporting tool arguments".repeat(4_000)})).await?;
     let mock_server = responses::start_mock_server().await;
+    wiremock::Mock::given(wiremock::matchers::path("/v1/models"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"data": [{"id": "gpt-5.5"}]})),
+        )
+        .mount(&mock_server)
+        .await;
     let call_id = "read-task";
     let mock = responses::mount_sse_sequence(
         &mock_server,

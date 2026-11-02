@@ -32,12 +32,14 @@ pub(super) async fn test_config() -> (crate::test_support::TestHome, Config) {
     std::fs::write(
         codex_home.path().join("config.toml"),
         format!(
-            r#"model_provider = "test-provider"
+            r#"model = "gpt-5.6-sol"
+model_provider = "test-provider"
 
 [model_providers.test-provider]
 name = "OpenAI"
 base_url = "{0}/v1"
 model_catalog_url = "{0}/models"
+default_model = "gpt-5.6-sol"
 requires_openai_auth = true
 "#,
             codex_home._models.uri()

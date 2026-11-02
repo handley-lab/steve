@@ -34,7 +34,7 @@ fn next_config_preference(rx: &mut UnboundedReceiver<AppEvent>) -> Result<Config
 
 #[tokio::test]
 async fn config_toggle_save_uses_host_config_and_applies_live_while_offline() -> Result<()> {
-    let root = tempfile::tempdir()?;
+    let root = crate::test_support::provider_test_home().await?;
     let home = root.path().join("home");
     let local_cwd = root.path().join("local");
     let session_cwd = root.path().join("session");
@@ -54,6 +54,7 @@ async fn config_toggle_save_uses_host_config_and_applies_live_while_offline() ->
         .apply()
         .await
         .map_err(|error| color_eyre::eyre::eyre!(error.to_string()))?;
+    crate::test_support::seed_test_provider(&home, &root)?;
     let loader_overrides = LoaderOverrides::without_managed_config_for_tests();
     let config = ConfigBuilder::default()
         .codex_home(home)

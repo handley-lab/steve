@@ -9,7 +9,7 @@ use pretty_assertions::assert_eq;
 
 #[tokio::test]
 async fn lifecycle_metadata_uses_local_prompt_history() -> Result<()> {
-    let local_home = tempfile::tempdir()?;
+    let local_home = crate::test_support::provider_test_home().await?;
     let local_config = ConfigBuilder::default()
         .codex_home(local_home.path().to_path_buf())
         .build()
@@ -26,7 +26,7 @@ async fn lifecycle_metadata_uses_local_prompt_history() -> Result<()> {
     assert_eq!(entry_count, 1);
 
     for mode in [ThreadParamsMode::Embedded, ThreadParamsMode::Remote] {
-        let server_home = tempfile::tempdir()?;
+        let server_home = crate::test_support::provider_test_home().await?;
         let mut config = ConfigBuilder::default()
             .codex_home(server_home.path().to_path_buf())
             .build()

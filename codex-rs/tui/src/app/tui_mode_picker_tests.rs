@@ -74,6 +74,10 @@ async fn tui_mode_picker_saves_selected_config_without_changing_the_live_mode() 
             serde_json::json!({"tui": {"animations": false, "fullscreen_transcript": enabled}})
         );
         let reloaded = ConfigBuilder::default()
+            .harness_overrides(crate::legacy_core::config::ConfigOverrides {
+                model_provider: Some("openai".to_string()),
+                ..Default::default()
+            })
             .codex_home(home.path().to_path_buf())
             .loader_overrides(LoaderOverrides {
                 user_config_path: Some(selected.clone()),

@@ -14,6 +14,10 @@ async fn launch_screen_mode_survives_configuration_reload() -> anyhow::Result<()
 
     let home = tempfile::tempdir()?;
     let mut config = ConfigBuilder::default()
+        .harness_overrides(crate::legacy_core::config::ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .codex_home(home.path().to_path_buf())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
         .build()
@@ -87,6 +91,10 @@ async fn system_motion_suppresses_animations_without_changing_saved_preferences(
         let config_text = format!("[tui]\nanimations = {configured}\n");
         std::fs::write(home.path().join("config.toml"), &config_text)?;
         let config = ConfigBuilder::default()
+            .harness_overrides(crate::legacy_core::config::ConfigOverrides {
+                model_provider: Some("openai".to_string()),
+                ..Default::default()
+            })
             .codex_home(home.path().to_path_buf())
             .loader_overrides(LoaderOverrides {
                 ignore_project_config: true,
@@ -163,6 +171,10 @@ fast_default_opt_out = true
             ),
         ];
         let config = ConfigBuilder::default()
+            .harness_overrides(crate::legacy_core::config::ConfigOverrides {
+                model_provider: Some("openai".to_string()),
+                ..Default::default()
+            })
             .codex_home(home.path().to_path_buf())
             .strict_config(true)
             .loader_overrides(LoaderOverrides {
@@ -221,6 +233,10 @@ async fn copy_on_select_respects_terminal_defaults_and_config_overrides() -> any
             .unwrap_or_default();
         std::fs::write(&config_path, &config_text)?;
         let config = ConfigBuilder::default()
+            .harness_overrides(crate::legacy_core::config::ConfigOverrides {
+                model_provider: Some("openai".to_string()),
+                ..Default::default()
+            })
             .codex_home(home.path().to_path_buf())
             .strict_config(true)
             .loader_overrides(LoaderOverrides {
@@ -323,6 +339,10 @@ async fn local_writes_preserve_selected_user_file_and_home_destinations() -> any
         ..LoaderOverrides::without_managed_config_for_tests()
     };
     let config = ConfigBuilder::default()
+        .harness_overrides(crate::legacy_core::config::ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .codex_home(home.path().to_path_buf())
         .loader_overrides(overrides.clone())
         .build()
@@ -339,6 +359,10 @@ async fn local_writes_preserve_selected_user_file_and_home_destinations() -> any
         .apply()
         .await?;
     let reloaded = ConfigBuilder::default()
+        .harness_overrides(crate::legacy_core::config::ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .codex_home(home.path().to_path_buf())
         .loader_overrides(overrides)
         .build()
@@ -369,6 +393,10 @@ async fn screen_reader_default_yields_to_preferences_on_reload() -> anyhow::Resu
     ] {
         std::fs::write(home.path().join("config.toml"), config_text)?;
         let config = ConfigBuilder::default()
+            .harness_overrides(crate::legacy_core::config::ConfigOverrides {
+                model_provider: Some("openai".to_string()),
+                ..Default::default()
+            })
             .codex_home(home.path().to_path_buf())
             .loader_overrides(LoaderOverrides {
                 ignore_project_config: true,

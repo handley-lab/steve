@@ -111,6 +111,10 @@ async fn daemon_feature_compatibility_respects_required_and_optional_attachment(
             .parse_overrides()
             .unwrap();
             let home = TempDir::new()?;
+            std::fs::write(
+                home.path().join("config.toml"),
+                "model_provider = \"openai\"\n",
+            )?;
             let config = ConfigBuilder::default()
                 .codex_home(home.path().to_path_buf())
                 .loader_overrides(LoaderOverrides::without_managed_config_for_tests())

@@ -22,6 +22,10 @@ async fn legacy_search_overrides_respect_launch_origins() -> Result<()> {
     ] {
         std::fs::write(home.path().join("config.toml"), settings)?;
         let config = ConfigBuilder::default()
+            .harness_overrides(crate::legacy_core::config::ConfigOverrides {
+                model_provider: Some("openai".to_string()),
+                ..Default::default()
+            })
             .codex_home(home.path().to_path_buf())
             .cli_overrides(
                 toml::from_str::<toml::Table>(&format!("[features]\nmulti_agent = true\n{flags}"))?
@@ -67,6 +71,10 @@ async fn web_search_overrides_preserve_explicit_legacy_choices() -> Result<()> {
         ),
     ] {
         let config = ConfigBuilder::default()
+            .harness_overrides(crate::legacy_core::config::ConfigOverrides {
+                model_provider: Some("openai".to_string()),
+                ..Default::default()
+            })
             .codex_home(home.path().to_path_buf())
             .cli_overrides(
                 toml::from_str::<toml::Table>(settings)?
@@ -120,6 +128,10 @@ async fn embedded_legacy_search_honors_shared_feature_requirements() -> Result<(
     ] {
         std::fs::write(&requirements_path, format!("[features]\n{requirements}"))?;
         let config = ConfigBuilder::default()
+            .harness_overrides(crate::legacy_core::config::ConfigOverrides {
+                model_provider: Some("openai".to_string()),
+                ..Default::default()
+            })
             .codex_home(home.path().to_path_buf())
             .cli_overrides(
                 toml::from_str::<toml::Table>(&format!("[features]\n{flags}"))?

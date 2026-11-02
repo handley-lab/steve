@@ -29,7 +29,8 @@ fn tui_startup_future_stays_bounded() {
     assert!(size < 64 * 1024, "TUI startup future is {size} bytes");
 }
 
-async fn build_config(temp_dir: &TempDir) -> std::io::Result<Config> {
+async fn build_config(temp_dir: &crate::test_support::TestHome) -> std::io::Result<Config> {
+    crate::test_support::seed_test_provider(temp_dir.path(), temp_dir)?;
     ConfigBuilder::default()
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
         .codex_home(temp_dir.path().to_path_buf())
@@ -40,7 +41,7 @@ async fn build_config(temp_dir: &TempDir) -> std::io::Result<Config> {
 #[tokio::test]
 async fn server_account_requirement_controls_login_screen() -> color_eyre::Result<()> {
     for requires_openai_auth in [false, true] {
-        let home = TempDir::new()?;
+        let home = crate::test_support::provider_test_home().await?;
         std::fs::write(
             home.path().join("config.toml"),
             format!(
@@ -100,10 +101,19 @@ async fn provider_setup_wizards_require_eligible_onboarding() -> color_eyre::Res
     for display_name in ["Configured API", "OpenAI"] {
         for (label, provider_id, requires_auth, config_toml, login_status, target, expected) in [
             (
-                "disabled by default",
+                "enabled by default",
                 "test-provider",
                 true,
                 "",
+                LoginStatus::NotAuthenticated,
+                AppServerTarget::Embedded,
+                true,
+            ),
+            (
+                "explicitly disabled",
+                "test-provider",
+                true,
+                "[features]\nbedrock_setup_wizard = false\ngcp_setup_wizard = false\n",
                 LoginStatus::NotAuthenticated,
                 AppServerTarget::Embedded,
                 false,
@@ -186,7 +196,7 @@ async fn provider_setup_wizards_require_eligible_onboarding() -> color_eyre::Res
                 false,
             ),
         ] {
-            let codex_home = TempDir::new()?;
+            let codex_home = crate::test_support::provider_test_home().await?;
             let provider_config = if provider_id == "openai" {
                 String::new()
             } else {
@@ -327,7 +337,7 @@ async fn startup_services_use_final_cloud_managed_http_policy() -> color_eyre::R
     for (configured_respect_system_proxy, managed_respect_system_proxy) in
         [(true, false), (false, true)]
     {
-        let codex_home = TempDir::new()?;
+        let codex_home = crate::test_support::provider_test_home().await?;
         std::fs::write(
             codex_home.path().join("config.toml"),
             format!("[features]\nrespect_system_proxy = {configured_respect_system_proxy}\n"),
@@ -357,6 +367,7 @@ async fn startup_services_use_final_cloud_managed_http_policy() -> color_eyre::R
                 codex_config::test_support::CloudConfigBundleFixture::loader_with_enterprise_requirement(
                     format!("[features]\nrespect_system_proxy = {managed_respect_system_proxy}\n"),
                 );
+        crate::test_support::seed_test_provider(codex_home.path(), &codex_home)?;
         let config = ConfigBuilder::default()
             .codex_home(codex_home.path().to_path_buf())
             .loader_overrides(loader_overrides)
@@ -415,7 +426,7 @@ pub(crate) async fn start_test_embedded_app_server(
 
 #[tokio::test]
 async fn startup_resume_rejects_guardian_thread() -> color_eyre::Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = crate::test_support::provider_test_home().await?;
     let config = build_config(&temp_dir).await?;
     let thread_id = write_session_rollout(
         temp_dir.path(),
@@ -469,7 +480,7 @@ async fn startup_resume_and_fork_use_configured_or_explicit_cwd() -> color_eyre:
         (CwdPromptAction::Fork, "session", false, "session"),
         (CwdPromptAction::Fork, "session", true, "explicit"),
     ] {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = crate::test_support::provider_test_home().await?;
         let codex_home = temp_dir.path().join("codex-home");
         let launch_cwd = temp_dir.path().join("launch");
         let session_cwd = temp_dir.path().join("session");
@@ -483,6 +494,7 @@ async fn startup_resume_and_fork_use_configured_or_explicit_cwd() -> color_eyre:
             format!("[tui]\nresume_cwd = \"{configured_mode}\"\n"),
         )?;
         let cwd_override = has_explicit_cwd.then_some(explicit_cwd.as_path());
+        crate::test_support::seed_test_provider(&codex_home, &temp_dir)?;
         let config = ConfigBuilder::default()
             .codex_home(codex_home.clone())
             .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
@@ -537,6 +549,7 @@ async fn startup_resume_and_fork_use_configured_or_explicit_cwd() -> color_eyre:
             }
             ResolveCwdOutcome::Exit => panic!("configured cwd should not exit startup"),
         };
+        crate::test_support::seed_test_provider(&codex_home, &temp_dir)?;
         let final_config = ConfigBuilder::default()
             .codex_home(codex_home)
             .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
@@ -597,11 +610,12 @@ async fn startup_resume_and_fork_use_configured_or_explicit_cwd() -> color_eyre:
 #[tokio::test]
 async fn startup_remote_current_cwd_without_override_is_rejected() -> color_eyre::Result<()> {
     let backend_id = crate::backend_id::BackendId::new();
-    let temp_dir = TempDir::new()?;
+    let temp_dir = crate::test_support::provider_test_home().await?;
     std::fs::write(
         temp_dir.path().join("config.toml"),
         "[tui]\nresume_cwd = \"current\"\n",
     )?;
+    crate::test_support::seed_test_provider(temp_dir.path(), &temp_dir)?;
     let config = ConfigBuilder::default()
         .codex_home(temp_dir.path().to_path_buf())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
@@ -658,11 +672,12 @@ async fn startup_remote_current_cwd_without_override_is_rejected() -> color_eyre
 #[tokio::test]
 async fn startup_session_cwd_without_metadata_is_rejected() -> color_eyre::Result<()> {
     let backend_id = crate::backend_id::BackendId::new();
-    let temp_dir = TempDir::new()?;
+    let temp_dir = crate::test_support::provider_test_home().await?;
     std::fs::write(
         temp_dir.path().join("config.toml"),
         "[tui]\nresume_cwd = \"session\"\n",
     )?;
+    crate::test_support::seed_test_provider(temp_dir.path(), &temp_dir)?;
     let config = ConfigBuilder::default()
         .codex_home(temp_dir.path().to_path_buf())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
@@ -1073,7 +1088,7 @@ async fn latest_session_lookup_params_keep_explicit_cwd_filter_for_remote_sessio
 
 #[tokio::test]
 async fn latest_session_cwd_filter_respects_scope_options() -> std::io::Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = crate::test_support::provider_test_home().await?;
     let config = build_config(&temp_dir).await?;
     let remote_cwd = Path::new("repo/on/server");
 
@@ -1100,7 +1115,7 @@ async fn latest_session_cwd_filter_respects_scope_options() -> std::io::Result<(
 
 #[tokio::test]
 async fn fork_last_filters_latest_session_by_cwd_unless_show_all() -> color_eyre::Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = crate::test_support::provider_test_home().await?;
     let project_cwd = temp_dir.path().join("project");
     let linked_cwd = temp_dir.path().join("linked-project");
     let other_cwd = temp_dir.path().join("other-project");
@@ -1119,6 +1134,7 @@ async fn fork_last_filters_latest_session_by_cwd_unless_show_all() -> color_eyre
         format!("gitdir: {}", admin.display()),
     )?;
 
+    crate::test_support::seed_test_provider(temp_dir.path(), &temp_dir)?;
     let mut config = ConfigBuilder::default()
         .codex_home(temp_dir.path().to_path_buf())
         .harness_overrides(ConfigOverrides {
@@ -1217,9 +1233,10 @@ async fn fork_last_filters_latest_session_by_cwd_unless_show_all() -> color_eyre
 #[tokio::test]
 async fn latest_session_lookup_falls_back_for_rollout_missing_from_state_db()
 -> color_eyre::Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = crate::test_support::provider_test_home().await?;
     let project_cwd = temp_dir.path().join("project");
     std::fs::create_dir_all(&project_cwd)?;
+    crate::test_support::seed_test_provider(temp_dir.path(), &temp_dir)?;
     let config = ConfigBuilder::default()
         .codex_home(temp_dir.path().to_path_buf())
         .harness_overrides(ConfigOverrides {
@@ -1412,7 +1429,7 @@ async fn config_cwd_for_app_server_target_omits_cwd_for_remote_exec_server() -> 
 
 #[tokio::test]
 async fn embedded_app_server_supports_thread_start_rpc() -> color_eyre::Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = crate::test_support::provider_test_home().await?;
     let config = build_config(&temp_dir).await?;
     let app_server = start_test_embedded_app_server(config).await?;
     let response: ThreadStartResponse = app_server
@@ -1433,7 +1450,7 @@ async fn embedded_app_server_supports_thread_start_rpc() -> color_eyre::Result<(
 
 #[tokio::test]
 async fn resume_picker_loads_complete_paginated_and_legacy_transcripts() -> color_eyre::Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = crate::test_support::provider_test_home().await?;
     let mut config = build_config(&temp_dir).await?;
     config.terminal_resize_reflow.max_rows =
         crate::legacy_core::config::TerminalResizeReflowMaxRows::Limit(2);
@@ -1551,7 +1568,7 @@ async fn resume_picker_loads_complete_paginated_and_legacy_transcripts() -> colo
 
 #[tokio::test]
 async fn embedded_app_server_start_failure_is_returned() -> color_eyre::Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = crate::test_support::provider_test_home().await?;
     let config = build_config(&temp_dir).await?;
     let result = start_embedded_app_server_with(
         Arg0DispatchPaths::default(),
@@ -1583,7 +1600,7 @@ async fn embedded_app_server_start_failure_is_returned() -> color_eyre::Result<(
 
 #[tokio::test]
 async fn embedded_state_db_failure_is_typed_for_cli_recovery() -> color_eyre::Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = crate::test_support::provider_test_home().await?;
     let mut config = build_config(&temp_dir).await?;
     let occupied_sqlite_home = temp_dir.path().join("sqlite-home");
     std::fs::write(&occupied_sqlite_home, "occupied")?;
@@ -1615,7 +1632,7 @@ async fn embedded_state_db_failure_is_typed_for_cli_recovery() -> color_eyre::Re
 #[tokio::test]
 async fn embedded_state_db_corruption_preserves_failed_database_for_cli_recovery()
 -> color_eyre::Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = crate::test_support::provider_test_home().await?;
     let mut config = build_config(&temp_dir).await?;
     let sqlite_home = temp_dir.path().join("sqlite-home");
     std::fs::create_dir_all(&sqlite_home)?;
@@ -1644,7 +1661,7 @@ async fn embedded_state_db_corruption_preserves_failed_database_for_cli_recovery
 
 #[tokio::test]
 async fn config_rebuild_changes_trust_defaults_with_cwd() -> std::io::Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = crate::test_support::provider_test_home().await?;
     let codex_home = temp_dir.path().to_path_buf();
     let trusted = temp_dir.path().join("trusted");
     let untrusted = temp_dir.path().join("untrusted");
@@ -1668,6 +1685,7 @@ trust_level = "untrusted"
         cwd: Some(trusted.clone()),
         ..Default::default()
     };
+    crate::test_support::seed_test_provider(&codex_home, &temp_dir)?;
     let trusted_config = ConfigBuilder::default()
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
         .codex_home(codex_home.clone())
@@ -1683,6 +1701,7 @@ trust_level = "untrusted"
         cwd: Some(untrusted),
         ..trusted_overrides
     };
+    crate::test_support::seed_test_provider(&codex_home, &temp_dir)?;
     let untrusted_config = ConfigBuilder::default()
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
         .codex_home(codex_home)
@@ -1712,7 +1731,7 @@ trust_level = "untrusted"
 async fn theme_warning_uses_final_config() -> std::io::Result<()> {
     use crate::render::highlight::validate_theme_name;
 
-    let temp_dir = TempDir::new()?;
+    let temp_dir = crate::test_support::provider_test_home().await?;
 
     // initial_config has a valid theme — no warning.
     let initial_config = build_config(&temp_dir).await?;

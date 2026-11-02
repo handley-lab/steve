@@ -1762,7 +1762,7 @@ mod tests {
     #[tokio::test]
     async fn refresh_in_memory_config_from_disk_loads_latest_apps_state() -> Result<()> {
         let mut app = make_test_app().await;
-        let codex_home = tempdir()?;
+        let codex_home = crate::test_support::provider_test_home().await?;
         app.config.codex_home = codex_home.path().to_path_buf().abs();
         let app_id = "unit_test_refresh_in_memory_config_connector".to_string();
 
@@ -1789,6 +1789,7 @@ mod tests {
 
         assert_eq!(app_enabled_in_effective_config(&app.config, &app_id), None);
 
+        crate::test_support::seed_test_provider(codex_home.path(), &codex_home)?;
         app.refresh_in_memory_config_from_disk().await?;
 
         assert_eq!(
@@ -1804,7 +1805,7 @@ mod tests {
     async fn refresh_in_memory_config_from_disk_keeps_cloud_requirements_for_thread_transitions()
     -> Result<()> {
         let mut app = make_test_app().await;
-        let codex_home = tempdir()?;
+        let codex_home = crate::test_support::provider_test_home().await?;
         let required_policy = codex_protocol::protocol::AskForApproval::Never;
         let cloud_config_bundle =
             codex_config::test_support::CloudConfigBundleFixture::loader_with_enterprise_requirement(
@@ -1848,6 +1849,7 @@ enabled = false
 
         // This is the fallible reload that the best-effort `/new`, `/clear`,
         // `/fork`, side-conversation, and session-picker paths wrap.
+        crate::test_support::seed_test_provider(codex_home.path(), &codex_home)?;
         app.refresh_in_memory_config_from_disk().await?;
 
         assert_eq!(
@@ -1872,7 +1874,7 @@ enabled = false
         use wiremock::matchers::method;
 
         let mut app = make_test_app().await;
-        let codex_home = tempdir()?;
+        let codex_home = crate::test_support::provider_test_home().await?;
         app.config.codex_home = codex_home.path().to_path_buf().abs();
         let controller = NetworkPolicyController::default();
         let denied = DestinationPolicy::Restricted {
@@ -1888,6 +1890,7 @@ enabled = false
             .mount(&server)
             .await;
 
+        crate::test_support::seed_test_provider(codex_home.path(), &codex_home)?;
         app.refresh_in_memory_config_from_disk().await?;
         let (new_config, _) = app.load_new_session_config(&app_server).await?;
         let permission_config = app
@@ -1981,7 +1984,6 @@ enabled = false
         assert_eq!(app.chat_widget.config_ref().cwd.to_path_buf(), next_cwd);
         assert_eq!(app.config.cwd, original_cwd);
 
-        std::fs::write(app.config.codex_home.join("config.toml"), "")?;
         crate::legacy_core::config::set_project_trust_level(
             &app.config.codex_home,
             &next_cwd,
@@ -2024,7 +2026,7 @@ enabled = false
         expected_widget_settings.tui.session_picker_view =
             Some(codex_config::types::SessionPickerViewMode::Comfortable);
         expected_widget_settings.tui.resume_cwd = Some(codex_config::types::ResumeCwdMode::Current);
-        let codex_home = tempdir()?;
+        let codex_home = crate::test_support::provider_test_home().await?;
         app.config.codex_home = codex_home.path().to_path_buf().abs();
         std::fs::write(
             codex_home.path().join("config.toml"),
@@ -2037,6 +2039,7 @@ theme = "dracula"
 "#,
         )?;
 
+        crate::test_support::seed_test_provider(codex_home.path(), &codex_home)?;
         app.refresh_in_memory_config_from_disk().await?;
 
         assert_eq!(
@@ -2096,10 +2099,11 @@ theme = "dracula"
     async fn new_thread_keeps_live_settings_after_failed_reload() -> Result<()> {
         let mut app = make_test_app().await;
         let server = crate::start_embedded_app_server_for_picker(&app.config).await?;
-        let home = tempdir()?;
+        let home = crate::test_support::provider_test_home().await?;
         app.config.codex_home = home.path().to_path_buf().abs();
         let config_path = home.path().join("config.toml");
         std::fs::write(&config_path, "[tui]\ntheme = 'dracula'\n")?;
+        crate::test_support::seed_test_provider(home.path(), &home)?;
         app.refresh_in_memory_config_from_disk().await?;
         // A live setting can be newer than the last successful disk load.
         app.local_settings.tui.rendering.math = false;
