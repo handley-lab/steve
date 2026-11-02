@@ -523,7 +523,13 @@ async fn execute_inner(
                 },
             )
             .await?;
-            thread_start_params.model = Some(source.model);
+            thread_start_params.model = Some(
+                crate::temporary_structured_request::native_model_id(
+                    &source.model,
+                    &source_thread.model_provider,
+                )
+                .to_string(),
+            );
             thread_start_params.service_tier = Some(source.service_tier);
             thread_start_params.runtime_workspace_roots = Some(source.runtime_workspace_roots);
             thread_start_params.approval_policy = Some(source.approval_policy);

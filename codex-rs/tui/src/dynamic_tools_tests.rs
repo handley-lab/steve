@@ -13,7 +13,28 @@ use pretty_assertions::assert_eq;
 async fn test_server(
     tool_arguments: Value,
 ) -> color_eyre::Result<(TestHome, AppServerSession, String, String)> {
+    test_server_for_model(tool_arguments, "gpt-test").await
+}
+
+async fn test_server_for_model(
+    tool_arguments: Value,
+    model: &str,
+) -> color_eyre::Result<(TestHome, AppServerSession, String, String)> {
     let codex_home = crate::test_support::provider_test_home().await?;
+    if model != "gpt-test" {
+        codex_home._models.reset().await;
+        wiremock::Mock::given(wiremock::matchers::path("/models"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+                codex_protocol::openai_models::ModelsResponse {
+                    models: vec![codex_models_manager::test_support::model_info(model)],
+                },
+            ))
+            .mount(&codex_home._models)
+            .await;
+        let config_path = codex_home.path().join("config.toml");
+        let config = std::fs::read_to_string(&config_path)?.replace("gpt-test", model);
+        std::fs::write(config_path, config)?;
+    }
     let config = ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())
         .build()
@@ -793,6 +814,53 @@ async fn task_creation_and_followup_start_background_turns() -> color_eyre::Resu
         matches!(&oversized.content_items[..], [DynamicToolCallOutputContentItem::InputText { text }] if text.chars().count() <= MAX_ERROR_CHARS)
     );
 
+    server.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn created_task_inherits_native_model_id_with_slashes() -> color_eyre::Result<()> {
+    let (home, mut server, _source, target) = test_server_for_model(json!({}), "org/model").await?;
+    let model_request = responses::mount_sse_once(
+        &home._models,
+        responses::sse(vec![
+            responses::ev_response_created("background-response"),
+            responses::ev_completed("background-response"),
+        ]),
+    )
+    .await;
+    let created = response_json(
+        call_tool(
+            &server,
+            &target,
+            "create_thread",
+            json!({"prompt": "Start a background task"}),
+        )
+        .await,
+    );
+    let thread_id = created["threadId"].as_str().expect("created task ID");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(event) = server.next_event().await {
+            if let codex_app_server_client::AppServerEvent::ServerNotification(notification) =
+                event.event
+                && let codex_app_server_protocol::ServerNotification::TurnCompleted(completed) =
+                    *notification
+                && completed.thread_id == thread_id
+            {
+                assert_eq!(
+                    completed.turn.status,
+                    codex_app_server_protocol::TurnStatus::Completed
+                );
+                return;
+            }
+        }
+        panic!("app server disconnected before background turn completion");
+    })
+    .await?;
+    assert_eq!(
+        model_request.single_request().body_json()["model"],
+        "org/model"
+    );
     server.shutdown().await?;
     Ok(())
 }

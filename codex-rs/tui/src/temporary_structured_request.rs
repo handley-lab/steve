@@ -43,7 +43,7 @@ pub(crate) struct TemporaryStructuredThreadOptions {
     pub(crate) mcp_server_names: Vec<String>,
 }
 
-fn native_model_id<'a>(model: &'a str, provider: &str) -> &'a str {
+pub(crate) fn native_model_id<'a>(model: &'a str, provider: &str) -> &'a str {
     model
         .strip_prefix(provider)
         .and_then(|rest| rest.strip_prefix('/'))
