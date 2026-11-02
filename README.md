@@ -12,17 +12,35 @@ Build from this checkout for local testing; do not use upstream Codex installers
 to install Steve. Native Windows/macOS packaging remains unverified. The linked
 network inventory describes the original pinned baseline, not this branch.
 
-From `codex-rs`, build the CLI and local code-mode host:
+From the repository root, build a local package containing the CLI, code-mode
+host, executor, and platform sandbox helpers:
 
 ```sh
-CARGO_BUILD_JOBS=8 cargo build --locked \
-  -p codex-cli --bin steve \
-  -p codex-code-mode-host --bin steve-code-mode-host
-./target/debug/steve
+STEVE_REPO_ROOT="$PWD" CARGO_BUILD_JOBS=8 \
+  python3 scripts/build_codex_package.py \
+  --target x86_64-unknown-linux-gnu --package-dir dist/steve
+./dist/steve/bin/steve
 ```
 
-Build prerequisites and native dependencies remain those of the upstream
-source tree. Package assembly additionally builds the platform sandbox helpers.
+The example targets x86-64 Linux with glibc, including Ubuntu. On another
+platform, pass its Rust target triple (see `--help`). Install Rust through
+rustup, Python 3.11 or newer, and the native build dependencies first; Ubuntu needs `build-essential`,
+`pkg-config`, `libcap-dev`, and `libasound2-dev`.
+
+The code-mode host requires sandbox-enabled V8. Plain Cargo builds try Deno's
+default archive location, which does not provide the required sandbox pair.
+The package builder instead downloads the version-pinned archive and matching
+Rust bindings from `openai/codex` releases, verifies their checksum manifest
+against this checkout, then verifies both files. These are build inputs, not
+an inference service. This remains an OpenAI-published binary dependency.
+To build V8 from source instead, set `V8_FROM_SOURCE=1`; that uses rusty_v8's
+separate native toolchain and source-download path and takes substantially more
+time and disk. See [V8 build provenance](third_party/v8/README.md).
+
+The manual `Steve binary build` workflow prepares an x86-64 Linux/glibc package
+from an exact commit. It checks the linked V8 sandbox and extracted package,
+then uploads the archive, SHA-256 checksum and build provenance as a CI artifact.
+It does not publish a release. macOS and Windows distribution remain unverified.
 
 ## Separate configuration
 

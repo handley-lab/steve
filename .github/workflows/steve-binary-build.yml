@@ -1,0 +1,109 @@
+name: Steve binary build
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Full commit SHA to build
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      STEVE_REPO_ROOT: ${{ github.workspace }}
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - name: Require an exact source commit
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: '[[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - name: Verify source identity
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          echo "STABLE_GIT_COMMIT=$CANDIDATE_SHA" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libcap-dev libasound2-dev zstd
+      - name: Verify V8 artifact pair
+        uses: ./.github/actions/setup-rusty-v8
+        with:
+          target: ${{ env.TARGET }}
+      - name: Check package builder
+        run: python3 -m unittest discover -s scripts/codex_package -p 'test_*.py'
+      - name: Build and finalize sandbox helper
+        working-directory: codex-rs
+        run: |
+          cargo build --locked --release --target "$TARGET" --bin bwrap
+          strip --strip-debug --strip-unneeded "target/$TARGET/release/bwrap"
+          digest="$(sha256sum "target/$TARGET/release/bwrap" | cut -d ' ' -f 1)"
+          echo "STEVE_BWRAP_SHA256=$digest" >> "$GITHUB_ENV"
+      - name: Build application and verify linked V8
+        working-directory: codex-rs
+        run: |
+          cargo build --locked --release --target "$TARGET" \
+            --bin steve --bin steve-code-mode-host --bin steve-exec-server
+          cargo test --locked --release --target "$TARGET" -p codex-v8-poc \
+            --features sandbox --lib sandbox_feature_matches_linked_v8
+      - name: Assemble package
+        run: |
+          binaries="$PWD/codex-rs/target/$TARGET/release"
+          python3 scripts/build_codex_package.py --target "$TARGET" \
+            --cargo-profile release --package-dir dist/steve \
+            --entrypoint-bin "$binaries/steve" \
+            --code-mode-host-bin "$binaries/steve-code-mode-host" \
+            --exec-server-bin "$binaries/steve-exec-server" \
+            --bwrap-bin "$binaries/bwrap"
+          cp LICENSE NOTICE dist/steve/
+          tar -czf "dist/steve-$TARGET.tar.gz" -C dist/steve .
+      - name: Check extracted distribution and record provenance
+        run: |
+          mkdir dist/extracted
+          tar -xzf "dist/steve-$TARGET.tar.gz" -C dist/extracted
+          dist/extracted/bin/steve --version
+          dist/extracted/bin/steve --help
+          dist/extracted/bin/steve completion bash > /dev/null
+          dist/extracted/steve-path/rg --version
+          test "$(sha256sum dist/extracted/steve-resources/bwrap | cut -d ' ' -f 1)" = "$STEVE_BWRAP_SHA256"
+          {
+            echo "commit=$STABLE_GIT_COMMIT"
+            echo "target=$TARGET"
+            echo "v8_source=https://github.com/openai/codex/releases"
+            echo "scope=Linux package build and smoke checks; full suite not certified"
+            rustc --version
+            cargo --version
+          } > dist/build-info.txt
+          cp LICENSE NOTICE dist/
+          cp "$(dirname "$RUSTY_V8_ARCHIVE")/rusty_v8_ptrcomp_sandbox_release_$TARGET.sha256" dist/v8.sha256
+          (cd dist && sha256sum "steve-$TARGET.tar.gz" > SHA256SUMS)
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: steve-linux-x86_64-${{ inputs.candidate_sha }}
+          path: |
+            dist/steve-*.tar.gz
+            dist/SHA256SUMS
+            dist/build-info.txt
+            dist/LICENSE
+            dist/NOTICE
+            dist/v8.sha256
+          if-no-files-found: error
+          retention-days: 14
