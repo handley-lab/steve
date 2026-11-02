@@ -19,6 +19,13 @@ async fn security_setup_fetch_with_default_features_uses_authenticated_codex_end
 {
     let (mut app, mut events, _ops) = make_test_app_with_channels().await;
     let backend = wiremock::MockServer::start().await;
+    let inference_url = app
+        .config
+        .model_provider
+        .base_url
+        .clone()
+        .expect("mock inference URL");
+    assert!(app.config.model_provider.requires_openai_auth);
     app.config.chatgpt_base_url = backend.uri();
     app.config.cli_auth_credentials_store_mode = AuthCredentialsStoreMode::File;
     std::fs::write(
@@ -39,6 +46,22 @@ async fn security_setup_fetch_with_default_features_uses_authenticated_codex_end
         &app.config.codex_home.join("config.toml"),
         &app.config,
     )?;
+    // Validate the on-disk fixture directly so an invalid file is not hidden by
+    // the embedded server's generic default-config recovery path.
+    let fixture_config = ConfigBuilder::default()
+        .codex_home(app.config.codex_home.to_path_buf())
+        .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+        .build()
+        .await?;
+    assert_eq!(
+        fixture_config.model_provider_id,
+        app.config.model_provider_id
+    );
+    assert!(fixture_config.model_provider.requires_openai_auth);
+    assert_eq!(
+        fixture_config.model_provider.base_url.as_deref(),
+        Some(inference_url.as_str())
+    );
     let mut server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
     wiremock::Mock::given(wiremock::matchers::path("/wham/security-setup"))
         .and(wiremock::matchers::header(
@@ -198,18 +221,23 @@ async fn security_setup_fetch_with_default_features_uses_authenticated_codex_end
 
 #[tokio::test]
 async fn security_setup_skips_fetch_when_server_auth_does_not_match_saved_login() -> Result<()> {
-    for (auth_method, auth_token) in [
+    for (auth_method, auth_token, account_auth) in [
         (
             Some(AuthMode::ChatgptAuthTokens),
             Some("other-account-token"),
+            true,
         ),
-        (Some(AuthMode::ChatgptAuthTokens), Some("saved-token")),
-        (Some(AuthMode::Chatgpt), Some("other-account-token")),
-        (Some(AuthMode::Chatgpt), None),
-        (None, None),
+        (Some(AuthMode::ChatgptAuthTokens), Some("saved-token"), true),
+        (Some(AuthMode::Chatgpt), Some("other-account-token"), true),
+        (Some(AuthMode::Chatgpt), None, true),
+        (None, None, true),
+        (Some(AuthMode::Chatgpt), Some("saved-token"), false),
     ] {
         let (mut app, _events, _ops) = make_test_app_with_channels().await;
         let backend = wiremock::MockServer::start().await;
+        // Exercise the server/saved-auth mismatch, rather than returning at the
+        // unrelated provider eligibility guard before asking for server auth.
+        app.config.model_provider.requires_openai_auth = account_auth;
         app.config.chatgpt_base_url = backend.uri();
         app.config.cli_auth_credentials_store_mode = AuthCredentialsStoreMode::File;
         write_chatgpt_auth(
@@ -269,7 +297,10 @@ async fn security_setup_skips_fetch_when_server_auth_does_not_match_saved_login(
         backend.verify().await;
         server.shutdown().await?;
         let methods = daemon.await??;
-        assert!(methods.iter().any(|method| method == "getAuthStatus"));
+        assert_eq!(
+            methods.iter().any(|method| method == "getAuthStatus"),
+            account_auth,
+        );
     }
     Ok(())
 }

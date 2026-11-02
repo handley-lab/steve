@@ -74,7 +74,7 @@ pub(crate) fn prefetch(
     tx: AppEventSender,
     request_id: Uuid,
 ) {
-    if config.model_provider_id != "openai" || server.uses_remote_workspace() {
+    if !config.model_provider.requires_openai_auth || server.uses_remote_workspace() {
         return;
     }
     let config = config.clone();
