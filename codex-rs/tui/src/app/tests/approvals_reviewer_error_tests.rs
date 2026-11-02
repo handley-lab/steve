@@ -9,6 +9,7 @@ async fn approvals_reviewer_error_retains_config_cause() -> Result<()> {
     app.config.codex_home = codex_home.path().to_path_buf().abs();
     let config_path = codex_home.path().join("config.toml");
     std::fs::write(&config_path, "")?;
+    crate::test_support::seed_test_provider_from_config(&config_path, &app.config)?;
     let mut app_server = start_config_write_test_app_server(&app).await?;
     let mut tui = crate::tui::test_support::make_test_tui()?;
     while events.try_recv().is_ok() {}

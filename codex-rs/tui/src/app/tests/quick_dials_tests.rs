@@ -38,6 +38,10 @@ async fn quick_dials_persist_save_replace_and_delete() -> Result<()> {
     app.save_quick_dial(/*slot*/ 3, Some(replacement.clone()))
         .await;
     let reloaded = ConfigBuilder::default()
+        .harness_overrides(ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .codex_home(app.config.codex_home.to_path_buf())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
         .build()
@@ -47,6 +51,10 @@ async fn quick_dials_persist_save_replace_and_delete() -> Result<()> {
 
     app.save_quick_dial(/*slot*/ 3, /*dial*/ None).await;
     let reloaded = ConfigBuilder::default()
+        .harness_overrides(ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .codex_home(app.config.codex_home.to_path_buf())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
         .build()
@@ -78,6 +86,10 @@ async fn quick_dials_respect_profile_and_external_ownership() -> Result<()> {
     let external =
         toml::from_str::<toml::Value>("input = 'externally managed prompt'\nlabel = 'external'\n")?;
     let config = ConfigBuilder::default()
+        .harness_overrides(ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .codex_home(codex_home)
         .loader_overrides(loader_overrides)
         .cli_overrides(vec![("tui.presets.2".into(), external)])

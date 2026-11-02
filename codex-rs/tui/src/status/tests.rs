@@ -23,7 +23,6 @@ use crate::token_usage::TokenUsage;
 use crate::token_usage::TokenUsageInfo;
 use app_test_support::ChatGptAuthFixture;
 use app_test_support::write_chatgpt_auth;
-use app_test_support::write_models_cache;
 use chrono::Duration as ChronoDuration;
 use chrono::Local;
 use chrono::TimeZone;
@@ -133,10 +132,14 @@ fn app_server_workspace_write_profile(network_enabled: bool) -> PermissionProfil
 }
 
 async fn test_config(temp_home: &TempDir) -> Config {
+    test_config_with_provider(temp_home, "openai").await
+}
+
+async fn test_config_with_provider(temp_home: &TempDir, provider: &str) -> Config {
     let mut config = ConfigBuilder::default()
         .codex_home(temp_home.path().to_path_buf())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
-        .cli_overrides(vec![("model_provider".into(), "openai".into())])
+        .cli_overrides(vec![("model_provider".into(), provider.into())])
         .build()
         .await
         .expect("load config");
@@ -376,15 +379,37 @@ async fn status_snapshot_shows_chatgpt_plan_without_email() {
         .respond_with(wiremock::ResponseTemplate::new(/*s*/ 200).set_body_string("{}"))
         .mount(&server)
         .await;
+    wiremock::Mock::given(wiremock::matchers::path("/models"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+            codex_protocol::openai_models::ModelsResponse {
+                models: vec![codex_models_manager::test_support::model_info(
+                    "gpt-5.1-codex-max",
+                )],
+            },
+        ))
+        .mount(&server)
+        .await;
     std::fs::write(
         &profile_path,
-        format!("chatgpt_base_url = '{}'", server.uri()),
+        format!(
+            r#"model_provider = "status-test"
+chatgpt_base_url = "{0}"
+openai_base_url = "{0}/v1"
+[model_providers.status-test]
+name = "OpenAI"
+base_url = "{0}/v1"
+model_catalog_url = "{0}/models"
+requires_openai_auth = true
+"#,
+            server.uri()
+        ),
     )
     .expect("configure local ChatGPT fixture");
-    let mut config = test_config(&temp_home).await;
+    std::fs::copy(&profile_path, temp_home.path().join("config.toml"))
+        .expect("configure bootstrap provider");
+    let mut config = test_config_with_provider(&temp_home, "status-test").await;
     config.chatgpt_base_url = server.uri();
     config.model = Some("gpt-5.1-codex-max".to_string());
-    config.model_provider_id = "openai".to_string();
     config.cli_auth_credentials_store_mode = AuthCredentialsStoreMode::File;
     set_workspace_cwd(&mut config, test_path_buf("/workspace/tests").abs());
 
@@ -396,9 +421,6 @@ async fn status_snapshot_shows_chatgpt_plan_without_email() {
         AuthCredentialsStoreMode::File,
     )
     .expect("write email-less ChatGPT auth");
-    write_models_cache(temp_home.path())
-        .await
-        .expect("write models cache");
     let mut app_server = crate::start_app_server_for_picker(
         crate::backend_id::BackendId::new(),
         &config,

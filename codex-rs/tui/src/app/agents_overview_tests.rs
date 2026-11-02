@@ -1631,6 +1631,10 @@ async fn root_switch_preserves_vim_line_yank() -> Result<()> {
         app.local_settings.user_config_path.as_path(),
         "[tui]\nresume_cwd = \"session\"\n",
     )?;
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(
         app.chat_widget.config_ref(),
     ))
@@ -1685,6 +1689,10 @@ async fn root_switch_loads_local_preferences_from_disk() -> Result<()> {
     // Keep the large setup and root-switch futures off the test thread's stack.
     let mut app = Box::pin(make_test_app()).await;
     trust_fixture_folders(&mut app);
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(
         app.chat_widget.config_ref(),
     ))
@@ -1706,6 +1714,10 @@ async fn root_switch_loads_local_preferences_from_disk() -> Result<()> {
     std::fs::write(
         app.local_settings.user_config_path.as_path(),
         "[tui]\ntheme = \"dracula\"\nresume_cwd = \"session\"\n[history]\npersistence = \"none\"\n",
+    )?;
+    crate::test_support::seed_test_provider_from_config(
+        app.local_settings.user_config_path.as_path(),
+        &app.config,
     )?;
     let config = Box::pin(app.rebuild_config_for_cwd(app.config.cwd.to_path_buf())).await?;
     let expected = crate::local_settings::LocalSettings::from(&config);
@@ -1803,6 +1815,10 @@ async fn overview_selection_applies_user_permissions_only_to_unloaded_threads() 
         app.config.codex_home.join("config.toml"),
         "[tui]\nresume_cwd = \"session\"\n",
     )?;
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut server_config = app.config.clone();
     server_config
         .permissions
@@ -1825,6 +1841,10 @@ async fn overview_selection_applies_user_permissions_only_to_unloaded_threads() 
             .expect("create historical session"),
         )?);
     }
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut app_server =
         Box::pin(crate::start_embedded_app_server_for_picker(&server_config)).await?;
     let loaded = Box::pin(app_server.resume_thread(
@@ -1875,6 +1895,10 @@ async fn overview_selection_applies_user_permissions_only_to_unloaded_threads() 
             std::fs::write(
                 app.config.codex_home.join("config.toml"),
                 "approvals_reviewer = \"auto_review\"\n[tui]\nresume_cwd = \"session\"\n",
+            )?;
+            crate::test_support::seed_test_provider_from_config(
+                &app.config.codex_home.join("config.toml"),
+                &app.config,
             )?;
             app.harness_overrides.sandbox_mode =
                 Some(codex_protocol::config_types::SandboxMode::WorkspaceWrite);
@@ -2032,6 +2056,10 @@ async fn overview_cold_resume_honors_working_directory_selection() -> Result<()>
                 /*git_info*/ None,
             )
             .expect("create historical session"),
+        )?;
+        crate::test_support::seed_test_provider_from_config(
+            &app.config.codex_home.join("config.toml"),
+            &app.config,
         )?;
         let mut app_server =
             Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
@@ -2352,6 +2380,10 @@ async fn resume_picker_round_trip_preserves_each_threads_input() -> Result<()> {
         app.config.codex_home.join("config.toml"),
         "[tui]\nresume_cwd = \"current\"\n",
     )?;
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
     let backend_id = server.backend_id();
     let mut targets = Vec::new();
@@ -2469,6 +2501,10 @@ async fn command_center_handles_resume_failure_and_success() -> Result<()> {
     let view = app.agents_overview_view(Vec::new(), /*selected_thread_id*/ None);
     app.chat_widget.show_bottom_pane_view(Box::new(view));
     let mut tui = crate::tui::test_support::make_test_tui()?;
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
     let backend_id = server.backend_id();
     assert!(matches!(
@@ -2548,6 +2584,10 @@ async fn command_center_attach_conflict_opens_read_only_and_retries() -> Result<
         )
         .expect("saved task"),
     )?;
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut owner = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
     Box::pin(owner.resume_thread(
         &app.local_settings,
@@ -2559,6 +2599,10 @@ async fn command_center_attach_conflict_opens_read_only_and_retries() -> Result<
     let thread = owner
         .thread_read(thread_id, /*include_turns*/ false)
         .await?;
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
     app.app_server_target = AppServerTarget::LocalDaemon {
         allow_embedded_fallback: true,
@@ -2878,6 +2922,8 @@ async fn overview_fork_keeps_idle_source_input_queued() -> Result<()> {
     for cached_primary in [false, true] {
         let (app, mut events, _) = make_test_app_with_channels().await;
         let mut app = Box::pin(app);
+        let model = format!("{}/gpt-5.6-sol", app.config.model_provider_id);
+        app.chat_widget.set_model(&model);
         trust_fixture_folders(&mut app);
         std::fs::write(
             app.config.codex_home.join("config.toml"),
@@ -2895,6 +2941,10 @@ async fn overview_fork_keeps_idle_source_input_queued() -> Result<()> {
             .expect("saved rollout"),
         )?;
         let mut tui = crate::tui::test_support::make_test_tui()?;
+        crate::test_support::seed_test_provider_from_config(
+            &app.config.codex_home.join("config.toml"),
+            &app.config,
+        )?;
         let mut server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
         if cached_primary {
             Box::pin(app.select_agents_overview_thread(&mut tui, &mut server, source)).await?;
@@ -3009,6 +3059,7 @@ async fn overview_grouping_persists_across_config_reloads() -> Result<()> {
     let home = tempfile::tempdir()?;
     let config_path = home.path().join("work.config.toml");
     std::fs::write(&config_path, "[tui]\nanimations = false\n")?;
+    crate::test_support::seed_test_provider_from_config(&config_path, &app.config)?;
     app.local_settings.user_config_path = AbsolutePathBuf::try_from(config_path.clone())?;
     let mut server = crate::start_embedded_app_server_for_picker(&app.config).await?;
     let mut tui = crate::tui::test_support::make_test_tui()?;

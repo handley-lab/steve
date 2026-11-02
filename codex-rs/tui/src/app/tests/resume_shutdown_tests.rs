@@ -15,6 +15,10 @@ async fn thread_close_exits_only_when_displayed_thread_is_unloaded() -> Result<(
         app.config.codex_home.join("config.toml"),
         "thread_unload_delay_secs = 0\n",
     )?;
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
     let started = server.start_thread(&app.config).await?;
     let thread_id = started.session.thread_id;
