@@ -302,6 +302,14 @@ async fn saved_quick_dials_save_and_clear_picker_snapshots() {
     );
     chat.handle_key_event(KeyCode::Esc.into());
 
+    let mut preset = get_available_model(&chat, "gpt-5.5");
+    preset
+        .supported_reasoning_efforts
+        .push(ReasoningEffortPreset {
+            effort: ReasoningEffortConfig::High,
+            description: String::new(),
+        });
+    chat.model_catalog = Arc::new(ModelCatalog::new(vec![preset]));
     chat.set_reasoning_effort(Some(ReasoningEffortConfig::High));
     chat.effective_service_tier = Some(SERVICE_TIER_DEFAULT_REQUEST_VALUE.into());
     assert_eq!(
