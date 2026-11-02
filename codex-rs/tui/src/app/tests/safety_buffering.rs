@@ -32,7 +32,7 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 const CURRENT_MODEL: &str = "gpt-5.6-terra";
-const FASTER_MODEL: &str = "gpt-5.6-luna";
+const FASTER_MODEL: &str = "fixture/gpt-5.6-luna";
 const MODEL_PROVIDER_ID: &str = "safety-retry-test";
 const PREVIOUS_PROMPT: &str = "Establish context";
 const RETRY_PROMPT: &str = "Handle the safety-buffered request";
@@ -175,6 +175,12 @@ async fn wait_for_turn_completed(
 async fn safety_recourse_handles_a_policy_block() -> Result<()> {
     let (mut app, mut events, _) = make_test_app_with_channels().await;
     let model = responses::start_mock_server().await;
+    wiremock::Mock::given(wiremock::matchers::path("/v1/models"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+            serde_json::json!({"data": [{"id": "mock-model"}, {"id": "org/gpt-5.1"}]}),
+        ))
+        .mount(&model)
+        .await;
     app_test_support::MockResponsesConfig::new(&model.uri())
         .with_root_config("instructions = 'Help the user.'")
         .write(app.config.codex_home.as_path())?;
@@ -235,8 +241,8 @@ async fn safety_recourse_handles_a_policy_block() -> Result<()> {
             /*initial_user_message*/ None,
         )
         .await?;
-        let selected_model = "gpt-5.1";
-        app.chat_widget.set_model(selected_model);
+        let selected_model = "org/gpt-5.1";
+        app.chat_widget.set_model(&format!("{}/{selected_model}", app.config.model_provider_id));
         submit_prompt(&mut app, "Blocked original prompt");
         app.submit_thread_op(&mut server, source_id, next_user_turn_event(&mut events))
             .await?;
@@ -343,6 +349,7 @@ async fn embedded_session_switch_routes_background_approval_and_restores_draft()
         }],
         response_chunks("finished"),
     ]).await;
+    model.set_models(&["mock-model"]).await;
     let (mut app, mut events, _ops) = make_test_app_with_channels().await;
     let folder = tempdir()?;
     let cwd = folder.path().canonicalize()?;
@@ -440,6 +447,7 @@ async fn interrupt_after_inactive_steer(switch: SteerSwitch) -> Result<()> {
     let (steered_chunks, release_steered_response) =
         gated_response_chunks("steered-response", ev_completed("steered-response"));
     let (server, _completions) = start_streaming_sse_server(vec![chunks, steered_chunks]).await;
+    server.set_models(&[CURRENT_MODEL]).await;
     let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
     let codex_home = tempdir()?;
     std::fs::write(
@@ -470,6 +478,10 @@ stream_max_retries = 0
         stream_max_retries: Some(0),
         ..ModelProviderInfo::default()
     };
+    app.config.model_providers.insert(
+        app.config.model_provider_id.clone(),
+        app.config.model_provider.clone(),
+    );
 
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
@@ -770,6 +782,7 @@ async fn run_safety_retry(
     }]);
     let expected_request_count = response_sequences.len();
     let (server, _completions) = start_streaming_sse_server(response_sequences).await;
+    server.set_models(&[CURRENT_MODEL, FASTER_MODEL]).await;
 
     let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
     let codex_home = tempdir()?;
@@ -812,8 +825,12 @@ async fn run_safety_retry(
             });
         }
     }
+    let mut provider_catalog = model_catalog.clone();
+    for model in &mut provider_catalog.models {
+        model.slug = format!("{MODEL_PROVIDER_ID}/{}", model.slug);
+    }
     let model_catalog_path = codex_home.path().join("models.json");
-    std::fs::write(&model_catalog_path, serde_json::to_vec(&model_catalog)?)?;
+    std::fs::write(&model_catalog_path, serde_json::to_vec(&provider_catalog)?)?;
     let model_catalog_path = toml::Value::String(model_catalog_path.display().to_string());
     // The committed-steer case counts usage from the response that finishes before steering.
     let instant_interrupt_config = if committed_steer.is_some() {
@@ -868,7 +885,7 @@ goals = true
                 .collect(),
         ));
     }
-    app.config.model_catalog = Some(model_catalog);
+    app.config.model_catalog = Some(provider_catalog);
     app.config.model_provider_id = MODEL_PROVIDER_ID.to_string();
     app.config.model_provider = ModelProviderInfo {
         name: "Safety retry test".to_string(),
@@ -877,6 +894,10 @@ goals = true
         stream_max_retries: Some(0),
         ..ModelProviderInfo::default()
     };
+    app.config.model_providers.insert(
+        app.config.model_provider_id.clone(),
+        app.config.model_provider.clone(),
+    );
     app.config
         .features
         .enable(Feature::Goals)
@@ -1110,8 +1131,7 @@ goals = true
                 ..Default::default()
             })
             .await?;
-        let mut settings = next_thread_settings_updated(&mut app_server, source_thread_id).await;
-        settings.thread_settings.model_provider = "openai".to_string();
+        let settings = next_thread_settings_updated(&mut app_server, source_thread_id).await;
         app.chat_widget.on_thread_settings_updated(settings);
         app.chat_widget.update_account_state(
             /*status_account_display*/ None, /*plan_type*/ None,
@@ -1146,9 +1166,9 @@ goals = true
                 _ => None,
             })
             .expect("unsupported Daybreak model should be added to history");
-        insta::assert_snapshot!(
+        assert_eq!(
             lines_to_single_string(&error_cell.display_lines(/*width*/ 200)),
-            @"■ Daybreak support for model gpt-5.6-luna could not be confirmed by the connected server. Use /daybreak to turn it off, or choose a compatible model and server."
+            format!("■ Daybreak support for model {MODEL_PROVIDER_ID}/{FASTER_MODEL} could not be confirmed by the connected server. Use /daybreak to turn it off, or choose a compatible model and server.")
         );
         app.chat_widget.set_daybreak_enabled(/*enabled*/ false);
 
@@ -1364,6 +1384,13 @@ goals = true
     }
     let mut replayed_history = String::new();
     while let Ok(event) = app_event_rx.try_recv() {
+        if matches!(
+            event,
+            AppEvent::ResetTranscriptForThreadSwitch
+                | AppEvent::ResetTranscriptForThreadSwitchPreservingScreen
+        ) {
+            replayed_history.clear();
+        }
         if let AppEvent::InsertHistoryCell(cell) = event {
             let rendered = lines_to_single_string(&cell.transcript_lines(/*width*/ 80));
             if cell
@@ -1379,7 +1406,8 @@ goals = true
     }
     assert_eq!(
         replayed_history.contains("Conversation interrupted"),
-        scenario == SafetyRetryScenario::InterruptedPrevious
+        scenario == SafetyRetryScenario::InterruptedPrevious,
+        "retry transcript: {replayed_history}"
     );
     let forked_history = replayed_history
         .rsplit_once("Thread forked from")
