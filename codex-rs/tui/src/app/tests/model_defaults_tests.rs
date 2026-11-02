@@ -10,17 +10,52 @@ use pretty_assertions::assert_eq;
 async fn session_model_selection_preserves_defaults_and_updates_active_thread() -> Result<()> {
     for mode in [ModeKind::Default, ModeKind::Plan] {
         let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+        let models = ["gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra"]
+            .into_iter()
+            .map(|slug| {
+                let mut model = codex_models_manager::test_support::model_info(slug);
+                model.supported_reasoning_levels = [
+                    ReasoningEffortConfig::Low,
+                    ReasoningEffortConfig::Medium,
+                    ReasoningEffortConfig::High,
+                    ReasoningEffortConfig::XHigh,
+                    ReasoningEffortConfig::Max,
+                    ReasoningEffortConfig::Ultra,
+                ]
+                .into_iter()
+                .map(
+                    |effort| codex_protocol::openai_models::ReasoningEffortPreset {
+                        effort,
+                        description: "Model defaults fixture".into(),
+                    },
+                )
+                .collect();
+                model
+            })
+            .collect();
+        crate::test_support::advertise_test_models(
+            app._test_codex_home.as_ref().expect("test home"),
+            models,
+        )
+        .await;
         app.config.model = Some("gpt-5.5".into());
         app.config.model_reasoning_effort = Some(ReasoningEffortConfig::Medium);
         app.config.plan_mode_reasoning_effort = Some(ReasoningEffortConfig::Low);
         let config_path = app.config.codex_home.join("config.toml");
         let original = "# My defaults\nmodel = 'gpt-5.5'\nmodel_reasoning_effort = 'medium'\nplan_mode_reasoning_effort = 'low'\n";
         std::fs::write(&config_path, original)?;
+        crate::test_support::seed_test_provider_from_config(&config_path, &app.config)?;
+        let original = std::fs::read_to_string(&config_path)?;
         let mut server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
         let started = server.start_thread(&app.config).await?;
         let thread_id = started.session.thread_id;
         app.enqueue_primary_thread_session(started.session, started.turns)
             .await?;
+        let bootstrap = server.bootstrap(&app.config).await?;
+        let request = app.chat_widget.refresh_account_scoped_models();
+        app.chat_widget
+            .on_models_loaded(request, Ok(bootstrap.available_models));
+        app.model_catalog = app.chat_widget.model_catalog();
         app.chat_widget
             .set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
         if mode == ModeKind::Plan {
@@ -36,7 +71,7 @@ async fn session_model_selection_preserves_defaults_and_updates_active_thread() 
             while events.try_recv().is_ok() {}
             let command = match effort {
                 ReasoningEffortConfig::High => {
-                    "/model gpt-5.6-terra --reasoning high --speed=standard".into()
+                    "/model test-provider/gpt-5.6-terra --reasoning high --speed=standard".into()
                 }
                 ReasoningEffortConfig::Ultra => "/model --reasoning=ultra".into(),
                 ReasoningEffortConfig::Max => "/model --reasoning max".into(),
@@ -52,10 +87,26 @@ async fn session_model_selection_preserves_defaults_and_updates_active_thread() 
                 }
                 Box::pin(app.handle_event(&mut tui, &mut server, event)).await?;
             }
-            let settings = next_thread_settings_updated(&mut server, thread_id).await;
+            let settings = tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let settings = next_thread_settings_updated(&mut server, thread_id).await;
+                    if crate::temporary_structured_request::native_model_id(
+                        &settings.thread_settings.model,
+                        &app.config.model_provider_id,
+                    ) == "gpt-5.6-terra"
+                        && settings.thread_settings.effort == Some(effort.clone())
+                    {
+                        break settings;
+                    }
+                }
+            })
+            .await?;
             assert_eq!(
                 (
-                    settings.thread_settings.model.as_str(),
+                    crate::temporary_structured_request::native_model_id(
+                        &settings.thread_settings.model,
+                        &app.config.model_provider_id
+                    ),
                     settings.thread_settings.effort.clone(),
                     settings.thread_settings.service_tier.as_deref(),
                 ),
@@ -65,7 +116,7 @@ async fn session_model_selection_preserves_defaults_and_updates_active_thread() 
                 for command in [
                     "/model gpt-5.6-terra fast",
                     "/model gpt-5.6-terra --speeed=fast",
-                    "/model gpt-5.6-terra --reasoning=invalid",
+                    "/model test-provider/gpt-5.6-terra --reasoning=invalid",
                     "/model --speed",
                     "/model --reasoning=",
                     "/model --reasoning --speed=standard",
@@ -98,14 +149,14 @@ async fn session_model_selection_preserves_defaults_and_updates_active_thread() 
                     app.chat_widget.current_model(),
                     app.chat_widget.current_reasoning_effort()
                 ),
-                ("gpt-5.6-terra", Some(effort))
+                ("test-provider/gpt-5.6-terra", Some(effort))
             );
             assert_eq!(std::fs::read(&config_path)?, original.as_bytes());
         }
         let fresh = server.start_thread(&app.config).await?;
         assert_eq!(
             (fresh.session.model.as_str(), fresh.session.reasoning_effort),
-            ("gpt-5.5", Some(ReasoningEffortConfig::Medium))
+            ("test-provider/gpt-5.5", Some(ReasoningEffortConfig::Medium))
         );
         assert_eq!(
             app.config.plan_mode_reasoning_effort,
@@ -236,6 +287,15 @@ async fn cloud_model_selection_requires_server_acceptance() -> Result<()> {
 
 #[tokio::test]
 async fn model_default_saves_report_server_outcomes_and_target_server_profile() -> Result<()> {
+    check_model_default_save_outcomes(false).await
+}
+
+#[tokio::test]
+async fn advanced_reasoning_saves_supported_default_and_preserves_session_ultra() -> Result<()> {
+    check_model_default_save_outcomes(true).await
+}
+
+async fn check_model_default_save_outcomes(advanced: bool) -> Result<()> {
     for outcome in ["saved", "overridden", "rejected"] {
         let (mut app, mut events, _ops) = make_test_app_with_channels().await;
         app.config.model_reasoning_effort = Some(ReasoningEffortConfig::Medium);
@@ -250,7 +310,7 @@ async fn model_default_saves_report_server_outcomes_and_target_server_profile() 
         loader_overrides.user_config_path =
             Some(AbsolutePathBuf::from_absolute_path(&profile_path)?);
         loader_overrides.user_config_profile = Some("work".parse()?);
-        let overrides = if outcome == "overridden" {
+        let mut overrides = if outcome == "overridden" {
             vec![
                 ("model".into(), toml::Value::String("gpt-5.6-terra".into())),
                 (
@@ -266,6 +326,16 @@ async fn model_default_saves_report_server_outcomes_and_target_server_profile() 
         } else {
             Vec::new()
         };
+        overrides.extend([
+            (
+                "model_provider".into(),
+                app.config.model_provider_id.clone().into(),
+            ),
+            (
+                format!("model_providers.{}", app.config.model_provider_id),
+                toml::Value::try_from(&app.config.model_provider)?,
+            ),
+        ]);
         let config = ConfigBuilder::default()
             .codex_home(server_home.path().to_path_buf())
             .cli_overrides(overrides.clone())
@@ -295,6 +365,46 @@ async fn model_default_saves_report_server_outcomes_and_target_server_profile() 
             AppServerClient::InProcess(client),
             crate::app_server_session::ThreadParamsMode::Remote,
         );
+        let advanced_thread = if advanced {
+            let mut model = codex_models_manager::test_support::model_info("gpt-5.5");
+            model.default_reasoning_level = Some(ReasoningEffortConfig::Medium);
+            model.supported_reasoning_levels = [
+                ReasoningEffortConfig::Medium,
+                ReasoningEffortConfig::High,
+                ReasoningEffortConfig::Ultra,
+            ]
+            .into_iter()
+            .map(
+                |effort| codex_protocol::openai_models::ReasoningEffortPreset {
+                    effort,
+                    description: "Advanced default fixture".into(),
+                },
+            )
+            .collect();
+            crate::test_support::advertise_test_models(
+                app._test_codex_home.as_ref().expect("test home"),
+                vec![
+                    codex_models_manager::test_support::model_info("gpt-5.6-sol"),
+                    codex_models_manager::test_support::model_info("gpt-5.6-terra"),
+                    model,
+                ],
+            )
+            .await;
+            let started = server.start_thread(&app.config).await?;
+            let id = started.session.thread_id;
+            let initial_model = started.session.model.clone();
+            app.enqueue_primary_thread_session(started.session, started.turns)
+                .await?;
+            let bootstrap = server.bootstrap(&app.config).await?;
+            let request = app.chat_widget.refresh_account_scoped_models();
+            app.chat_widget
+                .on_models_loaded(request, Ok(bootstrap.available_models));
+            app.model_catalog = app.chat_widget.model_catalog();
+            app.config.model_reasoning_effort = Some(ReasoningEffortConfig::Medium);
+            Some((id, initial_model))
+        } else {
+            None
+        };
         if outcome == "rejected" {
             std::fs::write(&profile_path, "[broken")?;
         }
@@ -302,19 +412,62 @@ async fn model_default_saves_report_server_outcomes_and_target_server_profile() 
         let mut tui = crate::tui::test_support::make_test_tui()?;
         for event in [
             AppEvent::PersistModelSelection {
-                model: "gpt-5.5".into(),
+                model: format!("{}/gpt-5.5", app.config.model_provider_id),
                 effort: Some(ReasoningEffortConfig::High),
             },
             AppEvent::PersistPlanModeReasoningEffort(Some(ReasoningEffortConfig::High)),
             AppEvent::PersistServiceTierSelection {
                 service_tier: Some(ServiceTier::Fast.request_value().into()),
             },
-            AppEvent::ApplyAdvancedReasoning {
-                model: "gpt-5.5".into(),
-                effort: ReasoningEffortConfig::Ultra,
-            },
         ] {
             Box::pin(app.handle_event(&mut tui, &mut server, event)).await?;
+        }
+        if let Some((thread_id, _initial_model)) = advanced_thread.as_ref() {
+            let selected = format!("{}/gpt-5.5", app.config.model_provider_id);
+            Box::pin(app.handle_event(
+                &mut tui,
+                &mut server,
+                AppEvent::ApplyAdvancedReasoning {
+                    model: selected.clone(),
+                    effort: ReasoningEffortConfig::Ultra,
+                },
+            ))
+            .await?;
+
+            let updated = tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let updated = next_thread_settings_updated(&mut server, *thread_id).await;
+                    if crate::temporary_structured_request::native_model_id(
+                        &updated.thread_settings.model,
+                        &app.config.model_provider_id,
+                    ) == "gpt-5.5"
+                        && updated.thread_settings.effort == Some(ReasoningEffortConfig::Ultra)
+                    {
+                        break updated;
+                    }
+                }
+            })
+            .await?;
+            app.enqueue_thread_notification(
+                *thread_id,
+                ServerNotification::ThreadSettingsUpdated(updated),
+            )
+            .await?;
+            assert_eq!(
+                (
+                    app.chat_widget.current_model(),
+                    app.chat_widget.current_reasoning_effort()
+                ),
+                (selected.as_str(), Some(ReasoningEffortConfig::Ultra))
+            );
+            assert_eq!(
+                server
+                    .thread_read(*thread_id, false)
+                    .await?
+                    .model
+                    .as_deref(),
+                Some(selected.as_str())
+            );
         }
         let mut service_tier_error = None;
         let messages = std::iter::from_fn(|| events.try_recv().ok())
@@ -336,33 +489,50 @@ async fn model_default_saves_report_server_outcomes_and_target_server_profile() 
             .join("\n");
         assert_eq!(
             messages.matches("higher-priority").count(),
-            if outcome == "overridden" { 4 } else { 0 }
+            if outcome == "overridden" {
+                if advanced { 4 } else { 3 }
+            } else {
+                0
+            }
         );
         assert_eq!(
             messages.matches("Failed to save").count(),
-            if outcome == "rejected" { 4 } else { 0 }
+            if outcome == "rejected" {
+                if advanced { 4 } else { 3 }
+            } else {
+                0
+            }
         );
-        if outcome == "overridden" {
+        if outcome == "overridden" && !advanced {
             insta::assert_snapshot!("overridden_model_defaults", messages);
         }
         let persisted = std::fs::read_to_string(&profile_path)?;
         if outcome == "rejected" {
-            insta::assert_snapshot!(
-                "service_tier_default_save_error",
-                service_tier_error.expect("expected a service-tier save error")
-            );
+            let service_tier_error =
+                service_tier_error.expect("expected a service-tier save error");
+            if !advanced {
+                insta::assert_snapshot!("service_tier_default_save_error", service_tier_error);
+            } else {
+                assert!(service_tier_error.contains("Failed to save default service tier"));
+            }
             assert_eq!(persisted, "[broken");
             assert!(!messages.contains("Model changed"));
             assert!(!messages.contains("Service tier set"));
         } else {
+            let mut expected = toml::toml! {
+                model_provider = "test-provider"
+                model = "gpt-5.5"
+                model_reasoning_effort = "high"
+                plan_mode_reasoning_effort = "high"
+                service_tier = "fast"
+            };
+            expected.insert(
+                "model_reasoning_effort".into(),
+                toml::Value::String(if advanced { "medium" } else { "high" }.into()),
+            );
             assert_eq!(
                 toml::from_str::<toml::Value>(&persisted)?,
-                toml::Value::Table(toml::toml! {
-                    model = "gpt-5.5"
-                    model_reasoning_effort = "medium"
-                    plan_mode_reasoning_effort = "high"
-                    service_tier = "fast"
-                })
+                toml::Value::Table(expected)
             );
         }
         assert_eq!(std::fs::read(&local_config_path).ok(), local_config_before);
@@ -370,6 +540,104 @@ async fn model_default_saves_report_server_outcomes_and_target_server_profile() 
             std::fs::read_to_string(&base_path)?,
             "# Base configuration stays unchanged.\n"
         );
+        if !advanced && outcome != "rejected" {
+            let mut model = codex_models_manager::test_support::model_info("gpt-5.5");
+            model.supported_reasoning_levels =
+                [ReasoningEffortConfig::High, ReasoningEffortConfig::Ultra]
+                    .into_iter()
+                    .map(
+                        |effort| codex_protocol::openai_models::ReasoningEffortPreset {
+                            effort,
+                            description: "Session reasoning fixture".into(),
+                        },
+                    )
+                    .collect();
+            crate::test_support::advertise_test_models(
+                app._test_codex_home.as_ref().expect("test home"),
+                vec![
+                    codex_models_manager::test_support::model_info("gpt-5.6-sol"),
+                    codex_models_manager::test_support::model_info("gpt-5.6-terra"),
+                    model,
+                ],
+            )
+            .await;
+            let started = crate::app_server_session::start_thread_with_request_handle(
+                server.request_handle(), &app.local_settings, app.config.clone(),
+                server.thread_params_mode(), None, server.thread_tool_transport(),
+                crate::app_server_session::StartupLaunchChoices::default(),
+            ).await?;
+            if outcome == "overridden" {
+                assert_eq!(
+                    crate::temporary_structured_request::native_model_id(
+                        &started.session.model,
+                        &app.config.model_provider_id
+                    ),
+                    "gpt-5.6-terra"
+                );
+                assert_eq!(
+                    started.session.reasoning_effort,
+                    Some(ReasoningEffortConfig::Low)
+                );
+            }
+            let thread_id = started.session.thread_id;
+            app.enqueue_primary_thread_session(started.session, started.turns)
+                .await?;
+            let bootstrap = server.bootstrap(&app.config).await?;
+            let request_id = app.chat_widget.refresh_account_scoped_models();
+            app.chat_widget
+                .on_models_loaded(request_id, Ok(bootstrap.available_models));
+            app.model_catalog = app.chat_widget.model_catalog();
+            let before_session = (
+                std::fs::read(&profile_path)?,
+                std::fs::read(&base_path)?,
+                std::fs::read(&local_config_path)?,
+            );
+            let selected = format!("{}/gpt-5.5", app.config.model_provider_id);
+            Box::pin(app.handle_event(
+                &mut tui,
+                &mut server,
+                AppEvent::SelectSessionModel {
+                    model: selected.clone(),
+                    effort: Some(ReasoningEffortConfig::Ultra),
+                    service_tier: None,
+                },
+            ))
+            .await?;
+            let updated = tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let updated = next_thread_settings_updated(&mut server, thread_id).await;
+                    if crate::temporary_structured_request::native_model_id(
+                        &updated.thread_settings.model,
+                        &app.config.model_provider_id,
+                    ) == "gpt-5.5"
+                        && updated.thread_settings.effort == Some(ReasoningEffortConfig::Ultra)
+                    {
+                        break updated;
+                    }
+                }
+            })
+            .await?;
+            app.enqueue_thread_notification(
+                thread_id,
+                ServerNotification::ThreadSettingsUpdated(updated),
+            )
+            .await?;
+            assert_eq!(
+                (
+                    app.chat_widget.current_model(),
+                    app.chat_widget.current_reasoning_effort()
+                ),
+                (selected.as_str(), Some(ReasoningEffortConfig::Ultra))
+            );
+            assert_eq!(
+                (
+                    std::fs::read(&profile_path)?,
+                    std::fs::read(&base_path)?,
+                    std::fs::read(&local_config_path)?
+                ),
+                before_session
+            );
+        }
         server.shutdown().await?;
     }
     Ok(())
