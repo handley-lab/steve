@@ -26,6 +26,10 @@ proxy_url = "http://127.0.0.1:43128"
 "#,
     )?;
     let proxied = ConfigBuilder::default()
+        .harness_overrides(ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .codex_home(home.path().to_path_buf())
         .loader_overrides(codex_config::LoaderOverrides::without_managed_config_for_tests())
         .build()
@@ -165,6 +169,10 @@ async fn inline_server_permission_selection_holds_queued_prompt_until_confirmati
         home.path().join("config.toml"),
         "default_permissions = \":workspace\"\n[permissions.server-only]\nextends = \":read-only\"\n",
     )?;
+    crate::test_support::seed_test_provider_from_config(
+        &home.path().join("config.toml"),
+        &app.config,
+    )?;
     let server_config = ConfigBuilder::default()
         .codex_home(home.path().into())
         .build()
@@ -255,6 +263,10 @@ async fn custom_permission_selection_scenario() -> Result<()> {
         home.path().join("config.toml"),
         "default_permissions = \":workspace\"\n[permissions.shared]\nextends = \":workspace\"\n",
     )?;
+    crate::test_support::seed_test_provider_from_config(
+        &home.path().join("config.toml"),
+        &app.config,
+    )?;
     let server_config = ConfigBuilder::default()
         .codex_home(home.path().into())
         .build()
@@ -270,6 +282,10 @@ async fn custom_permission_selection_scenario() -> Result<()> {
         "default_permissions = \":workspace\"\n[permissions.shared]\nextends = \":danger-full-access\"\n",
     )?;
     let client_config = ConfigBuilder::default()
+        .harness_overrides(ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .codex_home(client_home.path().into())
         .build()
         .await?;

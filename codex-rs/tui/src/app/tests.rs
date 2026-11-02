@@ -3368,6 +3368,10 @@ async fn update_memory_settings_persists_and_updates_widget_config() -> Result<(
     let (mut app, _app_event_rx, _op_rx) = Box::pin(make_test_app_with_channels()).await;
     let codex_home = tempdir()?;
     app.config.codex_home = codex_home.path().to_path_buf().abs();
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
 
     Box::pin(app.update_memory_settings_with_app_server(
@@ -3425,6 +3429,10 @@ fn update_memory_settings_updates_current_thread_memory_mode() -> Result<()> {
         // Seed the previous setting so this test exercises the thread-mode update path.
         app.config.memories.generate_memories = true;
 
+        crate::test_support::seed_test_provider_from_config(
+            &app.config.codex_home.join("config.toml"),
+            &app.config,
+        )?;
         let mut app_server =
             Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
         let started = app_server.start_thread(&app.config).await?;
@@ -3474,6 +3482,10 @@ async fn reset_memories_clears_local_memory_directories() -> Result<()> {
         )?;
         std::fs::write(extensions_root.join("stale.txt"), "stale extension\n")?;
 
+        crate::test_support::seed_test_provider_from_config(
+            &app.config.codex_home.join("config.toml"),
+            &app.config,
+        )?;
         let mut app_server =
             Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
 
@@ -3495,6 +3507,10 @@ async fn server_only_profile_selection_keeps_turns_on_the_selected_profile() -> 
     std::fs::write(
         home.path().join("config.toml"),
         "default_permissions = \":workspace\"\n[permissions.server-only]\nextends = \":read-only\"\n",
+    )?;
+    crate::test_support::seed_test_provider_from_config(
+        &home.path().join("config.toml"),
+        &app.config,
     )?;
     let server_config = ConfigBuilder::default()
         .codex_home(home.path().into())
@@ -3639,6 +3655,10 @@ async fn remote_resume_rejects_explicit_permission_override() -> Result<()> {
         "default_permissions = \":workspace\"\n",
     )?;
     app.config.codex_home = home.path().to_path_buf().abs();
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut server = crate::start_embedded_app_server_for_picker(&app.config).await?;
     let backend_id = server.backend_id();
     app.cli_kv_overrides
@@ -3787,6 +3807,10 @@ async fn update_feature_flags_enabling_guardian_selects_auto_review() -> Result<
     let codex_home = tempdir()?;
     app.config.codex_home = codex_home.path().to_path_buf().abs();
     let auto_review = auto_review_mode();
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut app_server = start_config_write_test_app_server(&app).await?;
 
     app.update_feature_flags(&mut app_server, vec![(Feature::GuardianApproval, true)])
@@ -3915,6 +3939,10 @@ async fn update_feature_flags_disabling_guardian_clears_review_policy_and_restor
         .set_permission_profile_from_session_snapshot(PermissionProfileSnapshot::legacy(
             PermissionProfile::workspace_write(),
         ))?;
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut app_server = start_config_write_test_app_server(&app).await?;
 
     app.update_feature_flags(&mut app_server, vec![(Feature::GuardianApproval, false)])
@@ -3991,6 +4019,10 @@ async fn update_feature_flags_enabling_guardian_overrides_explicit_manual_review
     app.config.approvals_reviewer = ApprovalsReviewer::User;
     app.chat_widget
         .set_approvals_reviewer(ApprovalsReviewer::User);
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut app_server = start_config_write_test_app_server(&app).await?;
 
     app.update_feature_flags(&mut app_server, vec![(Feature::GuardianApproval, true)])
@@ -4063,6 +4095,10 @@ async fn update_feature_flags_disabling_guardian_clears_manual_review_policy_wit
     app.config.approvals_reviewer = ApprovalsReviewer::User;
     app.chat_widget
         .set_approvals_reviewer(ApprovalsReviewer::User);
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut app_server = start_config_write_test_app_server(&app).await?;
 
     app.update_feature_flags(&mut app_server, vec![(Feature::GuardianApproval, false)])
@@ -6356,6 +6392,10 @@ async fn ctrl_l_preserves_the_transcript_and_draft_after_clearing_the_screen() -
     let (mut app, _codex_home, thread_id) =
         pagination_completion_tests::completed_history_app(&["Oldest", "Newest"]).await?;
     let mut tui = crate::tui::test_support::make_test_tui()?;
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut app_server = crate::start_embedded_app_server_for_picker(&app.config).await?;
     let started = app_server
         .resume_thread(
@@ -8231,6 +8271,10 @@ async fn remote_resume_current_cwd_rejection_snapshot() -> Result<()> {
             auth_token: None,
         },
     };
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
     let backend_id = app_server.backend_id();
     let mut tui = crate::tui::test_support::make_test_tui()?;
@@ -8277,6 +8321,10 @@ async fn remote_exec_resume_current_cwd_is_rejected() -> Result<()> {
         )
         .await,
     );
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
     let backend_id = app_server.backend_id();
     let mut tui = crate::tui::test_support::make_test_tui()?;
@@ -8319,6 +8367,10 @@ async fn in_app_resume_session_cwd_without_metadata_is_non_fatal() -> Result<()>
     app.state_db = None;
     let active_thread_id = app.chat_widget.thread_id();
     app.chat_widget.insert_str("keep this draft");
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
     let backend_id = app_server.backend_id();
     let mut tui = crate::tui::test_support::make_test_tui()?;

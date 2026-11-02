@@ -35,6 +35,10 @@ async fn security_setup_fetch_with_default_features_uses_authenticated_codex_end
     )
     .expect("write synthetic auth");
     app_test_support::mount_workspace_routing(&backend).await;
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
     wiremock::Mock::given(wiremock::matchers::path("/wham/security-setup"))
         .and(wiremock::matchers::header(

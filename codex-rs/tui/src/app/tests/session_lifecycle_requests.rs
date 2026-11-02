@@ -1031,6 +1031,10 @@ async fn make_history_test_app() -> Result<(Box<App>, tempfile::TempDir)> {
     let codex_home = tempdir()?;
     app.config.codex_home = codex_home.path().to_path_buf().abs();
     app.config.sqlite = SqliteConfig::new_for_testing(codex_home.path().abs());
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     Ok((app, codex_home))
 }
 
@@ -1539,6 +1543,10 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
         "web_search = \"disabled\"\n[desktop]\ngit-worktree-root = 'relative'\n",
     )?;
     // Keep the large lifecycle futures off the Windows test thread's stack.
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let (mut app_server, mut requests, mut proxy) = Box::pin(start_recording_app_server(
         &app.config,
         /*blocked_thread_list*/ None,
@@ -1981,8 +1989,15 @@ async fn embedded_server_dispatches_only_its_own_dynamic_tools() -> Result<()> {
     let codex_home = tempdir()?;
     app.config.codex_home = codex_home.path().to_path_buf().abs();
     app.config.sqlite = SqliteConfig::new_for_testing(codex_home.path().abs());
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let app_server = crate::start_embedded_app_server_for_picker(&app.config).await?;
-    for (id, namespace, expected_success) in [(100, "codex_app", false), (101, "codex_tui", true)] {
+    for (id, namespace, expected_success) in [
+        (100, "codex_app", false),
+        (101, crate::dynamic_tools::NAMESPACE, true),
+    ] {
         app.handle_app_server_event(
             &app_server,
             codex_app_server_client::AppServerEvent::ServerRequest(Box::new(
@@ -2815,6 +2830,10 @@ async fn transcript_alt_beginning_loads_every_older_history_page() -> Result<()>
         .join("\n");
     std::fs::write(path, format!("{records}\n"))?;
 
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let (mut app_server, requests, proxy) = start_recording_app_server(
         &app.config,
         /*blocked_thread_list*/ None,
@@ -3231,6 +3250,10 @@ async fn underfilled_scrollback_fetches_older_pages_without_opening_the_transcri
         .join("\n");
     std::fs::write(path, format!("{records}\n"))?;
 
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let (mut app_server, requests, proxy) = start_recording_app_server(
         &app.config,
         /*blocked_thread_list*/ None,
@@ -3831,6 +3854,21 @@ async fn managed_worktree_transitions_bind_owner_and_preserve_only_fork_history(
     use std::process::Command;
 
     let (mut app, mut events, _op_rx) = make_test_app_with_channels().await;
+    let models = &app._test_codex_home.as_ref().expect("test home")._models;
+    models.reset().await;
+    wiremock::Mock::given(wiremock::matchers::path("/models"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(
+                codex_protocol::openai_models::ModelsResponse {
+                    models: ["gpt-5.2", "gpt-5.4", "gpt-5.6-sol"]
+                        .into_iter()
+                        .map(codex_models_manager::test_support::model_info)
+                        .collect(),
+                },
+            ),
+        )
+        .mount(models)
+        .await;
     let root = tempdir()?;
     let home = dunce::canonicalize(root.path())?.join("home");
     let source = dunce::canonicalize(root.path())?.join("source");
@@ -3888,9 +3926,14 @@ model_reasoning_effort = "low"
     app.config.sqlite = SqliteConfig::new_for_testing(home.clone().abs());
     app.config.cwd = source.clone().abs();
     app.harness_overrides.permission_profile = Some(PermissionProfile::workspace_write());
+    crate::test_support::seed_test_provider_from_config(&home.join("config.toml"), &app.config)?;
     app.config = app.rebuild_config_for_cwd(source.clone()).await?;
     app.chat_widget
         .handle_thread_session_quiet(test_thread_session(ThreadId::new(), source.clone()));
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let (mut server, requests, proxy) = start_recording_app_server(
         &app.config,
         /*blocked_thread_list*/ None,
@@ -3912,15 +3955,27 @@ model_reasoning_effort = "low"
             app.config.model_provider_id.as_str(),
             app.chat_widget.current_reasoning_effort()
         ),
-        ("gpt-5.4", "openai", Some(ReasoningEffortConfig::Low))
+        (
+            "test-provider/gpt-5.4",
+            "test-provider",
+            Some(ReasoningEffortConfig::Low)
+        )
     );
     // Provider selection belongs to host config, not project config.
     let host_config = home.join("config.toml");
     let contents = fs::read_to_string(&host_config)?;
-    fs::write(
-        host_config,
-        format!("model_provider = \"ollama\"\n{contents}"),
-    )?;
+    let mut host_settings: toml::Table = toml::from_str(&contents)?;
+    host_settings.insert("model_provider".into(), "worktree-alternate".into());
+    host_settings
+        .get_mut("model_providers")
+        .expect("fixture providers")
+        .as_table_mut()
+        .expect("provider definitions")
+        .insert(
+            "worktree-alternate".into(),
+            toml::Value::try_from(&app.config.model_provider)?,
+        );
+    fs::write(host_config, toml::to_string(&host_settings)?)?;
     let original = app.chat_widget.thread_id().expect("original thread");
     server.thread_inject_items(original, vec![serde_json::from_value(serde_json::json!({
         "type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "managed fork history"}]
@@ -4158,9 +4213,13 @@ terminal_visualization_instructions = true
                 params[0]["modelProvider"].as_str(),
                 params[0]["config"]["model_reasoning_effort"].as_str(),
             ],
-            [Some("gpt-5.2"), fork.then_some("ollama"), Some("high")]
+            [
+                Some("gpt-5.2"),
+                fork.then_some("worktree-alternate"),
+                Some("high")
+            ]
         );
-        assert_eq!(app.config.model_provider_id, "ollama");
+        assert_eq!(app.config.model_provider_id, "worktree-alternate");
         // Injection flushes and materializes a new thread's otherwise lazy rollout.
         server.thread_inject_items(replacement, vec![serde_json::from_value(serde_json::json!({
             "type": "message", "role": "assistant", "content": [{"type": "output_text", "text": format!("replacement persistence probe {mode:?}")}]
@@ -4420,6 +4479,10 @@ async fn changing_directory_preserves_project_trust_permissions_history_and_hook
     app.chat_widget
         .handle_thread_session_quiet(test_thread_session(ThreadId::new(), current.clone()));
     let (no_list, nick, role, runtime, background) = (None, None, None, None, Some("background"));
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let (mut server, requests, proxy) =
         start_recording_app_server(&app.config, no_list, background).await?;
     let (rec, plain, req) = (recorded_params, crate::key_hint::plain, &requests);
@@ -5318,6 +5381,10 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
             }
             std::fs::write(path, contents)?;
         }
+        crate::test_support::seed_test_provider_from_config(
+            &app.config.codex_home.join("config.toml"),
+            &app.config,
+        )?;
         let mut owner = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
         Box::pin(owner.resume_thread(
             &app.local_settings,
