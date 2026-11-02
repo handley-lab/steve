@@ -4,10 +4,7 @@ expression: sanitized
 ---
 /status
 
-  >_ OpenAI Codex (v0.0.0)
-
-  Visit https://chatgpt.com/settings/usage for up-to-date
-  information on rate limits and credits
+  >_ Steve (v0.0.0)
 
   Model:              gpt-5.1-codex-max (reasoning none, summaries auto)
   Directory:          [[workspace]]
@@ -16,4 +13,5 @@ expression: sanitized
   Account:            Enterprise (Automation)
   ChatGPT workspace:  Example workspace (account-123)
 
+  Token usage:        0 total  (0 input + 0 output)
   Limits:             data not available yet
