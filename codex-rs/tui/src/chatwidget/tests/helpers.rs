@@ -12,6 +12,12 @@ pub(super) async fn test_config() -> (tempfile::TempDir, Config) {
         .prefix("chatwidget-tests-")
         .tempdir()
         .expect("tempdir");
+    // Embedded servers reload the fixture home without the widget's CLI overrides.
+    std::fs::write(
+        codex_home.path().join("config.toml"),
+        "model_provider = \"openai\"\n",
+    )
+    .expect("write test provider");
     let mut config = Config::load_default_with_cli_overrides_for_codex_home(
         codex_home.path().to_path_buf(),
         vec![(
