@@ -499,6 +499,36 @@ async fn next_thread_settings_updated(
     panic!("expected ThreadSettingsUpdated for thread {thread_id}");
 }
 
+async fn next_thread_settings_updated_matching(
+    app_server: &mut AppServerSession,
+    thread_id: ThreadId,
+    mut accepts: impl FnMut(&ThreadSettingsUpdatedNotification) -> bool,
+) -> ThreadSettingsUpdatedNotification {
+    let mut observed = Vec::new();
+    let result = time::timeout(Duration::from_secs(5), async {
+        while let Some(event) = app_server.next_event().await {
+            if let codex_app_server_client::AppServerEvent::ServerNotification(notification) =
+                event.event
+                && let ServerNotification::ThreadSettingsUpdated(notification) = *notification
+                && notification.thread_id == thread_id.to_string()
+            {
+                if accepts(&notification) {
+                    return Some(notification);
+                }
+                observed.push(notification.thread_settings);
+            }
+        }
+        None
+    })
+    .await;
+    match result {
+        Ok(Some(notification)) => notification,
+        _ => panic!(
+            "expected requested ThreadSettingsUpdated for {thread_id}; observed {observed:#?}"
+        ),
+    }
+}
+
 #[tokio::test]
 async fn handle_mcp_inventory_result_respects_origin_thread() {
     let mut app = make_test_app().await;
@@ -9689,6 +9719,28 @@ async fn interrupt_without_active_turn_is_treated_as_handled() {
 async fn override_turn_context_sends_thread_settings_update() {
     Box::pin(async {
         let mut app = make_test_app().await;
+        let selected_model = format!("{}/gpt-5.4", app.config.model_provider_id);
+        crate::test_support::advertise_test_models(
+            app._test_codex_home.as_ref().expect("test home"),
+            ["gpt-5.6-sol", "gpt-5.4"]
+                .into_iter()
+                .map(|slug| {
+                    let mut model = codex_models_manager::test_support::model_info(slug);
+                    model.supported_reasoning_levels =
+                        vec![codex_protocol::openai_models::ReasoningEffortPreset {
+                            effort: ReasoningEffortConfig::High,
+                            description: "High".into(),
+                        }];
+                    model.service_tiers = vec![codex_protocol::openai_models::ModelServiceTier {
+                        id: "fast".into(),
+                        name: "Fast".into(),
+                        description: "Fast test tier".into(),
+                    }];
+                    model
+                })
+                .collect(),
+        )
+        .await;
         let mut app_server =
             crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref())
                 .await
@@ -9707,7 +9759,7 @@ async fn override_turn_context_sends_thread_settings_update() {
         let collaboration_mode = CollaborationMode {
             mode: ModeKind::Plan,
             settings: Settings {
-                model: "gpt-5.4".to_string(),
+                model: selected_model.clone(),
                 reasoning_effort: Some(ReasoningEffortConfig::High),
                 developer_instructions: None,
             },
@@ -9720,7 +9772,7 @@ async fn override_turn_context_sends_thread_settings_update() {
             Some(ActivePermissionProfile::new(
                 codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE,
             )),
-            Some("gpt-5.4".to_string()),
+            Some(selected_model.clone()),
             Some(Some(ReasoningEffortConfig::High)),
             /*summary*/ None,
             Some(Some(service_tier.to_string())),
@@ -9742,8 +9794,13 @@ async fn override_turn_context_sends_thread_settings_update() {
             "thread/settings/update response is only an ack; cached state changes on notification"
         );
 
-        let notification = next_thread_settings_updated(&mut app_server, thread_id).await;
-        assert_eq!(notification.thread_settings.model, "gpt-5.4");
+        let notification =
+            next_thread_settings_updated_matching(&mut app_server, thread_id, |notification| {
+                notification.thread_settings.model == selected_model
+                    && notification.thread_settings.effort == Some(ReasoningEffortConfig::High)
+            })
+            .await;
+        assert_eq!(notification.thread_settings.model, selected_model);
         assert_eq!(
             notification.thread_settings.effort,
             Some(ReasoningEffortConfig::High)
@@ -9826,15 +9883,22 @@ async fn selecting_cyber_model_defaults_active_thread_to_auto_review() {
             .expect("set approval policy");
         app.chat_widget
             .set_approval_policy(AskForApproval::UnlessTrusted);
-        let mut model = app
-            .model_catalog
-            .try_list_models()
-            .expect("model catalog")
-            .into_iter()
-            .find(|model| model.model == "gpt-5.5")
-            .expect("gpt-5.5 model");
-        model.model_specialty = Some(MODEL_SPECIALTY_CYBER.to_string());
-        app.model_catalog = Arc::new(ModelCatalog::new(vec![model]));
+        let selected_model = format!("{}/gpt-5.5", app.config.model_provider_id);
+        let mut cyber = codex_models_manager::test_support::model_info("gpt-5.5");
+        cyber.model_specialty = Some(MODEL_SPECIALTY_CYBER.to_string());
+        cyber.supported_reasoning_levels =
+            vec![codex_protocol::openai_models::ReasoningEffortPreset {
+                effort: ReasoningEffortConfig::High,
+                description: "High".into(),
+            }];
+        crate::test_support::advertise_test_models(
+            app._test_codex_home.as_ref().expect("test home"),
+            vec![
+                codex_models_manager::test_support::model_info("gpt-5.6-sol"),
+                cyber,
+            ],
+        )
+        .await;
 
         let mut app_server =
             crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref())
@@ -9855,6 +9919,14 @@ async fn selecting_cyber_model_defaults_active_thread_to_auto_review() {
         app.enqueue_primary_thread_session(started.session, started.turns)
             .await
             .expect("primary thread should be registered");
+        let bootstrap = app_server
+            .bootstrap(&app.config)
+            .await
+            .expect("live model catalog");
+        let request = app.chat_widget.refresh_account_scoped_models();
+        app.chat_widget
+            .on_models_loaded(request, Ok(bootstrap.available_models));
+        app.model_catalog = app.chat_widget.model_catalog();
 
         let mut tui = crate::tui::test_support::make_test_tui().expect("test tui");
         let previous_model = app.chat_widget.current_model().to_string();
@@ -9871,7 +9943,7 @@ async fn selecting_cyber_model_defaults_active_thread_to_auto_review() {
             &mut tui,
             &mut app_server,
             AppEvent::ApplyAdvancedReasoning {
-                model: "gpt-5.5".to_string(),
+                model: selected_model.clone(),
                 effort: ReasoningEffortConfig::High,
             },
         )
@@ -9885,7 +9957,7 @@ async fn selecting_cyber_model_defaults_active_thread_to_auto_review() {
         app.handle_event(
             &mut tui,
             &mut app_server,
-            AppEvent::UpdateModel("gpt-5.5".to_string()),
+            AppEvent::UpdateModel(selected_model.clone()),
         )
         .await
         .expect("model selection should succeed");
@@ -9910,7 +9982,13 @@ async fn selecting_cyber_model_defaults_active_thread_to_auto_review() {
             next_history_message(&mut events),
             @"■ Wait for permissions to update before changing permissions."
         );
-        let notification = next_thread_settings_updated(&mut app_server, thread_id).await;
+        let notification =
+            next_thread_settings_updated_matching(&mut app_server, thread_id, |notification| {
+                notification.thread_settings.model == selected_model
+                    && notification.thread_settings.approvals_reviewer.to_core()
+                        == ApprovalsReviewer::AutoReview
+            })
+            .await;
         assert_eq!(
             notification.thread_settings.approval_policy,
             AskForApproval::OnRequest

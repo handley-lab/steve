@@ -87,7 +87,14 @@ proxy_url = "http://127.0.0.1:43128"
         /*replay_kind*/ None,
     );
     app.app_event_tx.send(AppEvent::SettingsSelectionClosed);
-    let settings = next_thread_settings_updated(&mut server, thread_id).await;
+    let settings = next_thread_settings_updated_matching(&mut server, thread_id, |settings| {
+        settings
+            .thread_settings
+            .active_permission_profile
+            .as_ref()
+            .is_some_and(|profile| profile.id == profile_id)
+    })
+    .await;
     app.enqueue_thread_notification(
         thread_id,
         ServerNotification::ThreadSettingsUpdated(settings),
@@ -216,7 +223,14 @@ async fn inline_server_permission_selection_holds_queued_prompt_until_confirmati
     }
     assert!(ops.try_recv().is_err());
 
-    let settings = next_thread_settings_updated(&mut server, thread_id).await;
+    let settings = next_thread_settings_updated_matching(&mut server, thread_id, |settings| {
+        settings
+            .thread_settings
+            .active_permission_profile
+            .as_ref()
+            .is_some_and(|profile| profile.id == "server-only")
+    })
+    .await;
     app.enqueue_thread_notification(
         thread_id,
         ServerNotification::ThreadSettingsUpdated(settings),
@@ -309,7 +323,15 @@ async fn custom_permission_selection_scenario() -> Result<()> {
         RuntimePermissionProfileOverride::from_config(app.chat_widget.config_ref()),
         before
     );
-    let settings = next_thread_settings_updated(&mut server, thread_id).await;
+    let settings = next_thread_settings_updated_matching(&mut server, thread_id, |settings| {
+        settings
+            .thread_settings
+            .active_permission_profile
+            .as_ref()
+            .is_some_and(|profile| profile.id == "shared")
+            && settings.thread_settings.approval_policy == AskForApproval::Never
+    })
+    .await;
     let expected = PermissionProfile::from_legacy_sandbox_policy_for_cwd(
         &settings.thread_settings.sandbox_policy.to_core(),
         settings.thread_settings.cwd.as_path(),
@@ -341,6 +363,10 @@ async fn custom_permission_selection_scenario() -> Result<()> {
         home.path().join("config.toml"),
         "default_permissions = \":workspace\"\n[permissions.shared]\nextends = \":read-only\"\n[permissions.other]\nextends = \":read-only\"\n",
     )?;
+    crate::test_support::seed_test_provider_from_config(
+        &home.path().join("config.toml"),
+        &server_config,
+    )?;
     app.select_permission_profile(
         &mut server,
         PermissionProfileSelection {
@@ -349,7 +375,18 @@ async fn custom_permission_selection_scenario() -> Result<()> {
         },
     )
     .await;
-    let settings = next_thread_settings_updated(&mut server, thread_id).await;
+    let settings = next_thread_settings_updated_matching(&mut server, thread_id, |settings| {
+        settings
+            .thread_settings
+            .active_permission_profile
+            .as_ref()
+            .is_some_and(|profile| profile.id == "shared")
+            && matches!(
+                settings.thread_settings.sandbox_policy,
+                codex_app_server_protocol::SandboxPolicy::ReadOnly { .. }
+            )
+    })
+    .await;
     assert!(matches!(
         settings.thread_settings.sandbox_policy,
         codex_app_server_protocol::SandboxPolicy::ReadOnly { .. }
@@ -376,7 +413,10 @@ async fn custom_permission_selection_scenario() -> Result<()> {
             ..Default::default()
         })
         .await?;
-    let settings = next_thread_settings_updated(&mut server, thread_id).await;
+    let settings = next_thread_settings_updated_matching(&mut server, thread_id, |settings| {
+        settings.thread_settings.approval_policy == AskForApproval::OnRequest
+    })
+    .await;
     app.enqueue_thread_notification(
         thread_id,
         ServerNotification::ThreadSettingsUpdated(settings),
@@ -396,7 +436,14 @@ async fn custom_permission_selection_scenario() -> Result<()> {
         app.agents_overview.requested_permission_profiles[&thread_id].approval_policy,
         Some(AskForApproval::OnRequest)
     );
-    let settings = next_thread_settings_updated(&mut server, thread_id).await;
+    let settings = next_thread_settings_updated_matching(&mut server, thread_id, |settings| {
+        settings
+            .thread_settings
+            .active_permission_profile
+            .as_ref()
+            .is_some_and(|profile| profile.id == "other")
+    })
+    .await;
     app.enqueue_thread_notification(
         thread_id,
         ServerNotification::ThreadSettingsUpdated(settings),
