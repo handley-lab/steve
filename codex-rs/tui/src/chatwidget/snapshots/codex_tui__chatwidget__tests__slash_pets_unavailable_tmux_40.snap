@@ -6,7 +6,7 @@ expression: "render_bottom_popup(&chat, width)"
   Pets are disabled in tmux. Terminal
   images don’t stay pane-local in tmux
   and can corrupt scrollback or move
-  between panes. Run Codex outside
+  between panes. Run Steve outside
   tmux to use pets.
 
 
