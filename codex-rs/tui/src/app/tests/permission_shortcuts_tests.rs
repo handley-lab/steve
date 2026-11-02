@@ -88,6 +88,10 @@ async fn permission_shortcut_confirms_without_persisting() -> Result<()> {
     let config_path = codex_home.path().join("config.toml");
     let contents = "approvals_reviewer = \"auto_review\"\n";
     std::fs::write(&config_path, contents)?;
+    crate::test_support::seed_test_provider_from_config(
+        &app.config.codex_home.join("config.toml"),
+        &app.config,
+    )?;
     let mut app_server = start_config_write_test_app_server(&app).await?;
     let started = app_server.start_thread(&app.config).await?;
     let thread_id = started.session.thread_id;
@@ -116,7 +120,21 @@ async fn permission_shortcut_confirms_without_persisting() -> Result<()> {
         @"• Permission selection requested: Read Only"
     );
 
-    let notification = next_thread_settings_updated(&mut app_server, thread_id).await;
+    // Startup settings can still be queued; acknowledge this requested profile.
+    let notification = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let notification = next_thread_settings_updated(&mut app_server, thread_id).await;
+            if notification
+                .thread_settings
+                .active_permission_profile
+                .as_ref()
+                .is_some_and(|profile| profile.id == ":read-only")
+            {
+                break notification;
+            }
+        }
+    })
+    .await?;
     let settings = notification.thread_settings.clone();
     app.enqueue_thread_notification(
         thread_id,
