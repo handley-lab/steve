@@ -12,6 +12,24 @@ use codex_protocol::openai_models::ModelPreset;
 use uuid::Uuid;
 
 impl AppServerSession {
+    pub(crate) async fn list_models_for_thread(
+        &self,
+        thread_id: codex_protocol::ThreadId,
+    ) -> color_eyre::Result<ModelListResponse> {
+        Ok(self
+            .request_handle()
+            .request_typed(ClientRequest::ModelList {
+                request_id: RequestId::String(format!("model-list-{}", Uuid::new_v4())),
+                params: ModelListParams {
+                    thread_id: Some(thread_id.to_string()),
+                    cursor: None,
+                    limit: None,
+                    include_hidden: Some(true),
+                },
+            })
+            .await?)
+    }
+
     pub(crate) fn set_available_models(&mut self, models: Vec<ModelPreset>) {
         self.available_models = models;
     }

@@ -2389,6 +2389,14 @@ impl App {
                         app_server.set_available_models(self.model_catalog.try_list_models()?);
                     }
                     self.sync_active_thread_service_tier_to_cached_session().await;
+                    if self.chat_widget.config_ref().fallback_model.is_some()
+                        && self.active_thread_id == self.chat_widget.thread_id()
+                    {
+                        self.apply_backend_banner_fallback(app_server).await;
+                        if !self.rate_limit_refresh_state.has_pending_recovery() {
+                            self.chat_widget.finish_rate_limit_recovery();
+                        }
+                    }
                 }
             }
             AppEvent::OpenReasoningPopup { model } => {

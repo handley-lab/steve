@@ -123,6 +123,18 @@ impl ChatWidget {
             self.clear_reserve_return();
         }
         let configured_fallback = self.config.fallback_model.as_deref()?;
+        let qualified_fallback =
+            format!("{}/{}", self.config.model_provider_id, configured_fallback);
+        // Account usage payloads carry native model slugs; model/list and selection
+        // carry provider-qualified IDs. Keep the chosen preset in its catalogue form.
+        let native_current = crate::temporary_structured_request::native_model_id(
+            self.current_model(),
+            &self.config.model_provider_id,
+        );
+        let native_fallback = crate::temporary_structured_request::native_model_id(
+            configured_fallback,
+            &self.config.model_provider_id,
+        );
         let models = self.model_catalog.try_list_models().ok()?;
         if self.current_model() == LUNA_RESERVE_MODEL
             && self.backend_banner_state.ordinary_usage_recovered
@@ -146,15 +158,15 @@ impl ChatWidget {
         // is available. Reserve is deliberately hidden from manual model selection.
         let model = if banner.banner_type == LUNA_RESERVE_BANNER {
             models.into_iter().find(|model| {
-                model.model == configured_fallback
+                (model.model == configured_fallback || model.model == qualified_fallback)
                     && model.model != self.current_model()
                     && banner
                         .blocked_model_slug
                         .as_deref()
-                        .is_none_or(|blocked| blocked == self.current_model())
+                        .is_none_or(|blocked| blocked == native_current)
             })
         } else {
-            if banner.blocked_model_slug.as_deref() != Some(self.current_model()) {
+            if banner.blocked_model_slug.as_deref() != Some(native_current) {
                 return None;
             }
             banner.fallback_model_slugs.iter().find_map(|candidate| {
@@ -162,8 +174,9 @@ impl ChatWidget {
                     .iter()
                     .find(|model| {
                         model.show_in_picker
-                            && model.model == configured_fallback
-                            && model.model == *candidate
+                            && (model.model == configured_fallback
+                                || model.model == qualified_fallback)
+                            && native_fallback == *candidate
                             && model.model != self.current_model()
                     })
                     .cloned()
@@ -390,6 +403,10 @@ impl ChatWidget {
     }
 
     pub(super) fn refresh_backend_banner_visibility(&mut self) {
+        let native_current = crate::temporary_structured_request::native_model_id(
+            self.current_model(),
+            &self.config.model_provider_id,
+        );
         let banner = self.backend_banner_state.banner.as_ref().filter(|banner| {
             // Keep recovery actions available while switching, including on older servers
             // without settings/update. The copy below describes the accepted model only.
@@ -399,17 +416,17 @@ impl ChatWidget {
             // Explicit fallback payloads describe the selected replacement, not a pending switch.
             let matches_selected_model = match banner.blocked_model_slug.as_deref() {
                 Some(blocked) if !banner.fallback_model_slugs.is_empty() => {
-                    blocked != self.current_model()
+                    blocked != native_current
                         && banner
                             .fallback_model_slugs
                             .iter()
-                            .any(|model| model == self.current_model())
+                            .any(|model| model == native_current)
                 }
                 Some(_) | None => {
                     banner
                         .model_slug
                         .as_deref()
-                        .is_none_or(|model| model == self.current_model())
+                        .is_none_or(|model| model == native_current)
                         || self.backend_banner_notice_model.as_deref() == Some(self.current_model())
                 }
             };

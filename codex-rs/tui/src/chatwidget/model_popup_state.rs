@@ -5,10 +5,11 @@ use super::model_popups::MODEL_SELECTION_VIEW_ID;
 use super::*;
 
 impl ChatWidget {
-    pub(super) fn refresh_account_scoped_models(&mut self) {
+    pub(crate) fn refresh_account_scoped_models(&mut self) -> uuid::Uuid {
         let request_id = uuid::Uuid::new_v4();
         self.model_popup_request_id = Some(request_id);
         self.app_event_tx.send(AppEvent::FetchModels { request_id });
+        request_id
     }
 
     pub(crate) fn model_popup_request_is_current(&self, request_id: uuid::Uuid) -> bool {

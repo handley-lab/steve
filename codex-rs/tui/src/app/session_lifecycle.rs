@@ -964,6 +964,34 @@ impl App {
                 }
                 self.enqueue_primary_thread_session(started.session, started.turns)
                     .await?;
+                if self.chat_widget.config_ref().fallback_model.is_some() {
+                    // Attachment invalidates the previous catalogue. Resolve this thread's
+                    // choices before deciding whether a cached usage read requires fallback,
+                    // while initial and queued prompts are still held.
+                    let request_id = self.chat_widget.refresh_account_scoped_models();
+                    let response = match app_server.list_models_for_thread(thread_id).await {
+                        Ok(response) => response,
+                        Err(error) => {
+                            self.chat_widget.add_error_message(format!(
+                                "Couldn't load models for startup recovery: {error}. Retry with /model."
+                            ));
+                            // Keep the draft held. The queued catalogue fetch or a /model
+                            // refresh can finish recovery without discarding the attached task.
+                            return Ok(());
+                        }
+                    };
+                    let models = response
+                        .data
+                        .into_iter()
+                        .map(crate::app_server_session::model_preset_from_api_model)
+                        .collect();
+                    for error in response.provider_errors {
+                        self.chat_widget
+                            .add_error_message(format!("{}: {}", error.provider, error.message));
+                    }
+                    self.chat_widget.on_models_loaded(request_id, Ok(models));
+                    self.model_catalog = self.chat_widget.model_catalog();
+                }
                 self.apply_backend_banner_fallback(app_server).await;
                 if let Some(notice) = self.pending_server_version_notice.take() {
                     self.chat_widget.add_server_version_warning(notice);
