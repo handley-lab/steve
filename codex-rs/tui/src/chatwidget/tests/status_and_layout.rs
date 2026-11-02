@@ -1333,6 +1333,43 @@ async fn rate_limit_switch_prompt_skips_when_on_lower_cost_model() {
 }
 
 #[tokio::test]
+async fn rate_limit_prompt_uses_same_provider_qualified_candidate() {
+    let (mut chat, mut rx, _) = make_chatwidget_manual(Some("gpt-5")).await;
+    chat.has_chatgpt_account = true;
+    let mut other = codex_models_manager::test_support::model_info(NUDGE_MODEL_SLUG);
+    other.slug = format!("other-provider/{NUDGE_MODEL_SLUG}");
+    chat.model_catalog = Arc::new(ModelCatalog::new(vec![other.into()]));
+    chat.on_rate_limit_snapshot(Some(snapshot(/*percent*/ 95.0)));
+    chat.maybe_show_pending_rate_limit_prompt();
+    assert!(matches!(chat.rate_limit_switch_prompt, RateLimitSwitchPromptState::Idle));
+    assert!(chat.bottom_pane.no_modal_or_popup_active());
+
+    set_rate_limit_luna_catalog(&mut chat);
+    let selected = format!("{}/{NUDGE_MODEL_SLUG}", chat.config.model_provider_id);
+    chat.on_rate_limit_snapshot(Some(snapshot(/*percent*/ 95.0)));
+    chat.maybe_show_pending_rate_limit_prompt();
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+    assert!(events.iter().any(
+        |event| matches!(event, AppEvent::UpdateModel(model) if model == &selected)
+    ));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        AppEvent::CodexOp(Op::OverrideTurnContext { model: Some(model), .. })
+            if model == &selected
+    )));
+
+    chat.set_model(&selected);
+    chat.rate_limit_switch_prompt = RateLimitSwitchPromptState::Pending;
+    chat.maybe_show_pending_rate_limit_prompt();
+    assert!(matches!(
+        chat.rate_limit_switch_prompt,
+        RateLimitSwitchPromptState::Idle
+    ));
+    assert!(chat.bottom_pane.no_modal_or_popup_active());
+}
+
+#[tokio::test]
 async fn rate_limit_switch_prompt_skips_non_codex_limit() {
     let (mut chat, _, _) = make_chatwidget_manual(Some("gpt-5")).await;
     chat.has_chatgpt_account = true;
@@ -1489,10 +1526,18 @@ async fn rate_limit_switch_prompt_clears_pending_when_workspace_credits_become_u
     ));
 }
 
+fn set_rate_limit_luna_catalog(chat: &mut ChatWidget) {
+    let mut model = codex_models_manager::test_support::model_info(NUDGE_MODEL_SLUG);
+    model.slug = format!("{}/{NUDGE_MODEL_SLUG}", chat.config.model_provider_id);
+    model.description = Some("Fast and affordable model for easier tasks.".into());
+    chat.model_catalog = Arc::new(ModelCatalog::new(vec![model.into()]));
+}
+
 #[tokio::test]
 async fn rate_limit_switch_prompt_dismisses_shown_when_workspace_credits_become_usable() {
     let (mut chat, _, _) = make_chatwidget_manual(Some("gpt-5")).await;
     chat.has_chatgpt_account = true;
+    set_rate_limit_luna_catalog(&mut chat);
 
     chat.on_rate_limit_snapshot(Some(snapshot(/*percent*/ 95.0)));
     chat.maybe_show_pending_rate_limit_prompt();
@@ -1861,6 +1906,7 @@ async fn rate_limit_usage_warnings_clear_workspace_limit_from_authoritative_snap
 async fn rate_limit_switch_prompt_shows_once_per_session() {
     let (mut chat, _, _) = make_chatwidget_manual(Some("gpt-5")).await;
     chat.has_chatgpt_account = true;
+    set_rate_limit_luna_catalog(&mut chat);
 
     chat.on_rate_limit_snapshot(Some(snapshot(/*percent*/ 90.0)));
     assert!(
@@ -1934,6 +1980,7 @@ async fn rate_limit_switch_prompt_respects_hidden_notice() {
 async fn rate_limit_switch_prompt_defers_until_task_complete() {
     let (mut chat, _, _) = make_chatwidget_manual(Some("gpt-5")).await;
     chat.has_chatgpt_account = true;
+    set_rate_limit_luna_catalog(&mut chat);
 
     chat.bottom_pane.set_task_running(/*running*/ true);
     chat.on_rate_limit_snapshot(Some(snapshot(/*percent*/ 90.0)));
@@ -1954,6 +2001,7 @@ async fn rate_limit_switch_prompt_defers_until_task_complete() {
 async fn rate_limit_switch_prompt_popup_snapshot() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("gpt-5")).await;
     chat.has_chatgpt_account = true;
+    set_rate_limit_luna_catalog(&mut chat);
 
     chat.on_rate_limit_snapshot(Some(snapshot(/*percent*/ 92.0)));
     chat.maybe_show_pending_rate_limit_prompt();

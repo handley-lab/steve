@@ -370,7 +370,7 @@ impl ChatWidget {
             if high_usage
                 && !has_workspace_credits
                 && !self.rate_limit_switch_prompt_hidden()
-                && self.current_model() != NUDGE_MODEL_SLUG
+                && self.current_rate_limit_policy_model() != NUDGE_MODEL_SLUG
                 && !matches!(
                     self.rate_limit_switch_prompt,
                     RateLimitSwitchPromptState::Shown
@@ -434,11 +434,19 @@ impl ChatWidget {
         self.requires_openai_auth && self.has_chatgpt_account
     }
 
+    fn current_rate_limit_policy_model(&self) -> &str {
+        crate::temporary_structured_request::native_model_id(
+            self.current_model(),
+            &self.config.model_provider_id,
+        )
+    }
+
     fn lower_cost_preset(&self) -> Option<ModelPreset> {
         let models = self.model_catalog.try_list_models().ok()?;
+        let selected_model = format!("{}/{NUDGE_MODEL_SLUG}", self.config.model_provider_id);
         models
             .iter()
-            .find(|preset| preset.show_in_picker && preset.model == NUDGE_MODEL_SLUG)
+            .find(|preset| preset.show_in_picker && preset.model == selected_model)
             .cloned()
     }
 
@@ -454,7 +462,7 @@ impl ChatWidget {
             return;
         }
         if self.rate_limit_switch_prompt_hidden()
-            || matches!(self.current_model(), NUDGE_MODEL_SLUG | LUNA_RESERVE_MODEL)
+            || matches!(self.current_rate_limit_policy_model(), NUDGE_MODEL_SLUG | LUNA_RESERVE_MODEL)
         {
             self.rate_limit_switch_prompt = RateLimitSwitchPromptState::Idle;
             return;
