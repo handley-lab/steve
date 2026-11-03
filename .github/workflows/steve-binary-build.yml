@@ -78,6 +78,10 @@ jobs:
         uses: ./.github/actions/setup-msvc-env
         with:
           target: ${{ matrix.target }}
+      - name: Keep Windows dependency checkout paths short
+        if: runner.os == 'Windows'
+        # Cargo checks out V8's nested source dependencies even with prebuilt V8.
+        run: echo 'CARGO_HOME=C:/c' >> "$GITHUB_ENV"
       - name: Configure SQLite for Windows x86-64
         if: matrix.target == 'x86_64-pc-windows-msvc'
         run: echo 'LIBSQLITE3_FLAGS=SQLITE_DISABLE_INTRINSIC' >> "$GITHUB_ENV"
