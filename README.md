@@ -7,12 +7,15 @@ names remain upstream-compatible.
 
 ## Development status
 
-Steve installers, npm packages and Python packages are not yet published.
-Build from this checkout for local testing; do not use upstream Codex installers
-to install Steve. Native Windows/macOS packaging remains unverified. The linked
-network inventory describes the original pinned baseline, not this branch.
+Native packages are available as GitHub Actions artifacts for Linux, macOS and
+Windows on x86-64 and ARM64. See [installing a binary package](docs/steve-install.md)
+for downloads, checksum verification and installation. Installers, npm packages
+and Python packages are not yet published; upstream Codex installers do not
+install Steve. The linked network inventory describes the original pinned
+baseline, not this branch.
 
-From the repository root, build a local package containing the CLI, code-mode
+To build from source, run this from the repository root. It creates a local
+package containing the CLI, code-mode
 host, executor, and platform sandbox helpers:
 
 ```sh
@@ -37,11 +40,13 @@ To build V8 from source instead, set `V8_FROM_SOURCE=1`; that uses rusty_v8's
 separate native toolchain and source-download path and takes substantially more
 time and disk. See [V8 build provenance](third_party/v8/README.md).
 
-The manual `Steve binary build` workflow defines native x86-64 and ARM64 builds
-for Linux/glibc, macOS and Windows from an exact commit. Each job checks the
-linked V8 sandbox and extracted package, then uploads an archive, SHA-256
-checksum and build provenance as a CI artifact. These jobs still need hosted
-validation. They do not sign, notarize or publish releases.
+The `Steve binary build` workflow runs after updates to `main` and can also be
+started manually for an exact candidate commit. Each job checks the linked V8
+sandbox and extracted package, then uploads an archive, SHA-256 checksum and
+build provenance. All six platforms passed for candidate `c5ba040781` in the
+[initial successful package run](https://github.com/handley-lab/steve/actions/runs/41686805704).
+These checks cover package construction and startup, not a complete interactive
+session or the full test suite. Packages are not release-signed or notarized.
 
 ## Separate configuration
 
