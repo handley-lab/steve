@@ -3,7 +3,7 @@ name: Steve binary build
 on:
   push:
     branches:
-      - steve-upstream-merge-2026-10-25
+      - main
   workflow_dispatch:
     inputs:
       candidate_sha:
