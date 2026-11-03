@@ -1,6 +1,9 @@
 name: Steve binary build
 
 on:
+  push:
+    branches:
+      - steve-upstream-merge-2026-10-25
   workflow_dispatch:
     inputs:
       candidate_sha:
@@ -44,15 +47,15 @@ jobs:
     steps:
       - name: Require an exact source commit
         env:
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha || github.sha }}
         run: '[[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]'
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.candidate_sha }}
+          ref: ${{ inputs.candidate_sha || github.sha }}
           persist-credentials: false
       - name: Verify source identity
         env:
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha || github.sha }}
         run: |
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           echo "STABLE_GIT_COMMIT=$CANDIDATE_SHA" >> "$GITHUB_ENV"
@@ -175,7 +178,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          name: steve-${{ matrix.target }}-${{ inputs.candidate_sha }}
+          name: steve-${{ matrix.target }}-${{ inputs.candidate_sha || github.sha }}
           path: |
             dist/steve-*.tar.gz
             dist/steve-*.zip
