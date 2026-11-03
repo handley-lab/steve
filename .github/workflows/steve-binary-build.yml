@@ -34,7 +34,7 @@ jobs:
           - runner: windows-11-arm
             target: aarch64-pc-windows-msvc
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120
+    timeout-minutes: 240
     defaults:
       run:
         shell: bash
@@ -98,20 +98,20 @@ jobs:
         if: runner.os == 'Linux'
         working-directory: codex-rs
         run: |
-          cargo build --locked --release --target "$TARGET" --bin bwrap
+          python ../.github/scripts/build-with-telemetry.py cargo build --locked --release --target "$TARGET" --bin bwrap
           strip --strip-debug --strip-unneeded "target/$TARGET/release/bwrap"
           digest="$(sha256sum "target/$TARGET/release/bwrap" | cut -d ' ' -f 1)"
           echo "STEVE_BWRAP_SHA256=$digest" >> "$GITHUB_ENV"
       - name: Build application and verify linked V8
         working-directory: codex-rs
         run: |
-          cargo build --locked --release --target "$TARGET" \
+          python ../.github/scripts/build-with-telemetry.py cargo build --locked --release --target "$TARGET" \
             --bin steve --bin steve-code-mode-host --bin steve-exec-server
           if [[ "$RUNNER_OS" == Windows ]]; then
-            cargo build --locked --release --target "$TARGET" \
+            python ../.github/scripts/build-with-telemetry.py cargo build --locked --release --target "$TARGET" \
               --bin steve-command-runner --bin steve-windows-sandbox-setup
           fi
-          cargo test --locked --release --target "$TARGET" -p codex-v8-poc \
+          python ../.github/scripts/build-with-telemetry.py cargo test --locked --release --target "$TARGET" -p codex-v8-poc \
             --features sandbox --lib sandbox_feature_matches_linked_v8
       - name: Assemble, extract and check native package
         run: |
