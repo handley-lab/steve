@@ -1792,12 +1792,10 @@ impl Config {
             .unwrap_or(model_messages.auto_review().policy)
     }
 
-    /// Native Guardian agent history requires the reviewed thread's OpenAI provider.
+    /// Whether Guardian reviews native multi-agent history for this session.
     pub fn guardian_native_multi_agent_history_enabled(&self) -> bool {
-        self.model_provider_id == OPENAI_PROVIDER_ID
-            && self
-                .features
-                .enabled(Feature::GuardianNativeMultiAgentHistory)
+        self.features
+            .enabled(Feature::GuardianNativeMultiAgentHistory)
     }
 
     pub(crate) fn multi_agent_version_override(&self) -> Option<MultiAgentVersion> {

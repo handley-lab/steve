@@ -44,14 +44,20 @@ use super::tool_log_payload;
 
 struct ExtensionEchoContributor;
 
+#[test_case::test_case("openai"; "openai")]
+#[test_case::test_case("configured-gateway"; "configured_gateway")]
 #[tokio::test]
-async fn build_tool_call_retains_native_evidence_only_for_reviewed_mav2_tools() {
+async fn build_tool_call_retains_native_evidence_only_for_reviewed_mav2_tools(provider_id: &str) {
     for review_enabled in [false, true] {
         for namespace in [None, Some("team")] {
             let (_, mut turn) = make_session_and_context().await;
             turn.multi_agent_version = codex_protocol::protocol::MultiAgentVersion::V2;
             let config = Arc::make_mut(&mut turn.config);
             config.multi_agent_v2.tool_namespace = namespace.map(str::to_owned);
+            config.model_provider_id = provider_id.to_owned();
+            config
+                .model_providers
+                .insert(provider_id.to_owned(), config.model_provider.clone());
             if review_enabled {
                 config
                     .features
@@ -88,7 +94,7 @@ async fn build_tool_call_retains_native_evidence_only_for_reviewed_mav2_tools() 
                 assert_eq!(
                     call.native_call.as_deref(),
                     (review_enabled && mutating).then_some(&item),
-                    "{name}, namespace={namespace:?}, review_enabled={review_enabled}",
+                    "{name}, provider={provider_id}, namespace={namespace:?}, review_enabled={review_enabled}",
                 );
             }
         }
