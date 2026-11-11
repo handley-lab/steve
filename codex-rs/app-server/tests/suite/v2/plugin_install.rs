@@ -77,6 +77,9 @@ use wiremock::matchers::method;
 use wiremock::matchers::path;
 use wiremock::matchers::query_param;
 
+#[path = "plugin_runtime_auth.rs"]
+mod runtime_auth_tests;
+
 // Plugin install tests wait on connector discovery after the install response path
 // starts, which is noticeably slower on Windows CI.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -2126,7 +2129,8 @@ async fn plugin_install_remote_auth_setup_respects_activation_policy(
 ) -> Result<()> {
     let codex_home = TempDir::new()?;
     let server = MockServer::start().await;
-    let oauth_server = MockServer::start().await;
+    // A pooled endpoint can receive late requests from a previous test subprocess.
+    let oauth_server = MockServer::builder().start().await;
     let bundle_url = mount_remote_plugin_bundle(
         &server,
         /*status_code*/ 200,
@@ -2467,22 +2471,24 @@ async fn plugin_install_includes_formerly_disallowed_apps_needing_auth() -> Resu
         response,
         PluginInstallResponse {
             auth_policy: PluginAuthPolicy::OnUse,
-            apps_needing_auth: vec![AppSummary {
-                id: "alpha".to_string(),
-                name: "Alpha".to_string(),
-                description: Some("Alpha connector".to_string()),
-                install_url: Some(format!("{}/apps/alpha/alpha", server_url)),
-                category: None,
-            },
-            AppSummary {
-                id: "asdk_app_6938a94a61d881918ef32cb999ff937c".to_string(),
-                name: "asdk_app_6938a94a61d881918ef32cb999ff937c".to_string(),
-                description: None,
-                install_url: Some(
-                    format!("{server_url}/apps/asdk-app-6938a94a61d881918ef32cb999ff937c/asdk_app_6938a94a61d881918ef32cb999ff937c"),
-                ),
-                category: None,
-            }],
+            apps_needing_auth: vec![
+                AppSummary {
+                    id: "alpha".to_string(),
+                    name: "Alpha".to_string(),
+                    description: Some("Alpha connector".to_string()),
+                    install_url: Some(format!("{}/apps/alpha/alpha", server_url)),
+                    category: None,
+                },
+                AppSummary {
+                    id: "asdk_app_6938a94a61d881918ef32cb999ff937c".to_string(),
+                    name: "asdk_app_6938a94a61d881918ef32cb999ff937c".to_string(),
+                    description: None,
+                    install_url: Some(format!(
+                        "{server_url}/apps/asdk-app-6938a94a61d881918ef32cb999ff937c/asdk_app_6938a94a61d881918ef32cb999ff937c"
+                    ),),
+                    category: None,
+                }
+            ],
         }
     );
     assert_eq!(

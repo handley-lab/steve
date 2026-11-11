@@ -158,7 +158,9 @@ impl AppServerSession {
         permission_overrides: crate::resume_permissions::ResumePermissions,
     ) -> Result<AppServerStartedThread> {
         if self.thread_params_mode().settings_owner() == ThreadSettingsOwner::Client {
-            self.thread_tool_transport().validate_config(&config)?;
+            self.thread_tool_transport()
+                .check_namespace(&self.request_handle, &config.cwd)
+                .await?;
         }
         let mut params = thread_resume_params_from_config(
             config.clone(),
@@ -175,7 +177,8 @@ impl AppServerSession {
                 ResumeModelSettings::OverrideFromCurrentConfig(_)
             );
         if self.thread_params_mode().settings_owner() == ThreadSettingsOwner::Client
-            && let ResumeModelSettings::OverrideFromCurrentConfig(model) = model_settings {
+            && let ResumeModelSettings::OverrideFromCurrentConfig(model) = model_settings
+        {
             params.model_provider = self.explicit_model_provider(&config);
             if params.model_provider.is_none()
                 && let Some(model) = model
@@ -246,6 +249,9 @@ impl AppServerSession {
                 ));
             }
         };
+        if let Some(subscribed) = &mut self.attachment_subscribed {
+            *subscribed = true;
+        }
         self.hydrate_initial_thread_history(
             &mut response.thread,
             response.turns_backwards_cursor.clone(),

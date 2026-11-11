@@ -33,6 +33,7 @@ use codex_login::test_support::auth_manager_from_optional_auth;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::protocol::Product;
 use codex_protocol::protocol::SkillScope;
+use codex_runtime_agent_instance::RuntimeAuthSlot;
 use codex_skills::LoadedSkillRoot;
 use codex_skills::LoadedSkills;
 use codex_skills::SkillError;
@@ -81,6 +82,7 @@ pub(crate) fn test_plugins_manager_with_options(
         codex_home,
         restriction_product,
         test_auth_manager(auth_mode),
+        RuntimeAuthSlot::default(),
         test_skill_root_loader(),
     )
 }
@@ -94,6 +96,7 @@ pub(crate) fn test_plugins_manager_with_auth_manager(
         codex_home,
         restriction_product,
         auth_manager,
+        RuntimeAuthSlot::default(),
         test_skill_root_loader(),
     )
 }
@@ -327,12 +330,16 @@ pub(crate) struct RecordingHttpClientSelector {
 }
 
 impl RecordingHttpClientSelector {
+    fn record_url(&self, url: &str) {
+        match self.selected_urls.lock() {
+            Ok(mut selected_urls) => selected_urls.push(url.to_string()),
+            Err(error) => panic!("selected URL recorder lock should not be poisoned: {error}"),
+        }
+    }
+
     pub(crate) fn new() -> (Arc<Self>, Arc<Mutex<Vec<String>>>) {
         let selected_urls = Arc::new(Mutex::new(Vec::new()));
-        let delegate = RouteAwareClientPool::new(
-            test_http_client_factory(),
-            ClientRouteClass::Api,
-        );
+        let delegate = RouteAwareClientPool::new(test_http_client_factory(), ClientRouteClass::Api);
         (
             Arc::new(Self {
                 selected_urls: Arc::clone(&selected_urls),
@@ -344,12 +351,26 @@ impl RecordingHttpClientSelector {
 }
 
 impl HttpClientSelector for RecordingHttpClientSelector {
+    fn for_current_account(&self) -> Arc<dyn HttpClientSelector> {
+        Arc::new(Self {
+            selected_urls: Arc::clone(&self.selected_urls),
+            delegate: self.delegate.for_current_account(),
+        })
+    }
+
     fn request(&self, method: Method, url: &str) -> RequestBuilder {
-        match self.selected_urls.lock() {
-            Ok(mut selected_urls) => selected_urls.push(url.to_string()),
-            Err(error) => panic!("selected URL recorder lock should not be poisoned: {error}"),
-        }
+        self.record_url(url);
         self.delegate.request(method, url)
+    }
+
+    fn request_for_account(
+        &self,
+        method: Method,
+        url: &str,
+        binding: &codex_http_client::NetworkPolicy,
+    ) -> Option<RequestBuilder> {
+        self.record_url(url);
+        self.delegate.request_for_account(method, url, binding)
     }
     fn outbound_proxy_policy(&self) -> OutboundProxyPolicy {
         self.delegate.outbound_proxy_policy()
@@ -362,6 +383,7 @@ pub(crate) fn recording_remote_plugin_service_config(
     let (http_clients, selected_urls) = RecordingHttpClientSelector::new();
     (
         RemotePluginServiceConfig {
+            runtime_auth: None,
             chatgpt_base_url,
             archive_origins: Vec::new(),
             file_upload_origins: Vec::new(),

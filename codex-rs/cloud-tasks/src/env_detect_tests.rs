@@ -79,10 +79,13 @@ async fn production_http_forwards_headers_and_decodes_response() {
         .expect("environment HTTP response should write");
         String::from_utf8(request).expect("environment HTTP request should be UTF-8")
     });
-    let http = RouteAwareClientPool::new_without_request_logging(
-        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-        ClientRouteClass::Api,
-    );
+    let http = EnvironmentClient {
+        http: RouteAwareClientPool::new_without_request_logging(
+            HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+            ClientRouteClass::Api,
+        ),
+        auth: None,
+    };
     let base_url = format!("http://{address}");
     let headers =
         HeaderMap::from_iter([(AUTHORIZATION, HeaderValue::from_static("Bearer real-token"))]);
@@ -122,7 +125,8 @@ async fn production_http_forwards_headers_and_decodes_response() {
 
 #[tokio::test]
 async fn codex_api_requests_the_codex_prefix_on_a_backend_api_base() {
-    let by_repo = "https://chatgpt.com/backend-api/api/codex/environments/by-repo/github/openai/codex";
+    let by_repo =
+        "https://chatgpt.com/backend-api/api/codex/environments/by-repo/github/openai/codex";
     let http = FakeHttp::new(HashMap::from([(
         by_repo.to_string(),
         json_response(r#"[{"id":"env-codex","label":"Codex"}]"#),

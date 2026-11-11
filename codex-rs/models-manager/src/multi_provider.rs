@@ -137,23 +137,40 @@ impl MultiProviderModelsManager {
 }
 
 impl ModelsManager for MultiProviderModelsManager {
+    fn ensure_initialized(&self, factory: HttpClientFactory) -> ModelsManagerFuture<'_, ()> {
+        Box::pin(async move {
+            for provider in &self.providers {
+                provider.manager.ensure_initialized(factory.clone()).await;
+            }
+        })
+    }
+
     fn for_originator(&self, originator: &str) -> Option<SharedModelsManager> {
         let mut changed = false;
-        let providers = self.providers.iter().map(|provider| {
-            let manager = provider.manager.for_originator(originator).unwrap_or_else(|| provider.manager.clone());
-            changed |= !std::sync::Arc::ptr_eq(&manager, &provider.manager);
-            ProviderModels {
-                id: provider.id.clone(),
-                name: provider.name.clone(),
-                default_model: provider.default_model.clone(),
-                manager,
-            }
-        }).collect();
-        changed.then(|| std::sync::Arc::new(Self {
-            providers,
-            metadata: self.metadata.clone(),
-            default_model: self.default_model.clone(),
-        }) as SharedModelsManager)
+        let providers = self
+            .providers
+            .iter()
+            .map(|provider| {
+                let manager = provider
+                    .manager
+                    .for_originator(originator)
+                    .unwrap_or_else(|| provider.manager.clone());
+                changed |= !std::sync::Arc::ptr_eq(&manager, &provider.manager);
+                ProviderModels {
+                    id: provider.id.clone(),
+                    name: provider.name.clone(),
+                    default_model: provider.default_model.clone(),
+                    manager,
+                }
+            })
+            .collect();
+        changed.then(|| {
+            std::sync::Arc::new(Self {
+                providers,
+                metadata: self.metadata.clone(),
+                default_model: self.default_model.clone(),
+            }) as SharedModelsManager
+        })
     }
 
     fn get_model_info<'a>(
@@ -164,17 +181,28 @@ impl ModelsManager for MultiProviderModelsManager {
     ) -> ModelsManagerFuture<'a, codex_protocol::error::Result<CatalogModel>> {
         Box::pin(async move {
             let qualified = format!("{provider_id}/{model}");
-            let provider = self.providers.iter().find(|provider| provider.id == provider_id);
+            let provider = self
+                .providers
+                .iter()
+                .find(|provider| provider.id == provider_id);
             let mut selected = None;
             if let Some(provider) = provider {
                 let available = self.enrich(provider, provider.manager.get_remote_models().await);
-                if let Some(metadata) = available.into_iter().find(|entry| entry.slug == qualified) {
+                if let Some(metadata) = available.into_iter().find(|entry| entry.slug == qualified)
+                {
                     let origin = if self.metadata.contains_key(&qualified) {
                         ModelOrigin::ExplicitConfig
                     } else {
-                        provider.manager.get_model_info(provider_id, model, config).await?.origin
+                        provider
+                            .manager
+                            .get_model_info(provider_id, model, config)
+                            .await?
+                            .origin
                     };
-                    selected = Some(CatalogModel { model: metadata.into(), origin });
+                    selected = Some(CatalogModel {
+                        model: metadata.into(),
+                        origin,
+                    });
                 }
             }
             let mut info = selected.ok_or_else(|| {
@@ -196,17 +224,25 @@ impl ModelsManager for MultiProviderModelsManager {
         Box::pin(async move {
             let mut models = Vec::new();
             for provider in &self.providers {
-                for entry in provider.manager.model_catalog_with_origins(strategy, factory.clone()).await {
+                for entry in provider
+                    .manager
+                    .model_catalog_with_origins(strategy, factory.clone())
+                    .await
+                {
                     let qualified = format!("{}/{}", provider.id, entry.model.slug);
                     let origin = if self.metadata.contains_key(&qualified) {
                         ModelOrigin::ExplicitConfig
                     } else {
                         entry.origin
                     };
-                    models.extend(self.enrich(provider, vec![std::sync::Arc::unwrap_or_clone(entry.model)]).into_iter().map(|model| CatalogModel {
-                        model: model.into(),
-                        origin,
-                    }));
+                    models.extend(
+                        self.enrich(provider, vec![std::sync::Arc::unwrap_or_clone(entry.model)])
+                            .into_iter()
+                            .map(|model| CatalogModel {
+                                model: model.into(),
+                                origin,
+                            }),
+                    );
                 }
             }
             models
@@ -325,7 +361,11 @@ mod tests {
             id: id.to_string(),
             name: id.to_string(),
             default_model: default_model.map(str::to_string),
-            manager: Arc::new(StaticModelsManager::new(None, ModelsResponse { models }, ModelOrigin::ExplicitConfig)),
+            manager: Arc::new(StaticModelsManager::new(
+                None,
+                ModelsResponse { models },
+                ModelOrigin::ExplicitConfig,
+            )),
         }
     }
 

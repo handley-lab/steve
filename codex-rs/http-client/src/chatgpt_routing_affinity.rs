@@ -11,7 +11,6 @@ use reqwest::cookie::CookieStore;
 use reqwest::cookie::Jar;
 use url::Url;
 
-
 const ROUTING_COOKIE_NAMES: [&str; 2] = ["__oailb", "__cflb"];
 
 /// A routing pin returned by one connection, independent of the process-wide cookie jar.

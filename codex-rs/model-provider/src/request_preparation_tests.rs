@@ -22,18 +22,19 @@ async fn explicit_provider_token_survives_a_workspace_switch_during_setup() {
     )
     .unwrap();
     let manager = AuthManager::from_auth_for_testing_with_home(initial, home.path().to_path_buf());
-    let mut info = ModelProviderInfo::create_openai_provider(Some("https://provider.example/v1".into()));
+    let mut info =
+        ModelProviderInfo::create_openai_provider(Some("https://provider.example/v1".into()));
     info.experimental_bearer_token = Some("provider-token".into());
     let provider = create_model_provider(info, Some(manager.clone()));
 
     let mut attempts = 0;
-    let auth = prepare_provider_request(
+    let resolved = prepare_provider_request(
         provider.as_ref(),
         provider_uses_first_party_auth_path(provider.info()),
         |_| {
             attempts += 1;
             async {
-                let (_, auth) = provider.api_provider_and_auth().await?;
+                let (_, resolved) = provider.request_provider_and_auth().await?;
                 codex_login::auth::login_with_chatgpt_auth_tokens(
                     home.path(),
                     &token,
@@ -41,7 +42,7 @@ async fn explicit_provider_token_survives_a_workspace_switch_during_setup() {
                     /*chatgpt_plan_type*/ None,
                 )?;
                 manager.reload().await;
-                Ok(auth)
+                Ok(resolved)
             }
         },
     )
@@ -54,7 +55,11 @@ async fn explicit_provider_token_survives_a_workspace_switch_during_setup() {
     );
     assert_eq!(attempts, 1);
     let mut headers = http::HeaderMap::new();
-    auth.add_auth_headers(&mut headers).unwrap();
+    resolved.auth.add_auth_headers(&mut headers).unwrap();
+    assert_eq!(
+        resolved.credential.as_ref().and_then(CodexAuth::api_key),
+        Some("provider-token")
+    );
     assert_eq!(
         headers[http::header::AUTHORIZATION],
         "Bearer provider-token"

@@ -264,7 +264,7 @@ impl LocalAgentControl {
         if owner_thread_id.is_none()
             && let Ok(thread) = state.get_thread(thread_id).await
         {
-            return self.runtime.pin_v2_residency(&state, &thread).await;
+            return self.runtime.pin_v2_residency(&thread).await;
         }
         if self
             .runtime
@@ -275,9 +275,21 @@ impl LocalAgentControl {
             return Err(CodexErr::ThreadNotFound(thread_id));
         }
         let evicted_environments = self.runtime.registry.evicted_environments(thread_id);
+        if owner_thread_id.is_none()
+            && let Some(evicted) = &evicted_environments
+        {
+            // Preserve the worker's permissions while keeping the current wake configuration.
+            config.permissions = evicted.config.permissions.clone();
+            config.approvals_reviewer = evicted.config.approvals_reviewer;
+            config.requested_approvals_reviewer = evicted.config.requested_approvals_reviewer;
+        }
         let mut environment_selections = evicted_environments
             .as_ref()
             .map(|environments| environments.selections.clone());
+        let independent_service_tier = evicted_environments
+            .as_ref()
+            .filter(|evicted| evicted.has_independent_service_tier)
+            .map(|evicted| evicted.config.service_tier.clone());
         let evicted_environments = evicted_environments.map(|environments| environments.bindings);
 
         let stored_thread = state
@@ -321,7 +333,7 @@ impl LocalAgentControl {
             }
             if let Ok(thread) = state.get_thread(thread_id).await {
                 self.validate_loaded_v2_child(&thread, parent_thread_id)?;
-                return self.runtime.pin_v2_residency(&state, &thread).await;
+                return self.runtime.pin_v2_residency(&thread).await;
             }
         }
         let parent = if let Some(parent) = parent {
@@ -376,7 +388,7 @@ impl LocalAgentControl {
                     CodexErr::InvalidRequest(format!("permission_profile is invalid: {err}"))
                 })?;
         }
-        config.service_tier = self.root_service_tier();
+        config.service_tier = independent_service_tier.unwrap_or_else(|| self.root_service_tier());
         if config.model_provider_id != stored_model_provider {
             let stored_model_provider_info = config
                 .model_providers
@@ -464,7 +476,7 @@ impl LocalAgentControl {
                     if child_config.permission_profile == owner_config.permission_profile {
                         continue;
                     }
-                    if owner_environment.environment.is_remote() {
+                    if owner_environment.environment().is_remote() {
                         return Err(invalid_environment(
                             "permissions changed on a remote executor",
                         ));
@@ -559,6 +571,7 @@ impl LocalAgentControl {
             } else {
                 None
             };
+        let inherited_auth = Some(state.inherited_child_auth(parent_thread_id).await?);
         // Reserving a slot can evict an idle nested parent. Capture its instructions and
         // analytics metadata alongside its authority before the live parent can disappear.
         let residency_slot = self
@@ -567,6 +580,7 @@ impl LocalAgentControl {
 
         match state
             .resume_thread_with_history_with_source(ResumeThreadWithHistoryOptions {
+                inherited_auth,
                 config,
                 prompt_cache_key,
                 initial_history,
@@ -589,9 +603,7 @@ impl LocalAgentControl {
                 // Finish registration even if the sender is cancelled while acquiring its pin.
                 tokio::spawn(async move {
                     let _membership = membership;
-                    let residency_pin = runtime
-                        .pin_v2_residency(&state, &reloaded_thread.thread)
-                        .await?;
+                    let residency_pin = runtime.pin_v2_residency(&reloaded_thread.thread).await?;
                     runtime.registry.clear_evicted_environments(thread_id);
                     residency_slot.commit(reloaded_thread.thread_id);
                     // Register before listeners can forward events from the resumed thread.
@@ -616,7 +628,7 @@ impl LocalAgentControl {
                     }
                     self.runtime.registry.clear_evicted_environments(thread_id);
                     drop(residency_slot);
-                    return self.runtime.pin_v2_residency(&state, &thread).await;
+                    return self.runtime.pin_v2_residency(&thread).await;
                 }
                 Err(err)
             }
@@ -657,6 +669,7 @@ impl LocalAgentControl {
             && session_source
                 .as_ref()
                 .is_some_and(is_v2_resident_session_source);
+        let inherited_auth = Some(state.inherited_child_auth(parent_thread_id).await?);
         let (residency_slot, residency_reservation) = if spawn_uses_v2_residency {
             let residency_reservation_started_at = Instant::now();
             let residency_slot = self
@@ -804,6 +817,7 @@ impl LocalAgentControl {
                 self.clone(),
                 parent_thread_id,
                 inherited_exec_policy,
+                inherited_auth,
             )
             .await
             .map_err(|err| err.with_agent_context(AgentErrorContext::ChildStartup))?;
@@ -1100,6 +1114,7 @@ impl LocalAgentControl {
 
         let resumed_thread = state
             .resume_thread_with_history_with_source(ResumeThreadWithHistoryOptions {
+                inherited_auth: Some(state.inherited_child_auth(parent_thread_id).await?),
                 config: config.clone(),
                 prompt_cache_key: None,
                 initial_history,

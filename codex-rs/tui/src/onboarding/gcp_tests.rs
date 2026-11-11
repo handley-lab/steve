@@ -64,10 +64,7 @@ async fn gcp_menu_gating_and_setup_flow() {
     let area = Rect::new(0, 0, 76, 12);
 
     widget.auth_config.forced_login_method = Some(ForcedLoginMethod::Chatgpt);
-    assert_eq!(
-        widget.displayed_sign_in_options(),
-        vec![]
-    );
+    assert_eq!(widget.displayed_sign_in_options(), vec![]);
     widget.handle_sign_in_option(SignInOption::Gcp);
     assert!(matches!(
         &*widget.sign_in_state.read().unwrap(),

@@ -77,7 +77,10 @@ impl OllamaClient {
             .as_ref()
             .filter(|base_url| !base_url.trim().is_empty())
             .ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidInput, "Set an explicit Ollama base_url")
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Set an explicit Ollama base_url",
+                )
             })?;
         let uses_openai_compat = is_openai_compatible_base_url(base_url);
         let host_root = base_url_to_host_root(base_url);

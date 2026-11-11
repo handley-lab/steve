@@ -1,9 +1,12 @@
 //! Fetch picker models without blocking the event loop and keep new-thread defaults in sync.
 
 use super::AppServerSession;
+use super::ThreadParamsMode;
 use super::model_preset_from_api_model;
 use crate::app_event::AppEvent;
 use crate::app_event_sender::AppEventSender;
+use codex_app_server_client::AppServerRequestHandle;
+use codex_app_server_client::TypedRequestError;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ModelListParams;
 use codex_app_server_protocol::ModelListResponse;
@@ -22,6 +25,7 @@ impl AppServerSession {
                 request_id: RequestId::String(format!("model-list-{}", Uuid::new_v4())),
                 params: ModelListParams {
                     thread_id: Some(thread_id.to_string()),
+                    model_provider: None,
                     cursor: None,
                     limit: None,
                     include_hidden: Some(true),
@@ -41,18 +45,15 @@ impl AppServerSession {
         app_event_tx: AppEventSender,
     ) {
         let request_handle = self.request_handle();
+        let mode = self.thread_params_mode;
         tokio::spawn(async move {
-            let response = request_handle
-                .request_typed::<ModelListResponse>(ClientRequest::ModelList {
-                    request_id: RequestId::String(format!("model-list-{request_id}")),
-                    params: ModelListParams {
-                        thread_id: thread_id.map(|id| id.to_string()),
-                        cursor: None,
-                        limit: None,
-                        include_hidden: Some(true),
-                    },
-                })
-                .await;
+            let response = list(
+                mode,
+                request_handle,
+                RequestId::String(format!("model-list-{request_id}")),
+                thread_id,
+            )
+            .await;
             let (result, provider_errors) = match response {
                 Ok(response) => (
                     Ok(response
@@ -72,3 +73,43 @@ impl AppServerSession {
         });
     }
 }
+
+pub(super) async fn list(
+    mode: ThreadParamsMode,
+    request_handle: AppServerRequestHandle,
+    request_id: RequestId,
+    thread_id: Option<codex_protocol::ThreadId>,
+) -> Result<ModelListResponse, TypedRequestError> {
+    let response: ModelListResponse = match request_handle
+        .request_typed(ClientRequest::ModelList {
+            request_id,
+            params: ModelListParams {
+                thread_id: thread_id.map(|id| id.to_string()),
+                cursor: None,
+                limit: None,
+                include_hidden: Some(true),
+                model_provider: None,
+            },
+        })
+        .await
+    {
+        Ok(response) => response,
+        // Older Cloud servers do not expose model discovery. Preserve their startup behavior.
+        Err(TypedRequestError::Server { source, .. })
+            if mode == ThreadParamsMode::Cloud && source.code == -32601 =>
+        {
+            return Ok(ModelListResponse {
+                data: Vec::new(),
+                next_cursor: None,
+                provider_errors: Vec::new(),
+                cyber_access_programs_enabled: None,
+            });
+        }
+        Err(error) => return Err(error),
+    };
+    Ok(response)
+}
+
+#[cfg(test)]
+#[path = "models_tests.rs"]
+mod tests;

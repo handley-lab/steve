@@ -96,7 +96,7 @@ async fn provider_setup_wizards_require_eligible_onboarding() -> color_eyre::Res
         websocket_url: "ws://127.0.0.1:4500/".to_string(),
         auth_token: None,
     };
-    let enabled = "[features]\nbedrock_setup_wizard = true\ngcp_setup_wizard = true\n";
+    let enabled = "[features]\nbedrock_setup_wizard = true\ngcp_setup_wizard = true\ngateway_setup_wizard = true\n";
 
     for display_name in ["Configured API", "OpenAI"] {
         for (label, provider_id, requires_auth, config_toml, login_status, target, expected) in [
@@ -234,6 +234,26 @@ openai_base_url = "http://127.0.0.1:9/v1"
             );
         }
     }
+
+    let home = TempDir::new()?;
+    std::fs::write(home.path().join("config.toml"), enabled)?;
+    let requirements = home.path().join("requirements.toml");
+    std::fs::write(&requirements, "model_provider = 'openai'")?;
+    let config = ConfigBuilder::default()
+        .codex_home(home.path().to_path_buf())
+        .loader_overrides(LoaderOverrides {
+            system_requirements_path: Some(requirements),
+            ..LoaderOverrides::without_managed_config_for_tests()
+        })
+        .build()
+        .await?;
+    assert!(!should_show_provider_setup_wizard(
+        LoginStatus::NotAuthenticated,
+        /*requires_openai_auth*/ true,
+        &config,
+        &AppServerTarget::Embedded,
+        Feature::GatewaySetupWizard,
+    ));
 
     Ok(())
 }
@@ -916,7 +936,7 @@ fn app_server_target_for_launch_preserves_executor_selection() -> color_eyre::Re
                 /*explicit_remote_endpoint*/ None,
                 Some(socket_path.clone()),
                 /*can_reuse_implicit_local_daemon*/ true,
-                    Some(std::ffi::OsStr::new(executor)),
+                Some(std::ffi::OsStr::new(executor)),
             )?,
             AppServerTarget::Embedded,
         );
@@ -1394,6 +1414,19 @@ async fn config_cwd_for_app_server_target_omits_cwd_for_remote_exec_server() -> 
         )?),
     )
     .await;
+
+    assert_eq!(
+        backend_preference_local_cwd(remote_only_cwd, &target, &environment_manager),
+        std::env::current_dir().ok(),
+    );
+    assert_eq!(
+        backend_preference_local_cwd(
+            remote_only_cwd,
+            &target,
+            &EnvironmentManager::default_for_tests(),
+        ),
+        Some(remote_only_cwd.to_path_buf()),
+    );
 
     let config_cwd = config_cwd_for_app_server_target(
         Some(remote_only_cwd),

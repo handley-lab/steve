@@ -5,8 +5,10 @@ use std::time::Instant;
 use codex_backend_client::Client as BackendClient;
 use codex_backend_client::PathStyle;
 use codex_extension_api::ExtensionData;
+use codex_features::RuntimeAuthMode;
 use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
+use codex_runtime_agent_instance::RuntimeAuthManager;
 use tokio::time::timeout;
 
 #[derive(Clone, Debug)]
@@ -55,6 +57,7 @@ pub(super) async fn resolve_attribution_policy(
     base_url: &str,
     path_style: PathStyle,
     http_client_factory: &HttpClientFactory,
+    runtime_auth: Option<&(Arc<RuntimeAuthManager>, RuntimeAuthMode)>,
 ) -> Result<Option<GitAttributionPolicy>, tokio::time::error::Elapsed> {
     timeout(POLICY_RESOLUTION_TIMEOUT, async {
         let mut recovery_generation = auth_generation(auth_manager);
@@ -65,16 +68,32 @@ pub(super) async fn resolve_attribution_policy(
                 auth_recovery = auth_manager.unauthorized_recovery();
                 recovery_generation = auth_generation_at_start;
             }
-            let auth = auth_manager.auth().await;
+            let auth = auth_manager.auth_with_http_client_factory().await;
             if auth_generation(auth_manager) != auth_generation_at_start {
                 continue;
             }
             let enabled = match auth {
-                Some(auth) if auth.uses_codex_backend() => {
-                    let client =
-                        BackendClient::from_auth(base_url, &auth, http_client_factory.clone())
-                            .with_path_style(path_style);
-                    let settings = client.get_user_settings().await;
+                Some((auth, captured_factory)) if auth.uses_codex_backend() => {
+                    let policy = http_client_factory
+                        .network_policy()
+                        .clone()
+                        .with_account_binding(captured_factory.network_policy())?;
+                    let client = BackendClient::from_auth_with_runtime(
+                        base_url,
+                        &auth,
+                        http_client_factory.clone().with_network_policy(policy),
+                        runtime_auth,
+                        /*headers*/ &Default::default(),
+                    )
+                    .await;
+                    if auth_generation(auth_manager) != auth_generation_at_start {
+                        continue;
+                    }
+                    let settings = client
+                        .ok()?
+                        .with_path_style(path_style)
+                        .get_user_settings()
+                        .await;
                     if auth_generation(auth_manager) != auth_generation_at_start {
                         continue;
                     }

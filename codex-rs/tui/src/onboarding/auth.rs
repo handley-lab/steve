@@ -44,6 +44,8 @@ use crate::activation_key_guard::ActivationKeyGuard;
 use crate::key_hint::KeyBinding;
 use crate::key_hint::KeyBindingListExt;
 use crate::onboarding::bedrock::BedrockState;
+use crate::onboarding::gateway::GatewayStep;
+use crate::onboarding::gateway::USE_CUSTOM_PROVIDER;
 use crate::onboarding::gcp::GcpState;
 use crate::onboarding::keys;
 use crate::onboarding::onboarding_screen::KeyboardHandler;
@@ -72,6 +74,16 @@ pub(crate) enum SignInState {
     BedrockConfigured,
     Gcp(GcpState),
     GcpConfigured,
+    GatewaySelected(String),
+    GatewayOAuth {
+        provider_id: String,
+        url: Option<String>,
+    },
+    GatewayOAuthFailed {
+        provider_id: String,
+        message: String,
+    },
+    GatewayConfigured,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,8 +91,8 @@ pub(crate) enum SignInOption {
     ApiKey,
     Bedrock,
     Gcp,
+    Gateway,
 }
-
 
 const API_KEY_DISABLED_MESSAGE: &str = "API key login is disabled.";
 pub(super) fn onboarding_request_id() -> codex_app_server_protocol::RequestId {
@@ -103,7 +115,10 @@ impl KeyboardHandler for AuthModeWidget {
         {
             return;
         }
-        if self.handle_gcp_key_event(&key_event) || self.handle_bedrock_key_event(&key_event) {
+        if self.handle_gcp_key_event(&key_event)
+            || self.handle_bedrock_key_event(&key_event)
+            || self.handle_gateway_key_event(key_event)
+        {
             return;
         }
         if self.handle_api_key_entry_key_event(&key_event) {
@@ -133,14 +148,30 @@ impl KeyboardHandler for AuthModeWidget {
             self.select_option_by_index(/*index*/ 2, key_event);
             return;
         }
+        if keys::SELECT_FOURTH.is_pressed(key_event) {
+            self.select_option_by_index(/*index*/ 3, key_event);
+            return;
+        }
         if keys::CONFIRM.is_pressed(key_event) {
-            if matches!(&*self.sign_in_state.read().unwrap(), SignInState::PickMode) {
-                self.activate_highlighted_mode(key_event);
+            let state = self.sign_in_state.read().unwrap().clone();
+            match state {
+                SignInState::GatewayOAuthFailed { provider_id, .. } => {
+                    self.start_gateway_oauth(provider_id)
+                }
+                SignInState::PickMode => self.activate_highlighted_mode(key_event),
+                _ => {}
             }
         }
     }
 
     fn handle_paste(&mut self, pasted: String) {
+        if let Some(wizard) = &mut self.gateway {
+            if let Some(input) = wizard.active_input_mut() {
+                input.paste(&pasted);
+                self.request_frame.schedule_frame();
+            }
+            return;
+        }
         let mut state = self.sign_in_state.write().unwrap();
         let input = match &mut *state {
             SignInState::Bedrock(state) => state.active_input_mut(),
@@ -161,7 +192,6 @@ impl KeyboardHandler for AuthModeWidget {
     }
 }
 
-#[derive(Clone)]
 #[allow(dead_code)]
 pub(crate) struct AuthModeWidget {
     pub request_frame: FrameRequester,
@@ -173,10 +203,12 @@ pub(crate) struct AuthModeWidget {
     pub auth_config: AuthConfig,
     pub bedrock_setup_enabled: bool,
     pub gcp_setup_enabled: bool,
+    pub gateway_setup_enabled: bool,
+    pub(super) gateway: Option<GatewayStep>,
 }
 
 impl AuthModeWidget {
-    fn set_error(&self, message: Option<String>) {
+    pub(super) fn set_error(&self, message: Option<String>) {
         *self.error.write().unwrap() = message;
     }
 
@@ -186,6 +218,9 @@ impl AuthModeWidget {
 
     /// Returns whether the auth flow is currently accepting text input.
     pub(crate) fn is_text_entry_active(&self) -> bool {
+        if let Some(wizard) = &self.gateway {
+            return wizard.is_text_entry_active();
+        }
         self.sign_in_state.read().is_ok_and(|guard| match &*guard {
             SignInState::ApiKeyEntry(_) => true,
             SignInState::Bedrock(state) => state.is_text_entry_active(),
@@ -199,6 +234,9 @@ impl AuthModeWidget {
     /// API-key entry keeps its existing empty-field quit behavior, while
     /// Cloud setup fields accept printable input from their first character.
     pub(crate) fn should_suppress_printable_quit(&self) -> bool {
+        if let Some(wizard) = &self.gateway {
+            return wizard.is_text_entry_active();
+        }
         self.sign_in_state.read().is_ok_and(|guard| match &*guard {
             SignInState::ApiKeyEntry(state) => !state.value.is_empty(),
             SignInState::Bedrock(state) => state.is_text_entry_active(),
@@ -227,13 +265,20 @@ impl AuthModeWidget {
             if self.bedrock_setup_enabled {
                 options.push(SignInOption::Bedrock);
             }
-            if self.gcp_setup_enabled { options.push(SignInOption::Gcp); }
+            if self.gcp_setup_enabled {
+                options.push(SignInOption::Gcp);
+            }
+            if self.gateway_setup_enabled {
+                options.push(SignInOption::Gateway);
+            }
         }
         options
     }
 
     fn move_highlight(&mut self, delta: isize) {
-        if !matches!(*self.sign_in_state.read().unwrap(), SignInState::PickMode) { return; }
+        if !matches!(*self.sign_in_state.read().unwrap(), SignInState::PickMode) {
+            return;
+        }
         let options = self.displayed_sign_in_options();
         if options.is_empty() {
             return;
@@ -253,8 +298,7 @@ impl AuthModeWidget {
             return;
         }
         let options = self.displayed_sign_in_options();
-        if let Some(option) = options.get(index).copied()
-        {
+        if let Some(option) = options.get(index).copied() {
             self.highlighted_mode = option;
             self.activate_highlighted_mode(key_event);
         }
@@ -263,14 +307,18 @@ impl AuthModeWidget {
     fn activate_highlighted_mode(&mut self, key_event: KeyEvent) {
         let option = self.highlighted_mode;
         {
-            // Enter and printable shortcuts can repeat as plain presses without a release.
-            self.activation_key_guard = Some(ActivationKeyGuard::new_at(
-                KeyBinding::from_event(key_event),
-                Instant::now(),
-                /*key_releases_reported*/ false,
-            ));
+            self.guard_activation(key_event);
         }
         self.handle_sign_in_option(option);
+    }
+
+    pub(super) fn guard_activation(&mut self, key_event: KeyEvent) {
+        // Enter and printable shortcuts can repeat as plain presses without a release.
+        self.activation_key_guard = Some(ActivationKeyGuard::new_at(
+            KeyBinding::from_event(key_event),
+            Instant::now(),
+            /*reported_repeats_only*/ false,
+        ));
     }
 
     fn handle_sign_in_option(&mut self, option: SignInOption) {
@@ -294,6 +342,13 @@ impl AuthModeWidget {
                     *self.sign_in_state.write().unwrap() = SignInState::Gcp(GcpState::default());
                     self.set_error(/*message*/ None);
                     self.request_frame.schedule_frame();
+                } else if !self.is_api_login_allowed() {
+                    self.disallow_api_login();
+                }
+            }
+            SignInOption::Gateway => {
+                if self.gateway_setup_enabled && self.is_api_login_allowed() {
+                    self.start_gateway_picker();
                 } else if !self.is_api_login_allowed() {
                     self.disallow_api_login();
                 }
@@ -366,6 +421,14 @@ impl AuthModeWidget {
                         option,
                         "Use Google Cloud Vertex AI",
                         "Connect using your Google Cloud credentials",
+                    ));
+                }
+                SignInOption::Gateway => {
+                    lines.extend(create_mode_item(
+                        idx,
+                        option,
+                        USE_CUSTOM_PROVIDER,
+                        "Choose a saved configuration or create a new one",
                     ));
                 }
             }
@@ -571,7 +634,7 @@ impl AuthModeWidget {
         true
     }
 
-    fn start_api_key_entry(&mut self) {
+    pub(super) fn start_api_key_entry(&mut self) {
         if !self.is_api_login_allowed() {
             self.disallow_api_login();
             return;
@@ -652,14 +715,27 @@ impl StepStateProvider for AuthModeWidget {
     fn get_step_state(&self) -> StepState {
         let sign_in_state = self.sign_in_state.read().unwrap();
         match &*sign_in_state {
-            SignInState::PickMode | SignInState::ApiKeyEntry(_) | SignInState::Bedrock(_) | SignInState::Gcp(_) => StepState::InProgress,
-            SignInState::ApiKeyConfigured | SignInState::BedrockConfigured | SignInState::GcpConfigured => StepState::Complete,
+            SignInState::PickMode
+            | SignInState::ApiKeyEntry(_)
+            | SignInState::Bedrock(_)
+            | SignInState::Gcp(_)
+            | SignInState::GatewayOAuth { .. }
+            | SignInState::GatewayOAuthFailed { .. } => StepState::InProgress,
+            SignInState::ApiKeyConfigured
+            | SignInState::BedrockConfigured
+            | SignInState::GcpConfigured
+            | SignInState::GatewaySelected(_)
+            | SignInState::GatewayConfigured => StepState::Complete,
         }
     }
 }
 
 impl WidgetRef for AuthModeWidget {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
+        if let Some(wizard) = &self.gateway {
+            wizard.render(area, buf);
+            return;
+        }
         let sign_in_state = self.sign_in_state.read().unwrap();
         match &*sign_in_state {
             SignInState::PickMode => {
@@ -676,6 +752,37 @@ impl WidgetRef for AuthModeWidget {
             }
             SignInState::Gcp(state) => {
                 state.render(area, buf, self.error_message());
+            }
+            SignInState::GatewayOAuth { url, .. } => {
+                let title = if url.is_some() {
+                    "Finish signing in to your gateway in the browser."
+                } else {
+                    "Starting gateway sign-in…"
+                };
+                let mut lines = vec![Line::from(title.bold())];
+                if let Some(url) = url {
+                    lines.push(Line::from(url.clone().cyan().underlined()));
+                }
+                lines.push(Line::from("Press Ctrl+C to quit.".dim()));
+                Paragraph::new(lines)
+                    .wrap(Wrap { trim: false })
+                    .render(area, buf);
+                if let Some(url) = url {
+                    mark_url_hyperlink(buf, area, url);
+                }
+            }
+            SignInState::GatewayOAuthFailed { message, .. } => {
+                Paragraph::new(vec![
+                    Line::from(message.clone().red()),
+                    Line::from("Press Enter to retry or Ctrl+C to quit.".dim()),
+                ])
+                .wrap(Wrap { trim: false })
+                .render(area, buf);
+            }
+            SignInState::GatewaySelected(_) | SignInState::GatewayConfigured => {
+                Paragraph::new("✓ Custom provider configured".green())
+                    .wrap(Wrap { trim: false })
+                    .render(area, buf);
             }
             SignInState::GcpConfigured => {
                 Paragraph::new("✓ Google Cloud Vertex AI configured".green())
@@ -714,8 +821,13 @@ mod tests {
             "model_provider = \"openai\"\n",
         )
         .unwrap();
+        let loader_overrides = codex_config::LoaderOverrides {
+            ignore_managed_requirements: true,
+            managed_config_path: Some(codex_home_path.join("managed_config.toml")),
+            ..codex_config::LoaderOverrides::without_managed_config_for_tests()
+        };
         let config = ConfigBuilder::default()
-            .loader_overrides(codex_config::LoaderOverrides::without_managed_config_for_tests())
+            .loader_overrides(loader_overrides.clone())
             .codex_home(codex_home_path.clone())
             .build()
             .await
@@ -727,7 +839,7 @@ mod tests {
             arg0_paths: Arg0DispatchPaths::default(),
             config: Arc::new(config),
             cli_overrides: Vec::new(),
-            loader_overrides: Default::default(),
+            loader_overrides,
             strict_config: false,
             cloud_config_bundle: managed_config_bundle_loader_for_storage(
                 auth_config.clone(),
@@ -768,6 +880,8 @@ mod tests {
             auth_config,
             bedrock_setup_enabled: false,
             gcp_setup_enabled: false,
+            gateway_setup_enabled: false,
+            gateway: None,
         };
         (widget, codex_home)
     }
@@ -1000,3 +1114,7 @@ mod activation_key_tests;
 #[cfg(test)]
 #[path = "gcp_tests.rs"]
 mod gcp_tests;
+
+#[cfg(test)]
+#[path = "gateway_tests.rs"]
+mod gateway_tests;

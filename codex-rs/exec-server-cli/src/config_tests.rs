@@ -49,3 +49,22 @@ fn exec_server_remote_api_key_auth_rejects_http_openai_domain() {
         );
     }
 }
+#[test]
+fn stdin_chatgpt_account_must_match_the_token_claim() -> anyhow::Result<()> {
+    let claims =
+        serde_json::json!({"https://api.openai.com/auth": {"chatgpt_account_id": "alderaan"}});
+    let token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &claims,
+        &jsonwebtoken::EncodingKey::from_secret(b"test"),
+    )?;
+    let line = format!("{token}\n");
+    for account_id in [None, Some("alderaan".to_string())] {
+        let auth = chatgpt_auth_from_line(&line, account_id)?;
+        assert_eq!(auth.get_account_id().as_deref(), Some("alderaan"));
+    }
+    assert!(chatgpt_auth_from_line(&line, Some("endor".to_string())).is_err());
+    assert!(chatgpt_auth_from_line("e30.e30.c2ln\n", /*account_id*/ None).is_err());
+    assert!(chatgpt_auth_from_line(&token, /*account_id*/ None).is_err());
+    Ok(())
+}

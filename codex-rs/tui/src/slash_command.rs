@@ -94,7 +94,7 @@ impl SlashCommand {
     pub fn description(self) -> &'static str {
         match self {
             SlashCommand::Config => "configure Steve preferences",
-            SlashCommand::Feedback => "send logs to maintainers",
+            SlashCommand::Feedback => "send logs to maintainers or save a ZIP",
             SlashCommand::New => "start a new chat during a conversation",
             SlashCommand::Init => "create an AGENTS.md file with instructions for Steve",
             SlashCommand::Compact => "summarize conversation to prevent hitting the context limit",
@@ -216,13 +216,14 @@ impl SlashCommand {
                 | SlashCommand::Pwd
                 | SlashCommand::Usage
                 | SlashCommand::Ide
+                | SlashCommand::Rename
         )
     }
 
     /// Whether dispatch needs thread state to validate this command before consuming its draft.
     /// The composer must defer busy-state rejection and draft clearing for these commands.
     pub(crate) fn requires_dispatch_validation(self) -> bool {
-        matches!(self, SlashCommand::Review)
+        matches!(self, SlashCommand::Fork | SlashCommand::Review)
     }
 
     /// Commands that do not require a writable current thread. The server must still be connected.

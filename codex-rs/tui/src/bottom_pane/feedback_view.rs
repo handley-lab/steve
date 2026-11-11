@@ -6,6 +6,8 @@ use codex_feedback::FeedbackDiagnostics;
 use codex_feedback::WINDOWS_SANDBOX_LOG_ATTACHMENT_FILENAME;
 use ratatui::style::Stylize;
 use ratatui::text::Line;
+use ratatui::widgets::Paragraph;
+use ratatui::widgets::Wrap;
 
 use crate::app_event::AppEvent;
 use crate::app_event::FeedbackCategory;
@@ -13,6 +15,13 @@ use crate::app_event_sender::AppEventSender;
 use crate::history_cell;
 
 use super::popup_consts::standard_popup_hint_line;
+
+/// Audience metadata supplied by the configured feedback service.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FeedbackAudience {
+    OpenAiEmployee,
+    External,
+}
 
 pub(crate) fn should_show_feedback_connectivity_details(
     category: FeedbackCategory,
@@ -90,21 +99,6 @@ pub(crate) fn feedback_selection_params(
     }
 }
 
-/// Build the selection popup params shown when feedback is disabled.
-pub(crate) fn feedback_disabled_params() -> super::SelectionViewParams {
-    super::SelectionViewParams {
-        title: Some("Sending feedback is disabled".to_string()),
-        subtitle: Some("This action is disabled by configuration.".to_string()),
-        footer_hint: Some(standard_popup_hint_line()),
-        items: vec![super::SelectionItem {
-            name: "Close".to_string(),
-            dismiss_on_select: true,
-            ..Default::default()
-        }],
-        ..super::SelectionViewParams::picker()
-    }
-}
-
 fn make_feedback_item(
     app_event_tx: AppEventSender,
     name: &str,
@@ -123,16 +117,16 @@ fn make_feedback_item(
     }
 }
 
-/// Build the upload consent popup params for a given feedback category.
-pub(crate) fn feedback_upload_consent_params(
+/// Choose optional attachments before saving or sending the report.
+pub(crate) fn feedback_consent_params(
     app_event_tx: AppEventSender,
     category: FeedbackCategory,
     rollout_path: Option<std::path::PathBuf>,
     auto_review_rollout_filename: Option<String>,
     include_windows_sandbox_log: bool,
+    can_save: bool,
     feedback_diagnostics: &FeedbackDiagnostics,
 ) -> super::SelectionViewParams {
-    use super::popup_consts::standard_popup_hint_line;
     let yes_action: super::SelectionAction = Box::new({
         let tx = app_event_tx.clone();
         move |sender: &AppEventSender| {
@@ -155,11 +149,18 @@ pub(crate) fn feedback_upload_consent_params(
         }
     });
 
-    // Build header listing files that would be sent if user consents.
+    let disclosure = if can_save {
+        "Saving a ZIP does not upload feedback.\nFiles may contain prompts, commands, and tool output:"
+    } else {
+        "Files may contain prompts, commands, and tool output:"
+    };
     let mut header_lines: Vec<Box<dyn crate::render::renderable::Renderable>> = vec![
-        Line::from("Upload logs?".bold()).into(),
+        Line::from("Include logs and session history?".bold()).into(),
         Line::from("").into(),
-        Line::from("The following files will be sent:".dim()).into(),
+        Paragraph::new(disclosure)
+            .dim()
+            .wrap(Wrap { trim: false })
+            .into(),
         Line::from(vec!["  • ".into(), "codex-logs.log".into()]).into(),
         Line::from(vec!["  • ".into(), "client-logs.txt (if available)".into()]).into(),
         Line::from(vec![
@@ -221,17 +222,14 @@ pub(crate) fn feedback_upload_consent_params(
         items: vec![
             super::SelectionItem {
                 name: "Yes".to_string(),
-                description: Some(
-                    "Include the listed logs and diagnostics with the note sent to the configured feedback destination"
-                        .to_string(),
-                ),
+                description: Some("Include session logs and diagnostics in the report".to_string()),
                 actions: vec![yes_action],
                 dismiss_on_select: true,
                 ..Default::default()
             },
             super::SelectionItem {
                 name: "No".to_string(),
-                description: Some("Send the note without log attachments".to_string()),
+                description: Some("Keep only your note and report metadata".to_string()),
                 actions: vec![no_action],
                 dismiss_on_select: true,
                 ..Default::default()
@@ -307,12 +305,13 @@ mod tests {
     fn feedback_upload_consent_lists_doctor_report() {
         let (tx_raw, _rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
         let tx = AppEventSender::new(tx_raw);
-        let params = feedback_upload_consent_params(
+        let params = feedback_consent_params(
             tx,
             FeedbackCategory::Bug,
             Some(std::path::PathBuf::from("rollout.jsonl")),
             Some("auto-review-rollout.jsonl".to_string()),
             /*include_windows_sandbox_log*/ false,
+            /*can_save*/ true,
             &FeedbackDiagnostics::default(),
         );
 
@@ -325,12 +324,13 @@ mod tests {
     fn feedback_upload_consent_lists_windows_sandbox_log_when_included() {
         let (tx_raw, _rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
         let tx = AppEventSender::new(tx_raw);
-        let params = feedback_upload_consent_params(
+        let params = feedback_consent_params(
             tx,
             FeedbackCategory::Bug,
             Some(std::path::PathBuf::from("rollout.jsonl")),
             Some("auto-review-rollout.jsonl".to_string()),
             /*include_windows_sandbox_log*/ true,
+            /*can_save*/ true,
             &FeedbackDiagnostics::default(),
         );
 
@@ -407,11 +407,7 @@ mod tests {
             FeedbackCategory::Other,
         ] {
             let rendered = render_cell(
-                &feedback_success_cell(
-                    category,
-                    /*include_logs*/ false,
-                    "thread-4",
-                ),
+                &feedback_success_cell(category, /*include_logs*/ false, "thread-4"),
                 /*width*/ 120,
             );
             assert!(rendered.contains("Thanks for the feedback!"));

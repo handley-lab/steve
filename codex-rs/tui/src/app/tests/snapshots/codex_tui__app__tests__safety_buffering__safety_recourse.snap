@@ -1,5 +1,6 @@
 ---
 source: tui/src/app/tests/safety_buffering.rs
+assertion_line: 279
 expression: "format!(\"{loading}\\n\\n{notice}\")"
 ---
 ⓘ This content can’t be shown

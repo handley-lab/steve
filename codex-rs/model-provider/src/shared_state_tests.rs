@@ -15,8 +15,11 @@ use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_login::default_client::ClientRedirectPolicy;
 use codex_login::default_client::create_client_for_route;
+use codex_model_provider_info::GatewayOAuthConfig;
 use codex_model_provider_info::GatewayOAuthDelivery;
+use codex_model_provider_info::GatewayOAuthSettings;
 use codex_model_provider_info::ModelProviderInfo;
+use codex_model_provider_info::OAuthCredentialsStore;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_protocol::error::CodexErrorDetails;
 use codex_protocol::protocol::CodexErrorInfo;
@@ -64,18 +67,20 @@ async fn gateway_credentials_accompany_primary_auth_in_models_and_responses() {
             name: "gateway_session".into(),
         },
     ] {
-        let config = GatewayOAuthConfig {
+        let config = GatewayOAuthSettings {
             authorization_url: format!("{}/authorize", server.uri()),
+            device_authorization_url: None,
             token_url: format!("{}/token", server.uri()),
             client_id: "test".into(),
             resource: None,
             scopes: vec![],
             redirect_port: None,
-            credentials_store: Default::default(),
+            // Avoid spending the model discovery deadline on keyring-backed decryption.
+            credentials_store: OAuthCredentialsStore::File,
             delivery: delivery.clone(),
         };
         let info = ModelProviderInfo {
-            gateway_oauth: Some(config.clone()),
+            gateway_oauth: Some(GatewayOAuthConfig::OAuth(config.clone())),
             requires_openai_auth: true,
             ..ModelProviderInfo::create_openai_provider(Some(server.uri()))
         };
@@ -96,7 +101,12 @@ async fn gateway_credentials_accompany_primary_auth_in_models_and_responses() {
         );
         let provider = create_model_provider(info.clone(), Some(primary));
         assert!(Arc::ptr_eq(
-            &provider.gateway_auth_manager().unwrap().unwrap(),
+            &provider
+                .gateway_auth_manager()
+                .unwrap()
+                .unwrap()
+                .oauth_session()
+                .unwrap(),
             &manager,
         ));
         let models = provider.models_manager_without_cache(/*config_model_catalog*/ None);
@@ -104,7 +114,8 @@ async fn gateway_credentials_accompany_primary_auth_in_models_and_responses() {
         models
             .raw_model_catalog(RefreshStrategy::Online, factory.clone())
             .await;
-        let (api, auth) = provider.api_provider_and_auth().await.unwrap();
+        let (api, resolved) = provider.request_provider_and_auth().await.unwrap();
+        let auth = resolved.auth;
         let scoped = provider.api_auth_for_scope().await.unwrap();
         let mut expected = HeaderMap::from_iter([
             (
@@ -196,8 +207,9 @@ async fn gateway_preserves_runtime_auth_and_rejects_header_collisions() {
         );
         let info = ModelProviderInfo {
             requires_openai_auth: true,
-            gateway_oauth: Some(GatewayOAuthConfig {
+            gateway_oauth: Some(GatewayOAuthConfig::OAuth(GatewayOAuthSettings {
                 authorization_url: format!("{}/authorize", server.uri()),
+                device_authorization_url: None,
                 token_url: format!("{}/token", server.uri()),
                 client_id: "client".into(),
                 resource: None,
@@ -208,7 +220,7 @@ async fn gateway_preserves_runtime_auth_and_rejects_header_collisions() {
                     name: "x-gateway-auth".into(),
                     scheme: "Bearer".into(),
                 },
-            }),
+            })),
             ..ModelProviderInfo::create_openai_provider(Some(server.uri()))
         };
         let _gateway = seed_gateway_auth(
@@ -298,8 +310,9 @@ async fn gateway_refresh_preserves_primary_auth_and_hides_issuer_errors() {
             home.path().to_path_buf(),
         );
         let info = ModelProviderInfo {
-            gateway_oauth: Some(GatewayOAuthConfig {
+            gateway_oauth: Some(GatewayOAuthConfig::OAuth(GatewayOAuthSettings {
                 authorization_url: format!("{}/authorize", server.uri()),
+                device_authorization_url: None,
                 token_url: format!("{}/token?credential=query-secret", server.uri()),
                 client_id: "client".into(),
                 resource: None,
@@ -310,7 +323,7 @@ async fn gateway_refresh_preserves_primary_auth_and_hides_issuer_errors() {
                     name: "x-gateway-auth".into(),
                     scheme: "Bearer".into(),
                 },
-            }),
+            })),
             requires_openai_auth: true,
             ..ModelProviderInfo::create_openai_provider(Some(server.uri()))
         };
@@ -397,19 +410,21 @@ async fn models_cache_follows_gateway_credentials_and_configuration() {
             codex_login::default_client::RESIDENCY_HEADER_NAME.to_string(),
             "us".into(),
         )])),
-        gateway_oauth: Some(GatewayOAuthConfig {
+        gateway_oauth: Some(GatewayOAuthConfig::OAuth(GatewayOAuthSettings {
             authorization_url: format!("{}/authorize", server.uri()),
+            device_authorization_url: None,
             token_url: format!("{}/token", server.uri()),
             client_id: "client".into(),
             resource: None,
             scopes: vec![],
             redirect_port: None,
-            credentials_store: Default::default(),
+            // Keyring latency is outside the cache behavior under test.
+            credentials_store: OAuthCredentialsStore::File,
             delivery: GatewayOAuthDelivery::Header {
                 name: "x-gateway-auth".into(),
                 scheme: "Bearer".into(),
             },
-        }),
+        })),
         ..ModelProviderInfo::create_openai_provider(Some(server.uri()))
     };
     let factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
@@ -420,8 +435,10 @@ async fn models_cache_follows_gateway_credentials_and_configuration() {
         ("first", "replacement"),
         ("second", "second"),
     ] {
-        info.gateway_oauth.as_mut().unwrap().resource =
-            Some(format!("{}/{resource}", server.uri()));
+        let Some(GatewayOAuthConfig::OAuth(settings)) = &mut info.gateway_oauth else {
+            unreachable!()
+        };
+        settings.resource = Some(format!("{}/{resource}", server.uri()));
         model.slug = format!("catalog-{resource}-{token}");
         let _gateway = seed_gateway_auth(
             &info,
@@ -434,7 +451,11 @@ async fn models_cache_follows_gateway_credentials_and_configuration() {
                 "x-gateway-auth",
                 format!("Bearer {token}"),
             ))
-            .respond_with(ResponseTemplate::new(200).insert_header("etag", "stable-gateway").set_body_json(json!({"models": [&model]})))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("etag", "stable-gateway")
+                    .set_body_json(json!({"models": [&model]})),
+            )
             .expect(1)
             .mount(&server)
             .await;
@@ -450,29 +471,42 @@ async fn models_cache_follows_gateway_credentials_and_configuration() {
                 .refresh_if_new_etag("fixture", "stable-gateway".into(), factory.clone())
                 .await;
             let off_cache = std::fs::read(&cache_path).unwrap();
-            eprintln!("T18_EVIDENCE {}", json!({"kind": "gateway-etag-off",
-                "token": owner.cached_access_token(), "cache_before": String::from_utf8_lossy(&before),
-                "cache_after": String::from_utf8_lossy(&off_cache),
-                "request_count": server.received_requests().await.unwrap().len(),
-            }));
+            eprintln!(
+                "T18_EVIDENCE {}",
+                json!({"kind": "gateway-etag-off",
+                    "token": owner.cached_access_token(), "cache_before": String::from_utf8_lossy(&before),
+                    "cache_after": String::from_utf8_lossy(&off_cache),
+                    "request_count": server.received_requests().await.unwrap().len(),
+                })
+            );
             assert_eq!(owner.cached_access_token().as_deref(), Some("first"));
             assert_eq!(off_cache, before);
-            assert_eq!(server.received_requests().await.unwrap().len(), requests_before);
+            assert_eq!(
+                server.received_requests().await.unwrap().len(),
+                requests_before
+            );
             assert!(live_models[0].get_remote_models().await.is_empty());
             live_models[0].set_api_key_model_discovery_enabled(true);
             live_models[0]
                 .refresh_if_new_etag("fixture", "stable-gateway".into(), factory.clone())
                 .await;
             let after = live_models[0].get_remote_models().await;
-            let cache_after: serde_json::Value = serde_json::from_slice(&std::fs::read(&cache_path).unwrap()).unwrap();
-            eprintln!("T18_EVIDENCE {}", json!({"kind": "gateway-etag-replacement",
-                "token": owner.cached_access_token(), "models": &after, "cache_after": &cache_after,
-                "request_count": server.received_requests().await.unwrap().len(),
-            }));
+            let cache_after: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&cache_path).unwrap()).unwrap();
+            eprintln!(
+                "T18_EVIDENCE {}",
+                json!({"kind": "gateway-etag-replacement",
+                    "token": owner.cached_access_token(), "models": &after, "cache_after": &cache_after,
+                    "request_count": server.received_requests().await.unwrap().len(),
+                })
+            );
             assert_eq!(after, vec![model.clone()]);
             let cache_before: serde_json::Value = serde_json::from_slice(&before).unwrap();
             assert_ne!(cache_before["identity"], cache_after["identity"]);
-            assert_eq!(server.received_requests().await.unwrap().len(), requests_before + 1);
+            assert_eq!(
+                server.received_requests().await.unwrap().len(),
+                requests_before + 1
+            );
             assert!(live_models[1].get_remote_models().await.is_empty());
         }
         // Keep earlier managers alive so a stored replacement must update the shared owner.
@@ -486,18 +520,21 @@ async fn models_cache_follows_gateway_credentials_and_configuration() {
             let catalog = models
                 .raw_model_catalog(RefreshStrategy::OnlineIfUncached, factory.clone())
                 .await;
-            eprintln!("T18_EVIDENCE {}", json!({
-                "kind": "gateway-disk", "resource": resource, "token": token,
-                "response_body": json!({"models": [&model]}).to_string(),
-                "actual_models": &catalog.models,
-                "requests": server.received_requests().await.unwrap().iter().map(|request| json!({
-                    "url": request.url.as_str(), "method": request.method.to_string(),
-                    "headers": request.headers.iter().map(|(name, value)|
-                        (name.to_string(), String::from_utf8_lossy(value.as_bytes()).into_owned())
-                    ).collect::<Vec<_>>(),
-                    "body": String::from_utf8_lossy(&request.body),
-                })).collect::<Vec<_>>(),
-            }));
+            eprintln!(
+                "T18_EVIDENCE {}",
+                json!({
+                    "kind": "gateway-disk", "resource": resource, "token": token,
+                    "response_body": json!({"models": [&model]}).to_string(),
+                    "actual_models": &catalog.models,
+                    "requests": server.received_requests().await.unwrap().iter().map(|request| json!({
+                        "url": request.url.as_str(), "method": request.method.to_string(),
+                        "headers": request.headers.iter().map(|(name, value)|
+                            (name.to_string(), String::from_utf8_lossy(value.as_bytes()).into_owned())
+                        ).collect::<Vec<_>>(),
+                        "body": String::from_utf8_lossy(&request.body),
+                    })).collect::<Vec<_>>(),
+                })
+            );
             assert_eq!(catalog.models, vec![model.clone()]);
             if resource == "first" && token == "first" && pass == 0 {
                 let before = server.received_requests().await.unwrap().len();
@@ -505,20 +542,35 @@ async fn models_cache_follows_gateway_credentials_and_configuration() {
                     .refresh_if_new_etag("fixture", "stable-gateway".into(), factory.clone())
                     .await;
                 assert_eq!(server.received_requests().await.unwrap().len(), before);
-                let cold_owner = seed_gateway_auth(&info, &primary,
-                    json!({"access_token": token, "refresh_token": "refresh-secret", "expires_at": i64::MAX}));
+                let cold_owner = seed_gateway_auth(
+                    &info,
+                    &primary,
+                    json!({"access_token": token, "refresh_token": "refresh-secret", "expires_at": i64::MAX}),
+                );
                 let endpoint = Arc::new(crate::models_endpoint::OpenAiModelsEndpoint::new(
-                    info.clone(), Some(primary.clone()), Some(Ok(cold_owner)),
+                    info.clone(),
+                    Some(primary.clone()),
+                    Some(Ok(Arc::new(
+                        crate::gateway_auth::GatewayAuthManager::from_oauth_session(cold_owner),
+                    ))),
                 ));
                 assert!(endpoint.identity().is_none());
                 let cold = codex_models_manager::manager::OpenAiModelsManager::new(
-                    home.path().into(), endpoint.clone(), Some(primary.clone()),
-                ).with_provider_catalog();
-                let offline = cold.raw_model_catalog(RefreshStrategy::Offline, factory.clone()).await;
-                eprintln!("T18_EVIDENCE {}", json!({"kind": "gateway-cold-offline",
-                    "identity_after": endpoint.identity(), "models": &offline.models,
-                    "request_count": server.received_requests().await.unwrap().len(),
-                }));
+                    home.path().into(),
+                    endpoint.clone(),
+                    Some(primary.clone()),
+                )
+                .with_provider_catalog();
+                let offline = cold
+                    .raw_model_catalog(RefreshStrategy::Offline, factory.clone())
+                    .await;
+                eprintln!(
+                    "T18_EVIDENCE {}",
+                    json!({"kind": "gateway-cold-offline",
+                        "identity_after": endpoint.identity(), "models": &offline.models,
+                        "request_count": server.received_requests().await.unwrap().len(),
+                    })
+                );
                 assert_eq!(offline.models, vec![model.clone()]);
                 assert!(endpoint.identity().is_some());
                 assert_eq!(server.received_requests().await.unwrap().len(), before);
@@ -528,11 +580,21 @@ async fn models_cache_follows_gateway_credentials_and_configuration() {
     }
     assert_eq!(server.received_requests().await.unwrap().len(), 3);
     let mut unavailable_info = info.clone();
-    unavailable_info.gateway_oauth.as_mut().unwrap().resource = Some(format!("{}/unavailable", server.uri()));
-    let unavailable = seed_gateway_auth(&unavailable_info, &primary,
-        json!({"access_token": "expired", "refresh_token": "unused", "expires_at": 0}));
+    let Some(GatewayOAuthConfig::OAuth(settings)) = &mut unavailable_info.gateway_oauth else {
+        panic!("expected gateway OAuth settings");
+    };
+    settings.resource = Some(format!("{}/unavailable", server.uri()));
+    let unavailable = seed_gateway_auth(
+        &unavailable_info,
+        &primary,
+        json!({"access_token": "expired", "refresh_token": "unused", "expires_at": 0}),
+    );
     let endpoint = crate::models_endpoint::OpenAiModelsEndpoint::new(
-        unavailable_info, Some(primary), Some(Ok(unavailable.clone())),
+        unavailable_info,
+        Some(primary),
+        Some(Ok(Arc::new(
+            crate::gateway_auth::GatewayAuthManager::from_oauth_session(unavailable.clone()),
+        ))),
     );
     endpoint.prepare_catalog_identity().await.unwrap();
     assert!(unavailable.cached_access_token().is_none());
@@ -556,7 +618,10 @@ enum ProviderInstance {
 }
 
 async fn models_observe_gateway_rotation(instance: ProviderInstance) {
-    let instance_name = match &instance { ProviderInstance::Same => "same", ProviderInstance::Separate => "separate" };
+    let instance_name = match &instance {
+        ProviderInstance::Same => "same",
+        ProviderInstance::Separate => "separate",
+    };
     let server = MockServer::start().await;
     let home = tempfile::tempdir().unwrap();
     let primary = AuthManager::from_auth_for_testing_with_home(
@@ -565,8 +630,9 @@ async fn models_observe_gateway_rotation(instance: ProviderInstance) {
     );
     let info = ModelProviderInfo {
         model_catalog_url: Some(format!("{}/models", server.uri()).into()),
-        gateway_oauth: Some(GatewayOAuthConfig {
+        gateway_oauth: Some(GatewayOAuthConfig::OAuth(GatewayOAuthSettings {
             authorization_url: format!("{}/authorize", server.uri()),
+            device_authorization_url: None,
             token_url: format!("{}/token", server.uri()),
             client_id: "client".into(),
             resource: None,
@@ -577,7 +643,7 @@ async fn models_observe_gateway_rotation(instance: ProviderInstance) {
                 name: "x-gateway-auth".into(),
                 scheme: "Bearer".into(),
             },
-        }),
+        })),
         requires_openai_auth: true,
         ..ModelProviderInfo::create_openai_provider(Some(server.uri()))
     };
@@ -671,21 +737,27 @@ async fn models_observe_gateway_rotation(instance: ProviderInstance) {
         )
         .await;
     let after_fetch = models.get_remote_models().await;
-    eprintln!("T18_EVIDENCE {}", json!({
-        "kind": "gateway-memory", "instance": instance_name,
-        "first_response_body": json!({"models": [&first]}).to_string(),
-        "second_response_body": json!({"models": [&second]}).to_string(),
-        "after_rotation": &after_rotation, "after_fetch": &after_fetch,
-        "requests": server.received_requests().await.unwrap().iter().map(|request| json!({
-            "url": request.url.as_str(), "method": request.method.to_string(),
-            "headers": request.headers.iter().map(|(name, value)|
-                (name.to_string(), String::from_utf8_lossy(value.as_bytes()).into_owned())
-            ).collect::<Vec<_>>(),
-            "body": String::from_utf8_lossy(&request.body),
-        })).collect::<Vec<_>>(),
-    }));
+    eprintln!(
+        "T18_EVIDENCE {}",
+        json!({
+            "kind": "gateway-memory", "instance": instance_name,
+            "first_response_body": json!({"models": [&first]}).to_string(),
+            "second_response_body": json!({"models": [&second]}).to_string(),
+            "after_rotation": &after_rotation, "after_fetch": &after_fetch,
+            "requests": server.received_requests().await.unwrap().iter().map(|request| json!({
+                "url": request.url.as_str(), "method": request.method.to_string(),
+                "headers": request.headers.iter().map(|(name, value)|
+                    (name.to_string(), String::from_utf8_lossy(value.as_bytes()).into_owned())
+                ).collect::<Vec<_>>(),
+                "body": String::from_utf8_lossy(&request.body),
+            })).collect::<Vec<_>>(),
+        })
+    );
     assert_eq!(after_fetch, vec![second]);
-    assert!(after_rotation.is_empty(), "previous gateway catalog survived credential replacement");
+    assert!(
+        after_rotation.is_empty(),
+        "previous gateway catalog survived credential replacement"
+    );
 }
 
 #[tokio::test]
@@ -740,8 +812,9 @@ async fn gateway_catalog_response_is_bound_to_the_credential_sent() {
     );
     let info = ModelProviderInfo {
         model_catalog_url: Some(format!("{base}/models").into()),
-        gateway_oauth: Some(GatewayOAuthConfig {
+        gateway_oauth: Some(GatewayOAuthConfig::OAuth(GatewayOAuthSettings {
             authorization_url: format!("{}/authorize", token_server.uri()),
+            device_authorization_url: None,
             token_url: format!("{}/token", token_server.uri()),
             client_id: "client".into(),
             resource: None,
@@ -751,7 +824,7 @@ async fn gateway_catalog_response_is_bound_to_the_credential_sent() {
                 name: "gateway_session".into(),
             },
             credentials_store: Default::default(),
-        }),
+        })),
         ..ModelProviderInfo::create_openai_provider(Some(base))
     };
     let gateway = seed_gateway_auth(
@@ -818,7 +891,9 @@ async fn gateway_catalog_response_is_bound_to_the_credential_sent() {
         inner: crate::models_endpoint::OpenAiModelsEndpoint::new(
             info,
             Some(primary.clone()),
-            Some(Ok(gateway.clone())),
+            Some(Ok(Arc::new(
+                crate::gateway_auth::GatewayAuthManager::from_oauth_session(gateway.clone()),
+            ))),
         ),
         decoded: decoded.clone(),
     });
@@ -903,8 +978,9 @@ async fn gateway_setup_errors_are_reported_when_authentication_is_requested() {
 
     let server = MockServer::start().await;
     let mut info = ModelProviderInfo {
-        gateway_oauth: Some(GatewayOAuthConfig {
+        gateway_oauth: Some(GatewayOAuthConfig::OAuth(GatewayOAuthSettings {
             authorization_url: format!("{}/authorize", server.uri()),
+            device_authorization_url: None,
             token_url: format!("{}/token", server.uri()),
             client_id: "client".into(),
             resource: None,
@@ -915,7 +991,7 @@ async fn gateway_setup_errors_are_reported_when_authentication_is_requested() {
                 name: "x-gateway-auth".into(),
                 scheme: "Bearer".into(),
             },
-        }),
+        })),
         ..ModelProviderInfo::create_openai_provider(Some(server.uri()))
     };
     let provider = create_model_provider(info.clone(), /*auth_manager*/ None);
@@ -947,7 +1023,10 @@ async fn gateway_setup_errors_are_reported_when_authentication_is_requested() {
         "failed to create provider OAuth HTTP client"
     );
 
-    info.gateway_oauth.as_mut().unwrap().client_id.clear();
+    let Some(GatewayOAuthConfig::OAuth(settings)) = &mut info.gateway_oauth else {
+        unreachable!()
+    };
+    settings.client_id.clear();
     let primary = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("primary"));
     let error = create_model_provider(info, Some(primary))
         .api_auth()
@@ -970,21 +1049,21 @@ async fn gateway_login_required_invalidates_the_last_successful_catalog() {
         home.path().to_path_buf(),
     );
     let info = ModelProviderInfo {
-        model_catalog_url: Some(format!("{}/models", server.uri()).into()),
-        gateway_oauth: Some(GatewayOAuthConfig {
+        name: "Gateway".to_string(),
+        base_url: Some(server.uri()),
+        model_catalog_url: Some(format!("{}/catalog", server.uri()).into()),
+        gateway_oauth: Some(GatewayOAuthConfig::OAuth(GatewayOAuthSettings {
             authorization_url: format!("{}/authorize", server.uri()),
+            device_authorization_url: None,
             token_url: format!("{}/token", server.uri()),
             client_id: "client".into(),
             resource: None,
             scopes: vec![],
             redirect_port: None,
-            credentials_store: Default::default(),
-            delivery: GatewayOAuthDelivery::Header {
-                name: "x-gateway-auth".into(),
-                scheme: "Bearer".into(),
-            },
-        }),
-        ..ModelProviderInfo::create_openai_provider(Some(server.uri()))
+            credentials_store: OAuthCredentialsStore::File,
+            delivery: GatewayOAuthDelivery::default(),
+        })),
+        ..Default::default()
     };
     let login_control = codex_login::GatewayLoginControl::for_runtime(&primary.runtime_config());
     login_control.require_explicit_login();
@@ -998,13 +1077,17 @@ async fn gateway_login_required_invalidates_the_last_successful_catalog() {
         home.path().to_path_buf(),
         /*config_model_catalog*/ None,
     );
+    // Discover with the gateway token before testing invalidation of its catalog.
     models.set_api_key_model_discovery_enabled(/*enabled*/ true);
     let factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
     let catalog = codex_protocol::openai_models::ModelsResponse {
-        models: vec![codex_models_manager::test_support::model_info("gateway-model")],
+        models: vec![codex_models_manager::test_support::model_info(
+            "gateway-model",
+        )],
     };
     Mock::given(method("GET"))
-        .and(path("/models"))
+        .and(path("/catalog"))
+        .and(wiremock::matchers::header("authorization", "Bearer first"))
         .respond_with(ResponseTemplate::new(200).set_body_json(&catalog))
         .expect(1)
         .mount(&server)
@@ -1040,7 +1123,7 @@ async fn gateway_login_required_invalidates_the_last_successful_catalog() {
         home.path().to_path_buf(),
         /*config_model_catalog*/ None,
     );
-    restarted.set_api_key_model_discovery_enabled(/*enabled*/ true);
+    restarted.set_api_key_model_discovery_enabled(/*enabled*/ false);
     assert_eq!(
         restarted
             .raw_model_catalog(RefreshStrategy::Offline, factory)
@@ -1058,8 +1141,9 @@ async fn gateway_login_states_stop_request_retries() {
         home.path().to_path_buf(),
     );
     let info = ModelProviderInfo {
-        gateway_oauth: Some(GatewayOAuthConfig {
+        gateway_oauth: Some(GatewayOAuthConfig::OAuth(GatewayOAuthSettings {
             authorization_url: format!("{}/authorize", server.uri()),
+            device_authorization_url: None,
             token_url: format!("{}/token", server.uri()),
             client_id: "client".into(),
             resource: None,
@@ -1070,7 +1154,7 @@ async fn gateway_login_states_stop_request_retries() {
                 name: "x-gateway-auth".into(),
                 scheme: "Bearer".into(),
             },
-        }),
+        })),
         ..ModelProviderInfo::create_openai_provider(Some(server.uri()))
     };
     let login_control = codex_login::GatewayLoginControl::for_runtime(&primary.runtime_config());
@@ -1096,7 +1180,8 @@ async fn gateway_login_states_stop_request_retries() {
     );
     let cancel = tokio::sync::Notify::new();
     let (url_tx, url_rx) = tokio::sync::oneshot::channel();
-    let login = gateway.login_with_browser(cancel.notified(), |_| {
+    let oauth = gateway.oauth_session().unwrap();
+    let login = oauth.login_with_browser(cancel.notified(), |_| {
         let _ = url_tx.send(());
     });
     let check = async {

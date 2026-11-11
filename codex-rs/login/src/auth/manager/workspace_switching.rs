@@ -4,10 +4,10 @@
 use super::*;
 use codex_http_client::ClientRouteClass;
 use codex_http_client::RouteAwareClientPool;
-use serde_json::json;
 use serde::Deserialize;
-use std::time::Duration;
+use serde_json::json;
 use std::io;
+use std::time::Duration;
 
 #[derive(Deserialize)]
 struct WorkspaceTokenResponse {
@@ -211,12 +211,18 @@ impl AuthManager {
             .chatgpt_base_url
             .as_deref()
             .filter(|base| !base.trim().is_empty())
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Workspace switching requires a configured account service URL"))?
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Workspace switching requires a configured account service URL",
+                )
+            })?
             .trim_end_matches('/');
         let endpoint = format!("{base_url}/accounts/switch-workspace-token");
         let client = RouteAwareClientPool::new_without_redirects_or_request_logging(
-                self.auth_route_config.http_client_factory().clone(), ClientRouteClass::Auth,
-            );
+            self.auth_route_config.http_client_factory().clone(),
+            ClientRouteClass::Auth,
+        );
         let response = client
             .post(&endpoint)
             .headers(crate::default_client::default_headers())

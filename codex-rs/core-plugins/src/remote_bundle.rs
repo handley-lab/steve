@@ -373,7 +373,10 @@ async fn download_remote_plugin_bundle_with_limit(
         .send()
         .await
         .map_err(|source| RemotePluginBundleInstallError::DownloadRequest {
-            host: bundle_download_url.host_str().unwrap_or("unknown-host").to_string(),
+            host: bundle_download_url
+                .host_str()
+                .unwrap_or("unknown-host")
+                .to_string(),
             source: source.without_url(),
         })?;
 
@@ -1237,3 +1240,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "remote_bundle_runtime_auth_tests.rs"]
+mod runtime_auth_tests;

@@ -124,5 +124,10 @@ async fn provider_reachability_reports_transport_failure() {
     );
     let check = provider_reachability_check(plan).await;
     assert_eq!(check.status, CheckStatus::Fail);
-    assert!(check.details.iter().any(|detail| detail.contains("connect failed")));
+    assert!(
+        check
+            .details
+            .iter()
+            .any(|detail| detail.contains("connect failed"))
+    );
 }

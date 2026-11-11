@@ -8,6 +8,7 @@ use codex_app_server_protocol::AccountSessionsListParams;
 use codex_app_server_protocol::AccountSessionsResponse;
 use codex_app_server_protocol::AccountSessionsSwitchParams;
 use codex_app_server_protocol::AccountSessionsSwitchResponse;
+use codex_core::McpRefreshReason;
 
 impl AccountRequestProcessor {
     pub(crate) async fn list_account_sessions(
@@ -100,7 +101,8 @@ impl AccountRequestProcessor {
             self.config.chatgpt_base_url.clone(),
             auth,
             self.config.http_client_factory(),
-        ).with_account_path_style(self.config.chatgpt_path_style);
+        )
+        .with_account_path_style(self.config.chatgpt_path_style);
         tokio::time::timeout(
             Duration::from_secs(/*secs*/ 30),
             client.get_accounts_check(),
@@ -154,7 +156,9 @@ impl AccountRequestProcessor {
             .validate_workspace_switch(&params.session_id, &params.account_id)
             .map_err(|error| invalid_request(error.to_string()))?;
         if target.can_access_with_session == Some(false) {
-            return Err(invalid_request("The selected workspace requires supplied sign-in credentials"));
+            return Err(invalid_request(
+                "The selected workspace requires supplied sign-in credentials",
+            ));
         }
         let _pause = admission.pause().await?;
         threads.unload_for_workspace_switch().await?;
@@ -176,7 +180,9 @@ impl AccountRequestProcessor {
                 "Workspace validation failed: {error}"
             )));
         }
-        self.thread_manager.invalidate_mcp_runtimes().await;
+        self.thread_manager
+            .invalidate_mcp_runtimes_for(McpRefreshReason::AccountWorkspaceSwitched)
+            .await;
         self.model_catalog.invalidate().await;
         Self::maybe_refresh_plugin_caches_for_current_config(
             &self.config_manager,

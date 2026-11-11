@@ -114,7 +114,8 @@ async fn sign_in_to_config_server_and_reload_config(
         &codex_config::LoaderOverrides::default(),
     )
     .await;
-    let bootstrap_auth = network.bind_bootstrap_auth(config.auth_config(), config.chatgpt_path_style);
+    let bootstrap_auth =
+        network.bind_bootstrap_auth(config.auth_config(), config.chatgpt_path_style);
     let auth_route_config = bootstrap_auth.auth_route_config.clone();
     codex_cloud_config::ensure_config_server_login(bootstrap_auth, requirements).await?;
     *config = crate::cloud_config::load_config(cli_config_overrides, Default::default())

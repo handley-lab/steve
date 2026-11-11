@@ -241,7 +241,10 @@ async fn rejected_credentials_stay_not_ready_until_replaced() {
         OAuthSessionStatus::Succeeded
     );
     assert_eq!(manager.resolve_access_token().await.unwrap(), "replacement");
-    assert_eq!(manager.cached_access_token().as_deref(), Some("replacement"));
+    assert_eq!(
+        manager.cached_access_token().as_deref(),
+        Some("replacement")
+    );
 
     // A rejected token with no refresh token also requires replacement credentials.
     save_token(

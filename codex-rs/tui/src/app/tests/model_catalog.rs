@@ -19,6 +19,70 @@ fn model_presets(slugs: &[&str]) -> Vec<ModelPreset> {
 }
 
 #[tokio::test]
+async fn queued_model_choice_expires_when_the_default_provider_changes() -> Result<()> {
+    let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+    let (mut server, requests, proxy) =
+        Box::pin(session_lifecycle_requests::start_recording_app_server(
+            &app.config,
+            /*blocked_thread_list*/ None,
+            /*failed_thread_name*/ None,
+        ))
+        .await?;
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    let started = server.start_thread(&app.config).await?;
+    let thread_id = started.session.thread_id;
+    app.enqueue_primary_thread_session(started.session, started.turns)
+        .await?;
+    let original = app.chat_widget.current_model().to_string();
+    while events.try_recv().is_ok() {}
+    // Thread startup may set its automatic service tier before any picker event.
+    // Verify those setup writes before recording the stale choices independently.
+    for params in session_lifecycle_requests::recorded_params(&requests, "thread/settings/update") {
+        let service_tier = params["serviceTier"]
+            .as_str()
+            .filter(|tier| !tier.is_empty())
+            .expect("startup sets a service tier");
+        assert_eq!(
+            params,
+            serde_json::to_value(codex_app_server_protocol::ThreadSettingsUpdateParams {
+                thread_id: thread_id.to_string(),
+                service_tier: Some(Some(service_tier.to_string())),
+                ..Default::default()
+            })?
+        );
+    }
+    requests
+        .lock()
+        .expect("request recorder lock")
+        .retain(|request| request.method != "thread/settings/update");
+    // An old row may arrive after a local switch, or after a different chat became active.
+    for (origin, switched) in [(thread_id, true), (ThreadId::new(), false)] {
+        *app.model_catalog.provider_write.lock().await = switched;
+        let queued = AppEvent::ScopedModelPicker {
+            backend: server.backend_id(),
+            thread_id: Some(origin),
+            event: Box::new(AppEvent::SelectSessionModel {
+                model: "foreign-only".into(),
+                effort: None,
+                service_tier: None,
+            }),
+        };
+        Box::pin(app.handle_event(&mut tui, &mut server, queued)).await?;
+        assert_eq!(app.chat_widget.current_model(), original);
+        assert!(
+            !std::iter::from_fn(|| events.try_recv().ok())
+                .any(|event| matches!(event, AppEvent::InsertHistoryCell(_)))
+        );
+    }
+    assert!(
+        session_lifecycle_requests::recorded_params(&requests, "thread/settings/update").is_empty()
+    );
+    server.shutdown().await?;
+    proxy.await??;
+    Ok(())
+}
+
+#[tokio::test]
 async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()> {
     let (mut app, mut rx, _op_rx) = make_test_app_with_channels().await;
     let models = wiremock::MockServer::start().await;
@@ -162,7 +226,10 @@ async fn model_picker_refresh_updates_app_catalog_from_app_server() -> Result<()
         (&app.primary_session_configured, &cached),
         (&Some(session.clone()), &Some(session.clone()))
     );
-    assert_eq!(app.chat_widget.model_catalog().try_list_models().unwrap(), expected);
+    assert_eq!(
+        app.chat_widget.model_catalog().try_list_models().unwrap(),
+        expected
+    );
     app.chat_widget.handle_thread_session(test_thread_session(
         ThreadId::new(),
         test_path_buf("/tmp/other"),
@@ -203,9 +270,10 @@ async fn lifecycle_service_tier_uses_the_destination_catalog() -> Result<()> {
         let b = wiremock::MockServer::start().await;
         for endpoint in [&a, &b] {
             wiremock::Mock::given(wiremock::matchers::path("/v1/models"))
-                .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
-                    serde_json::json!({"data": [{"id": "gpt-5.5"}]}),
-                ))
+                .respond_with(
+                    wiremock::ResponseTemplate::new(200)
+                        .set_body_json(serde_json::json!({"data": [{"id": "gpt-5.5"}]})),
+                )
                 .mount(endpoint)
                 .await;
         }
@@ -280,26 +348,27 @@ stream_max_retries = 0
         )
         .await;
         server
-            .turn_start(
-                parent.session.thread_id,
-                "user",
-                uuid::Uuid::new_v4().to_string(),
-                vec![codex_app_server_protocol::UserInput::Text {
-                    text: "materialize the source".to_string(),
-                    text_elements: Vec::new(),
-                }],
-                config_a.cwd.to_path_buf(),
-                None,
-                None,
-                crate::app_server_session::TurnPermissionsOverride::Preserve,
-                &config_a.workspace_roots,
-                parent.session.model.clone(),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
+            .request_handle()
+            .request_typed::<codex_app_server_protocol::TurnStartResponse>(
+                codex_app_server_protocol::ClientRequest::TurnStart {
+                    request_id: codex_app_server_protocol::RequestId::String(
+                        uuid::Uuid::new_v4().to_string(),
+                    ),
+                    params: codex_app_server_protocol::TurnStartParams {
+                        thread_id: parent.session.thread_id.to_string(),
+                        turn_trigger: Some("user".to_string()),
+                        client_user_message_id: Some(uuid::Uuid::new_v4().to_string()),
+                        input: vec![codex_app_server_protocol::UserInput::Text {
+                            text: "materialize the source".to_string(),
+                            text_elements: Vec::new(),
+                        }],
+                        cwd: Some(config_a.cwd.to_path_buf()),
+                        runtime_workspace_roots: Some(config_a.workspace_roots.clone()),
+                        model: Some(parent.session.model.clone()),
+                        service_tier: None,
+                        ..Default::default()
+                    },
+                },
             )
             .await?;
         tokio::time::timeout(Duration::from_secs(30), async {
@@ -423,26 +492,27 @@ stream_max_retries = 0
             )
             .await;
             server
-                .turn_start(
-                    fork.session.thread_id,
-                    "user",
-                    uuid::Uuid::new_v4().to_string(),
-                    vec![codex_app_server_protocol::UserInput::Text {
-                        text: "check the tier".to_string(),
-                        text_elements: Vec::new(),
-                    }],
-                    config_b.cwd.to_path_buf(),
-                    None,
-                    None,
-                    crate::app_server_session::TurnPermissionsOverride::Preserve,
-                    &config_b.workspace_roots,
-                    fork.session.model.clone(),
-                    None,
-                    None,
-                    service_tier,
-                    None,
-                    None,
-                    None,
+                .request_handle()
+                .request_typed::<codex_app_server_protocol::TurnStartResponse>(
+                    codex_app_server_protocol::ClientRequest::TurnStart {
+                        request_id: codex_app_server_protocol::RequestId::String(
+                            uuid::Uuid::new_v4().to_string(),
+                        ),
+                        params: codex_app_server_protocol::TurnStartParams {
+                            thread_id: fork.session.thread_id.to_string(),
+                            turn_trigger: Some("user".to_string()),
+                            client_user_message_id: Some(uuid::Uuid::new_v4().to_string()),
+                            input: vec![codex_app_server_protocol::UserInput::Text {
+                                text: "check the tier".to_string(),
+                                text_elements: Vec::new(),
+                            }],
+                            cwd: Some(config_b.cwd.to_path_buf()),
+                            runtime_workspace_roots: Some(config_b.workspace_roots.clone()),
+                            model: Some(fork.session.model.clone()),
+                            service_tier: service_tier,
+                            ..Default::default()
+                        },
+                    },
                 )
                 .await?;
             tokio::time::timeout(Duration::from_secs(30), async {
@@ -500,7 +570,9 @@ async fn lifecycle_service_tier_respects_choices_and_reports_partial_creation() 
             .await;
         let home = tempdir()?;
         let mut catalog = codex_protocol::openai_models::ModelsResponse {
-            models: vec![codex_models_manager::test_support::model_info("tier/gpt-5.5")],
+            models: vec![codex_models_manager::test_support::model_info(
+                "tier/gpt-5.5",
+            )],
         };
         catalog.models.truncate(1);
         catalog.models[0].slug = "tier/gpt-5.5".to_string();
@@ -616,7 +688,10 @@ experimental_bearer_token = "local-tier-control"
                 if case == "unlisted-model" {
                     assert_eq!(updates.len(), 1, "{case}: {updates:?}");
                     assert_eq!(updates[0].as_ref().unwrap()["serviceTier"], "default");
-                    assert_eq!(updates[0].as_ref().unwrap()["threadId"], started.session.thread_id.to_string());
+                    assert_eq!(
+                        updates[0].as_ref().unwrap()["threadId"],
+                        started.session.thread_id.to_string()
+                    );
                 } else {
                     assert!(updates.is_empty(), "{case}: {updates:?}");
                 }
@@ -631,7 +706,14 @@ experimental_bearer_token = "local-tier-control"
             loaded.data.contains(&thread_id),
             "created thread remains discoverable"
         );
-        assert!(endpoint.received_requests().await.unwrap().iter().all(|request| request.url.path() == "/v1/models"));
+        assert!(
+            endpoint
+                .received_requests()
+                .await
+                .unwrap()
+                .iter()
+                .all(|request| request.url.path() == "/v1/models")
+        );
         traces.push(serde_json::json!({"case": case, "config": config_text,
             "outcome": outcome, "thread_id": thread_id, "loaded": loaded, "rpc": *requests.lock().unwrap()}));
         if let Some(path) = std::env::var_os("STEVE_TEST_TIER_ERROR_CAPTURE") {
@@ -754,10 +836,7 @@ fn retired_model_migration_respects_catalog_metadata() {
         current.id = model.to_string();
         current.model = model.to_string();
         let expected = current.upgrade.clone();
-        assert_eq!(
-            model_upgrade_for_migration(model, &presets),
-            expected
-        );
+        assert_eq!(model_upgrade_for_migration(model, &presets), expected);
 
         presets
             .iter_mut()
@@ -1087,23 +1166,14 @@ async fn model_migration_prompt_respects_hide_flag_and_self_target() {
         // A previously acknowledged intermediate upgrade must not hide the new target.
         let mut seen = BTreeMap::from([(model.to_string(), previous_target.to_string())]);
         assert!(should_show_model_migration_prompt(
-            model,
-            target,
-            &seen,
-            &presets
+            model, target, &seen, &presets
         ));
         seen.insert(model.to_string(), target.to_string());
         assert!(!should_show_model_migration_prompt(
-            model,
-            target,
-            &seen,
-            &presets
+            model, target, &seen, &presets
         ));
         assert!(!should_show_model_migration_prompt(
-            target,
-            target,
-            &seen,
-            &presets
+            target, target, &seen, &presets
         ));
     }
 }
@@ -1159,8 +1229,11 @@ async fn model_migration_prompt_skips_when_target_missing_or_hidden() {
 #[tokio::test]
 async fn model_migration_prompt_shows_for_hidden_model() {
     let codex_home = tempdir().expect("temp steve home");
-    std::fs::write(codex_home.path().join("config.toml"), "model_provider = 'openai'\n")
-        .expect("explicit test provider");
+    std::fs::write(
+        codex_home.path().join("config.toml"),
+        "model_provider = 'openai'\n",
+    )
+    .expect("explicit test provider");
     let config = ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())
         .build()
@@ -1215,7 +1288,6 @@ async fn model_migration_prompt_shows_for_hidden_model() {
         model_migration_copy_to_plain_text(&copy)
     );
 }
-
 
 #[tokio::test]
 async fn model_scope_attach_invalidates_the_app_projection() -> Result<()> {

@@ -25,12 +25,15 @@ use codex_api::SharedAuthProvider;
 use codex_api::TransportError;
 use codex_api::build_session_headers;
 use codex_http_client::ClientRouteClass;
+use codex_http_client::HttpClientFactory;
+use codex_http_client::NetworkPolicy;
+use codex_login::AuthChangeState;
+use codex_login::AuthOwner;
 use codex_login::default_client::ClientRedirectPolicy;
 use codex_login::default_client::add_originator_header;
 use codex_login::default_client::create_client_for_route_async;
 use codex_login::default_client::default_headers;
 use codex_model_provider::ACCOUNT_ROUTING_HEADER;
-use codex_model_provider::ResolvedResponsesProvider;
 use codex_model_provider::ResponsesConnectionKey;
 use codex_protocol::ThreadId;
 use codex_protocol::models::ContentItem;
@@ -71,6 +74,7 @@ pub(super) struct ConnectionPool {
 
 struct HttpTransport {
     url: String,
+    network_policy: NetworkPolicy,
     redirect_policy: ClientRedirectPolicy,
     transport: OnceCell<ReqwestTransport>,
 }
@@ -80,17 +84,23 @@ pub(super) struct PooledConnection {
     // The bridge routes by thread ID, so each socket needs its own identity.
     pub(super) thread_id: String,
     pub(super) expires_at: Instant,
-    auth_changes: Option<tokio::sync::watch::Receiver<u64>>,
+    auth_changes: Option<tokio::sync::watch::Receiver<AuthChangeState>>,
     key: ResponsesConnectionKey,
+    runtime_id: Option<String>,
+    auth_owner: Option<AuthOwner>,
     _permit: OwnedSemaphorePermit,
 }
 
+#[derive(Clone)]
 struct ClientSetup {
     provider: Provider,
+    http_client_factory: HttpClientFactory,
+    runtime_id: Option<String>,
+    auth_owner: Option<AuthOwner>,
     auth: SharedAuthProvider,
     redirect_policy: ClientRedirectPolicy,
     key: ResponsesConnectionKey,
-    auth_changes: Option<tokio::sync::watch::Receiver<u64>>,
+    auth_changes: Option<tokio::sync::watch::Receiver<AuthChangeState>>,
 }
 
 enum Connection {
@@ -100,6 +110,7 @@ enum Connection {
 
 pub(super) struct ConnectionLease {
     pub(super) thread_id: String,
+    pub(super) auth_owner: Option<AuthOwner>,
     connection: Connection,
     pool: Arc<ConnectionPool>,
     _permit: OwnedSemaphorePermit,
@@ -141,7 +152,9 @@ impl ConnectionPool {
     }
 
     fn start_refill(self: &Arc<Self>, guard: OwnedMutexGuard<()>) -> Option<JoinHandle<()>> {
-        if !self.config.provider.info().supports_websockets {
+        if !self.config.provider.info().supports_websockets
+            || self.config.provider.runtime_auth().is_some()
+        {
             return None;
         }
         let mut retry_after = self
@@ -211,34 +224,45 @@ impl ConnectionPool {
             .await
             .map_err(|error| LunaSamplerError::Api(ApiError::Stream(error.to_string())))?;
         let admitted = Instant::now();
+        let setup = self.client_setup().await?;
+        let fresh_connection = self.runtime_connection(&setup).await?;
         let ClientSetup {
             mut provider,
             auth,
+            http_client_factory,
+            runtime_id,
+            auth_owner,
             redirect_policy,
             key,
             auth_changes,
-        } = self.client_setup().await?;
+        } = setup;
         let setup_finished = Instant::now();
-        let connection = loop {
-            let idle = self
-                .idle_connections
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .pop();
-            match idle {
-                Some(connection)
-                    if connection.key == key
-                        && connection
-                            .auth_changes
-                            .as_ref()
-                            .is_none_or(|auth| !auth.has_changed().unwrap_or(true))
-                        && Instant::now() < connection.expires_at
-                        && !connection.connection.is_closed().await =>
-                {
-                    break Some(connection);
+        let connection = if runtime_id.is_some() {
+            fresh_connection
+        } else {
+            loop {
+                let idle = self
+                    .idle_connections
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .pop();
+                match idle {
+                    Some(connection)
+                        if connection.key == key
+                            && connection.runtime_id == runtime_id
+                            && connection.auth_owner == auth_owner
+                            && connection
+                                .auth_changes
+                                .as_ref()
+                                .is_none_or(|auth| !auth.has_changed().unwrap_or(true))
+                            && Instant::now() < connection.expires_at
+                            && !connection.connection.is_closed().await =>
+                    {
+                        break Some(connection);
+                    }
+                    Some(_) => {}
+                    None => break None,
                 }
-                Some(_) => {}
-                None => break None,
             }
         };
         let (connection, thread_id) = match connection {
@@ -273,11 +297,13 @@ impl ConnectionPool {
                     if let Some(transport) = cached.as_ref()
                         && transport.url == url
                         && transport.redirect_policy == redirect_policy
+                        && transport.network_policy == *http_client_factory.network_policy()
                     {
                         Arc::clone(transport)
                     } else {
                         let transport = Arc::new(HttpTransport {
                             url: url.clone(),
+                            network_policy: http_client_factory.network_policy().clone(),
                             redirect_policy,
                             transport: OnceCell::new(),
                         });
@@ -289,7 +315,7 @@ impl ConnectionPool {
                     .transport
                     .get_or_try_init(|| async {
                         let client = create_client_for_route_async(
-                            self.config.http_client_factory.clone(),
+                            http_client_factory.clone(),
                             url,
                             ClientRouteClass::Api,
                             redirect_policy,
@@ -334,6 +360,7 @@ impl ConnectionPool {
             }
         }
         Ok(ConnectionLease {
+            auth_owner,
             thread_id,
             connection,
             pool: Arc::clone(self),
@@ -342,41 +369,31 @@ impl ConnectionPool {
     }
 
     async fn client_setup(&self) -> Result<ClientSetup, LunaSamplerError> {
-        let mut auth_changes = self
-            .config
-            .provider
-            .auth_manager()
-            .map(|manager| manager.auth_change_receiver());
-        let revision = auth_changes.as_mut().map(|auth| *auth.borrow_and_update());
-        let ResolvedResponsesProvider {
-            provider,
-            redirect_policy,
-        } = self
-            .config
-            .provider
-            .responses_api_provider(&self.config.workspace_routing)
-            .await
-            .map_err(LunaSamplerError::Provider)?;
-        let auth = self
-            .config
-            .provider
-            .api_auth_for_scope()
-            .await
-            .map_err(LunaSamplerError::Provider)?
-            .auth;
+        let setup = codex_model_provider::resolve_request(
+            self.config.provider.as_ref(),
+            Some(&self.config.workspace_routing),
+            self.config.http_client_factory.clone(),
+        )
+        .await
+        .map_err(LunaSamplerError::Provider)?;
+        let mut auth_changes = setup.auth_owner.as_ref().map(AuthOwner::changes);
         if auth_changes
-            .as_ref()
-            .is_some_and(|auth| auth.has_changed().unwrap_or(true))
+            .as_mut()
+            .map(|auth| auth.borrow_and_update().generation)
+            != setup.auth_revision
         {
             return Err(LunaSamplerError::Api(ApiError::Stream(
                 "authentication changed while resolving routing".into(),
             )));
         }
-        let key = ResponsesConnectionKey::new(&provider, revision);
+        let key = ResponsesConnectionKey::new(&setup.api_provider, setup.auth_revision);
         Ok(ClientSetup {
-            provider,
-            auth,
-            redirect_policy,
+            provider: setup.api_provider,
+            auth: setup.api_auth,
+            redirect_policy: setup.redirect_policy,
+            http_client_factory: setup.http_client_factory,
+            runtime_id: setup.runtime_id,
+            auth_owner: setup.auth_owner,
             key,
             auth_changes,
         })
@@ -416,17 +433,76 @@ impl ConnectionPool {
         }
         Ok(headers)
     }
+    async fn runtime_connection(
+        &self,
+        setup: &ClientSetup,
+    ) -> Result<Option<PooledConnection>, LunaSamplerError> {
+        if setup.runtime_id.is_none() || !self.config.provider.info().supports_websockets {
+            return Ok(None);
+        }
+        if self
+            .retry_after
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_some_and(|deadline| Instant::now() < deadline)
+        {
+            return Ok(None);
+        }
+        let Ok(permit) = Arc::clone(&self.sockets).try_acquire_owned() else {
+            return Ok(None);
+        };
+        match self.open_connection_with_setup(permit, setup.clone()).await {
+            Ok(connection) => Ok(Some(connection)),
+            Err(LunaSamplerError::ConnectionTimeout) => {
+                *self
+                    .retry_after
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                    Some(Instant::now() + CONNECT_COOLDOWN);
+                Ok(None)
+            }
+            Err(
+                error @ LunaSamplerError::Api(ApiError::Transport(
+                    TransportError::Policy(_) | TransportError::Build(_),
+                )),
+            ) => Err(error),
+            Err(
+                error @ LunaSamplerError::Api(ApiError::Transport(TransportError::Http {
+                    status:
+                        http::StatusCode::UNAUTHORIZED
+                        | http::StatusCode::FORBIDDEN
+                        | http::StatusCode::TOO_MANY_REQUESTS,
+                    ..
+                })),
+            ) => Err(error),
+            // Unsupported upgrades and connection failures can still use HTTP.
+            Err(_) => Ok(None),
+        }
+    }
+
     async fn open_connection(
         &self,
         permit: OwnedSemaphorePermit,
     ) -> Result<PooledConnection, LunaSamplerError> {
+        self.open_connection_with_setup(permit, self.client_setup().await?)
+            .await
+    }
+
+    async fn open_connection_with_setup(
+        &self,
+        permit: OwnedSemaphorePermit,
+        setup: ClientSetup,
+    ) -> Result<PooledConnection, LunaSamplerError> {
         let ClientSetup {
             provider,
             auth,
+            http_client_factory,
+            runtime_id,
+            auth_owner,
             redirect_policy: _,
             key,
             auth_changes,
-        } = self.client_setup().await?;
+        } = setup;
         let thread_id = ThreadId::new().to_string();
         let mut headers = self.headers(&thread_id)?;
         headers.insert(
@@ -451,9 +527,17 @@ impl ConnectionPool {
                         })
                 })
                 .await?;
+            let connector = connector
+                .with_account_binding(http_client_factory.network_policy())
+                .ok_or_else(|| {
+                    ApiError::Transport(TransportError::Build(
+                        "websocket credentials and transport have different account policies"
+                            .into(),
+                    ))
+                })?;
             client
                 .connect_with_connector(
-                    connector,
+                    &connector,
                     headers,
                     default_headers(),
                     /*turn_state*/ None,
@@ -483,8 +567,8 @@ impl ConnectionPool {
             .as_ref()
             .is_some_and(|auth| auth.has_changed().unwrap_or(true))
         {
-            return Err(LunaSamplerError::Api(ApiError::Stream(
-                "authentication changed while connecting".into(),
+            return Err(LunaSamplerError::Api(ApiError::Transport(
+                TransportError::Build("authentication changed while connecting".into()),
             )));
         }
 
@@ -494,6 +578,8 @@ impl ConnectionPool {
             expires_at: Instant::now() + MAX_WEBSOCKET_AGE,
             auth_changes,
             key,
+            runtime_id,
+            auth_owner,
             _permit: permit,
         })
     }
@@ -509,7 +595,8 @@ impl ConnectionLease {
         let model = self.pool.config.model_info.as_ref();
         let lite = model.is_some_and(|model| model.use_responses_lite);
         if !lite {
-            if matches!(request.input.first(), Some(ResponseItem::AdditionalTools { tools, .. }) if tools.is_empty()) {
+            if matches!(request.input.first(), Some(ResponseItem::AdditionalTools { tools, .. }) if tools.is_empty())
+            {
                 request.input.remove(0);
             }
             if let Some(reasoning) = &mut request.reasoning {
@@ -518,7 +605,8 @@ impl ConnectionLease {
         }
         let provider = self.pool.config.provider.info();
         for item in &mut request.input {
-            if let Some(model) = model.filter(|model| model.origin != codex_models_manager::ModelOrigin::Synthetic)
+            if let Some(model) =
+                model.filter(|model| model.origin != codex_models_manager::ModelOrigin::Synthetic)
                 && let ResponseItem::Message { content, .. } = item
             {
                 for content in content {
@@ -597,6 +685,7 @@ impl ConnectionLease {
 
     pub(super) async fn reuse(self) {
         if let Connection::Websocket(connection) = self.connection
+            && connection.runtime_id.is_none()
             && !connection.connection.is_closed().await
         {
             self.pool

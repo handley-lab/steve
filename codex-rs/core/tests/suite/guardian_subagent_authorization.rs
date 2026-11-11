@@ -376,7 +376,9 @@ async fn code_mode_messaging_fixture(
             config.model_catalog = Some({
                 let mut model = codex_models_manager::test_support::model_info("gpt-5.5");
                 model.auto_review_model_override = Some(model.slug.clone());
-                codex_protocol::openai_models::ModelsResponse { models: vec![model] }
+                codex_protocol::openai_models::ModelsResponse {
+                    models: vec![model],
+                }
             });
             config
                 .permissions

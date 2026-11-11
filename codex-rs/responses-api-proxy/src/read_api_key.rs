@@ -214,9 +214,7 @@ fn validate_auth_header_bytes(mut key_bytes: &[u8]) -> Result<usize> {
         key_bytes = &key_bytes[..key_bytes.len() - 1];
     }
     if key_bytes.is_empty() {
-        return Err(anyhow!(
-            "API key must be provided via stdin"
-        ));
+        return Err(anyhow!("API key must be provided via stdin"));
     }
     if key_bytes
         .iter()

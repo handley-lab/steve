@@ -1,12 +1,14 @@
 //! Loads executor startup configuration and remote authentication without changing CLI policy.
 
+use anyhow::Context;
 use codex_app_server::in_process::EmbeddedNetworkPolicy;
 use codex_cloud_config::managed_config_bundle_loader;
+use codex_cloud_config::managed_config_bundle_loader_for_auth;
 use codex_config::LoaderOverrides;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigLoadOptions;
-use codex_core::config::bootstrap_auth_config;
 use codex_core::config::bootstrap_account_path_style;
+use codex_core::config::bootstrap_auth_config;
 use codex_core::config::find_codex_home;
 use codex_core::config::load_config_toml_with_layer_stack;
 use codex_login::AuthManager;
@@ -15,6 +17,8 @@ use codex_login::read_codex_access_token_from_env;
 use codex_protocol::auth::AuthMode;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_cli::CliConfigOverrides;
+use std::io::BufRead;
+use std::io::Read;
 use std::sync::Arc;
 
 use crate::exec_server_auth;
@@ -25,6 +29,61 @@ const REMOTE_AUTH_MODES: &[AuthMode] = &[
     AuthMode::ChatgptAuthTokens,
     AuthMode::PersonalAccessToken,
 ];
+
+pub(super) fn read_chatgpt_stdin_auth(account_id: Option<String>) -> anyhow::Result<CodexAuth> {
+    const MAX_FRAME_BYTES: u64 = 64 * 1024;
+    let stdin = codex_exec_server::credential_stdin()?;
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsFd;
+        use std::os::unix::fs::FileTypeExt;
+        let kind = std::fs::File::from(stdin.as_fd().try_clone_to_owned()?)
+            .metadata()?
+            .file_type();
+        anyhow::ensure!(
+            kind.is_fifo() || kind.is_socket(),
+            "ChatGPT token stdin must be a pipe or socket"
+        );
+    }
+    #[cfg(not(unix))]
+    anyhow::ensure!(
+        !std::io::IsTerminal::is_terminal(&stdin),
+        "ChatGPT token stdin must be piped"
+    );
+
+    // The launcher keeps the pipe open for --exit-on-stdin-close after this line.
+    let mut line = String::new();
+    stdin.lock().take(MAX_FRAME_BYTES).read_line(&mut line)?;
+    chatgpt_auth_from_line(&line, account_id)
+}
+
+fn chatgpt_auth_from_line(line: &str, account_id: Option<String>) -> anyhow::Result<CodexAuth> {
+    let token = line
+        .strip_suffix('\n')
+        .context("expected a bounded, newline-terminated ChatGPT access token")?;
+    let token = token.strip_suffix('\r').unwrap_or(token);
+    anyhow::ensure!(
+        !token.is_empty() && token.bytes().all(|b| b.is_ascii_graphic()),
+        "invalid ChatGPT access token"
+    );
+    let claimed_id = codex_login::token_data::parse_chatgpt_jwt_claims(token)
+        .map_err(|_| anyhow::anyhow!("invalid ChatGPT access token"))?
+        .chatgpt_account_id;
+    if let (Some(id), Some(claim)) = (&account_id, &claimed_id) {
+        anyhow::ensure!(id == claim, "--chatgpt-account-id does not match the token");
+    }
+    // A token without an account claim cannot establish the supplied account's plan.
+    let plan_override = claimed_id.is_none().then_some("unknown");
+    let account_id = account_id
+        .or(claimed_id)
+        .context("token has no ChatGPT account ID; supply --chatgpt-account-id")?;
+    anyhow::ensure!(
+        !account_id.is_empty() && account_id.bytes().all(|b| b.is_ascii_graphic()),
+        "invalid ChatGPT account ID"
+    );
+    CodexAuth::from_external_chatgpt_tokens(token, &account_id, plan_override)
+        .map_err(|_| anyhow::anyhow!("invalid ChatGPT access token"))
+}
 
 pub(super) async fn load_exec_server_remote_auth_provider(
     config: &codex_core::config::Config,
@@ -109,6 +168,7 @@ pub(super) async fn load_exec_server_config(
     root_config_overrides: &CliConfigOverrides,
     strict_config: bool,
     enable_cloud_config: bool,
+    stdin_auth: Option<&CodexAuth>,
 ) -> anyhow::Result<codex_core::config::Config> {
     let cli_kv_overrides = root_config_overrides
         .parse_overrides()
@@ -134,30 +194,50 @@ pub(super) async fn load_exec_server_config(
         )
         .await?;
         let path_style = bootstrap_account_path_style(&bootstrap_config);
-        let bootstrap_auth_config = network_policy
-            .bind_bootstrap_auth(bootstrap_auth_config(&codex_home, &bootstrap_config)?, path_style);
-        let auth_manager = AuthManager::shared_from_auth_config_with_auth_modes(
-            bootstrap_auth_config.clone(),
-            /*enable_codex_api_key_env*/ true,
-            REMOTE_AUTH_MODES.to_vec(),
-        )
-        .await?;
-        let cloud_config_bundle = managed_config_bundle_loader(
-            auth_manager,
-            bootstrap_auth_config
-                .chatgpt_base_url
-                .unwrap_or_default(),
+        let bootstrap_auth_config = network_policy.bind_bootstrap_auth(
+            bootstrap_auth_config(&codex_home, &bootstrap_config)?,
             path_style,
-            bootstrap_auth_config.codex_home,
-            bootstrap_auth_config
-                .auth_route_config
-                .http_client_factory()
-                .clone(),
-            bootstrap_config.config_layer_stack.requirements_toml(),
         );
+        let cloud_config_bundle = if let Some(auth) = stdin_auth {
+            anyhow::ensure!(
+                bootstrap_auth_config.allows_auth(auth),
+                "ChatGPT authentication is not permitted for this account"
+            );
+            managed_config_bundle_loader_for_auth(
+                bootstrap_auth_config,
+                auth,
+                path_style,
+                bootstrap_config.config_layer_stack.requirements_toml(),
+            )
+            .await?
+        } else {
+            let auth_manager = AuthManager::shared_from_auth_config_with_auth_modes(
+                bootstrap_auth_config.clone(),
+                /*enable_codex_api_key_env*/ true,
+                REMOTE_AUTH_MODES.to_vec(),
+            )
+            .await?;
+            managed_config_bundle_loader(
+                auth_manager,
+                bootstrap_auth_config
+                    .chatgpt_base_url
+                    .clone()
+                    .unwrap_or_default(),
+                path_style,
+                bootstrap_auth_config.codex_home.clone(),
+                bootstrap_auth_config
+                    .auth_route_config
+                    .http_client_factory()
+                    .clone(),
+                bootstrap_config.config_layer_stack.requirements_toml(),
+            )
+        };
         builder = builder.cloud_config_bundle(cloud_config_bundle);
     }
     let mut config = builder.build().await?;
+    if stdin_auth.is_some() {
+        config.config_layer_stack.ensure_config_server_applied()?;
+    }
     EmbeddedNetworkPolicy::default().activate(&mut config);
     Ok(config)
 }

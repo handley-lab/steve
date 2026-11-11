@@ -662,9 +662,9 @@ fn forwards_401_before_an_inflight_renewal_finishes() {
     let forwarding = Arc::clone(&auth);
     let config = crate::ForwardConfig {
         headers: http::HeaderMap::from_iter([(
-                http::header::HOST,
-                HeaderValue::from_str(upstream_url.authority()).unwrap(),
-            )]),
+            http::header::HOST,
+            HeaderValue::from_str(upstream_url.authority()).unwrap(),
+        )]),
         upstream_url: upstream_url.join("/v1/responses").unwrap(),
     };
     let proxy_worker = thread::spawn(move || {

@@ -1,7 +1,9 @@
 use super::*;
+use anyhow::Context;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::openai_models::ModelsResponse;
 use codex_protocol::protocol::AskForApproval;
+use pretty_assertions::assert_eq;
 
 const PARENT: &str = "parent A policy";
 const PROCESS: &str = "process catalog policy";
@@ -54,7 +56,7 @@ async fn classifier_policy_follows_review_catalog_and_resumed_credential_owner()
         "before_expired",
         "inflight_expired",
     ] {
-        let parent = responses::start_mock_server().await;
+        let parent = wiremock::MockServer::start().await;
         let reviewer = responses::start_mock_server().await;
         let classifier = responses::start_mock_server().await;
         let command_home = tempfile::tempdir()?;
@@ -70,6 +72,15 @@ async fn classifier_policy_follows_review_catalog_and_resumed_credential_owner()
         if case != "process_miss" {
             process_models.push(policy_model("review-R", PROCESS)?);
         }
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/process-models"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_json(ModelsResponse {
+                    models: process_models,
+                }),
+            )
+            .mount(&parent)
+            .await;
         let scoped_models = ModelsResponse {
             models: vec![
                 parent_model.clone(),
@@ -172,13 +183,15 @@ supports_websockets = false
                 config.model_provider = ModelProviderInfo {
                     name: "Parent A".into(),
                     base_url: Some(format!("{parent_url}/v1")),
-                    model_catalog_url: Some(format!("{parent_url}/models").into()),
+                    model_catalog_url: Some(format!("{parent_url}/process-models").into()),
                     experimental_bearer_token: Some("parent-key".into()),
                     ..ModelProviderInfo::create_openai_provider(None)
                 };
-                config.model_catalog = Some(ModelsResponse {
-                    models: process_models,
-                });
+                config.model_catalog = None;
+                config
+                    .features
+                    .enable(Feature::ApiKeyModelDiscovery)
+                    .unwrap();
                 config.approvals_reviewer = ApprovalsReviewer::AutoReview;
                 config
                     .permissions
@@ -193,6 +206,7 @@ supports_websockets = false
             .build_with_auto_env(&parent)
             .await?;
         let mut config = test.config.clone();
+        config.model_provider.model_catalog_url = Some(format!("{}/models", parent.uri()).into());
         config.model_catalog = if independent {
             None
         } else {
@@ -222,6 +236,9 @@ supports_websockets = false
                     "args":["-c","printf called >> \"$1\"; printf command-key","policy-test",command_marker],
                     "cwd":command_home.path()}))?);
             }
+            config
+                .model_providers
+                .insert("reviewer".into(), provider.clone());
             config.guardian_model_provider = Some(("reviewer".into(), provider));
         } else {
             config.guardian_model_provider = None;
@@ -265,7 +282,7 @@ supports_websockets = false
             .await
             .unwrap();
         let store = thread.thread_extension_data();
-        store.insert(resolved_parent);
+        store.insert_arc(resolved_parent.model);
         if case == "no_parent" {
             store.remove::<ModelInfo>();
         }
@@ -293,11 +310,33 @@ supports_websockets = false
         if case == "off" {
             let b = reviewer.received_requests().await.unwrap();
             let c = classifier.received_requests().await.unwrap();
+            assert!(store.get::<LunaSampler>().is_none());
+            assert!(store.get::<GuardianV2ScoreProgress>().is_none());
+            assert!(cached_score(store).is_none());
+            assert!(metrics.classification_samples().is_empty());
+            let mut reviewer_owners = std::collections::HashSet::new();
+            for request in &b {
+                assert_eq!(request.method, "GET");
+                assert_eq!(request.url.path(), "/models");
+                let owner = request.headers["authorization"].to_str()?;
+                assert!(matches!(owner, "Bearer process-key" | "Bearer thread-key"));
+                reviewer_owners.insert(owner);
+            }
+            assert_eq!(
+                reviewer_owners,
+                std::collections::HashSet::from(["Bearer process-key", "Bearer thread-key"]),
+            );
+            assert!(!c.is_empty());
+            for request in &c {
+                assert_eq!(request.method, "GET");
+                assert_eq!(request.url.path(), "/models");
+                assert_eq!(request.headers["authorization"], "Bearer classifier-key");
+            }
             eprintln!(
                 "T21_EVIDENCE {}",
-                json!({"case":case,"b_requests":b.len(),"c_requests":c.len()})
+                json!({"case":case,"valid":true,"b_catalog_gets":b.len(),"c_catalog_gets":c.len(),
+                    "reviewer_owners":reviewer_owners,"classifier_posts":0,"reviewer_posts":0})
             );
-            assert!(b.is_empty() && c.is_empty());
             continue;
         }
         assert!(
@@ -305,20 +344,23 @@ supports_websockets = false
             "classifier not initialized: {case}"
         );
         if case == "explicit" {
-            // Resume loads the reviewer catalog, then the installed synchronous
-            // reviewer prewarms its catalog and client using separate auth owners.
-            // Join those three observed command starts before measuring classification.
             tokio::time::timeout(ASYNC_TEST_TIMEOUT, async {
                 while std::fs::metadata(&command_marker)
                     .map(|m| m.len())
                     .unwrap_or(0)
-                    < 18
+                    < 6
                 {
                     tokio::task::yield_now().await;
                 }
             })
-            .await?;
-            pretty_assertions::assert_eq!(std::fs::read(&command_marker)?, b"calledcalledcalled");
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "{case}: reviewer startup command barrier: {error}; marker: {:?}",
+                    std::fs::read(&command_marker),
+                )
+            })?;
+            pretty_assertions::assert_eq!(std::fs::read(&command_marker)?, b"called");
         }
         let b_before = reviewer.received_requests().await.unwrap().len();
         let command_before = if command_marker.exists() {
@@ -339,6 +381,7 @@ supports_websockets = false
             std::sync::atomic::Ordering::SeqCst,
         );
         let turn = ExtensionData::new("policy-turn");
+        turn.insert(config.clone());
         let name = ToolName::plain("read_file");
         let payload = ToolPayload::Function {
             arguments: r#"{"path":"README.md"}"#.into(),
@@ -362,6 +405,7 @@ supports_websockets = false
             originating_item_id: None,
             tool_name: &name,
             mcp_tool: None,
+            serving_assessment: None,
             payload: &payload,
             conversation_history: history,
             source: ToolCallSource::Direct,
@@ -384,6 +428,59 @@ supports_websockets = false
         let command_after_observation = std::fs::metadata(&command_marker)
             .map(|m| m.len())
             .unwrap_or(0);
+        if matches!(case, "missing" | "failure") {
+            tokio::time::timeout(ASYNC_TEST_TIMEOUT, async {
+                while !metrics.classification_samples().iter().any(|sample| {
+                    matches!(sample,
+                        RecordedMetric::Counter(name, _, tags) if name == CLASSIFICATION_METRIC
+                            && tags.contains(&("outcome".into(), "failed".into()))
+                            && tags.contains(&("failure_reason".into(), "model_unavailable".into())))
+                }) {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .with_context(|| format!("{case}: waiting for unavailable reviewer failure"))?;
+            let requests = reviewer.received_requests().await.unwrap();
+            let new_requests = &requests[b_before..];
+            assert_eq!(new_requests.len(), 1, "{case}: reviewer discovery");
+            for request in new_requests {
+                assert_eq!(request.method, "GET", "{case}");
+                assert_eq!(request.url.path(), "/models", "{case}");
+                assert_eq!(
+                    request.headers["authorization"], "Bearer thread-key",
+                    "{case}"
+                );
+            }
+            assert!(
+                observer.requests().is_empty(),
+                "{case}: classifier must not run"
+            );
+            assert!(
+                cached_score(store).is_none(),
+                "{case}: unavailable reviewer has no score"
+            );
+            assert_eq!(
+                cached_approval(
+                    &registry,
+                    store,
+                    &turn,
+                    &json!({"tool":"read_file","id":"policy-call","path":"README.md"}).to_string(),
+                    None,
+                )
+                .await,
+                None,
+                "{case}: unavailable reviewer must not approve",
+            );
+            eprintln!(
+                "T21_EVIDENCE {}",
+                json!({
+                    "case":case, "valid":true, "outcome":"failed", "failure_reason":"model_unavailable",
+                    "classification_b_requests":new_requests.len(), "classifier_requests":0,
+                })
+            );
+            continue;
+        }
         if expiring {
             if case == "inflight_expired" {
                 tokio::time::timeout(ASYNC_TEST_TIMEOUT, async {
@@ -393,7 +490,8 @@ supports_websockets = false
                         tokio::task::yield_now().await;
                     }
                 })
-                .await?;
+                .await
+                .with_context(|| format!("{case}: waiting for reviewer metadata request"))?;
                 for _ in 0..3 {
                     observe_unscored_call(&progress, store);
                 }
@@ -408,7 +506,8 @@ supports_websockets = false
                     tokio::task::yield_now().await;
                 }
             })
-            .await?;
+            .await
+            .with_context(|| format!("{case}: waiting for superseded classification"))?;
             let b = reviewer.received_requests().await.unwrap();
             let superseded = metrics.classification_samples().iter().any(|m| {
                 matches!(m,
@@ -440,7 +539,8 @@ supports_websockets = false
                 tokio::task::yield_now().await;
             }
         })
-        .await?;
+        .await
+        .with_context(|| format!("{case}: waiting for classifier response and cached score"))?;
         let command_after_score = std::fs::metadata(&command_marker)
             .map(|m| m.len())
             .unwrap_or(0);
@@ -465,9 +565,7 @@ supports_websockets = false
         let expected = match case {
             "explicit" => EXPLICIT,
             "scoped" | "parent_override" => SCOPED,
-            "missing" | "failure" | "no_parent" => {
-                ResolvedModelMessages::bundled().auto_review().policy
-            }
+            "no_parent" => ResolvedModelMessages::bundled().auto_review().policy,
             "no_model" | "blank" => PARENT,
             _ => REVIEWER,
         };
@@ -490,6 +588,7 @@ supports_websockets = false
         let approval = cached_approval(
             &registry,
             store,
+            &turn,
             &json!({"tool":"read_file","id":"policy-call","path":"README.md"}).to_string(),
             None,
         )
@@ -511,6 +610,7 @@ supports_websockets = false
                     cached_approval(
                         &registry,
                         store,
+                        &turn,
                         &json!({"tool":"read_file","id":"policy-call"}).to_string(),
                         None
                     )

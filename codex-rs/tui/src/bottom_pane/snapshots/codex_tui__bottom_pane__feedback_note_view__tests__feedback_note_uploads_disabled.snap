@@ -1,0 +1,12 @@
+---
+source: tui/src/bottom_pane/feedback_note_view_tests.rs
+expression: "render(&view, 60)"
+---
+▌ Tell us more (bug)
+▌
+▌ Feedback uploads are disabled.
+▌ The note will be sent without log attachments.
+▌
+▌ Review before sharing
+
+⌃s save ZIP · esc cancel

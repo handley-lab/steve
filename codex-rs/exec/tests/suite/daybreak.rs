@@ -76,11 +76,14 @@ async fn exec_resolves_daybreak_for_a_configured_custom_provider() -> anyhow::Re
     std::fs::remove_file(test.home_path().join("auth.json"))?;
     let config = test.home_path().join("config.toml");
     let configured = std::fs::read_to_string(&config)?;
-    std::fs::write(&config, format!(
-        "{}\n[model_providers.local]\nname = 'Local program provider'\nbase_url = '{}/v1'\nexperimental_bearer_token = 'local-program-token'\n",
-        configured.replace("model_provider = 'openai'", "model_provider = 'local'"),
-        server.uri(),
-    ))?;
+    std::fs::write(
+        &config,
+        format!(
+            "{}\n[model_providers.local]\nname = 'Local program provider'\nbase_url = '{}/v1'\nexperimental_bearer_token = 'local-program-token'\n",
+            configured.replace("model_provider = 'openai'", "model_provider = 'local'"),
+            server.uri(),
+        ),
+    )?;
     let response = responses::mount_sse_once(&server, responses::sse_completed("response")).await;
     test.cmd_with_server(&server)
         .env_remove("STEVE_ACCESS_TOKEN")
@@ -89,8 +92,10 @@ async fn exec_resolves_daybreak_for_a_configured_custom_provider() -> anyhow::Re
         .args(["--skip-git-repo-check", "hello"])
         .assert()
         .success();
-    assert_eq!(response.single_request().body_json()["access_programs"],
-        json!({"cyber": "daybreak_blue"}));
+    assert_eq!(
+        response.single_request().body_json()["access_programs"],
+        json!({"cyber": "daybreak_blue"})
+    );
     Ok(())
 }
 
@@ -106,17 +111,29 @@ async fn exec_resolves_daybreak_with_an_explicit_oss_endpoint() -> anyhow::Resul
         wiremock::Mock::given(wiremock::matchers::method("GET"))
             .and(wiremock::matchers::path(path))
             .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(body))
-            .mount(&server).await;
+            .mount(&server)
+            .await;
     }
-    let response = responses::mount_sse_once(&server, responses::sse_completed("oss-response")).await;
+    let response =
+        responses::mount_sse_once(&server, responses::sse_completed("oss-response")).await;
     test.cmd_with_server(&server)
         .env_remove("STEVE_ACCESS_TOKEN")
         .env_remove("STEVE_API_KEY")
         .env_remove("OPENAI_API_KEY")
         .env("STEVE_OSS_BASE_URL", format!("{}/v1", server.uri()))
-        .args(["--oss", "--local-provider", "ollama", "--skip-git-repo-check", "hello"])
-        .assert().success();
-    assert_eq!(response.single_request().body_json()["access_programs"], json!({"cyber": "daybreak_blue"}));
+        .args([
+            "--oss",
+            "--local-provider",
+            "ollama",
+            "--skip-git-repo-check",
+            "hello",
+        ])
+        .assert()
+        .success();
+    assert_eq!(
+        response.single_request().body_json()["access_programs"],
+        json!({"cyber": "daybreak_blue"})
+    );
     Ok(())
 }
 

@@ -89,7 +89,9 @@ async fn request_compression_follows_explicit_feature_for_each_auth() -> anyhow:
                 };
                 let json: serde_json::Value = serde_json::from_slice(&body)?;
                 assert!(json.get("input").is_some());
-                println!("verified backend_auth={backend_auth} enabled={enabled:?} provider={provider_id}");
+                println!(
+                    "verified backend_auth={backend_auth} enabled={enabled:?} provider={provider_id}"
+                );
             }
         }
     }

@@ -178,7 +178,7 @@ async fn build_uploaded_argument_value(
         requires_sandbox.then(|| turn_environment.sandbox_context(additional_permissions));
     if sandbox.is_some() {
         let environment_info = turn_environment
-            .environment
+            .environment()
             .info()
             .await
             .map_err(|error| contextualize_error(error.to_string()))?;
@@ -188,7 +188,7 @@ async fn build_uploaded_argument_value(
             ));
         }
     }
-    let fs = turn_environment.environment.get_filesystem();
+    let fs = turn_environment.environment().get_filesystem();
     let metadata = fs
         .get_metadata(&path_uri, GetMetadataOptions::default(), sandbox.as_ref())
         .await
@@ -236,12 +236,18 @@ async fn build_uploaded_argument_value(
             }
         }
     };
-    let upload_auth = codex_model_provider::auth_provider_from_auth(auth);
+    let upload_auth =
+        codex_model_provider::auth_provider_for_request(auth, None, &http::HeaderMap::new())
+            .await
+            .map_err(|error| contextualize_error(error.to_string()))?;
+    let upload_clients = upload_auth
+        .bind_http_client_pool(&sess.services.openai_file_upload_client_pool)
+        .map_err(|error| contextualize_error(error.to_string()))?;
     let uploaded = upload_openai_file(
         turn_context.config.chatgpt_base_url.trim_end_matches('/'),
         &turn_context.config.file_upload_origins,
-        upload_auth.as_ref(),
-        &sess.services.openai_file_upload_client_pool,
+        upload_auth.auth.as_ref(),
+        &upload_clients,
         file_name,
         metadata.size,
         open_contents,

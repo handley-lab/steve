@@ -95,18 +95,12 @@ fn dependency_inventory_uses_launcher_location_and_command_path() -> io::Result<
     let policy = FileSystemSandboxPolicy::restricted(vec![deny_glob("*.key")]);
     let mut request = sandbox_request(&cwd, &policy);
     request.command[0] = launcher.to_string_lossy().into_owned();
-    for (path, scanner) in [
-        ("../tools", tools.join("rg")),
-        (":../tools", tools.join("rg")),
-    ] {
+    for path in ["../tools", ":../tools"] {
         request.env.insert("PATH".to_owned(), path.to_owned());
         let dependencies = backend::critical_dependencies(&request, &policy, &cwd)?
             .into_iter()
             .filter(|(name, _)| {
-                matches!(
-                    *name,
-                    "bundled_bwrap_candidate" | "system_bwrap_candidate" | "glob_scanner"
-                )
+                matches!(*name, "bundled_bwrap_candidate" | "system_bwrap_candidate")
             })
             .map(|(name, path)| path.and_then(fs::canonicalize).map(|path| (name, path)))
             .collect::<io::Result<Vec<_>>>()?;
@@ -118,7 +112,6 @@ fn dependency_inventory_uses_launcher_location_and_command_path() -> io::Result<
                     "system_bwrap_candidate",
                     tools.join("bwrap").into_path_buf()
                 ),
-                ("glob_scanner", scanner.into_path_buf()),
             ]
         );
     }

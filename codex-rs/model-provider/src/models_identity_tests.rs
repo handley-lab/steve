@@ -67,7 +67,8 @@ fn cache_identity_tracks_provider_routing_and_effective_api_credentials() {
     )]));
     assert_ne!(identity(&other_provider, Some(&auth)).unwrap(), key);
 
-    let mut provider = ModelProviderInfo::create_openai_provider(Some("https://gov.api.openai.com/v1".into()));
+    let mut provider =
+        ModelProviderInfo::create_openai_provider(Some("https://gov.api.openai.com/v1".into()));
     // Keep identities stable while the endpoint residency test runs in parallel.
     provider.http_headers = Some(std::collections::HashMap::from([(
         codex_login::default_client::RESIDENCY_HEADER_NAME.to_string(),
@@ -184,5 +185,32 @@ fn cache_identity_command_auth_keeps_opaque_credential_isolation() {
     assert_ne!(
         identity(&provider, Some(&first)).unwrap(),
         identity(&provider, Some(&second)).unwrap()
+    );
+}
+
+#[test]
+fn provider_key_catalog_identity_does_not_depend_on_unused_login() {
+    let mut provider =
+        ModelProviderInfo::create_openai_provider(Some("https://api.openai.com/v1".into()));
+    // Keep this input stable while the residency test changes the process default.
+    provider.http_headers = Some(std::collections::HashMap::from([(
+        codex_login::default_client::RESIDENCY_HEADER_NAME.to_string(),
+        "us".into(),
+    )]));
+    provider.requires_openai_auth = false;
+    provider.experimental_bearer_token = Some("provider-key".into());
+    let identity_without_login = identity(&provider, /*auth*/ None).unwrap();
+    let selected_key = CodexAuth::from_api_key("provider-key");
+    let unused_login = chatgpt_auth("user@example.com", "user", "workspace", "team", "token");
+    for auth in [&selected_key, &unused_login] {
+        assert_eq!(
+            identity(&provider, Some(auth)).unwrap(),
+            identity_without_login
+        );
+    }
+    provider.experimental_bearer_token = Some("different-provider-key".into());
+    assert_ne!(
+        identity(&provider, /*auth*/ None).unwrap(),
+        identity_without_login
     );
 }

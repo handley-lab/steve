@@ -141,7 +141,7 @@ async fn next_turn_started(
     }
 }
 
-async fn wait_for_turn_completed(
+pub(super) async fn wait_for_turn_completed(
     app: &mut App,
     app_server: &mut AppServerSession,
     thread_id: ThreadId,
@@ -242,14 +242,23 @@ async fn safety_recourse_handles_a_policy_block() -> Result<()> {
         )
         .await?;
         let selected_model = "org/gpt-5.1";
-        app.chat_widget.set_model(&format!("{}/{selected_model}", app.config.model_provider_id));
+        app.chat_widget.set_model(&format!(
+            "{}/{selected_model}",
+            app.config.model_provider_id
+        ));
         submit_prompt(&mut app, "Blocked original prompt");
         app.submit_thread_op(&mut server, source_id, next_user_turn_event(&mut events))
             .await?;
         app.chat_widget
             .apply_external_edit(UNSENT_DRAFT.to_string());
         loop {
-            let event = server.next_event().await.expect("moderation metadata");
+            let event =
+                tokio::time::timeout(std::time::Duration::from_secs(5), server.next_event())
+                    .await
+                    .unwrap_or_else(|_| {
+                        panic!("timed out waiting for {domain} moderation metadata")
+                    })
+                    .expect("moderation metadata");
             let is_metadata = matches!(&event.event, AppServerEvent::ServerNotification(notification)
             if matches!(notification.as_ref(), ServerNotification::TurnModerationMetadata(_)));
             app.handle_backend_event(&server, event).await;
@@ -259,7 +268,11 @@ async fn safety_recourse_handles_a_policy_block() -> Result<()> {
             }
         }
         let loading = render_bottom_popup(&app.chat_widget, /*width*/ 80);
-        let loading = loading.split(" (").next().unwrap_or_default();
+        let loading = loading
+            .split(" (")
+            .next()
+            .unwrap_or_default()
+            .replace('◦', "•");
         while let Ok(event) = events.try_recv() {
             if let AppEvent::InsertHistoryCell(cell) = event {
                 assert!(!cell.as_any().is::<history_cell::SafetyAccessBlockCell>());
@@ -275,7 +288,10 @@ async fn safety_recourse_handles_a_policy_block() -> Result<()> {
             continue;
         }
         if domain == "bio" {
-            assert!(loading.contains("Finding an explanation and safer ways to continue…"));
+            assert!(
+                loading
+                    .contains("I can’t help with this request. Preparing alternative suggestions…")
+            );
             assert!(notice.contains("research and safety considerations."));
             continue;
         }
@@ -519,9 +535,15 @@ stream_max_retries = 0
         unreachable!("user turn");
     };
     let expected_client_id = client_user_message_id.clone();
-    let pending_input = app.chat_widget.capture_thread_input_state();
+    // The server reports the current turn. The retried steer must keep this message ID.
+    app.ensure_thread_channel(thread_id)
+        .store
+        .lock()
+        .await
+        .set_active_turn_id("stale".into());
     app.submit_thread_op(&mut app_server, thread_id, steer)
         .await?;
+    let pending_input = app.chat_widget.capture_thread_input_state();
     let other_id = ThreadId::from_string(
         &app_test_support::create_fake_rollout(
             app.config.codex_home.as_path(),
@@ -816,7 +838,10 @@ async fn run_safety_retry(
         }
         if scenario == SafetyRetryScenario::ForwardingDisabled && model.slug == FASTER_MODEL {
             model.available_access_programs = Some(ModelAccessPrograms {
-                cyber: vec![CyberAccessProgram::Standard, CyberAccessProgram::DaybreakBlue],
+                cyber: vec![
+                    CyberAccessProgram::Standard,
+                    CyberAccessProgram::DaybreakBlue,
+                ],
             });
         }
         if scenario == SafetyRetryScenario::UnsupportedPermissions && model.slug == FASTER_MODEL {
@@ -1095,31 +1120,50 @@ goals = true
     while app_event_rx.try_recv().is_ok() {}
 
     if scenario == SafetyRetryScenario::ForwardingDisabled {
-        app.chat_widget.set_feature_enabled(Feature::CliDaybreak, true);
+        app.chat_widget
+            .set_feature_enabled(Feature::CliDaybreak, true);
         app.chat_widget.set_daybreak_enabled(true);
         let before = server.requests().await.len();
         Box::pin(app.retry_safety_buffered_turn(
-            &mut tui, &mut app_server,
+            &mut tui,
+            &mut app_server,
             SafetyBufferedRetry {
-                thread_id: source_thread_id, turn_id: active_turn_id.clone(),
-                model: FASTER_MODEL.into(), turn: active_turn.clone(),
+                thread_id: source_thread_id,
+                turn_id: active_turn_id.clone(),
+                model: FASTER_MODEL.into(),
+                turn: active_turn.clone(),
                 prompt: UserMessage::from(RETRY_PROMPT),
             },
-        )).await;
+        ))
+        .await;
         assert_eq!(app.chat_widget.thread_id(), Some(source_thread_id));
         let source = app_server.thread_read(source_thread_id, true).await?;
-        assert_eq!(source.turns.last().map(|turn| &turn.status), Some(&TurnStatus::InProgress));
+        assert_eq!(
+            source.turns.last().map(|turn| &turn.status),
+            Some(&TurnStatus::InProgress)
+        );
         assert_eq!(server.requests().await.len(), before);
-        let error = std::iter::from_fn(|| app_event_rx.try_recv().ok()).find_map(|event| match event {
-            AppEvent::InsertHistoryCell(cell) => Some(lines_to_single_string(&cell.display_lines(200))),
-            _ => None,
-        }).expect("disabled-program preflight error");
-        assert!(error.contains("Cyber access programs are disabled for this session."), "{error}");
+        let error = std::iter::from_fn(|| app_event_rx.try_recv().ok())
+            .find_map(|event| match event {
+                AppEvent::InsertHistoryCell(cell) => {
+                    Some(lines_to_single_string(&cell.display_lines(200)))
+                }
+                _ => None,
+            })
+            .expect("disabled-program preflight error");
+        assert!(
+            error.contains("Cyber access programs are disabled for this session."),
+            "{error}"
+        );
         // The parent remains disabled; the successor must resolve its own newly enabled scope.
         let config_path = codex_home.path().join("config.toml");
-        std::fs::write(&config_path, std::fs::read_to_string(&config_path)?.replace(
-            "api_key_cyber_access_programs = false", "api_key_cyber_access_programs = true",
-        ))?;
+        std::fs::write(
+            &config_path,
+            std::fs::read_to_string(&config_path)?.replace(
+                "api_key_cyber_access_programs = false",
+                "api_key_cyber_access_programs = true",
+            ),
+        )?;
         app.chat_widget.set_daybreak_enabled(false);
     }
 
@@ -1168,7 +1212,9 @@ goals = true
             .expect("unsupported Daybreak model should be added to history");
         assert_eq!(
             lines_to_single_string(&error_cell.display_lines(/*width*/ 200)),
-            format!("■ Daybreak support for model {MODEL_PROVIDER_ID}/{FASTER_MODEL} could not be confirmed by the connected server. Use /daybreak to turn it off, or choose a compatible model and server.")
+            format!(
+                "■ Daybreak support for model {MODEL_PROVIDER_ID}/{FASTER_MODEL} could not be confirmed by the connected server. Use /daybreak to turn it off, or choose a compatible model and server."
+            )
         );
         app.chat_widget.set_daybreak_enabled(/*enabled*/ false);
 
@@ -1495,7 +1541,10 @@ goals = true
         .get(retry_request_index)
         .expect("retry should issue a Responses API request");
     if scenario == SafetyRetryScenario::ForwardingDisabled {
-        assert_eq!(retry_request["access_programs"], serde_json::json!({"cyber": "standard"}));
+        assert_eq!(
+            retry_request["access_programs"],
+            serde_json::json!({"cyber": "standard"})
+        );
         if let Some(path) = std::env::var_os("STEVE_TEST_DAYBREAK_SAFETY_CAPTURE") {
             std::fs::write(path, serde_json::to_vec_pretty(&request_bodies)?)?;
         }
@@ -1545,9 +1594,16 @@ goals = true
         retry_request_index + 1
     };
     assert!(
-        user_input_texts(&request_bodies[goal_continuation_request_index])
+        request_bodies[goal_continuation_request_index]["input"]
+            .as_array()
+            .expect("goal continuation model input")
             .iter()
-            .any(|text| text.contains(RETRY_GOAL)),
+            .any(|item| {
+                item["type"] == "function_call_output"
+                    && item["namespace"] == "agent"
+                    && item["name"] == "goal_objective"
+                    && item["output"] == RETRY_GOAL
+            }),
         "inherited goal continuation should resume after the explicit retry"
     );
 

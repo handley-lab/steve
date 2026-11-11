@@ -122,3 +122,155 @@ fn api_key_replacement_and_logout_retire_the_previous_source() {
             .source_generation
     );
 }
+
+#[tokio::test]
+async fn explicit_api_key_never_reloads_an_ambient_credential() -> anyhow::Result<()> {
+    let home = tempfile::tempdir()?;
+    login_with_api_key(
+        home.path(),
+        "ambient-key",
+        AuthCredentialsStoreMode::File,
+        AuthKeyringBackendKind::Direct,
+    )?;
+    let runtime = AuthRuntimeConfig {
+        codex_home: home.path().to_path_buf(),
+        auth_route_config: crate::test_support::transport_default_auth_route_config(),
+    };
+    let manager = AuthManager::from_api_key("selected-key", runtime.clone());
+    for _ in 0..2 {
+        manager.reload().await;
+        assert_eq!(
+            manager.auth().await.expect("selected key").api_key(),
+            Some("selected-key")
+        );
+        assert_eq!(manager.runtime_config(), runtime);
+    }
+    let stored = create_auth_storage(
+        home.path().to_path_buf(),
+        AuthCredentialsStoreMode::File,
+        AuthKeyringBackendKind::Direct,
+    )
+    .load()?
+    .expect("ambient login remains stored");
+    assert_eq!(stored.openai_api_key.as_deref(), Some("ambient-key"));
+    Ok(())
+}
+
+struct RecoverableExternalAuth {
+    current: RwLock<Option<CodexAuth>>,
+}
+
+impl ExternalAuth for RecoverableExternalAuth {
+    fn resolve(&self) -> ExternalAuthFuture<'_, CodexAuth> {
+        Box::pin(async {
+            self.current
+                .read()
+                .unwrap()
+                .clone()
+                .ok_or_else(|| std::io::Error::other("credential source unavailable"))
+        })
+    }
+
+    fn refresh(&self, _context: ExternalAuthRefreshContext) -> ExternalAuthFuture<'_, CodexAuth> {
+        self.resolve()
+    }
+}
+
+#[tokio::test]
+async fn external_source_outage_keeps_cached_credentials_and_identity() {
+    let initial_auth = oauth("login-a", "token-1");
+    let manager = AuthManager::from_auth_for_testing(initial_auth.clone());
+    let source = Arc::new(RecoverableExternalAuth {
+        current: RwLock::new(Some(initial_auth.clone())),
+    });
+    manager.set_external_auth(source.clone()).await.unwrap();
+    let initial = manager.auth_change_state_for(&initial_auth).unwrap();
+    *source.current.write().unwrap() = None;
+    assert_eq!(manager.auth().await, Some(initial_auth.clone()));
+    let (cached_auth, _) = manager.auth_with_http_client_factory().await.unwrap();
+    assert_eq!(cached_auth, initial_auth);
+    assert!(!manager.reload().await);
+    assert_eq!(manager.auth_change_state_for(&initial_auth), Some(initial));
+
+    let refreshed = oauth("login-a", "token-2");
+    *source.current.write().unwrap() = Some(refreshed.clone());
+    assert_eq!(manager.auth().await, Some(refreshed));
+    assert_eq!(
+        initial.source_generation,
+        manager
+            .auth_change_state_for(&initial_auth)
+            .unwrap()
+            .source_generation
+    );
+
+    manager.clear_external_auth();
+    assert!(manager.auth_change_state_for(&initial_auth).is_none());
+    *source.current.write().unwrap() = Some(initial_auth.clone());
+    manager.set_external_auth(source).await.unwrap();
+    assert_ne!(
+        initial.source_generation,
+        manager
+            .auth_change_state_for(&initial_auth)
+            .unwrap()
+            .source_generation
+    );
+}
+
+#[tokio::test]
+#[serial_test::serial(codex_auth_env)]
+async fn stored_identity_update_does_not_reload_captured_credentials() -> anyhow::Result<()> {
+    let home = tempfile::tempdir()?;
+    let storage = create_auth_storage(
+        home.path().to_path_buf(),
+        AuthCredentialsStoreMode::File,
+        AuthKeyringBackendKind::Direct,
+    );
+    let original = oauth("login-a", "token-1");
+    let replacement = oauth("login-b", "token-2");
+    let mut stored = original.get_current_auth_json().unwrap();
+    stored.auth_mode = Some(AuthMode::Chatgpt);
+    stored.last_refresh = Some(chrono::Utc::now());
+    storage.save(&stored)?;
+    let manager = AuthManager::shared(
+        home.path().to_path_buf(),
+        /*enable_codex_api_key_env*/ false,
+        AuthCredentialsStoreMode::File,
+        /*forced_chatgpt_workspace_id*/ None,
+        /*chatgpt_base_url*/ None,
+        AuthKeyringBackendKind::Direct,
+        crate::test_support::transport_default_auth_route_config(),
+    )
+    .await;
+    let captured = manager.auth_cached().unwrap();
+    let initial = manager.auth_change_state_for(&captured).unwrap();
+    stored.tokens = replacement.get_current_auth_json().unwrap().tokens;
+    storage.save(&stored)?;
+    let stored = storage.load()?.unwrap();
+    let identity = serde_json::from_value(json!({
+        "agent_runtime_id": "legacy-runtime",
+        "agent_private_key": codex_agent_identity::generate_agent_key_material()?.private_key_pkcs8_base64,
+        "account_id": "workspace-a", "chatgpt_user_id": "user-a", "plan_type": "pro",
+        "chatgpt_account_is_fedramp": false, "task_id": "legacy-task",
+    }))?;
+    let mut updated = storage.load()?.unwrap();
+    updated.agent_identity = Some(AgentIdentityStorage::Record(identity));
+    storage.save(&updated)?;
+    assert_eq!(captured.get_token()?, original.get_token()?);
+    assert_eq!(manager.auth_change_state_for(&captured), Some(initial));
+    assert_eq!(storage.load()?.unwrap().tokens, stored.tokens);
+    manager.reload().await;
+    assert_eq!(
+        manager.auth_cached().unwrap().get_token()?,
+        replacement.get_token()?
+    );
+    assert_ne!(
+        initial.source_generation,
+        manager
+            .auth_change_state_receiver()
+            .borrow()
+            .source_generation
+    );
+    assert!(manager.auth_change_state_for(&captured).is_none());
+    assert_eq!(captured.get_token()?, original.get_token()?);
+    Ok(())
+}

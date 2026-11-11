@@ -45,9 +45,10 @@ async fn archived_session_requires_confirmation_before_resume_or_fork() -> Resul
         let codex_home = TempDir::new()?;
         let provider = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::path("/v1/models"))
-            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
-                serde_json::json!({"data": [{"id": "session-test-model"}]}),
-            ))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"data": [{"id": "session-test-model"}]})),
+            )
             .mount(&provider)
             .await;
         std::fs::write(

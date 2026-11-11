@@ -94,6 +94,7 @@ fn base_instruction_override_is_literal_and_preserves_catalog_messages() {
         apps: Some(AppsMessages {
             usage_instructions: Some("Catalog Apps instructions.".to_string()),
         }),
+        plugins: None,
         content_filter_guidance: None,
         persistent_instructions: Some(persistent_instructions.to_string()),
         tools: Some(ToolMessages {
@@ -271,7 +272,10 @@ fn builtin_template_fill_keeps_other_model_messages() {
     let updated = with_config_overrides(model, &ModelsManagerConfig::default());
 
     let messages = updated.model_messages.as_ref().expect("model messages");
-    assert_eq!(messages.instructions_template.as_deref(), Some(BASE_INSTRUCTIONS));
+    assert_eq!(
+        messages.instructions_template.as_deref(),
+        Some(BASE_INSTRUCTIONS)
+    );
     assert_eq!(
         messages.persistent_instructions.as_deref(),
         Some("Persistent catalog instructions")

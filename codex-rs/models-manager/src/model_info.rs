@@ -51,8 +51,10 @@ pub fn with_config_overrides(mut model: ModelInfo, config: &ModelsManagerConfig)
         .and_then(|messages| messages.instructions_template.as_ref())
         .is_none()
     {
-        model.model_messages.get_or_insert_default().instructions_template =
-            Some(BASE_INSTRUCTIONS.to_string());
+        model
+            .model_messages
+            .get_or_insert_default()
+            .instructions_template = Some(BASE_INSTRUCTIONS.to_string());
     }
     if let Some(base_instructions) = &config.base_instructions {
         let model_messages = model.model_messages.get_or_insert_default();
@@ -136,6 +138,7 @@ pub fn model_info_from_slug(slug: &str) -> ModelInfo {
         default_verbosity: None,
         apply_patch_tool_type: None,
         web_search_tool_type: WebSearchToolType::Text,
+        web_search_provider: None,
         truncation_policy: TruncationPolicyConfig::bytes(/*limit*/ 10_000),
         supports_image_detail_original: false,
         context_window: Some(272_000),

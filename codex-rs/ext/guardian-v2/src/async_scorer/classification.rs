@@ -3,7 +3,6 @@
 //! Requests outside every active action's lag allowance stop as superseded, not failed.
 //! Expiry also cancels metadata waits before transcript preparation, releasing reservations.
 
-use codex_protocol::openai_models::ModelOrigin;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -81,7 +80,6 @@ pub(super) struct Classification {
     pub(super) call_id: String,
     pub(super) mcp_tool: Option<McpToolContext>,
     pub(super) planned_action: String,
-    pub(super) review_model_override: Option<String>,
     pub(super) sync_reviews: Vec<Arc<GuardianReviewEvidenceRecord>>,
     pub(super) trusted_user_inputs: Vec<String>,
     pub(super) authorization_version: GuardianAuthorizationVersion,
@@ -137,7 +135,6 @@ impl Classification {
             call_id,
             mcp_tool,
             planned_action,
-            review_model_override,
             sync_reviews,
             trusted_user_inputs,
             authorization_version,
@@ -176,7 +173,9 @@ impl Classification {
                             config
                                 .model_catalog
                                 .as_ref()
-                                .and(review_model_override.as_deref())
+                                .and(parent_model.as_ref().and_then(|model| {
+                                    model.auto_review_model_override.as_deref()
+                                }))
                         })
                         .filter(|model| !model.trim().is_empty());
                     if let Some(review_model_id) = review_model_id {
@@ -185,7 +184,7 @@ impl Classification {
                             review_model_id,
                             config.guardian_model_provider.as_ref().map(|(id, _)| id.as_str()),
                         )?;
-                        let provider = config.model_providers[&provider_id].clone();
+                        let provider = if provider_id == config.model_provider_id { config.model_provider.clone() } else { config.model_providers[&provider_id].clone() };
                         let independent_provider = provider_id != config.model_provider_id
                             || provider != config.model_provider;
                         reviewer_config.model_provider_id = provider_id;
@@ -360,6 +359,7 @@ impl Classification {
             let extra_policy = config.guardian_extra_policy.as_deref().unwrap_or_default();
             let instructions = guardian_config.render_classifier_instructions(policy, extra_policy);
             let sampling = LunaSamplingRequest {
+                item_id_generator: Arc::clone(thread.item_id_generator()),
                 cyber_access_program,
                 parent_response_id,
                 instructions,

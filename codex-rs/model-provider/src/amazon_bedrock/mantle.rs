@@ -8,7 +8,6 @@ use super::BedrockEndpoint;
 use super::auth::BedrockAuthSource;
 use super::auth::resolve_region;
 
-
 const BEDROCK_MANTLE_SERVICE_NAME: &str = "bedrock-mantle";
 const BEDROCK_MANTLE_SUPPORTED_REGIONS: [&str; 12] = [
     "us-east-2",

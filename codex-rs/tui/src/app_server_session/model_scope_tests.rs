@@ -170,21 +170,37 @@ experimental_bearer_token = "credential-a"
         &mut trace,
     )
     .await?;
-    assert_eq!(process.data.iter().find(|model| model.model == "scope/scope-model").unwrap().display_name, "Scope provider / Catalog A");
+    assert_eq!(
+        process
+            .data
+            .iter()
+            .find(|model| model.model == "scope/scope-model")
+            .unwrap()
+            .display_name,
+        "Scope provider / Catalog A"
+    );
     assert!(process.provider_errors.is_empty());
     let process_raw: Value = recorded_request(
-        &session.request_handle, &mut next_id, "model/list", list.clone(), &mut trace,
-    ).await?;
+        &session.request_handle,
+        &mut next_id,
+        "model/list",
+        list.clone(),
+        &mut trace,
+    )
+    .await?;
     if process_raw.get("cyberAccessProgramsEnabled").is_some() {
         failures.push("process listing claimed a thread forwarding snapshot".into());
     }
     let config_path = home.path().join("config.toml");
     let original_config = std::fs::read_to_string(&config_path)?;
     // The new thread takes the opposite setting to the running process.
-    std::fs::write(&config_path, original_config.replace(
-        &format!("api_key_cyber_access_programs = {process_forwarding}"),
-        &format!("api_key_cyber_access_programs = {}", !process_forwarding),
-    ))?;
+    std::fs::write(
+        &config_path,
+        original_config.replace(
+            &format!("api_key_cyber_access_programs = {process_forwarding}"),
+            &format!("api_key_cyber_access_programs = {}", !process_forwarding),
+        ),
+    )?;
     let provider_b = json!({
         "name": "Scope provider", "base_url": format!("{}/v1", b.uri()),
         "model_catalog_url": format!("{}/models", b.uri()),
@@ -197,19 +213,30 @@ experimental_bearer_token = "credential-a"
     }
     std::fs::write(&local_path, serde_json::to_vec(&local_catalog)?)?;
     let mut selected_b = None;
-    for (label, provider, settings, expected) in [
+    // The preceding snapshot warms discovery. Equal A definitions share a cache identity;
+    // local metadata changes only projection. Distinct B/A identities replace the same
+    // disk cache entry, so their aggregate listing still fetches A once.
+    for (label, provider, settings, expected, expected_a_requests) in [
         (
             "same id, different definition",
             "scope",
             json!({"model_providers": {"scope": provider_b.clone()}}),
             "Catalog B",
+            1,
         ),
-        ("equal definition, alias", "alias", json!({}), "Catalog A"),
+        (
+            "equal definition, alias",
+            "alias",
+            json!({}),
+            "Catalog A",
+            0,
+        ),
         (
             "local catalog",
             "scope",
             json!({"model_catalog_json": local_path}),
             "Local",
+            0,
         ),
     ] {
         let started: ThreadStartResponse = recorded_request(
@@ -220,24 +247,46 @@ experimental_bearer_token = "credential-a"
         // A later file edit must not change the thread's retained forwarding bit.
         std::fs::write(&config_path, &original_config)?;
         let snapshot: Value = recorded_request(
-            &session.request_handle, &mut next_id, "model/list",
-            json!({"threadId": started.thread.id, "includeHidden": true}), &mut trace,
-        ).await?;
-        let expected_snapshot = if expected == "Catalog B" { !process_forwarding } else { process_forwarding };
-        if snapshot.get("cyberAccessProgramsEnabled").and_then(Value::as_bool)
+            &session.request_handle,
+            &mut next_id,
+            "model/list",
+            json!({"threadId": started.thread.id, "includeHidden": true}),
+            &mut trace,
+        )
+        .await?;
+        let expected_snapshot = if expected == "Catalog B" {
+            !process_forwarding
+        } else {
+            process_forwarding
+        };
+        if snapshot
+            .get("cyberAccessProgramsEnabled")
+            .and_then(Value::as_bool)
             != Some(expected_snapshot)
         {
-            failures.push(format!("{label}: expected retained forwarding {expected_snapshot}, received {snapshot}"));
+            failures.push(format!(
+                "{label}: expected retained forwarding {expected_snapshot}, received {snapshot}"
+            ));
         }
         let configured: Value = recorded_request(
-            &session.request_handle, &mut next_id, "experimentalFeature/list",
-            json!({"threadId": started.thread.id}), &mut trace,
-        ).await?;
-        let configured_forwarding = configured["data"].as_array().and_then(|rows| {
-            rows.iter().find(|row| row["name"] == "api_key_cyber_access_programs")
-        }).and_then(|row| row["enabled"].as_bool());
+            &session.request_handle,
+            &mut next_id,
+            "experimentalFeature/list",
+            json!({"threadId": started.thread.id}),
+            &mut trace,
+        )
+        .await?;
+        let configured_forwarding = configured["data"]
+            .as_array()
+            .and_then(|rows| {
+                rows.iter()
+                    .find(|row| row["name"] == "api_key_cyber_access_programs")
+            })
+            .and_then(|row| row["enabled"].as_bool());
         if configured_forwarding != Some(process_forwarding) {
-            failures.push(format!("{label}: configured readback did not follow the edited file"));
+            failures.push(format!(
+                "{label}: configured readback did not follow the edited file"
+            ));
         }
         let a_before = a.received_requests().await.unwrap().len();
         let response: ModelListResponse = recorded_request(
@@ -251,7 +300,8 @@ experimental_bearer_token = "credential-a"
         assert!(response.provider_errors.is_empty(), "{response:?}");
         if response
             .data
-            .iter().find(|model| model.model == format!("{provider}/scope-model"))
+            .iter()
+            .find(|model| model.model == format!("{provider}/scope-model"))
             .map(|model| model.display_name.as_str())
             != Some(format!("Scope provider / {expected}").as_str())
         {
@@ -267,14 +317,28 @@ experimental_bearer_token = "credential-a"
         };
         let programs = response
             .data
-            .iter().find(|model| model.model == format!("{provider}/scope-model"))
+            .iter()
+            .find(|model| model.model == format!("{provider}/scope-model"))
             .and_then(|model| model.available_access_programs.clone())
             .map(ModelAccessPrograms::from);
         if !programs.is_some_and(|programs| programs.cyber == vec![expected_program]) {
             failures.push(format!("{label}: wrong advertised program"));
         }
-        let a_after = a.received_requests().await.unwrap().len();
-        let expected_a_requests = if expected == "Catalog B" { 1 } else { 2 };
+        let a_requests = a.received_requests().await.unwrap();
+        let a_after = a_requests.len();
+        for request in &a_requests[a_before..] {
+            if request.method.as_str() != "GET"
+                || request.url.path() != "/models"
+                || !request
+                    .headers
+                    .get("authorization")
+                    .is_some_and(|value| value.as_bytes() == b"Bearer credential-a")
+            {
+                failures.push(format!(
+                    "{label}: A request used a different catalog route or credential"
+                ));
+            }
+        }
         if a_after - a_before != expected_a_requests {
             failures.push(format!(
                 "{label}: expected {expected_a_requests} configured A catalogue requests, got {}",
@@ -317,10 +381,18 @@ experimental_bearer_token = "credential-a"
     selector_features.set_enabled(codex_features::Feature::CliDaybreak, true);
     for _ in 0..2 {
         let selected = crate::daybreak::program_for_thread(
-            &selector_features, &session.request_handle(), &selected_b, "scope/scope-model", true,
-        ).await;
+            &selector_features,
+            &session.request_handle(),
+            &selected_b,
+            "scope/scope-model",
+            true,
+        )
+        .await;
         if process_forwarding {
-            if !selected.as_ref().is_err_and(|error| error.contains("disabled for this session")) {
+            if !selected
+                .as_ref()
+                .is_err_and(|error| error.contains("disabled for this session"))
+            {
                 failures.push(format!("disabled scoped preflight: {selected:?}"));
             }
         } else if selected != Ok(Some(CyberAccessProgram::DaybreakRed)) {
@@ -329,12 +401,21 @@ experimental_bearer_token = "credential-a"
         trace.push(json!({"selector_thread": selected_b, "preference": true, "result": format!("{selected:?}")}));
     }
     if b.received_requests().await.unwrap().len() - before_warm != 2 {
-        failures.push("automatic selection did not refresh its retained B provider once per lookup".into());
+        failures.push(
+            "automatic selection did not refresh its retained B provider once per lookup".into(),
+        );
     }
     selector_features.set_enabled(codex_features::Feature::CliDaybreak, false);
     if crate::daybreak::program_for_thread(
-        &selector_features, &session.request_handle(), "not-a-thread", "scope-model", true,
-    ).await != Ok(None) {
+        &selector_features,
+        &session.request_handle(),
+        "not-a-thread",
+        "scope-model",
+        true,
+    )
+    .await
+        != Ok(None)
+    {
         failures.push("disabled selector queried an invalid thread".into());
     }
     let empty_path = home.path().join("empty-models.json");
@@ -345,16 +426,27 @@ experimental_bearer_token = "credential-a"
     }
     std::fs::write(&empty_path, serde_json::to_vec(&hidden_catalog)?)?;
     let empty_thread: ThreadStartResponse = recorded_request(
-        &session.request_handle, &mut next_id, "thread/start",
+        &session.request_handle,
+        &mut next_id,
+        "thread/start",
         json!({"model": "scope-model", "modelProvider": "scope", "cwd": home.path(),
-            "config": {"model_catalog_json": empty_path}}), &mut trace,
-    ).await?;
+            "config": {"model_catalog_json": empty_path}}),
+        &mut trace,
+    )
+    .await?;
     let empty: ModelListResponse = recorded_request(
-        &session.request_handle, &mut next_id, "model/list",
-        json!({"threadId": empty_thread.thread.id}), &mut trace,
-    ).await?;
-    if empty.data.len() != 1 || empty.data[0].model != "alias/scope-model"
-        || !empty.provider_errors.is_empty() || empty.cyber_access_programs_enabled != Some(process_forwarding) {
+        &session.request_handle,
+        &mut next_id,
+        "model/list",
+        json!({"threadId": empty_thread.thread.id}),
+        &mut trace,
+    )
+    .await?;
+    if empty.data.len() != 1
+        || empty.data[0].model != "alias/scope-model"
+        || !empty.provider_errors.is_empty()
+        || empty.cyber_access_programs_enabled != Some(process_forwarding)
+    {
         failures.push(format!("empty scoped catalog lost its snapshot: {empty:?}"));
     }
     for id in ["not-a-thread".to_string(), ThreadId::new().to_string()] {
@@ -393,7 +485,8 @@ experimental_bearer_token = "credential-a"
     trace.push(json!({"refresh_thread": selected_b, "result": format!("{result:?}")}));
     if !result.as_ref().is_ok_and(|models| {
         models
-            .iter().find(|model| model.model == "scope/scope-model")
+            .iter()
+            .find(|model| model.model == "scope/scope-model")
             .is_some_and(|model| model.display_name == "Scope provider / Catalog B")
     }) {
         failures.push(format!("picker refresh used another catalog: {result:?}"));
@@ -414,7 +507,9 @@ experimental_bearer_token = "credential-a"
         &mut trace,
     ).await;
     if !gateway.as_ref().is_err_and(|error| {
-        error.to_string().contains("Model `scope/scope-model` is unavailable for coding")
+        error
+            .to_string()
+            .contains("Model `scope/scope-model` is unavailable for coding")
     }) {
         failures.push(format!("selected gateway readiness: {gateway:?}"));
     }
@@ -430,13 +525,18 @@ experimental_bearer_token = "credential-a"
         "model/list",
         json!({"threadId": selected_b}),
         &mut trace,
-    ).await;
+    )
+    .await;
     if !rejected.as_ref().is_err_and(|error| {
         error.to_string().contains("modelProviderPolicyConflict")
             && error.to_string().contains("\"modelProvider\":\"scope\"")
-            && error.to_string().contains("\"requiredModelProvider\":\"alias\"")
+            && error
+                .to_string()
+                .contains("\"requiredModelProvider\":\"alias\"")
     }) {
-        failures.push(format!("managed rejection returned a warm scoped catalog: {rejected:?}"));
+        failures.push(format!(
+            "managed rejection returned a warm scoped catalog: {rejected:?}"
+        ));
     }
     if a.received_requests().await.unwrap().len() != before_a
         || b.received_requests().await.unwrap().len() != before_b
@@ -458,7 +558,10 @@ experimental_bearer_token = "credential-a"
             &json!({"process_forwarding": process_forwarding, "rpc": trace, "http": captures, "failures": failures}),
         )?;
         let destination = std::path::PathBuf::from(destination);
-        std::fs::write(destination.with_extension(format!("{process_forwarding}.json")), &capture)?;
+        std::fs::write(
+            destination.with_extension(format!("{process_forwarding}.json")),
+            &capture,
+        )?;
         std::fs::write(destination, capture)?;
     }
     session.shutdown().await?;

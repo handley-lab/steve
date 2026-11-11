@@ -30,7 +30,15 @@ const FLAGS: &[&str] = &[
 
 #[test]
 fn cli_requires_complete_oidc_configuration_and_keeps_api_key_default() {
-    assert!(!Args::try_parse_from(["proxy", "--upstream-url", "https://api.openai.com/v1/responses"]).unwrap().github_oidc);
+    assert!(
+        !Args::try_parse_from([
+            "proxy",
+            "--upstream-url",
+            "https://api.openai.com/v1/responses"
+        ])
+        .unwrap()
+        .github_oidc
+    );
     assert!(Args::try_parse_from(["proxy", "--github-oidc"]).is_err());
     assert!(Args::try_parse_from(["proxy", "--oidc-audience", "openai"]).is_err());
     assert!(Args::try_parse_from(FLAGS).unwrap().github_oidc);
@@ -50,7 +58,10 @@ fn cli_requires_complete_oidc_configuration_and_keeps_api_key_default() {
 #[test]
 fn oidc_disallows_provider_overrides_before_reading_any_credentials() {
     let mut flags = FLAGS.to_vec();
-    let upstream = flags.iter().position(|flag| *flag == "--upstream-url").unwrap();
+    let upstream = flags
+        .iter()
+        .position(|flag| *flag == "--upstream-url")
+        .unwrap();
     flags[upstream + 1] = "https://example.test/v1/responses";
     let args = Args::try_parse_from(flags).unwrap();
     assert!(

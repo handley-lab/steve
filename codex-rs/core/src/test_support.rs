@@ -40,6 +40,30 @@ use crate::responses_metadata::subagent_metadata_kind;
 use crate::thread_manager;
 use crate::unified_exec;
 
+/// Supply fixed model metadata to tests without implementing a provider.
+pub fn fixed_model_catalog(
+    manager: SharedModelsManager,
+) -> Arc<dyn codex_model_provider::ModelCatalogFactory> {
+    struct FixedCatalog(SharedModelsManager);
+
+    impl codex_model_provider::ModelCatalogFactory for FixedCatalog {
+        fn build(
+            &self,
+            _provider: codex_model_provider::SharedModelProvider,
+            _config_model_catalog: Option<codex_protocol::openai_models::ModelsResponse>,
+            _api_key_model_discovery_default: bool,
+        ) -> SharedModelsManager {
+            Arc::clone(&self.0)
+        }
+
+        fn set_api_key_model_discovery_enabled(&self, enabled: bool) {
+            self.0.set_api_key_model_discovery_enabled(enabled);
+        }
+    }
+
+    Arc::new(FixedCatalog(manager))
+}
+
 static TEST_MODEL_PRESETS: Lazy<Vec<ModelPreset>> = Lazy::new(|| {
     let model = codex_models_manager::test_support::model_info("gpt-5.5");
     let mut presets = vec![ModelPreset::from(model)];
@@ -116,7 +140,7 @@ pub async fn observe_turn_timing(
         timing.snapshot_path(end).map(|path| {
             let totals = path.durations(start, end);
             [
-                totals.inference,
+                totals.sampling.saturating_add(totals.compaction),
                 totals.auto_review,
                 totals.tools,
                 totals.overhead,

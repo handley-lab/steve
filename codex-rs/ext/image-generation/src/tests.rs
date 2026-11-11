@@ -123,6 +123,7 @@ async fn referenced_files_record_the_exact_bytes_read_for_each_request() {
     let environment =
         ToolEnvironment::new("test".to_string(), PathUri::from_abs_path(&root), &access);
     let args = ImagegenArgs {
+        gif: None,
         prompt: "combine the references".to_string(),
         transparent_background: false,
         referenced_image_paths: Some(vec![second.clone(), first.clone()]),
@@ -147,6 +148,7 @@ async fn referenced_files_record_the_exact_bytes_read_for_each_request() {
         let inputs = [(&second, &second_bytes), (&first, &first_bytes)];
         let expected = PreparedImageRequest {
             request: ImageRequest::Edit(ImageEditRequest {
+                output: None,
                 images: inputs
                     .iter()
                     .map(|(_, bytes)| ImageReference::Inline {
@@ -172,9 +174,14 @@ async fn referenced_files_record_the_exact_bytes_read_for_each_request() {
                 .collect(),
         };
         assert_eq!(
-            request_for_call_args("gpt-image-2", &args, &[], std::slice::from_ref(&environment))
-                .await
-                .expect("edit request"),
+            request_for_call_args(
+                "gpt-image-2",
+                &args,
+                &[],
+                std::slice::from_ref(&environment)
+            )
+            .await
+            .expect("edit request"),
             expected
         );
     }
@@ -191,15 +198,21 @@ async fn unreadable_or_invalid_reference_does_not_build_an_edit_request() {
         ToolEnvironment::new("test".to_string(), PathUri::from_abs_path(&root), &access);
     for path in [root.join("missing.png"), invalid] {
         let args = ImagegenArgs {
+            gif: None,
             prompt: "edit the reference".to_string(),
             transparent_background: false,
             referenced_image_paths: Some(vec![path]),
             num_last_images_to_include: None,
         };
         assert!(
-            request_for_call_args("gpt-image-2", &args, &[], std::slice::from_ref(&environment))
-                .await
-                .is_err()
+            request_for_call_args(
+                "gpt-image-2",
+                &args,
+                &[],
+                std::slice::from_ref(&environment)
+            )
+            .await
+            .is_err()
         );
     }
 }
@@ -209,7 +222,12 @@ fn artifact_path_sanitizes_session_and_call_ids() {
     let save_root = AbsolutePathBuf::current_dir().expect("current directory should be absolute");
 
     assert_eq!(
-        image_generation_artifact_path(&save_root, "../session", "../call"),
+        image_generation_artifact_path(
+            &save_root,
+            "../session",
+            "../call",
+            super::GeneratedImageFormat::Png
+        ),
         save_root
             .join("generated_images")
             .join("___session")
@@ -219,7 +237,7 @@ fn artifact_path_sanitizes_session_and_call_ids() {
 
 #[test]
 fn uses_reserved_image_gen_namespace() {
-    let ToolSpec::Namespace(spec) = imagegen_tool_spec() else {
+    let ToolSpec::Namespace(spec) = imagegen_tool_spec(/*gif_enabled*/ false) else {
         panic!("imagegen should advertise a namespace tool");
     };
     assert_eq!(spec.name, IMAGE_GEN_NAMESPACE);
@@ -231,7 +249,7 @@ fn uses_reserved_image_gen_namespace() {
 
 #[test]
 fn imagegen_code_mode_declaration_describes_generated_image_result() {
-    let spec = imagegen_tool_spec();
+    let spec = imagegen_tool_spec(/*gif_enabled*/ false);
     let definitions = codex_tools::collect_code_mode_tool_definitions(
         [&spec],
         /*code_mode_input_schema_max_bytes*/ None,
@@ -251,7 +269,7 @@ fn imagegen_code_mode_declaration_describes_generated_image_result() {
 
 #[test]
 fn imagegen_output_schema_does_not_change_direct_api_serialization() {
-    let spec = imagegen_tool_spec();
+    let spec = imagegen_tool_spec(/*gif_enabled*/ false);
     let mut without_output_schema = spec.clone();
     let ToolSpec::Namespace(namespace) = &mut without_output_schema else {
         panic!("imagegen should advertise a namespace tool");
@@ -273,6 +291,7 @@ async fn omitted_references_generate_with_fixed_defaults() {
         request_for_call_args(
             "gpt-image-2",
             &ImagegenArgs {
+                gif: None,
                 prompt: "paint a moonlit lake".to_string(),
                 transparent_background: false,
                 referenced_image_paths: None,
@@ -285,6 +304,7 @@ async fn omitted_references_generate_with_fixed_defaults() {
         .expect("generation request should build"),
         PreparedImageRequest {
             request: ImageRequest::Generate(ImageGenerationRequest {
+                output: None,
                 prompt: "paint a moonlit lake".to_string(),
                 background: Some(ImageBackground::Opaque),
                 model: "gpt-image-2".to_string(),
@@ -373,6 +393,7 @@ async fn recent_image_fallback_selects_newest_images_in_chronological_order() {
         request_for_call_args(
             "gpt-image-2",
             &ImagegenArgs {
+                gif: None,
                 prompt: "change the lighting".to_string(),
                 transparent_background: false,
                 referenced_image_paths: None,
@@ -398,6 +419,7 @@ async fn recent_image_fallback_passes_file_backed_image_to_edit_request() {
     let request = request_for_call_args(
         "gpt-image-2",
         &ImagegenArgs {
+            gif: None,
             prompt: "change the lighting".to_string(),
             transparent_background: false,
             referenced_image_paths: None,
@@ -429,6 +451,7 @@ async fn recent_image_fallback_passes_file_backed_image_to_edit_request() {
         request,
         PreparedImageRequest {
             request: ImageRequest::Edit(ImageEditRequest {
+                output: None,
                 images: vec![ImageReference::File {
                     file_id: "newer-file-backed-image".to_string(),
                 }],
@@ -450,6 +473,7 @@ async fn recent_image_fallback_passes_file_backed_tool_output_to_edit_request() 
     let request = request_for_call_args(
         "gpt-image-2",
         &ImagegenArgs {
+            gif: None,
             prompt: "change the lighting".to_string(),
             transparent_background: false,
             referenced_image_paths: None,
@@ -488,6 +512,7 @@ async fn recent_image_fallback_passes_file_backed_tool_output_to_edit_request() 
         request,
         PreparedImageRequest {
             request: ImageRequest::Edit(ImageEditRequest {
+                output: None,
                 images: vec![ImageReference::File {
                     file_id: "newer-file-backed-image".to_string(),
                 }],
@@ -508,6 +533,7 @@ async fn conflicting_image_selectors_return_tool_error() {
     let error = request_for_call_args(
         "gpt-image-2",
         &ImagegenArgs {
+            gif: None,
             prompt: "change the lighting".to_string(),
             transparent_background: false,
             referenced_image_paths: Some(vec![
@@ -534,6 +560,7 @@ async fn too_many_referenced_image_paths_return_tool_error() {
     let error = request_for_call_args(
         "gpt-image-2",
         &ImagegenArgs {
+            gif: None,
             prompt: "change the lighting".to_string(),
             transparent_background: false,
             referenced_image_paths: Some(
@@ -564,6 +591,7 @@ async fn recent_image_fallback_requires_requested_count() {
     let error = request_for_call_args(
         "gpt-image-2",
         &ImagegenArgs {
+            gif: None,
             prompt: "change the lighting".to_string(),
             transparent_background: false,
             referenced_image_paths: None,
@@ -694,6 +722,7 @@ fn image_output(image: &str) -> FunctionCallOutputPayload {
 
 fn expected_edit_request(prompt: &str, images: &[&str]) -> ImageEditRequest {
     ImageEditRequest {
+        output: None,
         images: images
             .iter()
             .map(|image| ImageReference::Inline {

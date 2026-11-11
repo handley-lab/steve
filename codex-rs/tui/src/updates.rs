@@ -76,11 +76,8 @@ async fn check_for_update(
     action: Option<UpdateAction>,
     http_client_factory: HttpClientFactory,
 ) -> anyhow::Result<()> {
-    let client_pool = RouteAwareClientPool::new(
-        http_client_factory,
-        ClientRouteClass::Other,
-    )
-    .with_legacy_custom_ca_fallback();
+    let client_pool = RouteAwareClientPool::new(http_client_factory, ClientRouteClass::Other)
+        .with_legacy_custom_ca_fallback();
     let latest_version = match action {
         Some(UpdateAction::Daemon(_)) => return Ok(()),
         Some(UpdateAction::BrewUpgrade) => {

@@ -52,8 +52,10 @@ pub fn classify_openai_api_url(destination: &str) -> OpenAiDestination {
             | "mtls-eu.api.openai.com"
             | "api.openai.org"
             | "api.openai-staging.com"
-    ) || matches!(host, "chatgpt.com" | "chat.openai.com" | "chatgpt-staging.com")
-        || host.ends_with(".chatgpt.com")
+    ) || matches!(
+        host,
+        "chatgpt.com" | "chat.openai.com" | "chatgpt-staging.com"
+    ) || host.ends_with(".chatgpt.com")
         || host.ends_with(".chatgpt-staging.com");
     if supported_host
         && url.scheme() == "https"

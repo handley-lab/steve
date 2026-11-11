@@ -391,7 +391,9 @@ async fn experimental_context_follows_activation_and_model_support(
     );
     let body = request.body_json();
     let metadata: Value = serde_json::from_str(
-        body["client_metadata"]["x-codex-turn-metadata"].as_str().expect("turn metadata"),
+        body["client_metadata"]["x-codex-turn-metadata"]
+            .as_str()
+            .expect("turn metadata"),
     )?;
     assert_eq!(
         metadata["history_ingest_requested"].as_bool(),

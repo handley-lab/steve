@@ -54,7 +54,8 @@ async fn provider_auth_rejects_selectors_that_do_not_match_the_registered_actor(
                 runtime_auth: Some((runtime_manager(&server, Arc::clone(&credentials)), mode)),
                 credentials,
             };
-            let mut info = ModelProviderInfo::create_openai_provider(Some("https://api.openai.com/v1".into()));
+            let mut info =
+                ModelProviderInfo::create_openai_provider(Some("https://api.openai.com/v1".into()));
             info.requires_openai_auth = true;
             info.env_http_headers = None;
             info.http_headers = Some(std::collections::HashMap::from([(
@@ -122,7 +123,8 @@ async fn model_requests_keep_the_selected_project_while_reusing_one_runtime() {
             Some("project-a"),
         ];
         for project in projects {
-            let mut info = ModelProviderInfo::create_openai_provider(Some("https://api.openai.com/v1".into()));
+            let mut info =
+                ModelProviderInfo::create_openai_provider(Some("https://api.openai.com/v1".into()));
             info.requires_openai_auth = true;
             info.env_http_headers = None;
             let mut headers =
@@ -131,13 +133,27 @@ async fn model_requests_keep_the_selected_project_while_reusing_one_runtime() {
                 headers.insert("openai-project".into(), project.into());
             }
             info.http_headers = Some(headers);
-            let auth = context
-                .model_provider(info.clone())
-                .api_auth()
-                .await
-                .unwrap();
+            let provider = context.model_provider(info.clone());
+            let request = crate::resolve_request(
+                provider.as_ref(),
+                /*routing*/ None,
+                HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+            )
+            .await
+            .unwrap();
+            assert_eq!(request.runtime_id.as_deref(), Some("runtime-a"));
+            assert_eq!(
+                request
+                    .api_provider
+                    .headers
+                    .get("openai-project")
+                    .map(|value| value.to_str().unwrap()),
+                project,
+            );
             assert!(
-                auth.to_auth_headers()
+                request
+                    .api_auth
+                    .to_auth_headers()
                     .unwrap()
                     .contains_key("authorization")
             );
@@ -189,6 +205,89 @@ async fn model_requests_keep_the_selected_project_while_reusing_one_runtime() {
             }
         }
         server.verify().await;
+    }
+}
+
+#[tokio::test]
+async fn runtime_registration_environment_matches_inference_and_catalog() {
+    for mode in [RuntimeAuthMode::DualHeader, RuntimeAuthMode::AssertionOnly] {
+        for (registration_base, destination, matching_destination) in [
+            (
+                "https://auth.openai.com/agent/register",
+                Some("https://api.openai-staging.com/v1"),
+                "https://eu.api.openai.com/v1",
+            ),
+            (
+                "https://auth.api.openai.org/agent/register",
+                Some("https://api.openai.com/v1"),
+                "https://api.openai-staging.com/v1",
+            ),
+            (
+                "https://auth.api.openai.org/agent/register",
+                None,
+                "https://chatgpt-staging.com/backend-api/codex",
+            ),
+        ] {
+            let home = tempfile::tempdir().unwrap();
+            // Keep external network access disabled even if destination validation regresses.
+            let controller = codex_http_client::NetworkPolicyController::default();
+            let factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault)
+                .with_network_policy(controller.policy());
+            let credentials = AuthManager::from_api_key(
+                "ambient-key",
+                codex_login::AuthRuntimeConfig {
+                    codex_home: home.path().to_path_buf(),
+                    auth_route_config: codex_login::AuthRouteConfig::from_http_client_factory(
+                        factory.clone(),
+                    ),
+                },
+            );
+            let runtime = Arc::new(RuntimeAuthManager::new(
+                Arc::clone(&credentials),
+                AgentHostAuthorization::InstallationId {
+                    installation_id: "00000000-0000-0000-0000-000000000000".parse().unwrap(),
+                },
+                RuntimeRegistrationMetadata {
+                    harness: None,
+                    harness_version: None,
+                    role: RuntimeRole::Orchestrator,
+                },
+                registration_base.parse().unwrap(),
+            ));
+            crate::validate_runtime_environment(&runtime, Some(matching_destination)).unwrap();
+            let info = ModelProviderInfo {
+                experimental_bearer_token: Some("provider-key".into()),
+                env_http_headers: None,
+                ..ModelProviderInfo::create_openai_provider(destination.map(str::to_owned))
+            };
+            let provider = crate::provider::create_model_provider_with_runtime(
+                info.clone(),
+                Some(Arc::clone(&credentials)),
+                Some((Arc::clone(&runtime), mode)),
+            );
+            let error = provider.request_auth().await.err().unwrap();
+            assert!(matches!(
+                error.details(),
+                codex_protocol::error::CodexErrorDetails::InvalidRequest(_)
+            ));
+
+            let mut catalog_info = info;
+            if let Some(destination) = destination {
+                catalog_info.base_url = Some(matching_destination.into());
+                catalog_info.model_catalog_url = Some(format!("{destination}/models").into());
+            }
+            let catalog = OpenAiModelsEndpoint::new(
+                catalog_info,
+                Some(credentials),
+                /*gateway_auth_manager*/ None,
+            )
+            .with_runtime_auth(Some((runtime, mode)));
+            let error = catalog.list_models("0.0.0", factory).await.unwrap_err();
+            assert!(matches!(
+                error.details(),
+                codex_protocol::error::CodexErrorDetails::InvalidRequest(_)
+            ));
+        }
     }
 }
 
@@ -374,7 +473,11 @@ async fn runtime_catalog_rejects_redirects_without_forwarding_credentials_to_ano
                 .iter()
                 .find(|request| request.url.path() == "/models")
                 .unwrap();
-            assert!(!requests.iter().any(|request| request.url.path() == "/same-origin"));
+            assert!(
+                !requests
+                    .iter()
+                    .any(|request| request.url.path() == "/same-origin")
+            );
             match mode {
                 RuntimeAuthMode::DualHeader => {
                     assert_eq!(initial.headers["authorization"], "Bearer key-a");

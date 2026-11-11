@@ -27,6 +27,7 @@ use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use tempfile::tempdir;
@@ -287,7 +288,6 @@ impl ModelsEndpointClient for TestModelsEndpoint {
     fn identity(&self) -> Option<String> {
         Some("test-provider".to_string())
     }
-
 
     fn list_models<'a>(
         &'a self,
@@ -557,6 +557,9 @@ async fn injected_cache_write_error_does_not_fail_remote_refresh() {
         .await;
 
     assert_eq!(catalog.models, remote_models);
+    manager
+        .ensure_initialized(DEFAULT_HTTP_CLIENT_FACTORY)
+        .await;
     assert_eq!(
         manager
             .model_catalog_with_origins(RefreshStrategy::InMemory, DEFAULT_HTTP_CLIENT_FACTORY)
@@ -604,6 +607,28 @@ async fn etag_preparation_failure_neither_renews_nor_fetches() {
     assert_eq!(endpoint.fetch_count(), 0);
     assert!(cache.stored_entries().is_empty());
 }
+
+#[tokio::test]
+async fn initialization_retains_loaded_catalogs_including_empty_responses() {
+    for models in [
+        Vec::new(),
+        vec![remote_model("remote", "Remote", /*priority*/ 0)],
+    ] {
+        let endpoint = TestModelsEndpoint::new(vec![models.clone()]);
+        let manager =
+            OpenAiModelsManager::new_without_cache(endpoint.clone(), /*auth_manager*/ None)
+                .with_provider_catalog();
+        manager
+            .ensure_initialized(DEFAULT_HTTP_CLIENT_FACTORY)
+            .await;
+        manager
+            .ensure_initialized(DEFAULT_HTTP_CLIENT_FACTORY)
+            .await;
+        assert_eq!(manager.get_remote_models().await, models);
+        assert_eq!(endpoint.fetch_count(), 1);
+    }
+}
+
 #[tokio::test]
 async fn injected_cache_ttl_refresh_preserves_cached_payload() {
     let cached_models = vec![remote_model("cached", "Cached", /*priority*/ 0)];
@@ -793,7 +818,10 @@ async fn dynamic_manager_preserves_requested_model_when_fallback_is_allowed() {
 
 #[tokio::test]
 async fn get_model_info_tracks_metadata_origin() {
-    let config = ModelsManagerConfig { base_instructions: Some("Custom instructions".into()), ..Default::default() };
+    let config = ModelsManagerConfig {
+        base_instructions: Some("Custom instructions".into()),
+        ..Default::default()
+    };
     let manager = static_manager_for_tests(ModelsResponse {
         models: vec![remote_model("known-model", "Known", 0)],
     });
@@ -872,7 +900,8 @@ async fn get_model_info_uses_custom_catalog() {
     assert_eq!(
         manager
             .get_model_info("fixture", "gpt-overlay-experiment", &config)
-            .await.unwrap(),
+            .await
+            .unwrap(),
         expected
     );
 }
@@ -1157,7 +1186,10 @@ async fn authoritative_catalog_preserves_hidden_models_and_matches_exact_ids() {
                 .get_model_info("fixture", unknown, &ModelsManagerConfig::default())
                 .await
                 .unwrap(),
-            CatalogModel { model: model_info::model_info_from_slug(unknown).into(), origin: ModelOrigin::Synthetic }
+            CatalogModel {
+                model: model_info::model_info_from_slug(unknown).into(),
+                origin: ModelOrigin::Synthetic
+            }
         );
     }
 }
@@ -1208,6 +1240,7 @@ async fn authoritative_catalog_access_rejection_invalidates_cache_until_refresh_
                     .await,
                 ModelsResponse::default()
             );
+            assert!(manager.refreshed_model_catalog().is_none());
         }
         let restarted =
             OpenAiModelsManager::new_with_cache(cache, endpoint, /*auth_manager*/ None)
@@ -1274,9 +1307,12 @@ async fn authoritative_catalog_refresh_failure_preserves_snapshot_and_freshness(
         let initial = manager
             .raw_model_catalog(RefreshStrategy::Online, DEFAULT_HTTP_CLIENT_FACTORY)
             .await;
+        let updates = manager.model_catalog_updates().unwrap();
+        let refreshed = manager.refreshed_model_catalog();
         let initial_info = manager
             .get_model_info("fixture", "provider-model", &ModelsManagerConfig::default())
-            .await.unwrap();
+            .await
+            .unwrap();
         let stored = cache.stored_entries();
         assert_eq!(initial.models, models);
 
@@ -1287,11 +1323,17 @@ async fn authoritative_catalog_refresh_failure_preserves_snapshot_and_freshness(
         assert_eq!(
             manager
                 .get_model_info("fixture", "provider-model", &ModelsManagerConfig::default())
-                .await.unwrap(),
+                .await
+                .unwrap(),
             initial_info
         );
         assert_eq!(manager.remote_models.read().await.entry, stored[0]);
         assert_eq!(cache.stored_entries(), stored);
+        assert!(
+            !updates.has_changed().unwrap(),
+            "failed fetch must not publish a refreshed catalog"
+        );
+        assert_eq!(manager.refreshed_model_catalog(), refreshed);
 
         let restarted = OpenAiModelsManager::new_with_cache(
             cache.clone(),
@@ -1662,7 +1704,6 @@ impl ModelsEndpointClient for TestAuthAwareModelsEndpoint {
             .map(|mode| format!("{mode:?}"))
     }
 
-
     fn list_models<'a>(
         &'a self,
         _client_version: &'a str,
@@ -1815,7 +1856,8 @@ fn build_available_models_picks_default_after_hiding_hidden_models() {
 
 #[tokio::test]
 async fn static_catalog_visibility_with_backend_auth() {
-    assert_static_catalog_visibility(Some(CodexAuth::create_dummy_chatgpt_auth_for_testing())).await;
+    assert_static_catalog_visibility(Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()))
+        .await;
 }
 
 #[tokio::test]

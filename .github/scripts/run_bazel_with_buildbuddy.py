@@ -71,8 +71,6 @@ def remote_config(args: Sequence[str], env: Mapping[str, str]) -> str | None:
 
 
 def bazel_args_without_remote_execution(args: Sequence[str]) -> list[str]:
-    # Remote CI configs require BuildBuddy credentials. Removing them preserves
-    # the local fallback used for fork pull requests.
     try:
         separator_idx = args.index("--")
     except ValueError:

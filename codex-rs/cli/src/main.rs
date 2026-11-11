@@ -102,6 +102,7 @@ use codex_home::CodexHomeUserInstructionsProvider;
 use codex_login::AuthManager;
 use codex_memories_write::clear_memory_roots_contents;
 use codex_models_manager::manager::RefreshStrategy;
+use codex_protocol::auth::AuthMode;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::user_input::UserInput;
 use codex_terminal_detection::TerminalName;
@@ -146,7 +147,7 @@ enum Subcommand {
     /// Open the agent command center to browse and switch sessions.
     Agents(AgentsCommand),
 
-    /// Internal: forward a local TCP socket through an HTTP/3 CONNECT proxy.
+    /// Internal: forward SSH stdio or a local TCP socket through an HTTP/3 CONNECT proxy.
     #[clap(hide = true)]
     TcpTunnel(codex_tcp_tunnel::Args),
     /// Run Steve non-interactively.
@@ -311,6 +312,11 @@ struct ReviewCommand {
     /// Error out when config.toml contains fields that are not recognized by this version of Steve.
     #[arg(long = "strict-config", default_value_t = false)]
     strict_config: bool,
+
+    /// Save trust for this project and future chats, including MCP commands outside the sandbox.
+    /// Persists even with --ephemeral. Does not override an explicitly untrusted project.
+    #[arg(long)]
+    trust: bool,
 
     #[clap(flatten)]
     args: ReviewArgs,
@@ -1134,8 +1140,38 @@ async fn dispatch_cli(
                 arg0_paths,
             )));
         }
-        Some(Subcommand::TcpTunnel(args)) => {
+        Some(Subcommand::TcpTunnel(args)) if args.auth_token_stdin => {
             codex_tcp_tunnel::run(args).await?;
+        }
+        Some(Subcommand::TcpTunnel(args)) => {
+            let config =
+                cloud_config::load_config(&root_config_overrides, LoaderOverrides::default())
+                    .await?;
+            let permit = config.application_network_policy.acquire(&args.proxy_url)?;
+            let manager = AuthManager::shared_from_config_with_auth_modes(
+                &config,
+                /*enable_codex_api_key_env*/ false,
+                vec![AuthMode::Chatgpt, AuthMode::ChatgptAuthTokens],
+            )
+            .await?;
+            anyhow::ensure!(
+                manager.auth_mode() == Some(AuthMode::Chatgpt),
+                "ChatGPT OAuth login required for SSH"
+            );
+            let access_token = async {
+                let oauth = manager
+                    .auth()
+                    .await
+                    .ok_or_else(|| anyhow::anyhow!("ChatGPT OAuth login required for SSH"))?;
+                Ok(oauth.get_token_data()?.access_token)
+            };
+            permit
+                .run(codex_tcp_tunnel::run_ssh_proxy(
+                    args,
+                    access_token,
+                    tokio::io::stdout(),
+                ))
+                .await??;
         }
         Some(Subcommand::Exec(mut exec_cli)) => {
             reject_remote_mode_for_subcommand(
@@ -1151,10 +1187,12 @@ async fn dispatch_cli(
                 &mut exec_cli.config_overrides,
                 root_config_overrides.clone(),
             );
-            codex_exec::run_main(exec_cli, arg0_paths.clone()).await?;
+            // Keep the exec future out of the shared dispatcher's stack frame.
+            Box::pin(codex_exec::run_main(exec_cli, arg0_paths.clone())).await?;
         }
         Some(Subcommand::Review(ReviewCommand {
             strict_config,
+            trust,
             args: review_args,
         })) => {
             reject_remote_mode_for_subcommand(
@@ -1167,12 +1205,13 @@ async fn dispatch_cli(
                 .shared
                 .inherit_exec_root_options(&interactive.shared);
             exec_cli.command = Some(ExecCommand::Review(review_args));
+            exec_cli.trust = trust;
             exec_cli.strict_config = strict_config || root_strict_config;
             prepend_config_flags(
                 &mut exec_cli.config_overrides,
                 root_config_overrides.clone(),
             );
-            codex_exec::run_main(exec_cli, arg0_paths.clone()).await?;
+            Box::pin(codex_exec::run_main(exec_cli, arg0_paths.clone())).await?;
         }
         Some(Subcommand::Mcp(mut mcp_cli)) => {
             reject_remote_mode_for_subcommand(
@@ -1310,9 +1349,6 @@ async fn dispatch_cli(
                     }
                 }
                 Some(AppServerSubcommand::Daemon(daemon_cli)) => match daemon_cli.subcommand {
-                    AppServerDaemonSubcommand::Start => {
-                        print_app_server_daemon_output(AppServerLifecycleCommand::Start).await?;
-                    }
                     AppServerDaemonSubcommand::Bootstrap(bootstrap_cli) => {
                         let output =
                             codex_app_server_daemon::bootstrap(AppServerBootstrapOptions {
@@ -1321,7 +1357,10 @@ async fn dispatch_cli(
                             .await?;
                         println!("{}", serde_json::to_string(&output)?);
                     }
-                    AppServerDaemonSubcommand::Restart => {
+                    command @ (AppServerDaemonSubcommand::Start
+                    | AppServerDaemonSubcommand::Restart) => {
+                        let start = matches!(command, AppServerDaemonSubcommand::Start);
+                        let action = if start { "start" } else { "restart" };
                         let overrides = root_config_overrides
                             .parse_overrides()
                             .map_err(anyhow::Error::msg)?;
@@ -1350,18 +1389,20 @@ async fn dispatch_cli(
                             let feature =
                                 codex_features::feature_for_key(name).ok_or_else(|| {
                                     anyhow::anyhow!(
-                                        "daemon restart requires a boolean feature toggle: {name}"
+                                        "daemon {action} requires a boolean feature toggle: {name}"
                                     )
                                 })?;
                             let enabled = value.as_bool().ok_or_else(|| {
-                                anyhow::anyhow!("daemon restart requires a boolean enablement for features.{name}")
+                                anyhow::anyhow!("daemon {action} requires a boolean enablement for features.{name}")
                             })?;
                             feature_overrides.insert(feature.key().to_string(), enabled);
                         }
-                        print_app_server_daemon_output(AppServerLifecycleCommand::Restart {
-                            feature_overrides,
-                        })
-                        .await?;
+                        let command = if start {
+                            AppServerLifecycleCommand::Start { feature_overrides }
+                        } else {
+                            AppServerLifecycleCommand::Restart { feature_overrides }
+                        };
+                        print_app_server_daemon_output(command).await?;
                     }
                     AppServerDaemonSubcommand::Update {
                         from_cli: true,
@@ -2204,10 +2245,12 @@ async fn run_models_command(overrides: CliConfigOverrides) -> anyhow::Result<()>
         provider_errors: listing
             .provider_errors
             .into_iter()
-            .map(|error| codex_app_server_protocol::ModelCatalogProviderError {
-                provider: error.provider,
-                message: error.message,
-            })
+            .map(
+                |error| codex_app_server_protocol::ModelCatalogProviderError {
+                    provider: error.provider,
+                    message: error.message,
+                },
+            )
             .collect(),
     };
     serde_json::to_writer(std::io::stdout(), &response)?;
@@ -4387,12 +4430,18 @@ enabled = true
         let cli = MultitoolCli::try_parse_from(["steve", "--strict-config"]).expect("parse");
         assert!(cli.interactive.strict_config);
 
-        let cli =
-            MultitoolCli::try_parse_from(["steve", "review", "--strict-config", "--uncommitted"])
-                .expect("parse");
+        let cli = MultitoolCli::try_parse_from([
+            "steve",
+            "review",
+            "--strict-config",
+            "--trust",
+            "--uncommitted",
+        ])
+        .expect("parse");
         assert_matches!(
             cli.subcommand,
             Some(Subcommand::Review(ReviewCommand {
+                trust: true,
                 strict_config: true,
                 ..
             }))

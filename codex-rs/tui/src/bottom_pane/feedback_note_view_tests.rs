@@ -43,6 +43,8 @@ fn make_view(category: FeedbackCategory) -> FeedbackNoteView {
         /*turn_id*/ None,
         tx,
         /*include_logs*/ true,
+        Some(FeedbackAudience::External),
+        /*can_save*/ true,
     )
 }
 
@@ -102,7 +104,7 @@ fn feedback_disclosure_scrolls_without_hiding_input_in_short_panes() {
             view.render(area, &mut buf);
             let text = render_buffer(area, &buf);
             assert!(text.contains("A visible note."));
-            assert!(text.contains("enter to submit"));
+            assert!(text.contains("enter send"));
             assert!(
                 view.cursor_pos(area)
                     .is_some_and(|(x, y)| x < width && y < height)
@@ -169,6 +171,8 @@ fn feedback_paste_burst_preserves_multiline_note_until_submit() {
                 /*turn_id*/ None,
                 AppEventSender::new(tx),
                 include_logs,
+                Some(FeedbackAudience::External),
+                /*can_save*/ true,
             );
             let now = Instant::now();
             for (index, ch) in note.chars().enumerate() {
@@ -200,6 +204,7 @@ fn feedback_paste_burst_preserves_multiline_note_until_submit() {
                 reason,
                 turn_id,
                 include_logs: submitted_logs,
+                destination: FeedbackDestination::OpenAi,
             } = rx.try_recv().expect("submit feedback event")
             else {
                 panic!("expected feedback submission");
@@ -230,6 +235,8 @@ fn feedback_bracketed_paste_does_not_reach_chat_composer() {
             /*turn_id*/ None,
             tx,
             include_logs,
+            Some(FeedbackAudience::External),
+            /*can_save*/ true,
         )));
         // An explicit paste ends any preceding keystroke burst.
         pane.handle_key_event(KeyEvent::from(KeyCode::Char('x')));
@@ -257,7 +264,7 @@ fn feedback_bracketed_paste_does_not_reach_chat_composer() {
 }
 
 #[test]
-fn submit_feedback_emits_submit_event_with_trimmed_note() {
+fn remote_save_shortcut_keeps_the_note_for_explicit_upload() {
     let (tx_raw, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
     let tx = AppEventSender::new(tx_raw);
     let mut view = FeedbackNoteView::new(
@@ -265,8 +272,13 @@ fn submit_feedback_emits_submit_event_with_trimmed_note() {
         Some("turn-123".to_string()),
         tx,
         /*include_logs*/ true,
+        Some(FeedbackAudience::OpenAiEmployee),
+        /*can_save*/ false,
     );
     view.textarea.insert_str("  something broke  ");
+    view.handle_key_event(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+    assert!(!view.is_complete());
+    assert!(rx.try_recv().is_err());
 
     view.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
@@ -278,6 +290,7 @@ fn submit_feedback_emits_submit_event_with_trimmed_note() {
             reason: Some(reason),
             turn_id: Some(turn_id),
             include_logs: true,
+            destination: FeedbackDestination::OpenAi,
         } if reason == "something broke" && turn_id == "turn-123"
     ));
     assert_eq!(view.is_complete(), true);
@@ -292,9 +305,11 @@ fn submit_feedback_omits_empty_note() {
         /*turn_id*/ None,
         tx,
         /*include_logs*/ false,
+        Some(FeedbackAudience::External),
+        /*can_save*/ true,
     );
 
-    view.submit();
+    view.handle_key_event(KeyCode::Enter.into());
 
     let event = rx.try_recv().expect("submit feedback event");
     assert!(matches!(
@@ -304,8 +319,43 @@ fn submit_feedback_omits_empty_note() {
             reason: None,
             turn_id: None,
             include_logs: false,
+            destination: FeedbackDestination::OpenAi,
         }
     ));
+}
+
+#[test]
+fn save_shortcut_keeps_note_and_consent_with_or_without_uploads() {
+    for audience in [None, Some(FeedbackAudience::External)] {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut view = FeedbackNoteView::new(
+            FeedbackCategory::Bug,
+            Some("turn-123".into()),
+            AppEventSender::new(tx),
+            /*include_logs*/ false,
+            audience,
+            /*can_save*/ true,
+        );
+        view.handle_paste("Review before sharing".into());
+        if audience.is_none() {
+            insta::assert_snapshot!(
+                "feedback_note_uploads_disabled",
+                render(&view, /*width*/ 60)
+            );
+            view.handle_key_event(KeyCode::Enter.into());
+            assert!(!view.is_complete());
+            assert!(rx.try_recv().is_err());
+        }
+        view.handle_key_event(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        assert!(matches!(rx.try_recv(), Ok(AppEvent::SubmitFeedback {
+            destination: FeedbackDestination::LocalZip,
+            category: FeedbackCategory::Bug,
+            reason: Some(note),
+            turn_id: Some(turn),
+            include_logs: false,
+        }) if note == "Review before sharing" && turn == "turn-123"));
+        assert!(view.is_complete());
+    }
 }
 
 #[test]
@@ -316,6 +366,8 @@ fn feedback_note_cancel_does_not_submit() {
         /*turn_id*/ None,
         AppEventSender::new(tx_raw),
         /*include_logs*/ false,
+        Some(FeedbackAudience::OpenAiEmployee),
+        /*can_save*/ true,
     );
     view.textarea.insert_str("unfinished feedback");
 

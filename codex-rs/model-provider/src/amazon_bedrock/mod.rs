@@ -696,6 +696,4 @@ mod tests {
             Some("https://bedrock-runtime.eu-west-1.amazonaws.com/openai/v1".to_string())
         );
     }
-
-
 }

@@ -102,7 +102,9 @@ impl Args {
     fn auth(&self) -> Result<Auth> {
         if self.github_oidc {
             Auth::validate_federated_upstream(
-                self.upstream_url.as_deref().context("--upstream-url is required")?,
+                self.upstream_url
+                    .as_deref()
+                    .context("--upstream-url is required")?,
             )?;
             let provider = required(&self.identity_provider_id, "--identity-provider-id")?;
             let service_account = required(&self.service_account_id, "--service-account-id")?;

@@ -418,9 +418,11 @@ async fn invalid_custom_ca_falls_back_to_system_roots() -> Result<()> {
         );
     }
     let requests = server.received_requests().await.unwrap();
-    assert!(requests.iter().all(|request| {
-        request.method != "GET" || request.url.path() != "/v1/models"
-    }));
+    assert!(
+        requests
+            .iter()
+            .all(|request| { request.method != "GET" || request.url.path() != "/v1/models" })
+    );
     server.verify().await;
 
     Ok(())

@@ -216,7 +216,9 @@ async fn guardian_budget_rejects_both_backends_before_sending() -> Result<()> {
             store.get::<LunaSampler>().unwrap(),
         ));
         if enabled {
-            store.insert(crate::async_scorer::decisions::tests::sampler_for_test(server.uri()).await?);
+            store.insert(
+                crate::async_scorer::decisions::tests::sampler_for_test(server.uri()).await?,
+            );
         }
         fixture.score_tool(ToolName::plain("read_file")).await;
         fixture.assert_fails_closed("elevated_risk").await?;

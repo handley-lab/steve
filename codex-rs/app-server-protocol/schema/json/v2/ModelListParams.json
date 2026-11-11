@@ -24,6 +24,13 @@
         "null"
       ]
     },
+    "modelProvider": {
+      "description": "List models for this configured provider instead of the app-server default.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "threadId": {
       "description": "When supplied, list models from this live thread's configured catalog.",
       "type": [

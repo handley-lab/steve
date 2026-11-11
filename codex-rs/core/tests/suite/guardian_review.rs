@@ -211,7 +211,9 @@ async fn guardian_session_inherits_parent_http_fallback(
         config.model_catalog = Some({
             let mut model = codex_models_manager::test_support::model_info("gpt-5.5");
             model.auto_review_model_override = Some(model.slug.clone());
-            ModelsResponse { models: vec![model] }
+            ModelsResponse {
+                models: vec![model],
+            }
         });
     });
     let test = builder.build_with_auto_env(&server).await?;
@@ -429,7 +431,9 @@ for (const phase of ["before", "after"]) {
             config.model_catalog = Some({
                 let mut model = codex_models_manager::test_support::model_info("gpt-5.5");
                 model.auto_review_model_override = Some(model.slug.clone());
-                ModelsResponse { models: vec![model] }
+                ModelsResponse {
+                    models: vec![model],
+                }
             });
         })
         .build_with_auto_env(&server)
@@ -543,8 +547,11 @@ async fn guardian_review_recovers_after_compaction(
         .with_config(move |config| {
             config.model_context_window = Some(100_000);
             config.model_provider.accepts_response_continuation = true;
-            config.model_provider.capabilities.get_or_insert_default().remote_compaction =
-                Some(codex_model_provider_info::RemoteCompactionSupport::V2);
+            config
+                .model_provider
+                .capabilities
+                .get_or_insert_default()
+                .remote_compaction = Some(codex_model_provider_info::RemoteCompactionSupport::V2);
             config.model_auto_compact_token_limit = Some(50_000);
             config.permissions.approval_policy = Constrained::allow_any(AskForApproval::OnRequest);
             config.approvals_reviewer = ApprovalsReviewer::AutoReview;

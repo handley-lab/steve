@@ -492,7 +492,9 @@ async fn temporary_recap_threads_disable_memories_and_remote_mcp_servers() -> Re
     let fixture_config = std::fs::read_to_string(app.config.codex_home.join("config.toml"))?;
     std::fs::write(
         codex_home.path().join("config.toml"),
-        format!("features.context_management.experimental_mode = true\n{fixture_config}\n[mcp_servers.filesystem]\ncommand = 'true'\n"),
+        format!(
+            "features.context_management.experimental_mode = true\n{fixture_config}\n[mcp_servers.filesystem]\ncommand = 'true'\n"
+        ),
     )?;
     app.config.codex_home = codex_home.path().to_path_buf().abs();
     app.config.sqlite = codex_state::SqliteConfig::new_for_testing(codex_home.path().abs());
@@ -508,7 +510,6 @@ async fn temporary_recap_threads_disable_memories_and_remote_mcp_servers() -> Re
             .permissions
             .active_permission_profile()
             .map(|profile| profile.id),
-        mcp_server_names: Vec::new(),
     };
     let response = crate::temporary_structured_request::start_temporary_thread(
         &app_server.request_handle(),

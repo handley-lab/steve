@@ -3,11 +3,13 @@
 
 use crate::Client;
 use crate::RequestError;
+use codex_features::RuntimeAuthMode;
 use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
 use codex_login::AuthManagerConfig;
 use codex_login::CodexAuth;
 use codex_protocol::account::PlanType;
+use codex_utils_absolute_path::AbsolutePathBuf;
 use std::sync::Arc;
 
 /// Non-secret account metadata associated with an analytics session.
@@ -31,6 +33,7 @@ impl AnalyticsSession {
     pub async fn from_config(
         config: &impl AuthManagerConfig,
         http_client_factory: HttpClientFactory,
+        _runtime_auth_mode: Option<RuntimeAuthMode>,
     ) -> Result<Self, String> {
         let auth_manager =
             AuthManager::shared_from_config(config, /*enable_codex_api_key_env*/ false)
@@ -56,7 +59,8 @@ impl AnalyticsSession {
             .with_auth_provider(codex_model_provider::auth_provider_from_auth_manager(
                 Arc::clone(&auth_manager),
                 &auth,
-            ));
+            ))
+            .map_err(|_| "Couldn't initialize local Analytics authentication.")?;
         let mut session = Self {
             client,
             auth_manager,

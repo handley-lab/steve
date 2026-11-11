@@ -251,11 +251,13 @@ async fn codex_suffix_routes_by_path_and_auth_not_by_display_name() {
         .responses_api_provider(&routing_context)
         .await
         .unwrap();
-    assert_eq!(
-        unrouted.provider.base_url,
-        "https://configured.example/v1"
+    assert_eq!(unrouted.provider.base_url, "https://configured.example/v1");
+    assert!(
+        !unrouted
+            .provider
+            .headers
+            .contains_key(ACCOUNT_ROUTING_HEADER)
     );
-    assert!(!unrouted.provider.headers.contains_key(ACCOUNT_ROUTING_HEADER));
 }
 
 #[tokio::test]

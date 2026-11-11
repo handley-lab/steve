@@ -14,7 +14,6 @@ use codex_extension_api::ToolExecutor;
 use codex_features::Feature;
 use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
-use codex_model_provider::create_model_provider;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_utils_absolute_path::AbsolutePathBuf;
 
@@ -32,6 +31,7 @@ type SaveRootResolver = dyn Fn(&Config) -> Option<AbsolutePathBuf> + Send + Sync
 #[derive(Clone)]
 struct ImageGenerationExtensionConfig {
     available: bool,
+    gif_enabled: bool,
     http_client_factory: HttpClientFactory,
     provider: ModelProviderInfo,
     save_root: Option<AbsolutePathBuf>,
@@ -43,6 +43,7 @@ impl ImageGenerationExtensionConfig {
     fn from_config(config: &Config, resolve_save_root: &SaveRootResolver) -> Self {
         Self {
             available: config.features.get().enabled(Feature::ImageGeneration),
+            gif_enabled: config.features.image_generation_animation_enabled(),
             http_client_factory: config.http_client_factory(),
             provider: config.model_provider.clone(),
             save_root: resolve_save_root(config),
@@ -97,10 +98,18 @@ impl ToolContributor for ImageGenerationExtension {
         if !config.available {
             return Vec::new();
         }
+        let auth = thread_store
+            .get::<codex_model_provider::ProviderAuthContext>()
+            .unwrap_or_else(|| {
+                Arc::new(codex_model_provider::ProviderAuthContext {
+                    credentials: Arc::clone(&self.auth_manager),
+                    runtime_auth: None,
+                })
+            });
 
         vec![Arc::new(ImageGenerationTool::new(
             CodexImagesBackend::new(
-                create_model_provider(config.provider.clone(), Some(self.auth_manager.clone())),
+                auth.model_provider(config.provider.clone()),
                 config.http_client_factory.clone(),
                 thread_store
                     .get::<ThreadOriginator>()
@@ -109,6 +118,7 @@ impl ToolContributor for ImageGenerationExtension {
             config.save_root.clone(),
             config.model.clone(),
             thread_store.level_id().to_string(),
+            config.gif_enabled,
         ))]
     }
 }

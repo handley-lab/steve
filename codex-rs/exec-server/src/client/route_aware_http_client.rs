@@ -86,12 +86,11 @@ impl RouteAwareHttpClient {
                 // Delegated HTTP targets arbitrary endpoints; route class only labels diagnostics.
                 ClientRouteClass::Other,
             ),
-            stop_redirects:
-                RouteAwareClientPool::new_without_redirects_or_request_logging(
-                    http_client_factory,
-                    // Proxy routing comes from the factory, not this diagnostic-only route class.
-                    ClientRouteClass::Other,
-                ),
+            stop_redirects: RouteAwareClientPool::new_without_redirects_or_request_logging(
+                http_client_factory,
+                // Proxy routing comes from the factory, not this diagnostic-only route class.
+                ClientRouteClass::Other,
+            ),
         }
     }
 

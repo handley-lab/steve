@@ -68,10 +68,14 @@ async fn misalignment_continuation_requires_current_review_and_submits_once() ->
         }
         let catalog_path = app.config.codex_home.join("misalignment-models.json");
         std::fs::write(&catalog_path, serde_json::to_vec(&catalog)?)?;
-        std::fs::write(app.config.codex_home.join("config.toml"), format!(
-            "model_provider = {:?}\nmodel_catalog_json = {:?}\n",
-            app.config.model_provider_id, catalog_path.display().to_string(),
-        ))?;
+        std::fs::write(
+            app.config.codex_home.join("config.toml"),
+            format!(
+                "model_provider = {:?}\nmodel_catalog_json = {:?}\n",
+                app.config.model_provider_id,
+                catalog_path.display().to_string(),
+            ),
+        )?;
         app.config.model_catalog = Some(catalog);
         app.chat_widget
             .set_feature_enabled(Feature::CliDaybreak, rollout_enabled);
@@ -271,7 +275,7 @@ async fn misalignment_continuation_requires_current_review_and_submits_once() ->
                 runtime_workspace_roots: (!server_owned)
                     .then(|| config.permissions.user_visible_workspace_roots().to_vec()),
                 approval_policy: (!server_owned).then_some(AskForApproval::OnRequest),
-                approvals_reviewer: (!server_owned).then(|| config.approvals_reviewer.into()),
+                approvals_reviewer: None,
                 sandbox_policy: (!server_owned && !preserve)
                     .then(|| config.legacy_sandbox_policy().into()),
                 cyber_access_program: rollout_enabled.then_some(if daybreak {

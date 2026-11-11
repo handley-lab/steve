@@ -190,15 +190,17 @@ impl WorkspaceRoutingResolver for ChangedBootstrap {
 #[tokio::test]
 async fn idle_classifier_retains_the_owning_threads_workspace_binding() -> Result<()> {
     core_test_support::skip_if_no_network!(Ok(()));
-    let server = responses::start_mock_server().await;
-    let test = core_test_support::test_codex::test_codex()
-        .with_pre_build_hook(|home| {
-            std::fs::write(home.join("config.toml"), r#"model_provider = "openai""#).unwrap();
-        })
-        .build_with_auto_env(&server)
-        .await?;
     let auth =
         AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let thread_server = responses::start_mock_server().await;
+    let test = core_test_support::test_codex::test_codex()
+        .with_auth_manager(Arc::clone(&auth))
+        .with_pre_build_hook(|home| {
+            std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n").unwrap();
+        })
+        .build_with_auto_env(&thread_server)
+        .await?;
+    let server = responses::start_mock_server().await;
     let resolver: Arc<dyn WorkspaceRoutingResolver> =
         Arc::new(ChangedBootstrap(AtomicBool::new(/*v*/ true)));
     auth.set_workspace_routing_resolver(Arc::downgrade(&resolver));
@@ -225,7 +227,8 @@ async fn idle_classifier_retains_the_owning_threads_workspace_binding() -> Resul
         .thread_store
         .get::<codex_model_provider::WorkspaceRoutingContext>()
         .expect("Core seeds the owning thread's routing context before extensions start");
-    let mut guardian_config = crate::async_scorer::config::GuardianV2Config::resolve(&config).unwrap();
+    let mut guardian_config =
+        crate::async_scorer::config::GuardianV2Config::resolve(&config).unwrap();
     guardian_config.local_overrides.model = Some("gpt-test".into());
     let classifier = crate::async_scorer::startup::sampler_config(
         &input,
@@ -244,14 +247,17 @@ async fn idle_classifier_retains_the_owning_threads_workspace_binding() -> Resul
     let error = sampler.sample(sample_request("turn-1")).await.unwrap_err();
     assert!(error.to_string().contains("start a new thread"), "{error}");
     let observed = server.received_requests().await.unwrap();
-    eprintln!("T19_EVIDENCE {}", serde_json::json!({
-        "kind": "same-provider-routing-control", "error": error.to_string(),
-        "before_requests": previous_requests.len(),
-        "requests": observed.iter().map(|r| serde_json::json!({
-            "method": r.method.as_str(), "url": r.url.as_str(),
-            "body": String::from_utf8_lossy(&r.body),
-        })).collect::<Vec<_>>(),
-    }));
+    eprintln!(
+        "T19_EVIDENCE {}",
+        serde_json::json!({
+            "kind": "same-provider-routing-control", "error": error.to_string(),
+            "before_requests": previous_requests.len(),
+            "requests": observed.iter().map(|r| serde_json::json!({
+                "method": r.method.as_str(), "url": r.url.as_str(),
+                "body": String::from_utf8_lossy(&r.body),
+            })).collect::<Vec<_>>(),
+        })
+    );
     assert_eq!(observed.len(), previous_requests.len());
     Ok(())
 }

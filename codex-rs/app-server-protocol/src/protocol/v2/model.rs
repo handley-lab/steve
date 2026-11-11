@@ -55,6 +55,9 @@ pub struct ModelListParams {
     /// When supplied, list models from this live thread's configured catalog.
     #[ts(optional = nullable)]
     pub thread_id: Option<String>,
+    /// List models for this configured provider instead of the app-server default.
+    #[ts(optional = nullable)]
+    pub model_provider: Option<String>,
     /// Opaque pagination cursor returned by a previous call.
     #[ts(optional = nullable)]
     pub cursor: Option<String>,

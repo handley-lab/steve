@@ -108,7 +108,7 @@ pub(crate) fn new_warning_event(message: String) -> WarningHistoryCell {
     }
 }
 
-pub(crate) fn new_usage_warning_event(message: String) -> WarningHistoryCell {
+pub(crate) fn new_visible_warning_event(message: String) -> WarningHistoryCell {
     WarningHistoryCell {
         visible_in_transcript: true,
         ..new_warning_event(message)
@@ -162,11 +162,19 @@ pub(crate) fn new_cyber_policy_error_event(
 ) -> SafetyAccessBlockCell {
     use crate::daybreak::Notice;
     let body = match notice {
-        Notice::Undetermined => "Daybreak availability could not be determined from the connected host's model catalog.",
+        Notice::Undetermined => {
+            "Daybreak availability could not be determined from the connected host's model catalog."
+        }
         Notice::Unavailable => "The selected model does not advertise a Daybreak program.",
-        Notice::Advertised => "The connected host's model catalog advertises a Daybreak program for this model.",
-        Notice::Disabled => "Daybreak is currently off. If you’re doing authorized security work, turn it on and try your request again.",
-        Notice::Enabled => "Some cybersecurity requests are still limited, even when Daybreak is on.",
+        Notice::Advertised => {
+            "The connected host's model catalog advertises a Daybreak program for this model."
+        }
+        Notice::Disabled => {
+            "Daybreak is currently off. If you’re doing authorized security work, turn it on and try your request again."
+        }
+        Notice::Enabled => {
+            "Some cybersecurity requests are still limited, even when Daybreak is on."
+        }
     };
     SafetyAccessBlockCell {
         title: "This content can’t be shown",
@@ -285,6 +293,13 @@ pub(crate) fn new_info_event(message: String, hint: Option<String>) -> PlainHist
     }
     let lines: Vec<Line<'static>> = vec![line.into()];
     PlainHistoryCell { lines }
+}
+
+pub(crate) fn new_interruption_notice() -> PlainHistoryCell {
+    PlainHistoryCell::new(vec![
+        Line::from("■ Conversation interrupted - use /feedback if something went wrong")
+            .style(crate::style::secondary_text_style()),
+    ])
 }
 
 pub(crate) fn new_error_event(message: String) -> PlainHistoryCell {

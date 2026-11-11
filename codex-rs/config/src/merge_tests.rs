@@ -296,9 +296,7 @@ fn code_mode_overrides_preserve_enabled_state_and_cell_overhead() {
 
 #[test]
 fn structured_mode_overrides_preserve_disabled_state_and_mode() {
-    for (feature, selected_mode) in [
-        ("sleep_tool", "always_on"),
-    ] {
+    for (feature, selected_mode) in [("sleep_tool", "always_on")] {
         for feature_path in ["features", "profiles.work.features"] {
             let disabled = (
                 format!("{feature_path}.{feature}"),

@@ -44,3 +44,12 @@ pub fn plugins_manager_for_config(
         skill_root_loader,
     )
 }
+
+/// Initialize a standalone command's runtime before it can make first-party plugin requests.
+/// Callers that own a ThreadManager should reuse that manager's PluginsManager instead.
+pub async fn plugins_manager_for_config_with_runtime(
+    config: &Config,
+    auth_manager: Arc<AuthManager>,
+) -> anyhow::Result<PluginsManager> {
+    Ok(plugins_manager_for_config(config, auth_manager))
+}

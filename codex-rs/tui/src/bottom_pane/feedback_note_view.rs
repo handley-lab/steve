@@ -1,6 +1,6 @@
-//! Collects a feedback note with audience-specific disclosure and independent log consent.
+//! Collects a feedback note with configured-destination disclosure and independent log consent.
 //! The editor and submission controls remain visible when the disclosure must scroll.
-//! Unbracketed paste bursts insert newlines; Enter submits after the burst ends.
+//! Ctrl+S saves on local connections. Enter sends when uploads are enabled and the paste burst has ended.
 
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
@@ -20,6 +20,7 @@ use std::time::Instant;
 
 use crate::app_event::AppEvent;
 use crate::app_event::FeedbackCategory;
+use crate::app_event::FeedbackDestination;
 use crate::app_event_sender::AppEventSender;
 use crate::key_hint;
 use crate::key_hint::has_ctrl_or_alt;
@@ -29,10 +30,12 @@ use crate::wrapping::word_wrap_lines;
 
 use super::CancellationEvent;
 use super::bottom_pane_view::BottomPaneView;
+use super::feedback_view::FeedbackAudience;
 use super::paste_burst::PasteBurst;
-use super::popup_consts::accept_cancel_hint_line;
 use super::textarea::TextArea;
 use super::textarea::TextAreaState;
+
+const SAVE_LOCALLY: key_hint::KeyBinding = key_hint::ctrl(KeyCode::Char('s'));
 
 enum IntroContent {
     Full,
@@ -46,6 +49,8 @@ pub(crate) struct FeedbackNoteView {
     turn_id: Option<String>,
     app_event_tx: AppEventSender,
     include_logs: bool,
+    upload_audience: Option<FeedbackAudience>,
+    can_save: bool,
 
     // UI state
     textarea: TextArea,
@@ -62,12 +67,16 @@ impl FeedbackNoteView {
         turn_id: Option<String>,
         app_event_tx: AppEventSender,
         include_logs: bool,
+        upload_audience: Option<FeedbackAudience>,
+        can_save: bool,
     ) -> Self {
         Self {
             category,
             turn_id,
             app_event_tx,
             include_logs,
+            upload_audience,
+            can_save,
             textarea: TextArea::new(),
             textarea_state: RefCell::new(TextAreaState::default()),
             paste_burst: PasteBurst::default(),
@@ -77,7 +86,7 @@ impl FeedbackNoteView {
         }
     }
 
-    fn submit(&mut self) {
+    fn submit(&mut self, destination: FeedbackDestination) {
         let note = self.textarea.text().trim().to_string();
         let reason = if note.is_empty() { None } else { Some(note) };
         self.app_event_tx.send(AppEvent::SubmitFeedback {
@@ -85,12 +94,18 @@ impl FeedbackNoteView {
             reason,
             turn_id: self.turn_id.clone(),
             include_logs: self.include_logs,
+            destination,
         });
         self.complete = true;
     }
 
     fn handle_key_event_at(&mut self, key_event: KeyEvent, now: Instant) {
         match key_event {
+            key if SAVE_LOCALLY.is_press(key) => {
+                if self.can_save {
+                    self.submit(FeedbackDestination::LocalZip);
+                }
+            }
             KeyEvent {
                 code: KeyCode::PageUp,
                 ..
@@ -124,10 +139,10 @@ impl FeedbackNoteView {
                 if self.paste_burst.direct_insert_newline_should_insert(now) {
                     self.paste_burst.extend_window(now);
                     self.textarea.insert_str("\n");
-                } else if modifiers == KeyModifiers::NONE {
-                    self.submit();
-                } else {
+                } else if modifiers != KeyModifiers::NONE {
                     self.textarea.input(key_event);
+                } else if self.upload_audience.is_some() {
+                    self.submit(FeedbackDestination::OpenAi);
                 }
             }
             KeyEvent {
@@ -253,6 +268,7 @@ impl Renderable for FeedbackNoteView {
                 buf,
             );
         }
+        const SAVE_LOCALLY: key_hint::KeyBinding = key_hint::ctrl(KeyCode::Char('s'));
 
         // Input line
         if input_area.width >= 2 {
@@ -318,13 +334,28 @@ impl Renderable for FeedbackNoteView {
 
         let hint_y = hint_blank_y.saturating_add(hint_spacing);
         if hint_y < area.y.saturating_add(area.height) {
-            Paragraph::new(accept_cancel_hint_line(
-                Some(key_hint::plain(KeyCode::Enter).into()),
-                "to submit",
-                Some(key_hint::plain(KeyCode::Esc).into()),
-                "to cancel",
-            ))
-            .render(
+            let action_line = |save: &str, send: &str| {
+                let mut actions = Vec::new();
+                if self.can_save {
+                    actions.push((SAVE_LOCALLY.display_label(), save.to_owned()));
+                }
+                if self.upload_audience.is_some() {
+                    actions.push((
+                        key_hint::plain(KeyCode::Enter).display_label(),
+                        send.to_owned(),
+                    ));
+                }
+                actions.push((
+                    key_hint::plain(KeyCode::Esc).display_label(),
+                    "cancel".into(),
+                ));
+                super::footer::footer_hint_items_line(&actions)
+            };
+            let mut hints = action_line("save ZIP", "send");
+            if hints.width() > usize::from(area.width) {
+                hints = action_line("save", "send");
+            }
+            Paragraph::new(hints).render(
                 Rect {
                     x: area.x,
                     y: hint_y,
@@ -366,9 +397,13 @@ impl FeedbackNoteView {
             IntroContent::Full => vec![title.bold().into(), "".into()],
             IntroContent::DisclosureOnly => Vec::new(),
         };
-        lines.push(Line::from(
-            "Your feedback will be sent to the configured feedback destination.".dim(),
-        ));
+        if self.upload_audience.is_some() {
+            lines.push(Line::from(
+                "Your feedback will be sent to the configured feedback destination.".dim(),
+            ));
+        } else {
+            lines.push("Feedback uploads are disabled.".dim().into());
+        }
         lines.push(Line::from(if self.include_logs {
             "The listed logs and diagnostics will be included.".dim()
         } else {

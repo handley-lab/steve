@@ -59,6 +59,10 @@ impl ModelsManager for GatedModelsManager {
         self.inner.model_catalog_result(strategy, factory)
     }
 
+    fn ensure_initialized(&self, factory: HttpClientFactory) -> ModelsManagerFuture<'_, ()> {
+        self.inner.ensure_initialized(factory)
+    }
+
     fn model_catalog_with_origins(
         &self,
         strategy: RefreshStrategy,
@@ -97,7 +101,8 @@ impl ModelsManager for GatedModelsManager {
         provider_id: &'a str,
         model: &'a str,
         config: &'a ModelsManagerConfig,
-    ) -> ModelsManagerFuture<'a, codex_protocol::error::Result<codex_models_manager::CatalogModel>> {
+    ) -> ModelsManagerFuture<'a, codex_protocol::error::Result<codex_models_manager::CatalogModel>>
+    {
         Box::pin(async move {
             if self.gate_next_lookup.swap(/*val*/ false, Ordering::SeqCst) {
                 self.context_build.entered.notify_one();

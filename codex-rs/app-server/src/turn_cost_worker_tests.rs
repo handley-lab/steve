@@ -6,6 +6,7 @@ use codex_login::AuthCredentialsStoreMode;
 use codex_login::AuthKeyringBackendKind;
 use codex_login::CodexAuth;
 use codex_login::login_with_api_key;
+use codex_model_provider::create_model_provider;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_otel::TelemetryAuthMode;
 use codex_protocol::protocol::SessionSource;
@@ -15,6 +16,7 @@ use tempfile::TempDir;
 use test_case::test_case;
 use tokio::time::timeout;
 use tracing::instrument::WithSubscriber;
+use tracing_subscriber::layer::SubscriberExt;
 use wiremock::Mock;
 use wiremock::MockServer;
 use wiremock::ResponseTemplate;
@@ -31,7 +33,9 @@ mod chatgpt;
 #[test_case(Some(" \t"); "blank inference endpoint")]
 #[test_case(Some("http://127.0.0.1:1/unused-inference"); "independent inference endpoint")]
 #[tokio::test]
-async fn configured_cost_backend_is_independent_of_inference_endpoint(inference_base: Option<&str>) {
+async fn configured_cost_backend_is_independent_of_inference_endpoint(
+    inference_base: Option<&str>,
+) {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path(TURN_COST_PATH))
@@ -91,7 +95,7 @@ async fn worker_starts_with_otlp_metrics_exporter_without_log_exporter() {
     };
     let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("sk-test"));
 
-    let worker = TurnCostWorker::spawn(Arc::new(config), auth_manager)
+    let worker = TurnCostWorker::spawn(Arc::new(config), auth_manager, /*runtime_auth*/ None)
         .expect("OTLP metrics exporter should enable turn-cost collection");
     wait_for_request_count(&server, /*expected*/ 1).await;
     worker.shutdown();
@@ -246,6 +250,7 @@ async fn custom_provider_auth_failure_retries_without_auth_changes() {
         config: Arc::new(config),
         backend,
         turns: HashMap::new(),
+        runtime_auth: None,
     };
     assert_eq!(
         runtime.probe_backend().await,
@@ -294,6 +299,7 @@ async fn custom_provider_does_not_send_chatgpt_auth_for_turn_costs() {
         config: Arc::new(config),
         backend,
         turns: HashMap::new(),
+        runtime_auth: None,
     };
 
     assert_eq!(runtime.probe_backend().await, BackendAvailability::Disabled);
@@ -445,6 +451,7 @@ async fn test_runtime(server: &MockServer, auth_manager: Arc<AuthManager>) -> Wo
         config: Arc::new(config),
         backend,
         turns: HashMap::new(),
+        runtime_auth: None,
     }
 }
 
@@ -516,6 +523,11 @@ async fn turn_cost_failures_do_not_log_response_bodies(status: u16) {
         .with_max_level(tracing::Level::DEBUG)
         .with_writer(Arc::new(capture.reopen().expect("log writer")))
         .finish();
+    // A parallel test can first register this callsite without a subscriber.
+    // Keep two dispatchers alive so it cannot globally disable our log capture.
+    let _parallel_dispatch = tracing::Dispatch::new(
+        tracing_subscriber::registry().with(tracing_subscriber::filter::LevelFilter::OFF),
+    );
     async {
         assert_eq!(
             runtime.probe_backend().await,
@@ -573,7 +585,7 @@ async fn account_cost_backend_waits_for_auth_then_uses_the_account_url() {
     };
     config.otel.exporter = OtelExporterKind::None;
     config.otel.metrics_exporter = otel_metrics(server.uri());
-    let worker = TurnCostWorker::spawn(Arc::new(config), Arc::clone(&auth_manager))
+    let worker = TurnCostWorker::spawn(Arc::new(config), Arc::clone(&auth_manager), None)
         .expect("account backend should start");
 
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -614,8 +626,7 @@ async fn env_key_cost_query_uses_the_model_url() {
     unsafe {
         std::env::set_var("STEVE_PROVIDER_AUTONOMY_COST_FIXTURE", "cost-key-b");
     }
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::from_api_key("global-key-a"));
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("global-key-a"));
     let mut workers = Vec::new();
     let mut homes = Vec::new();
     for name in ["OpenAI", "Cambridge"] {
@@ -640,7 +651,7 @@ async fn env_key_cost_query_uses_the_model_url() {
         config.otel.exporter = OtelExporterKind::None;
         config.otel.metrics_exporter = otel_metrics(model.uri());
         workers.push(
-            TurnCostWorker::spawn(Arc::new(config), Arc::clone(&auth_manager))
+            TurnCostWorker::spawn(Arc::new(config), Arc::clone(&auth_manager), None)
                 .expect("model-provider cost backend"),
         );
         homes.push(codex_home);
@@ -665,3 +676,5 @@ async fn env_key_cost_query_uses_the_model_url() {
         }
     }
 }
+#[path = "turn_cost_worker_runtime_auth_tests.rs"]
+mod runtime_auth;

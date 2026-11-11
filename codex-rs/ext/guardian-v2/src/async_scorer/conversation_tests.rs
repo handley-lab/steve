@@ -79,9 +79,6 @@ async fn pending_request(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn configured_reset_limit_rebuilds_history_without_rejecting_fresh_evidence() -> Result<()> {
-    use crate::async_scorer::decisions::DecisionsSampler;
-    use codex_http_client::HttpClientBuilder;
-
     skip_if_no_network!(Ok(()));
     for (limit, reused) in [(1, false), (100_000, true)] {
         let server = responses::start_mock_server().await;
@@ -111,11 +108,13 @@ async fn configured_reset_limit_rebuilds_history_without_rejecting_fresh_evidenc
             .to_string(),
         }]])
         .await;
-        store.insert(DecisionsSampler::new(
-            HttpClientBuilder::new().build_direct()?,
-            "synthetic-key".into(),
-            format!("{}/v1/responses", decisions_server.uri()),
-        )?);
+        store.insert(
+            crate::async_scorer::decisions::tests::sampler_for_test(format!(
+                "{}/v1",
+                decisions_server.uri()
+            ))
+            .await?,
+        );
         let (mut request, score) = pending_request(&fixture, "parent").await?;
         request.metrics = Some(metrics.clone());
         let reservation = backend.reserve(|| 0).1.unwrap();
@@ -301,6 +300,8 @@ async fn delayed_preparation_does_not_block_newer_requests_and_capacity_is_bound
         .get::<ConversationBackend>()
         .unwrap();
     let store = fixture.test.codex.thread_extension_data();
+    let turn_store = ExtensionData::new("approval-turn");
+    turn_store.insert_arc(store.get::<Config>().expect("captured test config"));
     let progress = store.get::<GuardianV2ScoreProgress>().unwrap();
     let mut reservations = (0..16)
         .map(|index| backend.reserve(|| index).1.unwrap())
@@ -323,6 +324,7 @@ async fn delayed_preparation_does_not_block_newer_requests_and_capacity_is_bound
         cached_approval(
             &fixture.registry,
             store,
+            &turn_store,
             "review action",
             /*metrics*/ None
         )
@@ -532,6 +534,8 @@ async fn preflight_skips_only_after_score_and_history_are_superseded() -> Result
         )
         .await?;
         let store = fixture.test.codex.thread_extension_data();
+        let turn_store = ExtensionData::new("approval-turn");
+        turn_store.insert_arc(store.get::<Config>().expect("captured test config"));
         let mut cached = cached_score(store).unwrap();
         cached.scores.insert("action_risk".to_owned(), risk);
         set_cached_score(store, cached);
@@ -578,6 +582,7 @@ async fn preflight_skips_only_after_score_and_history_are_superseded() -> Result
         let approval_before = cached_approval(
             &fixture.registry,
             store,
+            &turn_store,
             r#"{"tool":"mcp_tool_call","server":"node_repl"}"#,
             /*metrics*/ None,
         )
@@ -609,6 +614,7 @@ async fn preflight_skips_only_after_score_and_history_are_superseded() -> Result
             cached_approval(
                 &fixture.registry,
                 store,
+                &turn_store,
                 r#"{"tool":"mcp_tool_call","server":"node_repl"}"#,
                 /*metrics*/ None
             )
@@ -652,6 +658,7 @@ async fn delayed_classification_skips_after_newer_score_and_history_complete() -
     let mut updates = progress.updates.subscribe();
     let metrics = store.get::<RecordingMetrics>().unwrap();
     let turn_store = ExtensionData::new("turn-1");
+    turn_store.insert_arc(store.get::<Config>().expect("captured test config"));
     let tool_name = ToolName::plain("read_file");
     let payload = ToolPayload::Function {
         arguments: r#"{"path":"README.md"}"#.to_owned(),

@@ -179,7 +179,7 @@ impl CatalogRequestProcessor {
         &self,
         params: ModelListParams,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        let (config, models_manager, cyber_access_programs_enabled) =
+        let (active_config, active_models_manager, cyber_access_programs_enabled) =
             match params.thread_id.as_deref() {
                 Some(thread_id) => {
                     let thread_id = ThreadId::from_string(thread_id)
@@ -204,6 +204,21 @@ impl CatalogRequestProcessor {
                     (config, manager, None)
                 }
             };
+        let (config, models_manager) = match params.model_provider.as_deref() {
+            None => (active_config, active_models_manager),
+            Some(provider_id) => {
+                let selected = config_for_provider(&active_config, provider_id)?;
+                let mut config = selected.as_ref().clone();
+                config.model = None;
+                let config = Arc::new(config);
+                // Temporary catalogs must not replace any active provider's disk cache.
+                let manager = self.thread_manager.temporary_models_manager_for_config(
+                    &config,
+                    &codex_models_manager::manager::ModelCatalogSettings::default(),
+                );
+                (config, manager)
+            }
+        };
         // Gate the same provider used by the catalog, including when its model cache is warm.
         // Resolving credentials may refresh them, but explicit host policy prevents browser login.
         if let Some(gateway) = codex_model_provider::create_model_provider(
@@ -218,7 +233,11 @@ impl CatalogRequestProcessor {
                 .check_thread_model_provider(&config)
                 .await
                 .map_err(|err| config_load_error(&err))?;
-            if gateway.resolve_access_token().await.is_err() {
+            if let Err(error) = gateway
+                .without_interactive_login()
+                .resolve_access_token()
+                .await
+            {
                 let current = match params.thread_id.as_ref() {
                     Some(_) => {
                         self.config_manager
@@ -235,17 +254,17 @@ impl CatalogRequestProcessor {
                     }
                 }
                 .map_err(|err| config_load_error(&err))?;
-                // Login RPCs use current config, while the catalog retains its selected provider.
-                if current.model_provider_id != config.model_provider_id
-                    || current.model_provider != config.model_provider
+                // Explicit catalog selection may differ from the current default.
+                if current.model_providers.get(&config.model_provider_id)
+                    != Some(&config.model_provider)
+                    || (params.model_provider.is_none()
+                        && current.model_provider_id != config.model_provider_id)
                 {
                     return Err(invalid_request(
-                        "Model provider settings changed. Restart Codex to apply them, then retry fetching the model list",
+                        "Model provider settings changed. Restart Steve to apply them, then retry fetching the model list",
                     ));
                 }
-                return Err(invalid_request(
-                    "Gateway sign-in required or unavailable. Complete gateway sign-in and retry fetching the model list",
-                ));
+                return Err(invalid_request(error.to_string()));
             }
         }
         self.list_models(
@@ -331,6 +350,7 @@ impl CatalogRequestProcessor {
             limit,
             cursor,
             include_hidden,
+            model_provider,
         } = params;
         let (models, provider_errors) = self
             .model_catalog
@@ -341,13 +361,28 @@ impl CatalogRequestProcessor {
             )
             .await
             .map_err(|err| config_load_error(&err))?;
+        let models = models
+            .into_iter()
+            .filter(|model| {
+                model_provider
+                    .as_ref()
+                    .is_none_or(|provider| model.model.starts_with(&format!("{provider}/")))
+            })
+            .collect();
         let models = supported_models(models, include_hidden.unwrap_or(false));
         let provider_errors = provider_errors
             .into_iter()
-            .map(|error| codex_app_server_protocol::ModelCatalogProviderError {
-                provider: error.provider,
-                message: error.message,
+            .filter(|error| {
+                model_provider
+                    .as_ref()
+                    .is_none_or(|provider| &error.provider == provider)
             })
+            .map(
+                |error| codex_app_server_protocol::ModelCatalogProviderError {
+                    provider: error.provider,
+                    message: error.message,
+                },
+            )
             .collect();
         let total = models.len();
 
@@ -629,6 +664,14 @@ impl CatalogRequestProcessor {
                         config.config_layer_stack,
                     )
                     .with_plugin_skill_snapshots(plugin_skill_snapshots);
+                    let skills_input = match self
+                        .thread_manager
+                        .environment_manager()
+                        .default_environment_id()
+                    {
+                        Some(environment_id) => skills_input.with_environment_id(environment_id),
+                        None => skills_input,
+                    };
                     let snapshot = skills_request
                         .snapshot_for_cwd(&skills_input, force_reload, fs)
                         .await;

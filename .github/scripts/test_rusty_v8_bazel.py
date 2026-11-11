@@ -72,7 +72,7 @@ class RustyV8BazelTest(unittest.TestCase):
             with patch.object(rusty_v8_bazel, "MODULE_BAZEL", module_bazel):
                 self.assertEqual("146.4.0", rusty_v8_bazel.command_version(None))
 
-    def test_bazel_commands_use_shared_buildbuddy_remote_config_library(self) -> None:
+    def test_bazel_commands_use_shared_ci_options(self) -> None:
         with patch.dict(environ, {}, clear=True):
             self.assertEqual(
                 [

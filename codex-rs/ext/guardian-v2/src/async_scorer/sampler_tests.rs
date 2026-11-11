@@ -22,6 +22,7 @@ use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::turn_input::CyberAccessProgram;
+use codex_protocol_test_support::uuid_v7_item_id_generator_for_test;
 use core_test_support::responses;
 use core_test_support::responses::WebSocketConnectionConfig;
 use core_test_support::responses::ev_assistant_message;
@@ -51,14 +52,14 @@ use super::LunaSamplingRequest;
 use super::MAX_CONCURRENT_REQUESTS;
 pub(super) const MODEL: &str = "gpt-5.6-luna";
 
+#[path = "sampler_protocol_tests.rs"]
+mod protocol;
 #[path = "request_tests.rs"]
 mod request;
 #[path = "retained_sampling_tests.rs"]
 mod retained;
 #[path = "sampler_routing_tests.rs"]
 mod routing;
-#[path = "sampler_protocol_tests.rs"]
-mod protocol;
 
 impl LunaSampler {
     // Drive the production retained sampler to completion for transport tests. Tests of
@@ -244,7 +245,10 @@ fn sampler_model_info() -> codex_models_manager::CatalogModel {
     model.slug = MODEL.to_owned();
     model.use_responses_lite = true;
     model.comp_hash = None;
-    codex_models_manager::CatalogModel { model: model.into(), origin: codex_models_manager::ModelOrigin::ExplicitConfig }
+    codex_models_manager::CatalogModel {
+        model: model.into(),
+        origin: codex_models_manager::ModelOrigin::ExplicitConfig,
+    }
 }
 
 pub(in crate::async_scorer) fn sampler_config(base_url: String) -> LunaSamplerConfig {
@@ -252,6 +256,7 @@ pub(in crate::async_scorer) fn sampler_config(base_url: String) -> LunaSamplerCo
         model: MODEL.to_owned(),
         api_key_cyber_access_programs: false,
         content_item_kinds: true,
+        inherit_parent_cyber_access_program: true,
         workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
             "https://chatgpt.com/backend-api".into(),
         ),
@@ -320,6 +325,7 @@ fn assert_classifier_instructions(request: &serde_json::Value) {
 
 pub(in crate::async_scorer) fn sample_request(parent_turn_id: &str) -> LunaSamplingRequest {
     LunaSamplingRequest {
+        item_id_generator: uuid_v7_item_id_generator_for_test(),
         cyber_access_program: None,
         parent_response_id: None,
         instructions: classifier_instructions(),
@@ -772,6 +778,7 @@ async fn preconnected_sampler_reuses_authenticated_websocket_for_classifications
         model: MODEL.to_owned(),
         api_key_cyber_access_programs: false,
         content_item_kinds: true,
+        inherit_parent_cyber_access_program: true,
         workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
             "https://chatgpt.com/backend-api".into(),
         ),
@@ -816,6 +823,7 @@ async fn preconnected_sampler_reuses_authenticated_websocket_for_classifications
 
     let first = sampler
         .sample(LunaSamplingRequest {
+            item_id_generator: uuid_v7_item_id_generator_for_test(),
             cyber_access_program: None,
             parent_response_id: None,
             instructions: classifier_instructions(),
@@ -862,6 +870,7 @@ async fn preconnected_sampler_reuses_authenticated_websocket_for_classifications
     sampler.prewarm().await;
     let second = sampler
         .sample(LunaSamplingRequest {
+            item_id_generator: uuid_v7_item_id_generator_for_test(),
             cyber_access_program: None,
             parent_response_id: None,
             instructions: classifier_instructions(),
@@ -955,6 +964,7 @@ async fn sampler_returns_classification_token_before_terminal_response_events() 
         model: MODEL.to_owned(),
         api_key_cyber_access_programs: false,
         content_item_kinds: true,
+        inherit_parent_cyber_access_program: true,
         workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
             "https://chatgpt.com/backend-api".into(),
         ),

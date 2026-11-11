@@ -110,6 +110,20 @@ impl WebSocketConnector {
         self
     }
 
+    /// Reuse the TLS/proxy configuration with a captured credential's account policy.
+    pub fn with_account_binding(&self, policy: &codex_http_client::NetworkPolicy) -> Option<Self> {
+        let policy = self
+            .http_client_factory
+            .network_policy()
+            .clone()
+            .with_account_binding(policy)?;
+        Some(Self {
+            http_client_factory: self.http_client_factory.clone().with_network_policy(policy),
+            tls_config: self.tls_config.clone(),
+            tcp_nodelay: self.tcp_nodelay,
+        })
+    }
+
     /// Connects a WebSocket after resolving the request destination through the configured proxy
     /// policy.
     pub async fn connect(
@@ -176,8 +190,12 @@ impl WebSocketConnector {
                 loopback_direct,
             )
             .boxed()
-            .await.map(|(inner, response)| {
-                let routing_affinity = codex_http_client::ChatGptRoutingAffinity::from_response(&uri, response.headers());
+            .await
+            .map(|(inner, response)| {
+                let routing_affinity = codex_http_client::ChatGptRoutingAffinity::from_response(
+                    &uri,
+                    response.headers(),
+                );
                 (inner, response, routing_affinity)
             })
         };

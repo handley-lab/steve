@@ -128,6 +128,16 @@ async fn selected_profile_provider_is_explicit() -> Result<()> {
         provider_selection::explicit_provider(&config),
         Some("openai".into())
     );
+    let mut server = crate::start_embedded_app_server_for_picker(&config).await?;
+    assert_eq!(server.client_provider_override_for_new_chats(&config), None);
+    server.thread_params_mode = ThreadParamsMode::Remote;
+    assert_eq!(
+        server.client_provider_override_for_new_chats(&config),
+        Some("openai".into())
+    );
+    server.thread_params_mode = ThreadParamsMode::Cloud;
+    assert_eq!(server.client_provider_override_for_new_chats(&config), None);
+    server.shutdown().await?;
     Ok(())
 }
 
@@ -163,6 +173,10 @@ async fn required_provider_overrides_oss_history_selection() -> Result<()> {
     server.model_provider_override = Some("ollama".into());
     assert_eq!(config.model_provider_id, "openai");
     assert_eq!(
+        server.client_provider_override_for_new_chats(&config),
+        Some("openai".into())
+    );
+    assert_eq!(
         server.history_model_provider(&config).await?,
         Some("openai".into())
     );
@@ -175,11 +189,15 @@ async fn required_provider_overrides_oss_history_selection() -> Result<()> {
     Ok(())
 }
 
-async fn write_provider_config(home: &std::path::Path, models: &wiremock::MockServer) -> std::io::Result<()> {
+async fn write_provider_config(
+    home: &std::path::Path,
+    models: &wiremock::MockServer,
+) -> std::io::Result<()> {
     wiremock::Mock::given(wiremock::matchers::path("/v1/models"))
-        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({"data": [{"id": "gpt-5.4"}]}),
-        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"data": [{"id": "gpt-5.4"}]})),
+        )
         .mount(models)
         .await;
     std::fs::write(
@@ -197,7 +215,8 @@ name = "Client provider"
 base_url = "http://127.0.0.1:9/v1"
 wire_api = "responses"
 requires_openai_auth = false
-"#.replace("http://127.0.0.1:9", &models.uri()),
+"#
+        .replace("http://127.0.0.1:9", &models.uri()),
     )?;
     Ok(())
 }

@@ -16,6 +16,15 @@ use std::sync::Arc;
 const CLOUD_CONFIG_BUNDLE_AUTH_RECOVERY_FAILED_MESSAGE: &str =
     "The configured service rejected the supplied credentials. Supply updated credentials.";
 
+pub(super) fn plan_requires_managed_config(plan: PlanType) -> bool {
+    plan.is_business_like()
+        || plan.is_education_like()
+        || matches!(
+            plan,
+            PlanType::Enterprise | PlanType::Sci | PlanType::SciPlus
+        )
+}
+
 pub(crate) struct ChatGptSource<C> {
     pub(crate) auth_manager: Arc<AuthManager>,
     pub(crate) client: Arc<C>,
@@ -31,11 +40,9 @@ impl<C: BundleClient> BundleSource for ChatGptSource<C> {
     async fn auth(&self) -> Result<Option<CodexAuth>, CloudConfigBundleLoadError> {
         Ok(self.auth_manager.auth().await.filter(|auth| {
             auth.uses_codex_backend()
-                && auth.account_plan_type().is_some_and(|plan| {
-                    plan.is_business_like()
-                        || plan.is_education_like()
-                        || matches!(plan, PlanType::Enterprise)
-                })
+                && auth
+                    .account_plan_type()
+                    .is_some_and(plan_requires_managed_config)
         }))
     }
 
@@ -85,7 +92,8 @@ impl<C: BundleClient> BundleSource for ChatGptSource<C> {
                 Some("auth_recovery_unrecoverable"),
             )),
             Err(
-                error @ (RefreshTokenError::Policy(_) | RefreshTokenError::AccountRenewalUnavailable),
+                error @ (RefreshTokenError::Policy(_)
+                | RefreshTokenError::AccountRenewalUnavailable),
             ) => Err(BundleRequestError::auth_failure(
                 status_code,
                 error.to_string(),

@@ -285,8 +285,9 @@ fn codex_backend_routes_require_codex_base_url() {
         assert_eq!(provider.supports_codex_backend_routes(), expected);
     }
 
-    let mut cambridge =
-        ModelProviderInfo::create_openai_provider(Some("https://hpc.example/backend-api/codex".into()));
+    let mut cambridge = ModelProviderInfo::create_openai_provider(Some(
+        "https://hpc.example/backend-api/codex".into(),
+    ));
     cambridge.name = "Cambridge".to_string();
     assert!(cambridge.supports_codex_backend_routes());
 

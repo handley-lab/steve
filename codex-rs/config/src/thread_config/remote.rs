@@ -753,7 +753,8 @@ mod tests {
 
     #[test]
     fn remote_compaction_false_and_unsupported_round_trip() {
-        let provider = controlled_provider(false, false, Some(RemoteCompactionSupport::Unsupported));
+        let provider =
+            controlled_provider(false, false, Some(RemoteCompactionSupport::Unsupported));
         let proto = model_provider_to_proto("local", provider.clone());
         assert!(!proto.accepts_response_continuation);
         assert!(!proto.include_internal_metadata);
@@ -768,10 +769,7 @@ mod tests {
 
     #[test]
     fn remote_compaction_rejects_unspecified_and_unknown_values() {
-        let mut proto = model_provider_to_proto(
-            "local",
-            controlled_provider(false, false, None),
-        );
+        let mut proto = model_provider_to_proto("local", controlled_provider(false, false, None));
         proto.remote_compaction = Some(proto::RemoteCompaction::Unspecified as i32);
         assert!(model_provider_from_proto(proto.clone()).is_err());
         proto.remote_compaction = Some(99);

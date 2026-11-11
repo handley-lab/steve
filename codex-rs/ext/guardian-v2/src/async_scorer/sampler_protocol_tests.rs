@@ -134,7 +134,8 @@ fn evidence() -> Result<Vec<ResponseItem>> {
             role: "developer".into(),
             tools: vec![
                 json!({"type":"function","name":"read_file","parameters":{"type":"object"}}),
-            ],
+            ]
+            .into(),
         },
     ])
 }
@@ -316,6 +317,19 @@ async fn classifier_startup_uses_the_thread_catalog_without_a_process_manager() 
 async fn classifier_catalog_scope_does_not_alias_process_or_independent_provider() -> Result<()> {
     skip_if_no_network!(Ok(()));
     let server = responses::start_mock_server().await;
+    let mut process_record = model(true, true)?;
+    process_record.comp_hash = Some("process-hash".into());
+    process_record.context_window = Some(32_768);
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/process-models"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(ModelsResponse {
+                models: vec![process_record],
+            }),
+        )
+        .mount(&server)
+        .await;
+    let process_catalog_url = format!("{}/process-models", server.uri());
     let test = core_test_support::test_codex::test_codex()
         .with_pre_build_hook(|home| {
             std::fs::write(home.join("config.toml"), "model_provider = \"openai\"\n").unwrap();
@@ -325,6 +339,14 @@ async fn classifier_catalog_scope_does_not_alias_process_or_independent_provider
             model.context_window = Some(32_768);
             model.effective_context_window_percent = 50;
             model.use_responses_lite = true;
+        })
+        .with_config(move |config| {
+            config.model_catalog = None;
+            config.model_provider.model_catalog_url = Some(process_catalog_url.into());
+            config
+                .features
+                .enable(Feature::ApiKeyModelDiscovery)
+                .unwrap();
         })
         .build_with_auto_env(&server)
         .await?;
@@ -340,10 +362,24 @@ async fn classifier_catalog_scope_does_not_alias_process_or_independent_provider
         let mut scoped_record = model(false, true)?;
         scoped_record.comp_hash = Some("scoped-hash".into());
         scoped_record.context_window = Some(16_384);
-        config.model_catalog = Some(ModelsResponse {
-            models: vec![scoped_record],
-        });
+        config.model_provider.model_catalog_url =
+            Some(format!("{}/scoped-models", server.uri()).into());
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/scoped-models"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_json(ModelsResponse {
+                    models: vec![scoped_record],
+                }),
+            )
+            .mount(&server)
+            .await;
         let scoped: SharedModelsManager = codex_core::build_models_manager(&config, auth.clone());
+        scoped
+            .model_catalog_result(
+                codex_models_manager::manager::RefreshStrategy::Online,
+                config.http_client_factory(),
+            )
+            .await?;
         let thread = ExtensionData::new("scope-thread");
         if matches!(scope, "scoped" | "independent") {
             thread.insert(scoped);
@@ -355,14 +391,21 @@ async fn classifier_catalog_scope_does_not_alias_process_or_independent_provider
             let mut independent_record = model(true, true)?;
             independent_record.comp_hash = Some("independent-hash".into());
             independent_record.context_window = Some(49_152);
-            config.model_catalog = Some(ModelsResponse {
-                models: vec![independent_record],
-            });
+            wiremock::Mock::given(wiremock::matchers::method("GET"))
+                .and(wiremock::matchers::path("/independent-models"))
+                .respond_with(
+                    wiremock::ResponseTemplate::new(200).set_body_json(ModelsResponse {
+                        models: vec![independent_record],
+                    }),
+                )
+                .mount(&server)
+                .await;
             config.model_providers.insert(
                 "independent".into(),
                 ModelProviderInfo {
                     name: "Independent".into(),
                     base_url: Some(server.uri()),
+                    model_catalog_url: Some(format!("{}/independent-models", server.uri()).into()),
                     ..config.model_provider.clone()
                 },
             );
@@ -552,7 +595,6 @@ async fn classifier_nonlite_wire_preserves_retained_envelope_alignment() -> Resu
             .sum();
         let before = committed.clone();
         let prepared = PreparedRequest {
-            sampling: &request,
             input: committed,
             input_tokens,
             existing_context_tokens: 0,
@@ -563,9 +605,15 @@ async fn classifier_nonlite_wire_preserves_retained_envelope_alignment() -> Resu
             truncations: vec![],
             section_costs: vec![],
         };
+        let mut sampling = sample_request("parent");
+        sampling.input = request.input.clone();
+        let sample = super::super::ConversationSample {
+            input: prepared,
+            sampling,
+        };
         let (ready, score) = tokio::sync::oneshot::channel();
-        let (history, score) = tokio::join!(sampler.sample_retained(prepared, ready), score);
-        assert_eq!(score??, "low");
+        let (history, score) = tokio::join!(sampler.sample_retained(sample, ready), score);
+        assert_eq!(score??.accept(), "low");
         committed = history.expect("completed retained history");
         assert_eq!(&committed[..before.len()], before);
     }

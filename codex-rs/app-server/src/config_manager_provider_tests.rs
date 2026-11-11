@@ -47,7 +47,10 @@ async fn provider_requirements_resolve_provider_overrides(
         .load_latest_config(Some(workspace.path().to_path_buf()))
         .await?;
     if provider_id == "catalog-fixture" {
-        assert_eq!(current.model_provider.base_url.as_deref(), provider_base_url);
+        assert_eq!(
+            current.model_provider.base_url.as_deref(),
+            provider_base_url
+        );
         // Retained threads keep their inference route even if user defaults later change.
         std::fs::write(
             home.path().join("config.toml"),
@@ -300,9 +303,7 @@ name = "Gateway"
         .load_latest_config(Some(home.path().to_path_buf()))
         .await?;
     assert_eq!(current.model_provider_id, "gateway");
-    manager
-        .check_thread_model_provider(&current)
-        .await?;
+    manager.check_thread_model_provider(&current).await?;
     let default_manager =
         ConfigManager::without_managed_config_for_tests(home.path().to_path_buf());
     default_manager

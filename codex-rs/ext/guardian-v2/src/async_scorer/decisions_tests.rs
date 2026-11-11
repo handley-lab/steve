@@ -9,6 +9,8 @@ use codex_guardian_context::TrustedTool;
 use codex_guardian_context::TrustedToolSource;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
+use codex_login::AuthManager;
+use codex_login::CodexAuth;
 use codex_protocol::models::ContentItemKind;
 use codex_protocol::models::ContentItemMetadata;
 use codex_protocol_test_support::ContentItemTestExt;
@@ -62,8 +64,60 @@ fn adapter_rejects_unsupported_evidence() {
             "type":"message", "role":role, "content":[content]
         }))
         .unwrap();
-        assert_eq!(request_body(&rubric, &[evidence], MODEL), Err(expected_error));
+        assert_eq!(
+            request_body(&rubric, &[evidence], MODEL),
+            Err(expected_error)
+        );
     }
+}
+
+#[tokio::test]
+async fn queued_comparison_does_not_cross_account_ownership() -> anyhow::Result<()> {
+    core_test_support::skip_if_no_network!(Ok(()));
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let home = tempfile::tempdir()?;
+    let manager = codex_login::AuthManager::from_auth_for_testing_with_home(
+        codex_login::CodexAuth::from_api_key("original-owner"),
+        home.path().to_owned(),
+    );
+    let provider = codex_model_provider::create_model_provider(
+        codex_model_provider_info::ModelProviderInfo::create_openai_provider(Some(server.uri())),
+        Some(manager.clone()),
+    );
+    let sampler = Arc::new(
+        DecisionsSampler::new(
+            HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+            provider,
+            "configured-comparison".to_owned(),
+        )
+        .await?,
+    );
+    let permits = sampler
+        .slots
+        .acquire_many(u32::try_from(MAX_CONCURRENT_REQUESTS)?)
+        .await?;
+    let sample = super::super::sampler::tests::sample_request("queued-owner");
+    let (input, _) = LunaSampler::prepare_input(
+        &sample,
+        None,
+        sample
+            .input
+            .iter()
+            .cloned()
+            .map(ResponseItemEnvelope::new)
+            .collect(),
+    );
+    let task = sampler.start_conversation_comparison(&input);
+    manager.logout().await?;
+    drop(permits);
+    assert_eq!(task.finish().await?.0, Err(DecisionsError::Credentials));
+    server.verify().await;
+    Ok(())
 }
 
 #[test]
@@ -199,20 +253,43 @@ async fn http_contract_and_untrusted_response_validation() {
         .respond_with(ResponseTemplate::new(/*s*/ 403).set_body_string("private error details"))
         .mount(&server)
         .await;
-    Arc::get_mut(&mut sampler).unwrap().provider.base_url = format!("{}/denied", server.uri());
-    assert_eq!(sampler.request(body).await, Err(DecisionsError::Http(403)));
+    let denied = sampler_for_test(format!("{}/denied", server.uri()))
+        .await
+        .unwrap();
+    assert_eq!(
+        denied.request(body, None).await,
+        Err(DecisionsError::Http(403))
+    );
 }
 
 #[tokio::test]
 async fn decisions_admits_newest_request_by_cancelling_oldest() {
     core_test_support::skip_if_no_network!();
+    let home = tempfile::tempdir().unwrap();
+    let initial = CodexAuth::from_api_key("old-key");
+    let manager = AuthManager::from_auth_for_testing_with_home(initial, home.path().into());
     let server = MockServer::start().await;
     Mock::given(method("POST"))
+        .and(path("/decisions"))
+        .and(header("authorization", "Bearer replacement-key"))
         .respond_with(ResponseTemplate::new(/*s*/ 403))
-        .expect(MAX_CONCURRENT_REQUESTS as u64)
+        .expect((MAX_CONCURRENT_REQUESTS - 1) as u64)
         .mount(&server)
         .await;
-    let sampler = Arc::new(sampler_for_test(server.uri()).await.unwrap());
+    let mut provider_info =
+        codex_model_provider_info::ModelProviderInfo::create_openai_provider(Some(server.uri()));
+    provider_info.requires_openai_auth = true;
+    let provider =
+        codex_model_provider::create_model_provider(provider_info, Some(manager.clone()));
+    let sampler = Arc::new(
+        DecisionsSampler::new(
+            HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+            provider,
+            MODEL.to_owned(),
+        )
+        .await
+        .unwrap(),
+    );
     let request = super::super::sampler::tests::sample_request("turn");
     let (input, _) = LunaSampler::prepare_input(
         &request,
@@ -231,19 +308,65 @@ async fn decisions_admits_newest_request_by_cancelling_oldest() {
         .await
         .unwrap();
     let oldest = sampler.start_conversation_comparison(&input);
-    let mut remaining = (1..MAX_CONCURRENT_REQUESTS)
+    let stale = sampler.start_conversation_comparison(&input);
+    let store = codex_login::AuthCredentialsStoreMode::File;
+    let keyring = codex_login::AuthKeyringBackendKind::default();
+    let login = |key| codex_login::login_with_api_key(home.path(), key, store, keyring).unwrap();
+    login("replacement-key");
+    manager.reload().await;
+    let mut remaining = (2..MAX_CONCURRENT_REQUESTS)
         .map(|_| sampler.start_conversation_comparison(&input))
         .collect::<Vec<_>>();
     remaining.push(sampler.start_conversation_comparison(&input));
     assert!(oldest.finish().await.unwrap_err().is_cancelled());
     assert!(server.received_requests().await.unwrap().is_empty());
     drop(permits);
+    let rejected = Err(DecisionsError::Credentials);
+    assert_eq!(stale.finish().await.unwrap().0, rejected);
     for task in remaining {
         assert_eq!(
             task.finish().await.unwrap().0,
             Err(DecisionsError::Http(403))
         );
     }
+    let compare = || sampler.start_conversation_comparison(&input);
+    let permits = sampler
+        .slots
+        .acquire_many(MAX_CONCURRENT_REQUESTS as u32)
+        .await
+        .unwrap();
+    let previous_owner = compare();
+    login(" sk-proj-fedramp-synthetic");
+    manager.reload().await;
+    drop(permits);
+    assert_eq!(previous_owner.finish().await.unwrap().0, rejected);
+    let permits = sampler
+        .slots
+        .acquire_many(MAX_CONCURRENT_REQUESTS as u32)
+        .await
+        .unwrap();
+    let before_logout = compare();
+    let requests_before_logout = server.received_requests().await.unwrap().len();
+    manager.logout().await.unwrap();
+    drop(permits);
+    assert_eq!(before_logout.finish().await.unwrap().0, rejected);
+    assert_eq!(
+        server.received_requests().await.unwrap().len(),
+        requests_before_logout
+    );
+    Mock::given(method("POST"))
+        .and(path("/decisions"))
+        .respond_with(|request: &wiremock::Request| {
+            assert!(!request.headers.contains_key("authorization"));
+            ResponseTemplate::new(401)
+        })
+        .expect(1)
+        .mount(&server)
+        .await;
+    assert_eq!(
+        compare().finish().await.unwrap().0,
+        Err(DecisionsError::Http(401))
+    );
 }
 
 #[test]
@@ -279,7 +402,7 @@ fn adapter_preserves_inline_images_and_bounds_image_bytes() {
         request_body(
             request.instructions.annotated_content().content(),
             &request.input,
-                MODEL,
+            MODEL,
         ),
         Err(DecisionsError::InputTooLarge)
     );
@@ -362,6 +485,10 @@ async fn comparison_credentials_do_not_select_a_destination() -> anyhow::Result<
         return Ok(());
     }
     let home = tempfile::tempdir()?;
+    std::fs::write(
+        home.path().join("config.toml"),
+        "model_provider = \"openai\"\n",
+    )?;
     let config = codex_core::config::ConfigBuilder::default()
         .codex_home(home.path().to_path_buf())
         .loader_overrides(
@@ -467,7 +594,12 @@ async fn comparison_configuration_controls_contact_and_preserves_baseline() -> a
         let (input, _) = LunaSampler::prepare_input(
             &request,
             None,
-            request.input.iter().cloned().map(ResponseItemEnvelope::new).collect(),
+            request
+                .input
+                .iter()
+                .cloned()
+                .map(ResponseItemEnvelope::new)
+                .collect(),
         );
         if case == "redirect" {
             let mut provider = config.model_providers["comparison"].clone();
@@ -519,7 +651,11 @@ async fn comparison_configuration_controls_contact_and_preserves_baseline() -> a
             let sampler = thread_store
                 .get::<DecisionsSampler>()
                 .expect("explicit comparison provider");
-            let outcome = sampler.start_conversation_comparison(&input).finish().await?.0;
+            let outcome = sampler
+                .start_conversation_comparison(&input)
+                .finish()
+                .await?
+                .0;
             let expected = match case {
                 "http_failure" => Err(DecisionsError::Http(401)),
                 "redirect" => Err(DecisionsError::Http(307)),
@@ -586,23 +722,44 @@ async fn comparison_redirect_capture_detects_forwarded_evidence() -> anyhow::Res
         .mount(&redirect)
         .await;
     let sample = super::super::sampler::tests::sample_request("redirect-capture");
-    let mut body = request_body(sample.instructions.annotated_content().content(), &sample.input, MODEL)?;
+    let mut body = request_body(
+        sample.instructions.annotated_content().content(),
+        &sample.input,
+        MODEL,
+    )?;
     body["input"][0]["content"][0]["text"] = json!("private comparison evidence sentinel");
     let configured = sampler_for_test(target.uri()).await?;
-    assert_eq!(configured.request(body.clone()).await, Ok("low"));
+    assert_eq!(configured.request(body.clone(), None).await, Ok("low"));
     assert_eq!(target.received_requests().await.unwrap().len(), 1);
-    let mut permissive = sampler_for_test(redirect.uri()).await?;
+    let permissive = sampler_for_test(redirect.uri()).await?;
     let factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
-    permissive.transport = ReqwestTransport::from_http_client(
+    let transport = codex_http_client::ReqwestTransport::from_http_client(
         codex_http_client::HttpClientBuilder::new()
             .without_request_logging()
             .build_respecting_outbound_proxy_policy(
                 &factory,
                 &format!("{}/decisions", redirect.uri()),
-                ClientRouteClass::Api,
+                codex_http_client::ClientRouteClass::Api,
             )?,
     );
-    assert_eq!(permissive.request(body.clone()).await, Ok("low"));
+    let mut request = permissive
+        .provider
+        .api_provider()
+        .await?
+        .build_request(http::Method::POST, "decisions");
+    request.body = Some(RequestBody::Json(body.clone()));
+    let request = request.into_prepared().map_err(anyhow::Error::msg)?;
+    let request = permissive
+        .provider
+        .api_auth()
+        .await?
+        .apply_auth(request)
+        .await?;
+    let response = transport.execute(request).await?;
+    assert_eq!(
+        parse_answer(&serde_json::from_slice(&response.body)?),
+        Ok("low")
+    );
     assert_eq!(
         target.received_requests().await.unwrap().len(),
         2,
@@ -610,7 +767,7 @@ async fn comparison_redirect_capture_detects_forwarded_evidence() -> anyhow::Res
     );
     let constrained = sampler_for_test(redirect.uri()).await?;
     assert_eq!(
-        constrained.request(body.clone()).await,
+        constrained.request(body.clone(), None).await,
         Err(DecisionsError::Http(307))
     );
     let captured = target.received_requests().await.unwrap();

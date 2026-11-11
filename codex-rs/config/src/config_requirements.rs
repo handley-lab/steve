@@ -3342,6 +3342,7 @@ tracestate = { managed = { tenant = "enterprise", region = "us" }, other = { kee
         ];
         let feature_requirements = FeatureRequirementsToml {
             entries: BTreeMap::from([("personality".to_string(), true)]),
+            ..Default::default()
         };
         let browser_use = BrowserUseRequirementsToml {
             extension: None,
@@ -4848,6 +4849,7 @@ allowed_approvals_reviewers = ["user"]
                         ("apps".to_string(), false),
                         ("personality".to_string(), true),
                     ]),
+                    ..Default::default()
                 },
                 RequirementSource::Unknown,
             ))

@@ -163,6 +163,10 @@ impl ConfigManager {
         self.loader_overrides.user_config_path(self.codex_home())
     }
 
+    pub(crate) fn loader_overrides(&self) -> &LoaderOverrides {
+        &self.loader_overrides
+    }
+
     pub(crate) fn current_cli_overrides(&self) -> Vec<(String, TomlValue)> {
         self.cli_overrides
             .read()
@@ -520,7 +524,7 @@ impl ConfigManager {
         &self,
         saved_provider: Option<&str>,
         request_overrides: Option<HashMap<String, serde_json::Value>>,
-        typesafe_overrides: ConfigOverrides,
+        mut typesafe_overrides: ConfigOverrides,
         cwd: Option<PathBuf>,
     ) -> std::io::Result<Config> {
         let requested_provider = typesafe_overrides.model_provider.clone().or_else(|| {
@@ -707,7 +711,7 @@ impl ConfigManager {
             cwd,
             &self.current_cli_overrides(),
             codex_config::ConfigLoadOptions {
-                loader_overrides: self.loader_overrides.clone(),
+                loader_overrides: self.loader_overrides().clone(),
                 strict_config: self.strict_config,
                 cloud_config_bundle: policy_load.cloud_config.clone(),
             },

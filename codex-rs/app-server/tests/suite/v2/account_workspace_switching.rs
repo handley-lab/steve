@@ -93,8 +93,7 @@ async fn workspace_switch_validates_and_preserves_managed_login(
     )?;
     let rejected_before_exchange = matches!(
         scenario,
-        SwitchScenario::RequiresSignIn
-            | SwitchScenario::GovernmentWorkspace
+        SwitchScenario::RequiresSignIn | SwitchScenario::GovernmentWorkspace
     );
     Mock::given(method("POST"))
         .and(path("/backend-api/accounts/switch-workspace-token"))
@@ -287,7 +286,9 @@ async fn workspace_switch_validates_and_preserves_managed_login(
     assert_eq!(interrupted.turn.status, TurnStatus::Interrupted);
     let switched: codex_app_server_protocol::AccountSessionsSwitchResponse =
         timeout(DEFAULT_READ_TIMEOUT, app.read_response(id)).await??;
-    let codex_app_server_protocol::AccountSessionsSwitchResponse::Switched { sessions: switched } = switched else {
+    let codex_app_server_protocol::AccountSessionsSwitchResponse::Switched { sessions: switched } =
+        switched
+    else {
         bail!("expected workspace switch");
     };
     assert_eq!(
@@ -355,8 +356,12 @@ async fn workspace_switch_validates_and_preserves_managed_login(
             Some(json!({"sessionId": session_id, "accountId": WORKSPACE_ID_SECOND_ALLOWED})),
         )
         .await?;
-    let unchanged: codex_app_server_protocol::AccountSessionsSwitchResponse = app.read_response(id).await?;
-    let codex_app_server_protocol::AccountSessionsSwitchResponse::Switched { sessions: unchanged } = unchanged else {
+    let unchanged: codex_app_server_protocol::AccountSessionsSwitchResponse =
+        app.read_response(id).await?;
+    let codex_app_server_protocol::AccountSessionsSwitchResponse::Switched {
+        sessions: unchanged,
+    } = unchanged
+    else {
         bail!("expected unchanged workspace");
     };
     assert_eq!(unchanged.active_session_id, Some(session_id));

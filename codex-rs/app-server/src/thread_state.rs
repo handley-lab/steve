@@ -139,6 +139,7 @@ pub(crate) struct ThreadState {
     listener_command_tx: Option<mpsc::UnboundedSender<ThreadListenerCommand>>,
     current_turn_history: ThreadHistoryBuilder,
     history_mode: ThreadHistoryMode,
+    evict_superseded_agent_text: bool,
     listener_thread: Option<Weak<CodexThread>>,
     watch_registration: WatchRegistration,
 }
@@ -181,6 +182,8 @@ impl ThreadState {
         self.listener_generation = self.listener_generation.wrapping_add(1);
         self.last_thread_settings = Some(thread_settings_baseline);
         self.history_mode = history_mode;
+        self.evict_superseded_agent_text =
+            history_mode == ThreadHistoryMode::Paginated && conversation.rollout_path().is_some();
         let (listener_command_tx, listener_command_rx) = mpsc::unbounded_channel();
         self.listener_command_tx = Some(listener_command_tx);
         self.listener_thread = Some(Arc::downgrade(conversation));
@@ -232,7 +235,10 @@ impl ThreadState {
 
     pub(crate) fn track_current_turn_event(&mut self, event_turn_id: &str, event: &EventMsg) {
         if let EventMsg::TurnStarted(payload) = event {
-            self.turn_summary.started_at = payload.started_at;
+            self.turn_summary = TurnSummary {
+                started_at: payload.started_at,
+                ..Default::default()
+            };
         }
         if let EventMsg::ItemCompleted(payload) = event
             && let CoreTurnItem::AgentMessage(item) = &payload.item
@@ -243,8 +249,12 @@ impl ThreadState {
         {
             self.turn_summary.last_agent_message = Some(ThreadItem::from(payload));
         }
-        self.current_turn_history
-            .handle_event_for_history_mode(event, self.history_mode);
+        if self.evict_superseded_agent_text {
+            self.current_turn_history.handle_live_paginated_event(event);
+        } else {
+            self.current_turn_history
+                .handle_event_for_history_mode(event, self.history_mode);
+        }
         if matches!(event, EventMsg::TurnAborted(_) | EventMsg::TurnComplete(_)) {
             self.last_terminal_turn_id = Some(event_turn_id.to_string());
             if !self.current_turn_history.has_active_turn() {
@@ -323,6 +333,7 @@ mod tests {
     fn thread_settings(model: &str) -> ThreadSettings {
         ThreadSettings {
             disabled_plugin_ids: Vec::new(),
+            environments: Some(Vec::new()),
             cwd: AbsolutePathBuf::from_absolute_path("/tmp").expect("absolute path"),
             approval_policy: AskForApproval::OnRequest,
             approvals_reviewer: ApprovalsReviewer::User,

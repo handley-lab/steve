@@ -12,7 +12,6 @@ pub use pull::PullProgressReporter;
 pub use pull::TuiProgressReporter;
 use semver::Version;
 
-
 /// Prepare the local OSS environment when `--oss` is selected.
 ///
 /// - Ensures a local Ollama server is reachable.

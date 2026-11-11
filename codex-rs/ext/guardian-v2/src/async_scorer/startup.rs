@@ -22,6 +22,13 @@ pub(super) async fn decisions_sampler(
     guardian_config: &GuardianV2Config,
     auth_manager: Arc<AuthManager>,
 ) -> Result<DecisionsSampler, DecisionsError> {
+    let auth_context = input
+        .thread_store
+        .get::<codex_model_provider::ProviderAuthContext>();
+    let auth_manager = auth_context
+        .as_ref()
+        .map(|context| Arc::clone(&context.credentials))
+        .unwrap_or(auth_manager);
     let provider = guardian_config
         .local_overrides
         .comparison_model_provider
@@ -36,7 +43,10 @@ pub(super) async fn decisions_sampler(
         (Some(provider), Some(model)) => {
             DecisionsSampler::new(
                 input.config.http_client_factory(),
-                create_model_provider(provider.clone(), Some(auth_manager)),
+                auth_context
+                    .as_ref()
+                    .map(|context| context.model_provider(provider.clone()))
+                    .unwrap_or_else(|| create_model_provider(provider.clone(), Some(auth_manager))),
                 model.to_owned(),
             )
             .await
@@ -61,6 +71,13 @@ pub(super) async fn sampler_config(
     auth_manager: Arc<AuthManager>,
     manager: Option<Arc<ThreadManager>>,
 ) -> Result<LunaSamplerConfig, String> {
+    let auth_context = input
+        .thread_store
+        .get::<codex_model_provider::ProviderAuthContext>();
+    let auth_manager = auth_context
+        .as_ref()
+        .map(|context| Arc::clone(&context.credentials))
+        .unwrap_or(auth_manager);
     let mut config = input.config.clone();
     let model = guardian_config
         .local_overrides
@@ -71,10 +88,20 @@ pub(super) async fn sampler_config(
     let (provider_id, model) = config
         .resolve_model_selection(
             model,
-            guardian_config.local_overrides.model_provider.as_deref(),
+            Some(
+                guardian_config
+                    .local_overrides
+                    .model_provider
+                    .as_deref()
+                    .unwrap_or(&config.model_provider_id),
+            ),
         )
         .map_err(|error| error.to_string())?;
-    let provider = config.model_providers[&provider_id].clone();
+    let provider = if provider_id == config.model_provider_id {
+        config.model_provider.clone()
+    } else {
+        config.model_providers[&provider_id].clone()
+    };
     let independent_provider =
         provider_id != config.model_provider_id || provider != config.model_provider;
     config.model_provider_id = provider_id;
@@ -117,6 +144,10 @@ pub(super) async fn sampler_config(
             });
     Ok(LunaSamplerConfig {
         model: model.to_owned(),
+        inherit_parent_cyber_access_program: codex_core::RequiredCyberAccessPrograms::for_thread(
+            input.thread_store,
+        )
+        .is_none(),
         api_key_cyber_access_programs: config.features.enabled(Feature::ApiKeyCyberAccessPrograms),
         content_item_kinds: config.features.enabled(Feature::ContentItemKinds),
         workspace_routing: if independent_provider {
@@ -128,7 +159,10 @@ pub(super) async fn sampler_config(
                 .as_ref()
                 .clone()
         },
-        provider: create_model_provider(config.model_provider, Some(auth_manager)),
+        provider: auth_context
+            .as_ref()
+            .map(|context| context.model_provider(config.model_provider.clone()))
+            .unwrap_or_else(|| create_model_provider(config.model_provider, Some(auth_manager))),
         http_client_factory: input.config.http_client_factory(),
         session_id: input.session_store.level_id().to_string(),
         thread_id: input.thread_store.level_id().to_string(),

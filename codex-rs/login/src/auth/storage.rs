@@ -134,9 +134,10 @@ where
 
 impl AgentIdentityAuthRecord {
     pub(crate) fn from_agent_identity_jwt(jwt: &str) -> std::io::Result<Self> {
-        let claims = decode_agent_identity_jwt(jwt, /*jwks*/ None, /*issuer*/ None).map_err(|error| {
-            storage_error::with_context("failed to decode agent identity JWT", error)
-        })?;
+        let claims =
+            decode_agent_identity_jwt(jwt, /*jwks*/ None, /*issuer*/ None).map_err(|error| {
+                storage_error::with_context("failed to decode agent identity JWT", error)
+            })?;
 
         Ok(claims.into())
     }

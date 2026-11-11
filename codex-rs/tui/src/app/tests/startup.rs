@@ -909,6 +909,11 @@ async fn unattended_modals_survive_unfinished_terminal_input() -> Result<()> {
         );
     }
 
+    let snapshot = app.thread_event_channels[&thread_id]
+        .store
+        .lock()
+        .await
+        .snapshot();
     // After the drain has settled a fresh explicit decision works normally.
     app.handle_tui_event(
         &mut tui,
@@ -917,6 +922,40 @@ async fn unattended_modals_survive_unfinished_terminal_input() -> Result<()> {
     )
     .await?;
     assert!(!app.chat_widget.has_active_modal());
+
+    // Replay the cached request with the startup boundary already ended.
+    while app_event_rx.try_recv().is_ok() {}
+    app.startup_protected_input_boundary = false;
+    app.config.features.enable(Feature::TuiWorkspace)?;
+    app.local_settings.transcript_mode = crate::transcript_mode::TranscriptMode::Owned;
+    tui.set_owned_screen(/*owned*/ true)?;
+    crossterm::event::buffer_input(b"\rya")?;
+    app.render_thread_snapshot(
+        &mut tui,
+        &app_server,
+        thread_id,
+        snapshot,
+        /*resume_restored_queue*/ false,
+    )?;
+    assert!(app.chat_widget.has_active_modal());
+    let before = tui.terminal.previous_buffer().clone();
+    let cursor = tui.terminal.last_known_cursor_pos;
+    loop {
+        app.render_startup_frame(&mut tui, &app_event_rx)?;
+        assert_eq!(tui.terminal.previous_buffer(), &before);
+        assert_eq!(tui.terminal.last_known_cursor_pos, cursor);
+        let event = app_event_rx.try_recv()?;
+        let finished = matches!(event, AppEvent::SideReplayFinished(id) if id == thread_id);
+        boxed_future!(app.handle_event(&mut tui, &mut app_server, event)).await?;
+        if finished {
+            break;
+        }
+    }
+    assert!(crossterm::event::poll(std::time::Duration::ZERO)?);
+    app.render_startup_frame(&mut tui, &app_event_rx)?;
+    assert!(buffer_text(tui.terminal.previous_buffer()).contains("echo hello"));
+    assert!(!crossterm::event::poll(std::time::Duration::ZERO)?);
+    tui.set_owned_screen(/*owned*/ false)?;
 
     // Overview can open before the first real input, and survives a server reconnect.
     let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
@@ -1265,6 +1304,7 @@ async fn known_thread_started_preserves_session_without_reading_unmaterialized_r
             extra: None,
             session_id: thread_id.to_string(),
             forked_from_id: None,
+            attached_to_thread_id: None,
             parent_thread_id: None,
             preview: String::new(),
             ephemeral: false,
@@ -1326,7 +1366,10 @@ async fn known_thread_started_preserves_session_without_reading_unmaterialized_r
 
 #[tokio::test]
 async fn startup_thread_started_submits_queued_startup_input() {
-    let (mut app, _app_event_rx, mut op_rx) = make_test_app_with_channels().await;
+    let (mut app, mut events, mut op_rx) = make_test_app_with_channels().await;
+    set_chatgpt_auth(&mut app.chat_widget);
+    let model = "unlisted-model";
+    app.harness_overrides.model = Some(model.into());
     app.pending_startup_thread_start = true;
     app.chat_widget
         .set_queue_submissions_until_session_configured(/*queue*/ true);
@@ -1345,11 +1388,13 @@ async fn startup_thread_started_submits_queued_startup_input() {
     ))
     .await
     .expect("embedded app server");
-    let thread_id = ThreadId::new();
+    let mut session = test_thread_session(ThreadId::new(), test_path_buf("/tmp/project"));
+    session.model = model.into();
+    session.model_provider_id = "openai".into();
     app.handle_startup_thread_started(
         &mut app_server,
         Ok(AppServerStartedThread {
-            session: test_thread_session(thread_id, test_path_buf("/tmp/project")),
+            session,
             turns: Vec::new(),
             blocks_direct_input: false,
             task_tools_available: false,
@@ -1358,6 +1403,19 @@ async fn startup_thread_started_submits_queued_startup_input() {
     .await
     .expect("startup thread should attach");
 
+    let warnings: Vec<_> = std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            AppEvent::InsertHistoryCell(cell) if !cell.warning_entries().is_empty() => {
+                Some(lines_to_single_string(&cell.display_lines(/*width*/ 80)))
+            }
+            _ => None,
+        })
+        .collect();
+    insta::assert_snapshot!(warnings.join("\n"), @r"
+    ⚠ Your ChatGPT model list doesn't include `unlisted-model`. Check the spelling
+      or use /model to choose another model.
+    ");
+    assert_eq!(app.chat_widget.current_model(), model);
     match next_user_turn_op(&mut op_rx) {
         Op::UserTurn { items, .. } => assert_eq!(
             items,
@@ -2214,6 +2272,25 @@ async fn check_provider_resume_retries(reopen_via: ProviderResumeRoute) -> Resul
         assert_eq!(selected.turns, before_override);
         server.model_provider_override = None;
         server.shutdown().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn cloud_switch_wait_applies_navigation_before_polling_terminal_input() -> Result<()> {
+    let (mut app, mut events, _operations) = make_test_app_with_channels().await;
+    app.config.features.enable(Feature::TuiMultiBackend)?;
+    let tui = crate::tui::test_support::make_test_tui()?;
+    while events.try_recv().is_ok() {}
+
+    for navigation in [
+        AppEvent::CycleNewConversationBackend,
+        AppEvent::ChooseNewSessionCheckout { name: None },
+    ] {
+        assert!(app.can_read_terminal_after_thread_switch(&tui, &events));
+        app.app_event_tx.send(navigation);
+        assert!(!app.can_read_terminal_after_thread_switch(&tui, &events));
+        assert!(events.try_recv().is_ok());
     }
     Ok(())
 }

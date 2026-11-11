@@ -144,7 +144,10 @@ async fn rollout_reconstruction_skips_guardian_metadata_for_plain_history() {
             provider_id: &'a str,
             model: &'a str,
             config: &'a codex_models_manager::ModelsManagerConfig,
-        ) -> ModelsManagerFuture<'a, codex_protocol::error::Result<codex_models_manager::CatalogModel>> {
+        ) -> ModelsManagerFuture<
+            'a,
+            codex_protocol::error::Result<codex_models_manager::CatalogModel>,
+        > {
             self.0.fetch_add(1, Ordering::SeqCst);
             Box::pin(async move {
                 codex_models_manager::manager::StaticModelsManager::new(
@@ -1470,6 +1473,7 @@ async fn guardian_subagent_does_not_inherit_parent_exec_policy_rules() {
         instructions: Default::default(),
         installation_id: "11111111-1111-4111-8111-111111111111".to_string(),
         auth_manager,
+        runtime_auth: Default::default(),
         models_manager,
         git_root_discovery: Arc::default(),
         environment_manager: Arc::new(EnvironmentManager::default_for_tests()),

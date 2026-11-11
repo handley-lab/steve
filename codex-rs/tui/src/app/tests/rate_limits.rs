@@ -158,7 +158,13 @@ async fn backend_banner_state_survives_widget_replacement() -> Result<()> {
         response.rate_limit_upsell = None;
         app.chat_widget.update_backend_banner(&response);
         assert!(!render_bottom_popup(&app.chat_widget, /*width*/ 90).contains("View usage"));
-        assert!(backend.received_requests().await.expect("mock request log").is_empty());
+        assert!(
+            backend
+                .received_requests()
+                .await
+                .expect("mock request log")
+                .is_empty()
+        );
     }
     Ok(())
 }
@@ -353,10 +359,16 @@ async fn stale_rate_limit_reads_preserve_newer_workspace_hard_stop_for_every_ori
 async fn stale_rate_limit_read_does_not_dismiss_visible_workspace_advisory() -> Result<()> {
     let (mut app, _app_event_rx, _op_rx) = make_test_app_with_channels().await;
     set_chatgpt_auth(&mut app.chat_widget);
-    let selected_model = format!("{}/gpt-6-luna", app.chat_widget.config_ref().model_provider_id);
+    let selected_model = format!(
+        "{}/gpt-6-luna",
+        app.chat_widget.config_ref().model_provider_id
+    );
     let model = codex_models_manager::test_support::model_info(&selected_model);
     let model_request = app.chat_widget.refresh_account_scoped_models();
-    assert!(app.chat_widget.on_models_loaded(model_request, Ok(vec![model.into()])));
+    assert!(
+        app.chat_widget
+            .on_models_loaded(model_request, Ok(vec![model.into()]))
+    );
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(
         app.chat_widget.config_ref(),

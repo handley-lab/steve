@@ -30,8 +30,12 @@ pub(crate) fn install(
     );
     let manager = Arc::new(crate::ThreadManager::new(
         config,
-        Arc::clone(&session.services.auth_manager),
-        Arc::clone(&session.services.models_manager),
+        crate::build_startup_models(
+            config,
+            Arc::clone(&session.services.auth_manager),
+            session.installation_id.clone(),
+            crate::test_support::fixed_model_catalog(Arc::clone(&session.services.models_manager)),
+        ),
         crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         session.services.turn_environments.environment_manager(),
@@ -43,7 +47,6 @@ pub(crate) fn install(
         crate::passthrough_image_store(),
         Arc::clone(&session.services.thread_store),
         /*agent_graph_store*/ None,
-        session.installation_id.clone(),
         /*attestation_provider*/ None,
         /*external_time_provider*/ None,
     ));

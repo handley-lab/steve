@@ -70,10 +70,10 @@ impl App {
 
         let AppCommand::UserTurn {
             items,
+            cloud_submission,
             cwd,
             active_permission_profile,
             approval_policy,
-            approvals_reviewer,
             model: turn_model,
             effort,
             collaboration_mode,
@@ -85,6 +85,7 @@ impl App {
             );
             return;
         };
+        *cloud_submission = crate::app_command::CloudSubmissionIntent::UseKnownTurn;
         let permissions_override = Self::turn_permissions_override_from_config(
             &retry_config,
             active_permission_profile.as_ref(),
@@ -106,7 +107,9 @@ impl App {
             &thread_id.to_string(),
             &model,
             daybreak_enabled,
-        ).await {
+        )
+        .await
+        {
             self.chat_widget.add_error_message(message);
             return;
         }
@@ -165,8 +168,8 @@ impl App {
                         .data
                         .into_iter()
                         .rev()
-                        .map(ThreadItem::from)
-                        .collect();
+                        .map(ThreadItem::try_from)
+                        .collect::<Result<_, _>>()?;
                     turn.items_view = TurnItemsView::Full;
                 }
             }
@@ -228,7 +231,6 @@ impl App {
         };
         let retry_thread_id = started.session.thread_id;
         *approval_policy = started.session.approval_policy;
-        *approvals_reviewer = Some(started.session.approvals_reviewer);
         *active_permission_profile = started.session.active_permission_profile.clone();
 
         self.detach_current_thread_for_navigation(app_server, Some(retry_thread_id))

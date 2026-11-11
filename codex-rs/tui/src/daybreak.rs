@@ -29,6 +29,7 @@ pub(crate) async fn program_for_thread(
                 cursor: None,
                 limit: None,
                 include_hidden: Some(true),
+                model_provider: None,
             },
         })
         .await

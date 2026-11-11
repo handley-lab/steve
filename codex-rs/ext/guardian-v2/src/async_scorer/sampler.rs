@@ -10,6 +10,7 @@ pub(super) use telemetry::SampledScore;
 
 use super::request::PreparedRequest;
 use super::score::PendingScore;
+use codex_login::AuthOwner;
 use connection_pool::ConnectionPool;
 use std::sync::Arc;
 
@@ -23,7 +24,6 @@ use codex_history::ResponseItemEnvelope;
 use codex_http_client::HttpClientFactory;
 use codex_model_provider::SharedModelProvider;
 use codex_model_provider::WorkspaceRoutingContext;
-use codex_protocol::ResponseItemId;
 use codex_protocol::error::CodexErr;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::CatalogModel;
@@ -49,6 +49,8 @@ pub struct LunaSamplerConfig {
     pub api_key_cyber_access_programs: bool,
     /// Whether content classifications and attribution are enabled for this thread.
     pub content_item_kinds: bool,
+    /// False when the parent host confines its explicit program to that thread.
+    pub inherit_parent_cyber_access_program: bool,
     /// Routing scope and retained configuration layers for the owning thread.
     pub workspace_routing: WorkspaceRoutingContext,
     /// Effective proxy, custom-CA, and cookie configuration.
@@ -71,6 +73,8 @@ pub struct LunaSamplerConfig {
 
 /// One tool-less Luna classification request.
 pub struct LunaSamplingRequest {
+    /// Generator selected by the owning session for response items.
+    pub item_id_generator: codex_protocol::ItemIdGenerator,
     /// Cyber selection captured from the owning turn; Daybreak reviews use Blue.
     pub cyber_access_program: Option<CyberAccessProgram>,
     /// ID of the response handling the classified tool.
@@ -160,17 +164,8 @@ impl LunaSampler {
         self.connections.prewarm().await;
     }
 
-    fn auth_owner_generation(&self) -> Option<u64> {
-        self.config
-            .provider
-            .auth_manager()
-            .filter(|_| self.config.provider.info().auth.is_none())
-            .map(|manager| {
-                manager
-                    .auth_change_state_receiver()
-                    .borrow()
-                    .owner_generation
-            })
+    fn auth_owner(&self) -> Option<AuthOwner> {
+        codex_model_provider::request_auth_owner(self.config.provider.as_ref())
     }
 
     // Normalize new evidence while preserving the retained prefix and its item IDs.
@@ -202,7 +197,7 @@ impl LunaSampler {
             if item.id().is_none()
                 && let Some(prefix) = item.id_prefix()
             {
-                item.set_id(Some(ResponseItemId::new(prefix)));
+                item.set_id(Some((request.item_id_generator)(prefix)));
             }
         }
         let tokens = input
@@ -216,7 +211,7 @@ impl LunaSampler {
         &self,
         request: &LunaSamplingRequest,
         input: Vec<ResponseItem>,
-        auth_owner_generation: Option<u64>,
+        auth_owner: Option<AuthOwner>,
     ) -> execution::SamplingExecution {
         let api_request = ResponsesApiRequest {
             model: self.config.model.clone(),
@@ -235,14 +230,17 @@ impl LunaSampler {
             include: Vec::new(),
             service_tier: None,
             prompt_cache_key: Some(format!("guardian-v2:{}", self.config.thread_id)),
+            prompt_cache_options: None,
             text: None,
             client_metadata: None,
             access_programs: None,
         };
         execution::SamplingExecution {
-            auth_owner_generation,
+            auth_owner,
             cyber_access_program: codex_guardian_reviewer::guardian_cyber_access_program(
-                request.cyber_access_program,
+                request
+                    .cyber_access_program
+                    .filter(|_| self.config.inherit_parent_cyber_access_program),
             ),
             config: Arc::clone(&self.config),
             connections: Arc::clone(&self.connections),
@@ -269,7 +267,7 @@ impl LunaSampler {
             input: review_request,
             sampling,
         } = sample;
-        let auth_owner_generation = self.auth_owner_generation();
+        let auth_owner = self.auth_owner();
         let mut completion = execution::RetainedCompletion {
             ready: Some(ready),
             output: Some(Vec::new()),
@@ -286,7 +284,7 @@ impl LunaSampler {
             .into_iter()
             .map(|envelope| (envelope.item, envelope.metadata))
             .unzip();
-        let mut execution = self.execution(&sampling, input, auth_owner_generation);
+        let mut execution = self.execution(&sampling, input, auth_owner);
         execution.request.include = vec!["reasoning.encrypted_content".to_owned()];
         let mut telemetry = telemetry::SamplingTelemetry::new(
             self.config.metrics.clone(),

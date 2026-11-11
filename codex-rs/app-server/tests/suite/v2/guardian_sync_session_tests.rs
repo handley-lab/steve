@@ -693,12 +693,15 @@ async fn inline_review_delegate_runs_strict_guardian_assessment() -> Result<()> 
         .await?;
     let completed: TurnCompletedNotification =
         timeout(TIMEOUT, app.read_notification("turn/completed")).await??;
-    eprintln!("T19_EVIDENCE {}", json!({
-        "kind": "inline-review-control", "status": completed.turn.status,
-        "requests": requests.requests().iter().map(|r| json!({
-            "role": r.header("x-codex-guardian"), "body": r.body_json(),
-        })).collect::<Vec<_>>(),
-    }));
+    eprintln!(
+        "T19_EVIDENCE {}",
+        json!({
+            "kind": "inline-review-control", "status": completed.turn.status,
+            "requests": requests.requests().iter().map(|r| json!({
+                "role": r.header("x-codex-guardian"), "body": r.body_json(),
+            })).collect::<Vec<_>>(),
+        })
+    );
     assert_eq!(completed.turn.status, TurnStatus::Completed);
     let output = requests
         .function_call_output_text("inline-tool")

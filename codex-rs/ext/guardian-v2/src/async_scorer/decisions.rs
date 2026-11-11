@@ -3,11 +3,10 @@
 //! Comparisons omit reasoning and compaction.
 //! Other unsupported evidence is rejected intact.
 //! Errors never contain credentials or wire bodies.
+//! Queued comparisons retain their configured provider and admitted account owner.
 //! Evidence preserves message roles, content order, and boundaries.
 //! The caller records measurements after baseline publication; dropping its task aborts Decisions work.
 
-use codex_api::Provider;
-use codex_api::SharedAuthProvider;
 use codex_history::ResponseItemEnvelope;
 use codex_http_client::ClientRouteClass;
 use codex_http_client::HttpClientBuilder;
@@ -72,10 +71,8 @@ pub(super) enum DecisionsError {
 }
 
 pub(super) struct DecisionsSampler {
-    transport: ReqwestTransport,
-    provider: Provider,
-    // No Debug implementation: credentials must not reach diagnostics.
-    auth: SharedAuthProvider,
+    provider: SharedModelProvider,
+    factory: HttpClientFactory,
     model: String,
     slots: Semaphore,
     active_requests: Mutex<VecDeque<AbortHandle>>,
@@ -115,27 +112,12 @@ impl DecisionsSampler {
         model_provider: SharedModelProvider,
         model: String,
     ) -> Result<Self, DecisionsError> {
-        let provider = model_provider
-            .api_provider()
+        codex_model_provider::resolve_request(model_provider.as_ref(), None, factory.clone())
             .await
-            .map_err(|_| DecisionsError::ClientSetup)?;
-        let auth = model_provider
-            .api_auth()
-            .await
-            .map_err(|_| DecisionsError::Credentials)?;
-        let client = HttpClientBuilder::new()
-            .without_redirects()
-            .without_request_logging()
-            .build_respecting_outbound_proxy_policy(
-                &factory,
-                &provider.url_for_path("decisions"),
-                ClientRouteClass::Api,
-            )
             .map_err(|_| DecisionsError::ClientSetup)?;
         Ok(Self {
-            transport: ReqwestTransport::from_http_client(client),
-            provider,
-            auth,
+            provider: model_provider,
+            factory,
             model,
             // Keep HTTP concurrency bounded while evicted tasks release their permits.
             slots: Semaphore::new(MAX_CONCURRENT_REQUESTS),
@@ -148,6 +130,7 @@ impl DecisionsSampler {
         input: &[ResponseItemEnvelope],
     ) -> DecisionsTask {
         let started = Instant::now();
+        let owner = codex_model_provider::request_auth_owner(self.provider.as_ref());
         let body = (|| {
             let [tools, instructions, evidence @ ..] = input else {
                 return Err(DecisionsError::UnexpectedRequestSetup);
@@ -170,13 +153,14 @@ impl DecisionsSampler {
             }
             request_body(rubric, evidence.iter().map(|item| &item.item), &self.model)
         })();
-        self.spawn_request(body, started)
+        self.spawn_request(body, started, owner)
     }
 
     fn spawn_request(
         self: &Arc<Self>,
         body: Result<Value, DecisionsError>,
         started: Instant,
+        owner: Option<codex_login::AuthOwner>,
     ) -> DecisionsTask {
         let body = match body {
             Ok(body) => body,
@@ -202,7 +186,7 @@ impl DecisionsSampler {
             let Ok(_permit) = sampler.slots.acquire().await else {
                 return (Err(DecisionsError::Transport), started.elapsed());
             };
-            let result = tokio::time::timeout(DEADLINE, sampler.request(body))
+            let result = tokio::time::timeout(DEADLINE, sampler.request(body, owner))
                 .await
                 .unwrap_or(Err(DecisionsError::Timeout));
             (result, started.elapsed())
@@ -214,20 +198,51 @@ impl DecisionsSampler {
         }
     }
 
-    async fn request(&self, body: Value) -> Result<&'static str, DecisionsError> {
-        let mut request = self.provider.build_request(http::Method::POST, "decisions");
+    async fn request(
+        &self,
+        body: Value,
+        owner: Option<codex_login::AuthOwner>,
+    ) -> Result<&'static str, DecisionsError> {
+        if owner.as_ref().is_some_and(|owner| !owner.is_current()) {
+            return Err(DecisionsError::Credentials);
+        }
+        let setup = codex_model_provider::resolve_request(
+            self.provider.as_ref(),
+            None,
+            self.factory.clone(),
+        )
+        .await
+        .map_err(|_| DecisionsError::Credentials)?;
+        if setup.auth_owner != owner || owner.as_ref().is_some_and(|owner| !owner.is_current()) {
+            return Err(DecisionsError::Credentials);
+        }
+        let client = HttpClientBuilder::new()
+            .without_redirects()
+            .without_request_logging()
+            .build_respecting_outbound_proxy_policy(
+                &setup.http_client_factory,
+                &setup.api_provider.url_for_path("decisions"),
+                ClientRouteClass::Api,
+            )
+            .map_err(|_| DecisionsError::ClientSetup)?;
+        let transport = ReqwestTransport::from_http_client(client);
+        let mut request = setup
+            .api_provider
+            .build_request(http::Method::POST, "decisions");
         request.body = Some(RequestBody::Json(body));
         request.response_body_limit_bytes = Some(MAX_RESPONSE_BYTES);
         let request = request
             .into_prepared()
             .map_err(|_| DecisionsError::ClientSetup)?;
-        let request = self
-            .auth
+        let request = setup
+            .api_auth
             .apply_auth(request)
             .await
             .map_err(|_| DecisionsError::Credentials)?;
-        let response = self
-            .transport
+        if owner.as_ref().is_some_and(|owner| !owner.is_current()) {
+            return Err(DecisionsError::Credentials);
+        }
+        let response = transport
             .execute(request)
             .await
             .map_err(|error| match error {

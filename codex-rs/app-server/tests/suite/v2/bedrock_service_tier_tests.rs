@@ -37,6 +37,7 @@ region = "us-west-2"
                 cursor: None,
                 limit: Some(100),
                 include_hidden: Some(true),
+                ..Default::default()
             },
         })
         .await?;
@@ -116,6 +117,7 @@ region = "us-west-2"
                 cursor: None,
                 limit: Some(100),
                 include_hidden: Some(true),
+                ..Default::default()
             },
         })
         .await?;

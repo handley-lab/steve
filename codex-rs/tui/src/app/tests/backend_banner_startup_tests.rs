@@ -166,7 +166,8 @@ async fn failing_catalog_session(
     config: &Config,
     thread_id: ThreadId,
 ) -> Result<(AppServerSession, tokio::task::JoinHandle<Result<()>>)> {
-    use futures::{SinkExt, StreamExt};
+    use futures::SinkExt;
+    use futures::StreamExt;
     use tokio_tungstenite::tungstenite::Message;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let websocket_url = format!("ws://{}", listener.local_addr()?);

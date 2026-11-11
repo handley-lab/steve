@@ -13,7 +13,7 @@ pub(super) struct PendingCreditsNudge {
 }
 
 pub(super) const NUDGE_MODEL_SLUG: &str = crate::model_catalog::LUNA_MODEL;
-pub(super) const RATE_LIMIT_SWITCH_PROMPT_THRESHOLD: f64 = 90.0;
+pub(super) const RATE_LIMIT_SWITCH_PROMPT_THRESHOLD: i32 = 90;
 pub(super) const RATE_LIMIT_SWITCH_PROMPT_VIEW_ID: &str = "rate-limit-switch-prompt";
 
 // The account API and rolling rate-limit headers use this bucket ID independently of UI branding.
@@ -155,6 +155,10 @@ pub(super) enum RateLimitSwitchPromptState {
     Idle,
     Pending,
     Shown,
+    Recovering {
+        deadline: Instant,
+        seconds_shown: u64,
+    },
 }
 
 #[derive(Debug)]
@@ -318,16 +322,34 @@ impl ChatWidget {
                     .credits
                     .as_ref()
                     .is_some_and(has_usable_workspace_credits);
-            if is_codex_limit && has_workspace_credits {
+            let used_percent = snapshot
+                .primary
+                .iter()
+                .chain(&snapshot.secondary)
+                .map(|window| window.used_percent)
+                .max();
+            let replenished = matches!(source, RateLimitSnapshotSource::AccountUsage)
+                && !self.usage_notice_state.applying_stale_read
+                && used_percent.is_some_and(|used| used < RATE_LIMIT_SWITCH_PROMPT_THRESHOLD);
+            if is_codex_limit && (has_workspace_credits || replenished) {
                 match self.rate_limit_switch_prompt {
                     RateLimitSwitchPromptState::Pending => {
                         self.rate_limit_switch_prompt = RateLimitSwitchPromptState::Idle;
+                    }
+                    RateLimitSwitchPromptState::Shown if replenished => {
+                        let now = Instant::now();
+                        self.rate_limit_switch_prompt = RateLimitSwitchPromptState::Recovering {
+                            deadline: now + Duration::from_secs(/*secs*/ 5),
+                            seconds_shown: 0,
+                        };
+                        self.tick_rate_limit_recovery_prompt(now);
                     }
                     RateLimitSwitchPromptState::Shown => {
                         self.bottom_pane
                             .dismiss_view_by_id(RATE_LIMIT_SWITCH_PROMPT_VIEW_ID);
                     }
-                    RateLimitSwitchPromptState::Idle => {}
+                    RateLimitSwitchPromptState::Idle
+                    | RateLimitSwitchPromptState::Recovering { .. } => {}
                 }
             }
             let should_warn_about_rate_limit_usage = is_codex_limit && !has_workspace_credits;
@@ -355,25 +377,13 @@ impl ChatWidget {
                 vec![]
             };
 
-            let high_usage = is_codex_limit
-                && (snapshot
-                    .secondary
-                    .as_ref()
-                    .map(|w| f64::from(w.used_percent) >= RATE_LIMIT_SWITCH_PROMPT_THRESHOLD)
-                    .unwrap_or(false)
-                    || snapshot
-                        .primary
-                        .as_ref()
-                        .map(|w| f64::from(w.used_percent) >= RATE_LIMIT_SWITCH_PROMPT_THRESHOLD)
-                        .unwrap_or(false));
-
-            if high_usage
-                && !has_workspace_credits
+            if used_percent.is_some_and(|used| used >= RATE_LIMIT_SWITCH_PROMPT_THRESHOLD)
+                && should_warn_about_rate_limit_usage
                 && !self.rate_limit_switch_prompt_hidden()
                 && self.current_rate_limit_policy_model() != NUDGE_MODEL_SLUG
-                && !matches!(
+                && matches!(
                     self.rate_limit_switch_prompt,
-                    RateLimitSwitchPromptState::Shown
+                    RateLimitSwitchPromptState::Idle
                 )
             {
                 self.rate_limit_switch_prompt = RateLimitSwitchPromptState::Pending;
@@ -382,16 +392,13 @@ impl ChatWidget {
             // /wham/usage identifies ordinary and additional model limits separately. Streamed
             // updates still drive warnings/recovery above, but must not overwrite status data.
             if matches!(source, RateLimitSnapshotSource::AccountUsage) {
-                let limit_label = snapshot
-                    .limit_name
-                    .clone()
-                    .unwrap_or_else(|| {
-                        if is_codex_limit {
-                            ACCOUNT_RATE_LIMIT_LABEL.to_string()
-                        } else {
-                            limit_id.clone()
-                        }
-                    });
+                let limit_label = snapshot.limit_name.clone().unwrap_or_else(|| {
+                    if is_codex_limit {
+                        ACCOUNT_RATE_LIMIT_LABEL.to_string()
+                    } else {
+                        limit_id.clone()
+                    }
+                });
                 let display = rate_limit_snapshot_display_for_limit(
                     &snapshot,
                     limit_label,
@@ -404,7 +411,7 @@ impl ChatWidget {
 
             if !warnings.is_empty() {
                 for warning in warnings {
-                    self.add_to_history(history_cell::new_usage_warning_event(warning));
+                    self.add_to_history(history_cell::new_visible_warning_event(warning));
                 }
                 self.request_redraw();
             }
@@ -458,11 +465,19 @@ impl ChatWidget {
     }
 
     pub(super) fn maybe_show_pending_rate_limit_prompt(&mut self) {
-        if self.has_applicable_backend_banner() {
+        if self.has_applicable_backend_banner()
+            || matches!(
+                self.rate_limit_switch_prompt,
+                RateLimitSwitchPromptState::Recovering { .. }
+            )
+        {
             return;
         }
         if self.rate_limit_switch_prompt_hidden()
-            || matches!(self.current_rate_limit_policy_model(), NUDGE_MODEL_SLUG | LUNA_RESERVE_MODEL)
+            || matches!(
+                self.current_rate_limit_policy_model(),
+                NUDGE_MODEL_SLUG | LUNA_RESERVE_MODEL
+            )
         {
             self.rate_limit_switch_prompt = RateLimitSwitchPromptState::Idle;
             return;
@@ -479,6 +494,48 @@ impl ChatWidget {
         } else {
             self.rate_limit_switch_prompt = RateLimitSwitchPromptState::Idle;
         }
+    }
+
+    pub(super) fn tick_rate_limit_recovery_prompt(&mut self, now: Instant) {
+        let RateLimitSwitchPromptState::Recovering {
+            deadline,
+            seconds_shown,
+        } = &mut self.rate_limit_switch_prompt
+        else {
+            return;
+        };
+        let remaining = deadline.saturating_duration_since(now);
+        if remaining.is_zero() {
+            self.bottom_pane
+                .dismiss_view_by_id(RATE_LIMIT_SWITCH_PROMPT_VIEW_ID);
+            self.rate_limit_switch_prompt = RateLimitSwitchPromptState::Shown;
+            return;
+        }
+        let seconds = remaining.as_secs() + u64::from(remaining.subsec_nanos() != 0);
+        if *seconds_shown != seconds {
+            let unit = if seconds == 1 { "second" } else { "seconds" };
+            let params = SelectionViewParams {
+                view_id: Some(RATE_LIMIT_SWITCH_PROMPT_VIEW_ID),
+                title: Some("You’re no longer close to your usage limit.".into()),
+                subtitle: Some(format!("Dismissing in {seconds} {unit}…")),
+                items: vec![SelectionItem {
+                    name: "Dismiss".into(),
+                    dismiss_on_select: true,
+                    ..Default::default()
+                }],
+                ..SelectionViewParams::picker()
+            };
+            if !self
+                .bottom_pane
+                .replace_selection_view_if_present(RATE_LIMIT_SWITCH_PROMPT_VIEW_ID, params)
+            {
+                self.rate_limit_switch_prompt = RateLimitSwitchPromptState::Shown;
+                return;
+            }
+            *seconds_shown = seconds;
+        }
+        self.bottom_pane
+            .request_redraw_in(remaining - Duration::from_secs(seconds - 1));
     }
 
     fn open_rate_limit_switch_prompt(&mut self, preset: ModelPreset) {

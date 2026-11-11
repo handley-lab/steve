@@ -3,7 +3,6 @@ mod client;
 pub use client::LMStudioClient;
 use codex_core::config::Config;
 
-
 /// Prepare the local OSS environment when `--oss` is selected.
 ///
 /// - Ensures a local LM Studio server is reachable.

@@ -29,6 +29,9 @@ mod login_tests;
 #[path = "oauth_session_request_tests.rs"]
 mod request_tests;
 
+#[path = "oauth_session_device_tests.rs"]
+mod device_tests;
+
 #[path = "oauth_session_storage_tests.rs"]
 mod storage_tests;
 
@@ -59,6 +62,20 @@ fn config(server: &MockServer) -> OAuthSessionConfig {
         redirect_port: None,
         credentials_store: Default::default(),
     }
+}
+
+fn device_config(server: &MockServer) -> OAuthSessionConfig {
+    OAuthSessionConfig {
+        device_authorization_url: Some(format!("{}/devicecode", server.uri())),
+        ..config(server)
+    }
+}
+
+fn approved_device_tokens() -> ResponseTemplate {
+    ResponseTemplate::new(200).set_body_json(json!({
+        "access_token": "device-access", "refresh_token": "device-refresh",
+        "token_type": "Bearer", "expires_in": 3600,
+    }))
 }
 
 fn loopback_config() -> OAuthSessionConfig {
@@ -1113,9 +1130,12 @@ async fn failed_save_retains_rotation_without_overwriting_a_new_external_login()
             json!({"retained": &cached.token, "pending": &cached.pending})
         };
         let peek = manager.cached_access_token();
-        eprintln!("T18_EVIDENCE {}", json!({"kind": "gateway-pending-credential",
-            "old_expired": expired, "state": snapshot, "peek": &peek,
-        }));
+        eprintln!(
+            "T18_EVIDENCE {}",
+            json!({"kind": "gateway-pending-credential",
+                "old_expired": expired, "state": snapshot, "peek": &peek,
+            })
+        );
         assert!(peek.is_none());
         std::fs::remove_dir(&path).expect("unblock credential persistence");
         std::fs::rename(&backup, &path).expect("restore old store");
@@ -1182,7 +1202,10 @@ async fn failed_save_retains_rotation_without_overwriting_a_new_external_login()
             recovered.expect("recover pending rotation"),
             expected["access_token"].as_str().expect("expected token")
         );
-        assert_eq!(manager.cached_access_token().as_deref(), expected["access_token"].as_str());
+        assert_eq!(
+            manager.cached_access_token().as_deref(),
+            expected["access_token"].as_str()
+        );
         assert_eq!(
             serde_json::to_value(manager.load_token().expect("saved rotation"))
                 .expect("stored credential"),

@@ -5,9 +5,9 @@ expression: "format!(\"{initial}\\n\\n{scrolled}\")"
 ▌ Your feedback will be sent to the configured feedback destination.
 ▌
 ▌ A visible note.
-Press enter to submit or esc to cancel
+⌃s save ZIP · enter send · esc cancel
 
 ▌ The listed logs and diagnostics will be included.
 ▌
 ▌ A visible note.
-Press enter to submit or esc to cancel
+⌃s save ZIP · enter send · esc cancel

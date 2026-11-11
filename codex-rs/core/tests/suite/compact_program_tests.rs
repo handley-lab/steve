@@ -116,8 +116,10 @@ async fn model_switch_program_pair(
     };
     provider.requires_openai_auth = true;
     if !local {
-        provider.capabilities.get_or_insert_default().remote_compaction =
-            Some(codex_model_provider_info::RemoteCompactionSupport::V2);
+        provider
+            .capabilities
+            .get_or_insert_default()
+            .remote_compaction = Some(codex_model_provider_info::RemoteCompactionSupport::V2);
     }
     let mut builder = test_codex()
         .with_pre_build_hook(|home| {
@@ -413,8 +415,10 @@ async fn api_key_resume_compaction_retries_current_program(
     let mut provider = openai_model_provider(&server);
     provider.stream_max_retries = Some(0);
     provider.requires_openai_auth = true;
-    provider.capabilities.get_or_insert_default().remote_compaction =
-        Some(codex_model_provider_info::RemoteCompactionSupport::V2);
+    provider
+        .capabilities
+        .get_or_insert_default()
+        .remote_compaction = Some(codex_model_provider_info::RemoteCompactionSupport::V2);
     let mut builder = test_codex()
         .with_pre_build_hook(|home| {
             std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
@@ -482,28 +486,27 @@ async fn api_key_resume_compaction_retries_current_program(
         builder = builder.with_auth(CodexAuth::from_api_key("test-key"));
         None
     };
-    builder = builder
-        .with_config(move |config| {
-            config.model_catalog = Some(ModelsResponse { models });
-            config.model_provider = provider;
-            if provider_owned_key {
-                config.model_provider.requires_openai_auth = false;
-                config.model_provider.experimental_bearer_token = Some("provider-key".into());
-                config.model_provider_id = "cambridge".into();
-                config.model_provider.name = "Cambridge".into();
-                config
-                    .model_providers
-                    .insert("cambridge".into(), config.model_provider.clone());
-            }
+    builder = builder.with_config(move |config| {
+        config.model_catalog = Some(ModelsResponse { models });
+        config.model_provider = provider;
+        if provider_owned_key {
+            config.model_provider.requires_openai_auth = false;
+            config.model_provider.experimental_bearer_token = Some("provider-key".into());
+            config.model_provider_id = "cambridge".into();
+            config.model_provider.name = "Cambridge".into();
             config
-                .features
-                .enable(Feature::ApiKeyModelDiscovery)
-                .expect("enable API-key model discovery");
-            config
-                .features
-                .enable(Feature::ApiKeyCyberAccessPrograms)
-                .expect("enable API-key Cyber access programs");
-        });
+                .model_providers
+                .insert("cambridge".into(), config.model_provider.clone());
+        }
+        config
+            .features
+            .enable(Feature::ApiKeyModelDiscovery)
+            .expect("enable API-key model discovery");
+        config
+            .features
+            .enable(Feature::ApiKeyCyberAccessPrograms)
+            .expect("enable API-key Cyber access programs");
+    });
     let resumed = builder
         .resume(
             &server,

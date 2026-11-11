@@ -70,9 +70,13 @@ impl Live {
     pub(super) async fn session(&self) -> Result<&Session, String> {
         self.session
             .get_or_try_init(|| async {
+                if self.config.chatgpt_base_url.trim().is_empty() {
+                    return Err("Configure chatgpt_base_url to load Analytics.".to_string());
+                }
                 let session = AnalyticsSession::from_config(
                     self.config.as_ref(),
                     self.config.http_client_factory(),
+                    /*runtime_auth_mode*/ None,
                 )
                 .await?;
                 let credit_groups = Grouping::credit_groupings(session.account().plan_type)
@@ -280,3 +284,7 @@ mod connection_tests;
 #[cfg(test)]
 #[path = "account_plan_tests.rs"]
 mod account_plan_tests;
+
+#[cfg(test)]
+#[path = "runtime_auth_tests.rs"]
+mod runtime_auth_tests;
