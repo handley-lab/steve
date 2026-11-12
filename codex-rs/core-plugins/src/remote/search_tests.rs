@@ -80,8 +80,8 @@ async fn configured_plugin_service_does_not_follow_another_origin() {
     input.chatgpt_base_url = source.uri();
     let configs = [
         config,
-        input.remote_plugin_service_config(),
-        input.clone().remote_plugin_service_config(),
+        input.remote_plugin_service_config(None),
+        input.clone().remote_plugin_service_config(None),
     ];
     let mut results = Vec::new();
     for config in configs {
