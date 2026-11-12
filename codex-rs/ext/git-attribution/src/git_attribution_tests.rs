@@ -195,6 +195,7 @@ async fn world_state_stops_after_rejected_refresh() {
     let extension = super::GitAttributionExtension {
         auth_manager,
         base_url: format!("{}/backend-api", server.uri()),
+        path_style: PathStyle::ChatGptApi,
         http_client_factory: http_client_factory(),
     };
     let model_info = serde_json::from_value(serde_json::json!({
