@@ -395,12 +395,7 @@ fn analytics_destination_uses_explicit_capture_file() {
 #[test]
 fn analytics_destination_uses_http_without_capture_file() {
     let commercial_url = "https://chatgpt.com/backend-api/codex/analytics-events/events";
-    let gov_url = "https://gov.chatgpt.com/backend-api/codex/analytics-events/events";
     for (base_url, expected_urls) in [
-        (
-            ChatgptBaseUrl::Default,
-            [commercial_url, gov_url, commercial_url],
-        ),
         (
             ChatgptBaseUrl::from("https://chatgpt.com/backend-api/"),
             [commercial_url; 3],

@@ -26,7 +26,6 @@ pub use binding::RuntimeAuthBinding;
 pub use binding::RuntimeAuthError;
 pub use installation_id::resolve_installation_id;
 pub use manager::RuntimeAuthManager;
-pub use registration::DEFAULT_REGISTRATION_URL;
 pub use registration::RegistrationError;
 pub use registration::RegistrationErrorCode;
 pub use registration::RuntimeRegistrationClient;

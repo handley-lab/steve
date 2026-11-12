@@ -13,7 +13,6 @@ use serde::Deserialize;
 use std::time::Duration;
 use url::Url;
 
-pub const DEFAULT_REGISTRATION_URL: &str = "https://auth.openai.com/agent/register";
 const MAX_BODY_BYTES: usize = 64 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 

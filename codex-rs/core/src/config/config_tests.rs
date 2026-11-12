@@ -6764,7 +6764,7 @@ async fn config_requires_explicit_chatgpt_backend_destination() -> std::io::Resu
 }
 
 #[test_case::test_case("https://managed.example/backend-api/"; "custom")]
-#[test_case::test_case(DEFAULT_CHATGPT_BASE_URL; "explicit_default")]
+#[test_case::test_case("https://chatgpt.com/backend-api/"; "explicit_default")]
 #[tokio::test]
 async fn config_applies_managed_auth_store_and_chatgpt_base_url(
     managed_url: &str,
@@ -6826,7 +6826,7 @@ async fn chatgpt_backend_url_requires_explicit_destination_for_any_auth() -> std
     let legacy = CodexAuth::from_api_key("legacy-key");
     let marked = CodexAuth::from_api_key("sk-proj-fedramp-test-key");
     let custom_url = "https://custom.example/backend-api/";
-    for configured_url in [None, Some(custom_url), Some(DEFAULT_CHATGPT_BASE_URL)] {
+    for configured_url in [None, Some(custom_url), Some("https://chatgpt.com/backend-api/")] {
         std::fs::write(
             codex_home.path().join(CONFIG_TOML_FILE),
             configured_url
