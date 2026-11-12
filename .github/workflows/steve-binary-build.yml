@@ -34,7 +34,7 @@ jobs:
           - runner: windows-11-arm
             target: aarch64-pc-windows-msvc
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: ${{ matrix.target == 'x86_64-apple-darwin' && 360 || 240 }}
+    timeout-minutes: 240
     defaults:
       run:
         shell: bash
