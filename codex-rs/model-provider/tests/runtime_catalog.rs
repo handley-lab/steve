@@ -194,7 +194,7 @@ async fn check_catalog(server: &str) {
         let info = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
         let provider = context.model_provider(info);
         let selected = provider
-            .request_auth(/*scope*/ None)
+            .request_auth()
             .await
             .unwrap()
             .runtime
