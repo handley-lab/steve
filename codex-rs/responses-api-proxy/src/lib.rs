@@ -65,7 +65,6 @@ pub struct Args {
     /// Directory where request/response dumps should be written as JSON.
     #[arg(long, value_name = "DIR")]
     pub dump_dir: Option<PathBuf>,
-
 }
 
 #[derive(Serialize)]

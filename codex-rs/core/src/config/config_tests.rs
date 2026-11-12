@@ -6826,7 +6826,11 @@ async fn chatgpt_backend_url_requires_explicit_destination_for_any_auth() -> std
     let legacy = CodexAuth::from_api_key("legacy-key");
     let marked = CodexAuth::from_api_key("sk-proj-fedramp-test-key");
     let custom_url = "https://custom.example/backend-api/";
-    for configured_url in [None, Some(custom_url), Some("https://chatgpt.com/backend-api/")] {
+    for configured_url in [
+        None,
+        Some(custom_url),
+        Some("https://chatgpt.com/backend-api/"),
+    ] {
         std::fs::write(
             codex_home.path().join(CONFIG_TOML_FILE),
             configured_url

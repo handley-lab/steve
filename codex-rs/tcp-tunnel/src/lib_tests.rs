@@ -110,10 +110,7 @@ async fn control_input_acknowledges_bearer_renewal_with_or_without_metadata() ->
             true,
         ),
     ] {
-        let (metadata, mut tokens) = control_input(
-            Cursor::new(input),
-            includes_metadata,
-        )?;
+        let (metadata, mut tokens) = control_input(Cursor::new(input), includes_metadata)?;
         let metadata = metadata.await??;
         if includes_metadata {
             assert_eq!(metadata["x-test-route"], "private-value");
@@ -138,10 +135,7 @@ async fn control_input_acknowledges_bearer_renewal_with_or_without_metadata() ->
 
 #[tokio::test]
 async fn closed_parent_pipe_finishes_even_before_proxy_readiness() -> Result<()> {
-    let (_, mut tokens) = control_input(
-        Cursor::new([]),
-        /*connect_headers_stdin*/ false,
-    )?;
+    let (_, mut tokens) = control_input(Cursor::new([]), /*connect_headers_stdin*/ false)?;
     let (updates, _) = watch::channel("Bearer initial".parse()?);
     let (_ready, readiness) = oneshot::channel();
     let mut output = Vec::new();
@@ -191,10 +185,8 @@ async fn invalid_control_input_stops_credentials_without_exposing_secrets() -> R
     for &(case, input) in invalid_metadata {
         let mut input = input.to_vec();
         input.extend_from_slice(b"private-secret\n");
-        let (metadata, mut tokens) = control_input(
-            Cursor::new(input),
-            /*connect_headers_stdin*/ true,
-        )?;
+        let (metadata, mut tokens) =
+            control_input(Cursor::new(input), /*connect_headers_stdin*/ true)?;
         let error = metadata.await?.expect_err(case);
         assert!(!format!("{error:#}").contains("private-"), "{case}");
         assert!(tokens.recv().await.is_none(), "{case}");
@@ -204,10 +196,8 @@ async fn invalid_control_input_stops_credentials_without_exposing_secrets() -> R
         ("empty bearer", b"\n".to_vec()),
         ("bearer limit", vec![b'x'; MAX_TOKEN_BYTES + 1]),
     ] {
-        let (metadata, mut tokens) = control_input(
-            Cursor::new(input),
-            /*connect_headers_stdin*/ false,
-        )?;
+        let (metadata, mut tokens) =
+            control_input(Cursor::new(input), /*connect_headers_stdin*/ false)?;
         assert!(metadata.await??.is_empty(), "{case}");
         let error = tokens.recv().await.expect(case).expect_err(case);
         assert!(!format!("{error:#}").contains("private-"), "{case}");
