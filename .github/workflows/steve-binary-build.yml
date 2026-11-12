@@ -201,6 +201,7 @@ jobs:
     env:
       CARGO_INCREMENTAL: "0"
       CARGO_PROFILE_CI_TEST_DEBUG: "0"
+      RUST_MIN_STACK: "8388608"
       STEVE_REPO_ROOT: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
