@@ -113,7 +113,6 @@ async fn control_input_acknowledges_bearer_renewal_with_or_without_metadata() ->
         let (metadata, mut tokens) = control_input(
             Cursor::new(input),
             includes_metadata,
-            "https://proxy.example",
         )?;
         let metadata = metadata.await??;
         if includes_metadata {
@@ -138,87 +137,10 @@ async fn control_input_acknowledges_bearer_renewal_with_or_without_metadata() ->
 }
 
 #[tokio::test]
-async fn portals_jwt_listener_requires_v2_at_startup_and_on_renewal() -> Result<()> {
-    // Inert parser fixtures with a placeholder signature. No signing key or live credential.
-    const HEADER: &str = "eyJ0eXAiOiJjY2EtdHVubmVsK2p3dCJ9";
-    let v1 = format!("{HEADER}.eyJ2ZXIiOjF9.fixture");
-    let v2 = format!("{HEADER}.eyJ2ZXIiOjJ9.fixture");
-    let origin = super::ssh::PUBLIC_GATEWAY;
-    for invalid in [
-        &v1[..],
-        "opaque",
-        "malformed.parts",
-        &format!("{HEADER}.e30.fixture"),
-    ] {
-        let (_, mut tokens) = control_input(
-            Cursor::new(invalid.to_owned()),
-            /*connect_headers_stdin*/ false,
-            origin,
-        )?;
-        let error = tokens.recv().await.unwrap().unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "Portals requires an ERS-issued v2 tunnel JWT"
-        );
-    }
-
-    let (_, mut tokens) = control_input(
-        Cursor::new(format!("{v2}\n{v2}\n{v1}\n")),
-        /*connect_headers_stdin*/ false,
-        origin,
-    )?;
-    let initial = tokens.recv().await.unwrap()?.unwrap();
-    assert_eq!(initial.to_str()?, format!("Bearer {v2}"));
-    let (updates, latest) = watch::channel(initial.clone());
-    let (ready, readiness) = oneshot::channel();
-    ready.send(()).unwrap();
-    let mut output = Vec::new();
-    let error = update_auth_tokens(&mut tokens, updates, readiness, &mut output)
-        .await
-        .unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        "Portals requires an ERS-issued v2 tunnel JWT"
-    );
-    assert_eq!(output, b"AUTH_UPDATED\n");
-    assert_eq!(*latest.borrow(), initial);
-    Ok(())
-}
-
-#[tokio::test]
-async fn other_bearer_modes_reject_ers_v1_and_accept_unrelated_jwts() -> Result<()> {
-    let unrelated = "eyJ0eXAiOiJKV1QifQ.eyJ2ZXIiOjF9.fixture";
-    let ers_v1 = "eyJ0eXAiOiJjY2EtdHVubmVsK2p3dCJ9.eyJ2ZXIiOjF9.fixture";
-    for (origin, metadata) in [
-        (
-            super::ssh::PUBLIC_GATEWAY,
-            r#"[["x-portals-auth-mode","oauth"]]"#,
-        ),
-        ("https://proxy.example", "[]"),
-    ] {
-        let (headers, mut tokens) = control_input(
-            Cursor::new(format!("{metadata}\n{unrelated}\n{ers_v1}\n")),
-            /*connect_headers_stdin*/ true,
-            origin,
-        )?;
-        headers.await??;
-        let initial = tokens.recv().await.unwrap()?.unwrap();
-        assert_eq!(initial.to_str()?, format!("Bearer {unrelated}"));
-        let error = tokens.recv().await.unwrap().unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "Portals requires an ERS-issued v2 tunnel JWT"
-        );
-    }
-    Ok(())
-}
-
-#[tokio::test]
 async fn closed_parent_pipe_finishes_even_before_proxy_readiness() -> Result<()> {
     let (_, mut tokens) = control_input(
         Cursor::new([]),
         /*connect_headers_stdin*/ false,
-        "https://proxy.example",
     )?;
     let (updates, _) = watch::channel("Bearer initial".parse()?);
     let (_ready, readiness) = oneshot::channel();
@@ -272,7 +194,6 @@ async fn invalid_control_input_stops_credentials_without_exposing_secrets() -> R
         let (metadata, mut tokens) = control_input(
             Cursor::new(input),
             /*connect_headers_stdin*/ true,
-            "https://proxy.example",
         )?;
         let error = metadata.await?.expect_err(case);
         assert!(!format!("{error:#}").contains("private-"), "{case}");
@@ -286,7 +207,6 @@ async fn invalid_control_input_stops_credentials_without_exposing_secrets() -> R
         let (metadata, mut tokens) = control_input(
             Cursor::new(input),
             /*connect_headers_stdin*/ false,
-            "https://proxy.example",
         )?;
         assert!(metadata.await??.is_empty(), "{case}");
         let error = tokens.recv().await.expect(case).expect_err(case);
@@ -665,7 +585,6 @@ fn diagnostics_flag_is_optional_and_advertised() {
     let args = [
         "tcp-tunnel",
         "--proxy-url",
-        "https://proxy.example",
         "--proxy-origins-file",
         "origins",
         "--target",

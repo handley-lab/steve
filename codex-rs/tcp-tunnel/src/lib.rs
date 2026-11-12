@@ -4,7 +4,6 @@ use std::io::BufRead;
 use std::io::Write;
 use std::net::IpAddr;
 use std::net::SocketAddr;
-use std::num::NonZeroU16;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,7 +16,6 @@ use anyhow::ensure;
 use bytes::Buf;
 use bytes::Bytes;
 use clap::Args as ClapArgs;
-use clap::builder::ArgPredicate;
 use http::HeaderMap;
 use http::HeaderValue;
 use http::Method;
@@ -39,9 +37,6 @@ use url::Url;
 
 mod control;
 mod diagnostics;
-mod ssh;
-
-pub use ssh::run_ssh_proxy;
 
 use diagnostics::Code;
 use diagnostics::Diagnostics;
@@ -56,35 +51,20 @@ const MAX_FIELD_SECTION_SIZE: u64 = 64 * 1024;
 
 #[derive(Debug, ClapArgs)]
 pub struct Args {
-    /// HTTPS proxy origin. With --environment-id, defaults to the public Portals gateway.
-    #[arg(
-        long,
-        required = false,
-        required_unless_present = "environment_id",
-        default_value_if("environment_id", ArgPredicate::IsPresent, ssh::PUBLIC_GATEWAY)
-    )]
+    /// HTTPS proxy origin.
+    #[arg(long)]
     pub proxy_url: Url,
-    /// Listener mode: file containing one exact approved HTTPS proxy origin per line.
+    /// File containing one exact approved HTTPS proxy origin per line.
     #[arg(long, requires = "auth_token_stdin")]
     proxy_origins_file: Option<PathBuf>,
-    /// SSH environment ID and port (ENV:PORT), or the CONNECT authority in listener mode.
-    #[arg(
-        long,
-        required_unless_present = "environment_id",
-        conflicts_with = "environment_id"
-    )]
-    target: Option<String>,
-    /// Open an SSH stdio tunnel to this canonical Portals environment.
-    #[arg(long, conflicts_with = "auth_token_stdin")]
-    environment_id: Option<String>,
-    /// Published SSH port for --environment-id (default 22).
-    #[arg(long, requires = "environment_id")]
-    port: Option<NonZeroU16>,
+    /// CONNECT authority.
+    #[arg(long)]
+    target: String,
     /// Loopback listener address (default 127.0.0.1:0).
     #[arg(long, requires = "auth_token_stdin")]
     listen_addr: Option<SocketAddr>,
-    /// Start a listener and read its bearer from stdin. Otherwise relay SSH over stdio using the Codex login.
-    #[arg(long, requires = "proxy_origins_file")]
+    /// Start a listener and read its bearer from stdin.
+    #[arg(long, required = true, requires = "proxy_origins_file")]
     pub auth_token_stdin: bool,
     /// Read replacement bearers from stdin and stop when the controlling pipe closes.
     #[arg(long, requires = "auth_token_stdin")]
@@ -216,13 +196,12 @@ pub async fn run(args: Args) -> Result<()> {
         let origins = std::fs::read_to_string(args.proxy_origins_file.context("missing proxy origins file")?)
             .context("reading trusted proxy origins")?;
         let trusted_origins = parse_trusted_origins(&origins)?;
-        let authority = args.target.as_deref().context("missing CONNECT target")?;
+        let authority = args.target.as_str();
         let target = ProxyTarget::parse(&args.proxy_url, &trusted_origins, authority)?;
         phase = Phase::Control;
         let (metadata, mut tokens) = control_input(
             std::io::BufReader::new(std::io::stdin()),
             args.connect_headers_stdin,
-            &args.proxy_url.origin().ascii_serialization(),
         )?;
         let connect = metadata.await.context("CONNECT metadata input closed")??;
         let initial_auth = tokens
@@ -289,9 +268,7 @@ async fn update_auth_tokens(
 fn control_input(
     mut reader: impl BufRead + Send + 'static,
     connect_headers_stdin: bool,
-    proxy_origin: &str,
 ) -> Result<(oneshot::Receiver<Result<HeaderMap>>, TokenStream)> {
-    let portals = ssh::GATEWAY_ORIGINS.contains(&proxy_origin);
     let (metadata, initial_metadata) = oneshot::channel();
     let (send, tokens) = mpsc::channel(1);
     // Tokio's blocking stdin can prevent runtime shutdown after a proxy startup failure.
@@ -310,15 +287,7 @@ fn control_input(
                     return;
                 }
             };
-            let credential = if portals
-                && headers
-                    .get("x-portals-auth-mode")
-                    .is_none_or(|mode| mode != "oauth")
-            {
-                TunnelCredential::ErsTunnelJwt
-            } else {
-                TunnelCredential::Bearer
-            };
+            let credential = TunnelCredential::Bearer;
             let _ = metadata.send(Ok(headers));
             loop {
                 let token = credential.read(&mut reader);
