@@ -209,12 +209,12 @@ async fn configured_analytics_delivery_does_not_follow_redirects() {
 
     let origin = MockServer::start().await;
     let target = MockServer::start().await;
-    let destination = format!("{}/events", target.uri());
-    Mock::given(path("/events"))
+    let destination = format!("{}/codex/analytics-events/events", target.uri());
+    Mock::given(path("/codex/analytics-events/events"))
         .respond_with(ResponseTemplate::new(307).insert_header("location", destination.as_str()))
         .mount(&origin)
         .await;
-    Mock::given(path("/events"))
+    Mock::given(path("/codex/analytics-events/events"))
         .respond_with(ResponseTemplate::new(200))
         .mount(&target)
         .await;
@@ -225,10 +225,14 @@ async fn configured_analytics_delivery_does_not_follow_redirects() {
     });
     super::send_track_events_request(
         &auth,
-        &AnalyticsEventsDestination::Http { url: destination },
+        &AnalyticsEventsDestination::Http {
+            base_url: ChatgptBaseUrl::from(target.uri()),
+            api_key_headers: Default::default(),
+        },
         vec![sample_regular_track_event("synthetic-event-thread")],
         &factory,
         Some("synthetic-product"),
+        None,
     )
     .await;
     let direct = target.received_requests().await.unwrap();
@@ -240,11 +244,13 @@ async fn configured_analytics_delivery_does_not_follow_redirects() {
     super::send_track_events_request(
         &auth,
         &AnalyticsEventsDestination::Http {
-            url: format!("{}/events", origin.uri()),
+            base_url: ChatgptBaseUrl::from(origin.uri()),
+            api_key_headers: Default::default(),
         },
         vec![sample_regular_track_event("synthetic-event-thread")],
         &factory,
         Some("synthetic-product"),
+        None,
     )
     .await;
     assert_eq!(origin.received_requests().await.unwrap().len(), 1);
