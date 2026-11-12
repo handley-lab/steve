@@ -210,6 +210,8 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-ci
       - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
+        with:
+          components: rustfmt
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
@@ -221,7 +223,12 @@ jobs:
         with:
           tool: nextest
           version: 0.9.103
+      - name: Check Rust formatting
+        working-directory: codex-rs
+        run: cargo fmt -- --config imports_granularity=Item --check
       - name: Test Rust workspace
         working-directory: codex-rs
         # voice-host requires the upstream prepared GStreamer SDK/runtime artifacts.
-        run: cargo nextest run --locked --workspace --exclude codex-voice-host --cargo-profile ci-test --no-fail-fast
+        run: |
+          trap 'df -h' EXIT
+          cargo nextest run --locked --workspace --exclude codex-voice-host --cargo-profile ci-test --no-fail-fast
