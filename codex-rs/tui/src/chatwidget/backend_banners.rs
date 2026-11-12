@@ -59,14 +59,9 @@ pub(super) struct BackendBannerState {
 }
 
 impl ChatWidget {
-    pub(crate) fn is_luna_reserve_model(&self, model: &str) -> bool {
-        crate::temporary_structured_request::native_model_id(model, &self.config.model_provider_id)
-            == LUNA_RESERVE_MODEL
-    }
-
     pub(super) fn restrict_model_picker_to_luna_reserve(&self) -> bool {
         // A fresh account read can allow manual recovery even without a valid saved return model.
-        self.is_luna_reserve_model(self.current_model())
+        self.current_model() == LUNA_RESERVE_MODEL
             && !self.backend_banner_state.ordinary_usage_recovered
     }
 
@@ -76,7 +71,7 @@ impl ChatWidget {
     }
 
     pub(super) fn waiting_for_luna_reserve(&self) -> bool {
-        !self.is_luna_reserve_model(self.current_model())
+        self.current_model() != LUNA_RESERVE_MODEL
             && self
                 .backend_banner_state
                 .banner
@@ -88,7 +83,7 @@ impl ChatWidget {
         if !self.has_chatgpt_account || !self.requires_openai_auth {
             return None;
         }
-        if self.is_luna_reserve_model(self.current_model())
+        if self.current_model() == LUNA_RESERVE_MODEL
             && self.automatic_model_switch_state.reserve_return.is_none()
         {
             self.automatic_model_switch_state.reserve_return =
@@ -141,7 +136,7 @@ impl ChatWidget {
             &self.config.model_provider_id,
         );
         let models = self.model_catalog.try_list_models().ok()?;
-        if self.is_luna_reserve_model(self.current_model())
+        if self.current_model() == LUNA_RESERVE_MODEL
             && self.backend_banner_state.ordinary_usage_recovered
         {
             let previous = self.automatic_model_switch_state.reserve_return.as_ref()?;
@@ -258,8 +253,7 @@ impl ChatWidget {
     /// Commit a successfully applied task setting and keep its recovery notice visible together.
     pub(crate) fn finish_backend_banner_fallback(&mut self, mode: CollaborationMode) {
         let previous_model = self.current_model().to_string();
-        let reserve_return = self
-            .is_luna_reserve_model(mode.model())
+        let reserve_return = (mode.model() == LUNA_RESERVE_MODEL)
             .then(|| self.backend_banner_state.account_id.clone())
             .flatten()
             .map(|account_id| ReserveReturnModel {
@@ -268,7 +262,7 @@ impl ChatWidget {
                 effort: self.current_reasoning_effort(),
             });
         let involves_reserve =
-            self.is_luna_reserve_model(mode.model()) || self.is_luna_reserve_model(&previous_model);
+            mode.model() == LUNA_RESERVE_MODEL || previous_model == LUNA_RESERVE_MODEL;
         self.set_model(mode.model());
         self.set_reasoning_effort(mode.reasoning_effort());
         if mode.mode == ModeKind::Plan {
@@ -446,7 +440,7 @@ impl ChatWidget {
             let mut content =
                 banner.actionable_banner(self.clock_format, &self.config.chatgpt_base_url);
             if banner.banner_type == LUNA_RESERVE_BANNER
-                && !self.is_luna_reserve_model(self.current_model())
+                && self.current_model() != LUNA_RESERVE_MODEL
             {
                 content.title = "Usage limit reached".to_string();
                 content.description =
@@ -479,7 +473,7 @@ impl ChatWidget {
                 self.bottom_pane.set_inline_banner(/*banner*/ None);
                 let mut params: SelectionViewParams = content.into();
                 params.view_id = Some(LUNA_RESERVE_RECOVERY_VIEW_ID);
-                if self.is_luna_reserve_model(self.current_model()) {
+                if self.current_model() == LUNA_RESERVE_MODEL {
                     self.luna_reserve_notice_account_id =
                         self.backend_banner_state.account_id.clone();
                     // Continuing is a local dismissal, separate from the backend's purchase CTAs.

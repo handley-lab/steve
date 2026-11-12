@@ -106,26 +106,15 @@ async fn luna_reserve_recovery_survives_task_reconstruction() -> Result<()> {
     let (mut server, requests, proxy) =
         backend_banner_fallback_tests::start_fallback_thread(&mut app).await?;
     configure_reserve_catalog(&mut app, &mut events);
-    let provider = app.config.model_provider_id.clone();
-    let reserve_model = format!("{provider}/gpt-reserve");
-    let original_model = format!("{provider}/gpt-5.5");
-    let mut models = app.model_catalog.try_list_models()?;
-    for model in &mut models {
-        model.model = format!("{provider}/{}", model.model);
-    }
-    app.chat_widget.refresh_account_scoped_models();
-    accept_recovery_catalog(&mut app, &mut events, models);
-    app.chat_widget.set_model(&original_model);
     requests.lock().unwrap().clear();
     app.chat_widget
         .set_reasoning_effort(Some(ReasoningEffortConfig::High));
     app.chat_widget.update_backend_banner(&reserve_response());
     app.apply_backend_banner_fallback(&mut server).await;
-    assert_eq!(app.chat_widget.current_model(), reserve_model);
 
     let models = app.model_catalog.try_list_models()?;
     let mut resumed = app.primary_session_configured.clone().unwrap();
-    resumed.model = reserve_model.clone();
+    resumed.model = "gpt-reserve".into();
     resumed.collaboration_mode = Some(Box::new(app.chat_widget.effective_collaboration_mode()));
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let mut init = app.chatwidget_init_for_forked_or_resumed_thread(
@@ -140,13 +129,13 @@ async fn luna_reserve_recovery_survives_task_reconstruction() -> Result<()> {
     app.replace_chat_widget(ChatWidget::new_with_app_event(init));
     app.chat_widget.handle_thread_session(resumed);
     accept_recovery_catalog(&mut app, &mut events, models);
-    assert_eq!(app.chat_widget.current_model(), reserve_model);
+    assert_eq!(app.chat_widget.current_model(), "gpt-reserve");
     let mut recovered = reserve_response();
     recovered.ordinary_usage_allowed = Some(true);
     recovered.rate_limit_upsell = None;
     app.chat_widget.update_backend_banner(&recovered);
     app.apply_backend_banner_fallback(&mut server).await;
-    assert_eq!(app.chat_widget.current_model(), original_model);
+    assert_eq!(app.chat_widget.current_model(), "gpt-5.5");
     assert_eq!(
         app.chat_widget.current_reasoning_effort(),
         Some(ReasoningEffortConfig::High)
