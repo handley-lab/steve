@@ -4,7 +4,6 @@ use super::App;
 use crate::app_event::AppEvent;
 use crate::app_server_session::AppServerSession;
 use crate::chatwidget::AutomaticModelSwitchReason;
-use crate::model_catalog::LUNA_RESERVE_MODEL;
 use crate::model_catalog::model_display_name;
 use crate::service_tier_resolution;
 use codex_app_server_protocol::ThreadSettingsUpdateParams;
@@ -22,7 +21,9 @@ impl App {
         // A picker left open during recovery or a task switch must not affect the new model.
         if self.active_thread_id != Some(thread_id)
             || self.chat_widget.thread_id() != Some(thread_id)
-            || self.chat_widget.current_model() != LUNA_RESERVE_MODEL
+            || !self
+                .chat_widget
+                .is_luna_reserve_model(self.chat_widget.current_model())
         {
             return;
         }
@@ -61,7 +62,7 @@ impl App {
             return;
         };
         let target = switch.model;
-        let entering_reserve = target.model == crate::model_catalog::LUNA_RESERVE_MODEL;
+        let entering_reserve = self.chat_widget.is_luna_reserve_model(&target.model);
         if entering_reserve && !self.chat_widget.prepare_luna_reserve_return() {
             self.chat_widget.show_unavailable_reserve_recovery();
             return;
