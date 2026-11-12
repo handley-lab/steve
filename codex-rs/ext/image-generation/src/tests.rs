@@ -49,6 +49,7 @@ async fn configured_model_is_used_for_generation_and_editing() {
         let request = request_for_call_args(
             "local-image-model",
             &ImagegenArgs {
+                gif: None,
                 prompt: "paint a moonlit lake".to_string(),
                 transparent_background: false,
                 referenced_image_paths: None,

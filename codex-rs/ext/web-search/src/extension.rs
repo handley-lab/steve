@@ -193,7 +193,6 @@ mod tests {
     use super::WebSearchExtensionConfig;
     use super::external_web_access_for_mode;
     use super::install;
-    use super::standalone_web_search_available;
     use crate::tool::RUN_TOOL_NAME;
     use crate::tool::WEB_NAMESPACE;
     use codex_api::ExternalWebAccess;
@@ -254,52 +253,5 @@ mod tests {
             tool_names,
             vec![(ToolName::namespaced(WEB_NAMESPACE, RUN_TOOL_NAME), true)]
         );
-    }
-
-    #[test]
-    fn standalone_web_search_follows_the_provider_flag() {
-        let mut provider = ModelProviderInfo {
-            name: "OpenAI".to_string(),
-            ..ModelProviderInfo::default()
-        };
-        assert!(!standalone_web_search_available(
-            &provider,
-            WebSearchMode::Live
-        ));
-        provider.supports_standalone_web_search = true;
-        assert!(standalone_web_search_available(
-            &provider,
-            WebSearchMode::Live
-        ));
-        provider.name = "Cambridge".to_string();
-        assert!(standalone_web_search_available(
-            &provider,
-            WebSearchMode::Cached
-        ));
-        provider.supports_standalone_web_search = false;
-        assert!(!standalone_web_search_available(
-            &provider,
-            WebSearchMode::Live
-        ));
-        provider.http_headers = Some(std::collections::HashMap::from([(
-            "X-OpenAI-Actor-Authorization".to_string(),
-            "actor-token".into(),
-        )]));
-        assert!(!standalone_web_search_available(
-            &provider,
-            WebSearchMode::Live
-        ));
-        provider.supports_standalone_web_search = true;
-        for name in ["OpenAI", "Cambridge"] {
-            provider.name = name.to_string();
-            assert!(standalone_web_search_available(
-                &provider,
-                WebSearchMode::Live
-            ));
-            assert!(!standalone_web_search_available(
-                &provider,
-                WebSearchMode::Disabled
-            ));
-        }
     }
 }

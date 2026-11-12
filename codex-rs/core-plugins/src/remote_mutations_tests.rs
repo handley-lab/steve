@@ -250,9 +250,10 @@ impl PluginTransferTest {
             .with_sensitive_header_protection();
         let switch_before_storage = Arc::new(AtomicBool::new(switch));
         let clients = Arc::new(TransferHttpClients {
-            delegate: RouteAwareClientPool::with_chatgpt_cloudflare_cookies_without_request_logging(
+            delegate: RouteAwareClientPool::with_builder(
                 factory.clone(),
                 ClientRouteClass::Api,
+                codex_http_client::HttpClientBuilder::new().without_request_logging(),
             ),
             controller,
             switch_before_storage: Arc::clone(&switch_before_storage),
@@ -268,6 +269,7 @@ impl PluginTransferTest {
             "https://chatgpt.com/backend-api".into(),
             factory,
             /*product_sku*/ None,
+            vec![storage.uri()],
         )
         .with_runtime_auth_mode(Some(mode));
         config.runtime_http_clients.set(clients).unwrap();
