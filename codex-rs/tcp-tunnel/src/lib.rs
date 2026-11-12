@@ -1,4 +1,4 @@
-//! TCP forwarding through a verified HTTP/3 CONNECT proxy, for listeners and SSH stdio.
+//! TCP forwarding through a verified HTTP/3 CONNECT proxy.
 //! The listener survives transport loss; individual TCP streams are never replayed.
 use std::io::BufRead;
 use std::io::Write;
@@ -418,7 +418,7 @@ async fn serve(
                     let request = target.request(headers.connect.clone(), headers.auth.borrow().clone())?;
                     tokio::spawn(async move {
                         let (read, write) = socket.into_split();
-                        if let Err(error) = bridge(read, write, &mut sender, request, BridgeMode::Listener(draining)).await {
+                        if let Err(error) = bridge(read, write, &mut sender, request, draining).await {
                             diagnostics.report(
                                 Phase::Connect,
                                 &error,
@@ -501,24 +501,17 @@ async fn serve(
     }
 }
 
-enum BridgeMode {
-    Listener(mpsc::Sender<()>),
-    ProxyCommand,
-}
-
 async fn bridge(
     mut local_read: impl AsyncRead + Unpin,
     mut local_write: impl AsyncWrite + Unpin,
     sender: &mut h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>,
     request: Request<()>,
-    mode: BridgeMode,
+    draining: mpsc::Sender<()>,
 ) -> Result<()> {
     let mut stream = match sender.send_request(request).await {
         Ok(stream) => stream,
         Err(error) => {
-            if let BridgeMode::Listener(draining) = &mode
-                && matches!(error, h3::error::StreamError::RemoteClosing { .. })
-            {
+            if matches!(error, h3::error::StreamError::RemoteClosing { .. }) {
                 let _ = draining.try_send(());
             }
             return Err(error).context("sending CONNECT");
@@ -562,10 +555,7 @@ async fn bridge(
         result = &mut upload => { result?; download.await }
         result = &mut download => {
             result?;
-            match mode {
-                BridgeMode::Listener(_) => upload.await,
-                BridgeMode::ProxyCommand => Ok(()),
-            }
+            upload.await
         }
     }
 }
