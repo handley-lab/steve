@@ -21,15 +21,9 @@ certify that target, even when other jobs uploaded packages.
 | Windows x86-64 | `x86_64-pc-windows-msvc` | `.zip` |
 | Windows ARM64 | `aarch64-pc-windows-msvc` | `.zip` |
 
-For main commit `cee8158374d6aabd4765ac5811d44fc897f69a00`, the
-[11 November build](https://github.com/handley-lab/steve/actions/runs/43066099965)
-uploaded packages for both Linux targets, Apple Silicon macOS and both Windows
-targets. The Intel macOS job timed out during compilation. The
-[first successful six-platform run](https://github.com/handley-lab/steve/actions/runs/41686805704)
-is historical evidence for its own source commit, not certification of current
-main on all six targets. Linux packages use Ubuntu 22.04; macOS packages use
-macOS 15; Windows packages use Windows 2022 (x86-64) and Windows 11 (ARM64).
-These checks do not certify other OS versions.
+Linux packages use Ubuntu 22.04; macOS packages use macOS 15; Windows packages
+use Windows 2022 (x86-64) and Windows 11 (ARM64). These checks do not certify
+other OS versions.
 
 GitHub downloads an outer artifact ZIP. Extract that first: it contains the
 package archive, `SHA256SUMS`, `build-info.txt`, `v8.sha256`, `LICENSE` and
