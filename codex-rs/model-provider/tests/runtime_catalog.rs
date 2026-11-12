@@ -193,12 +193,7 @@ async fn check_catalog(server: &str) {
         };
         let info = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
         let provider = context.model_provider(info);
-        let selected = provider
-            .request_auth()
-            .await
-            .unwrap()
-            .runtime
-            .unwrap();
+        let selected = provider.request_auth().await.unwrap().runtime.unwrap();
         assert_eq!(selected.runtime().id(), "runtime-a");
         let models = provider.models_manager_without_cache(/*config_model_catalog*/ None);
         models.set_api_key_model_discovery_enabled(/*enabled*/ true);
