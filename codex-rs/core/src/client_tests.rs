@@ -39,7 +39,6 @@ use codex_model_provider::ProviderAuthRecoveryMessages;
 use codex_model_provider::ProviderUnauthorizedRecovery;
 use codex_model_provider::SharedModelProvider;
 use codex_model_provider::create_model_provider;
-use codex_model_provider_info::CHATGPT_CODEX_BASE_URL;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::WireApi;
 use codex_model_provider_info::create_oss_provider_with_base_url;
@@ -2194,7 +2193,7 @@ fn model_client_with_counting_attestation(
             ModelProviderInfo {
                 requires_openai_auth: true,
                 ..ModelProviderInfo::create_openai_provider(Some(
-                    CHATGPT_CODEX_BASE_URL.to_string(),
+                    "https://chatgpt.com/backend-api/codex".to_string(),
                 ))
             },
         )

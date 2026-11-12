@@ -275,7 +275,7 @@ fn api_provider_preserves_explicit_endpoints_for_every_auth_mode() {
 fn codex_backend_routes_require_codex_base_url() {
     for (base_url, expected) in [
         (None, true),
-        (Some(CHATGPT_CODEX_BASE_URL), true),
+        (Some("https://chatgpt.com/backend-api/codex"), true),
         (Some("https://chatgpt-staging.com/backend-api/codex/"), true),
         (Some("https://backend.example.com/api/codex"), false),
         (Some("https://backend.example.com/api/codex/"), false),

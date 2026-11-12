@@ -53,7 +53,7 @@ codex -p proxy
 
 # Detailed docs
 
-A strict HTTP proxy that forwards `POST /v1/responses` to an explicitly configured Responses endpoint. It authenticates with a supplied API key or, when selected with `--github-oidc`, short-lived OpenAI service credentials. Other requests are rejected with `403 Forbidden`, except for the optional shutdown endpoint described below.
+A strict HTTP proxy that forwards `POST /v1/responses` to an explicitly configured Responses endpoint. It authenticates with a supplied API key. Other requests are rejected with `403 Forbidden`, except for the optional shutdown endpoint described below.
 
 ## API-key usage (default)
 
@@ -81,95 +81,12 @@ When the unprivileged user was finished, they could shutdown the server using `c
 curl --fail --silent --show-error "${PROXY_BASE_URL}/shutdown"
 ```
 
-## GitHub Actions OIDC (OpenAI API)
-
-The proxy can exchange GitHub Actions OIDC identities for short-lived OpenAI
-API service account credentials. This removes the need to store a long-lived
-OpenAI API key in GitHub secrets. It requires a workflow/job with
-`permissions: { id-token: write, contents: read }` and an OpenAI organization
-owner to configure a workload identity provider and service account mapping.
-See the [OpenAI GitHub Actions federation guide](https://developers.openai.com/api/docs/guides/workload-identity-federation/github-actions).
-Set the provider audience to the exact value used by the workflow, and restrict
-the mapping to trusted repository, ref, and workflow claims.
-
-In this mode, stdin supplies GitHub's `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, **not**
-the minted GitHub OIDC JWT or an OpenAI API key. The proxy needs that request
-credential to request fresh subject tokens during long runs.
-
-For the npm-installed proxy, use Node.js 24 or newer for the example below.
-It sets `NODE_OPTIONS=--disable-sigusr1` to protect the launcher's credential
-input from Node's debugger. Some older Node versions accepted by the npm package
-do not support this option and will exit before starting the proxy. To run
-without Node.js, replace `codex-responses-api-proxy` in the example with the
-path to the native binary; keep the same pipe and environment handling.
-
-Supply the audience, provider ID, and service account ID as GitHub Actions
-variables (they are not secrets). Start the proxy as a privileged user, as in
-the API-key example:
-
-```bash
-printenv ACTIONS_ID_TOKEN_REQUEST_TOKEN | (
-  exec env -u ACTIONS_ID_TOKEN_REQUEST_TOKEN -u NODE_OPTIONS \
-    NODE_OPTIONS=--disable-sigusr1 \
-    codex-responses-api-proxy \
-    --upstream-url https://api.openai.com/v1/responses \
-    --github-oidc \
-    --oidc-audience "$OPENAI_WIF_AUDIENCE" \
-    --identity-provider-id "$OPENAI_IDENTITY_PROVIDER_ID" \
-    --service-account-id "$OPENAI_SERVICE_ACCOUNT_ID" \
-    --github-oidc-request-url "$ACTIONS_ID_TOKEN_REQUEST_URL" \
-    --http-shutdown --server-info /tmp/server-info.json
-)
-```
-
-All four OIDC settings are required with `--github-oidc` and are rejected
-without it. Pass `--github-oidc-request-url` directly from
-`ACTIONS_ID_TOKEN_REQUEST_URL` supplied by the trusted GitHub runner, as shown
-above. Do not set or overwrite it from workflow inputs, repository content, or
-an untrusted subprocess. The proxy sends the GitHub request credential to that
-URL. It requires HTTPS and refuses redirects, but it does not verify that GitHub
-owns the destination. Do not substitute an OIDC issuer or discovery URL.
-
-In OIDC mode only the explicitly supplied `https://api.openai.com/v1/responses` upstream is
-allowed, and redirects on both token and Responses requests are disabled.
-Azure/custom provider URLs continue to work in API-key mode.
-
-Use a real pipe for either credential type, as in the examples above. Bash
-here-strings and here-documents can create a seekable temporary file containing
-the credential. If you background the proxy, do not wrap the entire pipeline
-in another shell: it could retain the original credential environment while
-it waits.
-
-The proxy performs an initial exchange before writing server info. It keeps
-the access token in process memory, renews it using a fresh GitHub JWT before
-expiry, and serializes concurrent renewals. A failed renewal fails closed with
-HTTP 502; it does not reuse an expired token or replay a Responses POST. It
-shares the failure with waiting requests and delays further exchange attempts
-by one second, doubling after each failure up to 30 seconds. A successful
-exchange resets that delay. If the Responses endpoint returns 401, the proxy
-passes through that response and discards only the credential used for it;
-the next request can obtain a fresh one.
-
-The proxy never returns tokens over its local HTTP API. Token endpoint error
-bodies and credential-bearing URL errors are suppressed in diagnostics.
-
-**Caller responsibilities:** run the proxy with the existing privileged-process
-protections. Remove `ACTIONS_ID_TOKEN_REQUEST_TOKEN` and
-`ACTIONS_ID_TOKEN_REQUEST_URL` from the environment **before** launching Codex
-or any untrusted subprocess. The proxy cannot sanitize the parent GitHub
-runner's environment for other steps. Never put GitHub or OpenAI bearer tokens
-in arguments, Codex config, server-info files, `GITHUB_OUTPUT`, or
-`GITHUB_ENV`. Retain the same privilege separation as API-key mode. The
-OIDC mode uses sensitive HTTP headers and zeroizes temporary credential
-buffers; it does not make the API-key path's single static, mlocked-allocation
-guarantee for tokens passing through the HTTP/JSON client.
-
 ## Behavior
 
-- By default reads the API key from `stdin`. With `--github-oidc`, reads the GitHub OIDC request credential instead; see above.
-- In API-key mode, formats the header value as `Bearer <key>` and attempts to `mlock(2)` the memory holding that header so it is not swapped to disk.
+- Reads the API key from `stdin`.
+- Formats the header value as `Bearer <key>` and attempts to `mlock(2)` the memory holding that header so it is not swapped to disk.
 - Listens on the provided port or an ephemeral port if `--port` is not specified.
-- Accepts exactly `POST /v1/responses` (no query string). The request body is forwarded to the explicitly configured upstream with `Authorization` set to the selected API key or OpenAI access token. All original request headers (except any incoming `Authorization`) are forwarded upstream, with `Host` overridden to the upstream host. Redirects are returned without following them. For other requests, it responds with `403`, aside from the optional shutdown endpoint.
+- Accepts exactly `POST /v1/responses` (no query string). The request body is forwarded to the explicitly configured upstream with `Authorization` set to the supplied API key. All original request headers (except any incoming `Authorization`) are forwarded upstream, with `Host` overridden to the upstream host. Redirects are returned without following them. For other requests, it responds with `403`, aside from the optional shutdown endpoint.
 - Optionally writes a single-line JSON file with server info, currently `{ "port": <u16>, "pid": <u32> }`.
 - Optionally writes request/response JSON dumps to a directory. Each accepted request gets a pair of files that share a sequence/timestamp prefix, for example `000001-1846179912345-request.json` and `000001-1846179912345-response.json`. Header values are dumped in full except `Authorization` and any header whose name includes `cookie`, which are redacted. Bodies are written as parsed JSON when possible, otherwise as UTF-8 text.
 - Optional `--http-shutdown` enables `GET /shutdown` to terminate the process with exit code `0`. This allows one user (e.g., `root`) to start the proxy and another unprivileged user on the host to shut it down.
@@ -178,8 +95,6 @@ guarantee for tokens passing through the HTTP/JSON client.
 
 ```
 codex-responses-api-proxy [--port <PORT>] [--server-info <FILE>] [--http-shutdown] --upstream-url <URL> [--dump-dir <DIR>]
-  [--github-oidc --oidc-audience <AUDIENCE> --identity-provider-id <ID>
-   --service-account-id <ID> --github-oidc-request-url <URL>]
 ```
 
 - `--port <PORT>`: Port to bind on `127.0.0.1`. If omitted, an ephemeral port is chosen.
