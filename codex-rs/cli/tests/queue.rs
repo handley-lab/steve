@@ -296,7 +296,7 @@ async fn remote_session_commands_with_workload_identity_use_server_auth() -> Res
     use wiremock::matchers::path;
 
     let codex_home = socket_test_home()?;
-    let steve = codex_utils_cargo_bin::cargo_bin("steve")?;
+    let codex = codex_utils_cargo_bin::cargo_bin("steve")?;
     let model = responses::start_mock_server().await;
     let model_requests = Mock::given(method("POST"))
         .and(path("/v1/responses"))

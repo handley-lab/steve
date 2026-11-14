@@ -1,9 +1,37 @@
 # Steve network paths
 
-This is a partial static audit of Steve main at
-`e0a560921ad74749b9f9d8bd7ab2cbf9d75fd3ec`. It records source-level
-destinations and controls at that pin, not the current branch or a verified
-network allowlist.
+## Observed source-build traffic
+
+On 12 November 2026, main commit
+`cee8158374d6aabd4765ac5811d44fc897f69a00` was built with the README's
+`dev-small` source-package profile and exercised against Cambridge. Process-tree
+syscalls (`strace -ff`) and libc hostname lookups were recorded with the system
+Steve config hidden in a private mount namespace.
+
+| Scenario | Observed remote destinations |
+| --- | --- |
+| README Cambridge config | `llm.hpc.cam.ac.uk` (`128.232.222.170:443`) and DNS resolver `131.111.68.133:53` |
+| Same config with analytics, feedback and update settings omitted | Same destinations |
+| Empty config, no provider | None; exited with an explicit-provider configuration error |
+
+Both Cambridge scenarios completed a model turn, command execution, approval
+review and context compaction. Supplemental 30-second TUI startup traces found
+the same remote destinations plus local loopback connections; no TUI model
+turn was requested, and those TUI processes were terminated by the harness.
+No OpenAI destination was observed in these scenarios.
+
+This was syscall and DNS capture, not interface-wide packet capture; TLS
+payloads were not decrypted. Version `0.0.0` is treated as a source build and
+skips update fetching, even with default settings. Release packages, explicit
+feedback submission, account auth, cloud tasks, remote control, MCP, long idle
+sessions and other optional paths were not exercised. These observations do
+not establish a network allowlist or a passing test baseline.
+
+## Historical static inventory
+
+The static sections below describe main at
+`e0a560921ad74749b9f9d8bd7ab2cbf9d75fd3ec`; they have not been re-audited
+against the measured commit above.
 The sections below include inference, model discovery, telemetry, feedback,
 MCP, selected authentication flows, cloud-task submission, installers and assets.
 Plugin runtime coverage and other cloud-task operations still need coverage.

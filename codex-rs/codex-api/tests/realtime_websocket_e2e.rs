@@ -400,6 +400,7 @@ async fn realtime_ws_existing_call_transport_close_preserves_session() {
         let connection = client
             .connect_existing_call_sideband(
                 RealtimeSessionConfig {
+                    transcription_model: Some("fixture-transcription".into()),
                     instructions: String::new(),
                     initial_items: Vec::new(),
                     delegation_ack_filler: None,
@@ -456,6 +457,7 @@ async fn realtime_ws_frameless_session_close_still_ends_session() {
     let connection = client
         .connect_existing_call_sideband(
             RealtimeSessionConfig {
+                transcription_model: Some("fixture-transcription".into()),
                 instructions: String::new(),
                 initial_items: Vec::new(),
                 delegation_ack_filler: None,

@@ -198,7 +198,7 @@ async fn assert_plugin_share_upload_recipient(configure_upload: bool) {
     .unwrap();
     let mut input = crate::test_support::load_plugins_config(home.path(), home.path()).await;
     input.chatgpt_base_url = format!("{}/backend-api", backend.uri());
-    let config = input.remote_plugin_service_config();
+    let config = input.remote_plugin_service_config(None);
     Mock::given(method("PUT"))
         .respond_with(ResponseTemplate::new(201))
         .mount(&storage)

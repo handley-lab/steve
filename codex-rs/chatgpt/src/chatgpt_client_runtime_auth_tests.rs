@@ -242,8 +242,7 @@ async fn connector_requests_reject_unsupported_openai_destinations() {
             let mut config = codex_core::config::ConfigBuilder::default()
                 .codex_home(home.path().to_path_buf())
                 .loader_overrides(
-                    codex_core::config::LoaderOverrides::default()
-                        .without_managed_config_for_tests(),
+                    codex_core::config::LoaderOverrides::without_managed_config_for_tests(),
                 )
                 .build()
                 .await
@@ -257,15 +256,17 @@ async fn connector_requests_reject_unsupported_openai_destinations() {
             )
             .unwrap();
             let runtime = (
-                Arc::new(RuntimeAuthManager::for_chatgpt(
+                Arc::new(RuntimeAuthManager::new(
                     AuthManager::from_auth_for_testing(auth.clone()),
-                    uuid::Uuid::nil().to_string(),
-                    base_url.to_string(),
+                    AgentHostAuthorization::InstallationId {
+                        installation_id: uuid::Uuid::nil(),
+                    },
                     RuntimeRegistrationMetadata {
                         harness: Some("codex".to_string()),
                         harness_version: None,
                         role: RuntimeRole::Orchestrator,
                     },
+                    format!("{base_url}/agent/register").parse().unwrap(),
                 )),
                 mode,
             );

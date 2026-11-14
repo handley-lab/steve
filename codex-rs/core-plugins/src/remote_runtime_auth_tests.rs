@@ -116,6 +116,7 @@ async fn plugin_runtime_auth_shares_registration_and_strips_cross_origin_auth() 
                 "https://chatgpt.com/backend-api".into(),
                 factory,
                 /*product_sku*/ None,
+                Vec::new(),
             )
             .remote_plugin_service_config(Some((Arc::clone(&slot), mode)))
         } else {

@@ -161,6 +161,7 @@ async fn native_model_list_bypasses_the_cloud_command_queue() -> color_eyre::Res
         handle.request_typed::<ModelListResponse>(ClientRequest::ModelList {
             request_id: RequestId::Integer(1),
             params: ModelListParams {
+                thread_id: None,
                 cursor: Some("previous".into()),
                 limit: Some(2),
                 include_hidden: Some(true),

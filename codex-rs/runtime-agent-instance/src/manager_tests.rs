@@ -767,6 +767,7 @@ async fn file_upload_runtime_auth_signs_control_requests_but_not_blob_uploads() 
             );
         let uploaded = codex_api::upload_openai_file(
             &server.uri(),
+            &[blob.uri()],
             provider.as_ref(),
             &pool,
             "hello.txt".into(),

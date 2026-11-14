@@ -7,6 +7,7 @@ use codex_config::types::AuthCredentialsStoreMode;
 use codex_login::AuthDotJson;
 use codex_login::AuthKeyringBackendKind;
 use codex_login::AuthManager;
+use codex_login::RefreshTokenError;
 use codex_login::load_auth_dot_json;
 use codex_login::save_auth;
 use codex_login::token_data::AccountOAuthProvenance;
