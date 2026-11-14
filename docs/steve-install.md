@@ -14,8 +14,8 @@ certify that target, even when other jobs uploaded packages.
 
 | Platform | Target in the artifact name | Package inside the artifact |
 | --- | --- | --- |
-| Linux x86-64, glibc | `x86_64-unknown-linux-gnu` | `.tar.gz` |
-| Linux ARM64, glibc | `aarch64-unknown-linux-gnu` | `.tar.gz` |
+| Linux x86-64, musl | `x86_64-unknown-linux-musl` | `.tar.gz` |
+| Linux ARM64, musl | `aarch64-unknown-linux-musl` | `.tar.gz` |
 | macOS Intel | `x86_64-apple-darwin` | `.tar.gz` |
 | macOS Apple Silicon | `aarch64-apple-darwin` | `.tar.gz` |
 | Windows x86-64 | `x86_64-pc-windows-msvc` | `.zip` |
@@ -46,7 +46,7 @@ Extract into a new directory. For example, on x86-64 Linux:
 
 ```sh
 mkdir -p "$HOME/.local/opt/steve-package"
-tar -xzf steve-x86_64-unknown-linux-gnu.tar.gz \
+tar -xzf steve-x86_64-unknown-linux-musl.tar.gz \
   -C "$HOME/.local/opt/steve-package"
 "$HOME/.local/opt/steve-package/bin/steve" --version
 export PATH="$HOME/.local/opt/steve-package/bin:$PATH"

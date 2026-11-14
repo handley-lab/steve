@@ -1,0 +1,84 @@
+name: Steve npm publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: npm version to publish
+        required: true
+        type: string
+      build_run_id:
+        description: Steve binary build run whose native packages are published
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: steve-npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+      RUN_ID: ${{ inputs.build_run_id }}
+    steps:
+      - name: Require a main build with every native package
+        id: build
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}")"
+          jq -e '.path == ".github/workflows/steve-binary-build.yml" and .head_branch == "main" and (.event == "push" or .event == "workflow_dispatch")' <<< "$run"
+          builds="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs" --paginate --jq '.jobs[] | select(.name | startswith("Build ")) | .conclusion')"
+          test "$(grep -c '^success$' <<< "$builds")" -eq 6
+          test "$(wc -l <<< "$builds")" -eq 6
+          echo "sha=$(jq -r .head_sha <<< "$run")" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ steps.build.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: "https://registry.npmjs.org"
+          scope: "@handley-lab"
+      - name: Stage npm packages
+        run: |
+          python scripts/stage_npm_packages.py \
+            --release-version "$VERSION" \
+            --package codex \
+            --workflow-url "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" \
+            --output-dir dist/npm
+      - name: Publish to npm
+        run: |
+          set -euo pipefail
+          platforms=(linux-x64 linux-arm64 darwin-x64 darwin-arm64 win32-x64 win32-arm64)
+          publish() {
+            for attempt in 1 2 3; do
+              set +e
+              output="$(npm publish "$1" --access public --tag "$2" 2>&1)"
+              status=$?
+              set -e
+              echo "$output"
+              [[ $status -eq 0 ]] && return 0
+              grep -qiE "previously published|cannot publish over" <<< "$output" && return 0
+              sleep $((attempt * 10))
+            done
+            return 1
+          }
+          for platform in "${platforms[@]}"; do
+            publish "dist/npm/steve-npm-${platform}-${VERSION}.tgz" "$platform"
+          done
+          publish "dist/npm/steve-npm-${VERSION}.tgz" latest

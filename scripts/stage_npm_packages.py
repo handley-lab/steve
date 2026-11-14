@@ -12,13 +12,13 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import zipfile
 from pathlib import Path
 from typing import Sequence
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BUILD_SCRIPT = REPO_ROOT / "codex-cli" / "scripts" / "build_npm_package.py"
-WORKFLOW_NAME = ".github/workflows/rust-release.yml"
 GITHUB_REPO = "handley-lab/steve"
 BINARY_TARGETS = (
     "x86_64-unknown-linux-musl",
@@ -146,38 +146,12 @@ def expand_packages(packages: list[str]) -> list[str]:
     return expanded
 
 
-def resolve_release_workflow(version: str) -> dict:
-    stdout = subprocess.check_output(
-        [
-            "gh",
-            "run",
-            "list",
-            "--branch",
-            f"rust-v{version}",
-            "--json",
-            "workflowName,url,headSha",
-            "--workflow",
-            WORKFLOW_NAME,
-            "--jq",
-            "first(.[])",
-        ],
-        cwd=REPO_ROOT,
-        text=True,
-    )
-    workflow = json.loads(stdout or "null")
-    if not workflow:
-        raise RuntimeError(
-            f"Unable to find rust-release workflow for version {version}."
-        )
-    return workflow
-
-
 def resolve_workflow_url(version: str, override: str | None) -> tuple[str, str | None]:
     if override:
         return override, None
-
-    workflow = resolve_release_workflow(version)
-    return workflow["url"], workflow.get("headSha")
+    raise RuntimeError(
+        f"Pass --workflow-url for a successful Steve binary build run to stage {version}."
+    )
 
 
 def install_native_components(
@@ -253,15 +227,16 @@ def select_target_artifacts(
     }
     selected_artifacts: list[WorkflowArtifact] = []
     for target in BINARY_TARGETS:
-        for artifact_name in [target, f"{target}-unsigned"]:
-            artifact = artifacts_by_name.get(artifact_name)
-            if artifact is not None:
-                selected_artifacts.append(artifact)
-                break
-        else:
+        matches = [
+            artifact
+            for name, artifact in artifacts_by_name.items()
+            if name.startswith(f"steve-{target}-")
+        ]
+        if len(matches) != 1:
             raise FileNotFoundError(
-                f"Expected workflow artifact not found for target {target}"
+                f"Expected one workflow artifact for target {target}, found {len(matches)}"
             )
+        selected_artifacts.append(matches[0])
 
     return selected_artifacts
 
@@ -359,7 +334,9 @@ def install_single_codex_package_archive(
     target: str,
 ) -> Path:
     artifact_subdir = artifact_dir_for_target(artifacts_dir, target)
-    archive_path = artifact_subdir / f"steve-package-{target}.tar.gz"
+    archive_path = artifact_subdir / (
+        f"steve-{target}.zip" if "windows" in target else f"steve-{target}.tar.gz"
+    )
     if not archive_path.exists():
         raise FileNotFoundError(f"Expected package archive not found: {archive_path}")
 
@@ -368,8 +345,12 @@ def install_single_codex_package_archive(
         shutil.rmtree(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    with tarfile.open(archive_path, "r:gz") as archive:
-        archive.extractall(dest_dir, filter="data")
+    if archive_path.suffix == ".zip":
+        with zipfile.ZipFile(archive_path) as archive:
+            archive.extractall(dest_dir)
+    else:
+        with tarfile.open(archive_path, "r:gz") as archive:
+            archive.extractall(dest_dir, filter="data")
 
     return dest_dir
 
@@ -455,11 +436,9 @@ def archive_name_for_target(artifact_prefix: str, target: str) -> str:
 
 
 def artifact_dir_for_target(artifacts_dir: Path, target: str) -> Path:
-    for artifact_name in [target, f"{target}-unsigned"]:
-        artifact_dir = artifacts_dir / artifact_name
-        if artifact_dir.is_dir():
-            return artifact_dir
-
+    matches = sorted(artifacts_dir.glob(f"steve-{target}-*"))
+    if len(matches) == 1 and matches[0].is_dir():
+        return matches[0]
     return artifacts_dir / target
 
 
