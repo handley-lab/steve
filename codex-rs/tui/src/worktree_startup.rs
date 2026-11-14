@@ -207,8 +207,7 @@ pub(super) async fn prepare(
                 &bootstrap,
                 &source.codex_home,
                 embedded_network_policy,
-            )
-            .await?;
+            )?;
             overrides.cwd = Some(cwd.into_path_buf());
             source = load_config_or_exit(
                 cli_overrides.clone(),
@@ -279,8 +278,7 @@ pub(super) async fn prepare(
         &bootstrap,
         &source.codex_home,
         embedded_network_policy,
-    )
-    .await?;
+    )?;
     managed
         .check_source_policy(
             &cli_overrides,

@@ -26,7 +26,6 @@ use crate::outgoing_message::RequestContext;
 use crate::plugin_config_reload;
 use crate::plugin_config_reload::PluginStartupConfig;
 use crate::request_processors::AccountRequestProcessor;
-use crate::request_processors::AppsRequestProcessor;
 use crate::request_processors::CatalogRequestProcessor;
 use crate::request_processors::CommandExecRequestProcessor;
 use crate::request_processors::ConfigRequestProcessor;
@@ -42,7 +41,6 @@ use crate::request_processors::McpRequestProcessor;
 use crate::request_processors::PluginRequestProcessor;
 use crate::request_processors::ProcessExecRequestProcessor;
 use crate::request_processors::ProjectRequestProcessor;
-use crate::request_processors::RemoteControlRequestProcessor;
 use crate::request_processors::SearchRequestProcessor;
 use crate::request_processors::ThreadGoalRequestProcessor;
 use crate::request_processors::ThreadQueueRequestProcessor;
@@ -60,7 +58,6 @@ use crate::startup_warnings::StartupWarnings;
 use crate::thread_state::ConnectionCapabilities;
 use crate::thread_state::ThreadStateManager;
 use crate::transport::AppServerTransport;
-use crate::transport::RemoteControlHandle;
 use crate::turn_cost_worker::TurnCostWorker;
 use codex_analytics::AnalyticsEventsClient;
 use codex_analytics::AppServerRpcTransport;
@@ -75,7 +72,6 @@ use codex_app_server_protocol::JSONRPCNotification;
 use codex_app_server_protocol::JSONRPCRequest;
 use codex_app_server_protocol::JSONRPCResponse;
 use codex_app_server_protocol::ThreadSampleCancelResponse;
-use codex_app_server_protocol::UserVerificationCancelResponse;
 use codex_app_server_protocol::experimental_required_message;
 use codex_arg0::Arg0DispatchPaths;
 use codex_code_mode::CodeModeSessionProvider;
@@ -151,14 +147,12 @@ fn reject_removed_permission_profile(request: &JSONRPCRequest) -> Result<(), JSO
 
 pub(crate) struct MessageProcessor {
     pub(crate) turn_admission: TurnAdmission,
-    user_verification: Arc<crate::user_verification::Service>,
     outgoing: Arc<OutgoingMessageSender>,
     startup_warnings: StartupWarnings,
     models_refresh_worker: ModelsRefreshWorker,
     turn_cost_worker: Option<TurnCostWorker>,
     skills_watcher: Arc<SkillsWatcher>,
     account_processor: Arc<AccountRequestProcessor>,
-    apps_processor: AppsRequestProcessor,
     catalog_processor: CatalogRequestProcessor,
     command_exec_processor: CommandExecRequestProcessor,
     process_exec_processor: ProcessExecRequestProcessor,
@@ -173,7 +167,6 @@ pub(crate) struct MessageProcessor {
     mcp_processor: McpRequestProcessor,
     plugin_processor: PluginRequestProcessor,
     project_processor: ProjectRequestProcessor,
-    pub(super) remote_control_processor: RemoteControlRequestProcessor,
     search_processor: SearchRequestProcessor,
     thread_goal_processor: ThreadGoalRequestProcessor,
     thread_queue_processor: ThreadQueueRequestProcessor,
@@ -187,6 +180,7 @@ pub(crate) struct MessageProcessor {
 pub(crate) struct ConnectionSessionState {
     disconnect: CancellationToken,
     pub(crate) rpc_gate: Arc<ConnectionRpcGate>,
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub(crate) origin: crate::transport::ConnectionOrigin,
     pub(crate) mcp_event_streams: McpEventStreams,
     initialized: OnceLock<InitializedConnectionSessionState>,
@@ -277,11 +271,9 @@ pub(crate) struct MessageProcessorArgs {
     pub(crate) session_source: SessionSource,
     pub(crate) auth_manager: Arc<AuthManager>,
     pub(crate) runtime_auth_slot: Option<RuntimeAuthSlot>,
-    pub(crate) user_verification: Arc<crate::user_verification::Service>,
     pub(crate) installation_id: String,
     pub(crate) code_mode_session_provider: Option<Arc<dyn CodeModeSessionProvider>>,
     pub(crate) rpc_transport: AppServerRpcTransport,
-    pub(crate) remote_control_handle: Option<RemoteControlHandle>,
     /// `None` skips startup tasks; otherwise preserve the initial config-loading path.
     pub(crate) plugin_startup_tasks: Option<PluginStartupConfig>,
 }
@@ -307,11 +299,9 @@ impl MessageProcessor {
             session_source,
             auth_manager,
             runtime_auth_slot,
-            user_verification,
             installation_id,
             code_mode_session_provider,
             rpc_transport,
-            remote_control_handle,
             plugin_startup_tasks,
         } = args;
         // Startup credential reads must not open a browser before initialize selects the policy.
@@ -319,7 +309,6 @@ impl MessageProcessor {
             codex_login::GatewayLoginControl::for_runtime(&auth_manager.runtime_config());
         gateway_login_control.require_explicit_login();
         let thread_state_manager = ThreadStateManager::new();
-        outgoing.watch_user_verification_auth(Arc::clone(&auth_manager));
         // The thread store is intentionally process-scoped. Config reloads can
         // affect per-thread behavior, but they must not move newly started,
         // resumed, or forked threads to a different persistence backend/root.
@@ -400,9 +389,6 @@ impl MessageProcessor {
                         environment_manager: Arc::clone(&environment_manager_for_extensions),
                         executor_skill_provider: Arc::clone(&executor_skill_provider),
                         cloud_skill_provider: cloud_skill_provider.clone(),
-                        git_attribution_base_url: config.chatgpt_base_url.clone(),
-                        git_attribution_path_style: config.chatgpt_path_style,
-                        http_client_factory: config.http_client_factory(),
                         queue_service: queue_service.clone(),
                         turn_start_admission: Some(Arc::clone(&turn_start_admission)),
                     },
@@ -459,7 +445,6 @@ impl MessageProcessor {
         let thread_watch_manager =
             crate::thread_status::ThreadWatchManager::new_with_outgoing(outgoing.clone());
         let thread_list_state_permit = Arc::new(Semaphore::new(/*permits*/ 1));
-        let app_list_shutdown_token = CancellationToken::new();
         let request_serialization_queues = RequestSerializationQueues::default();
         let config_processor = ConfigRequestProcessor::new(
             outgoing.clone(),
@@ -469,13 +454,9 @@ impl MessageProcessor {
             analytics_events_client.clone(),
         );
         let on_effective_plugins_changed =
-            crate::effective_plugin_change::effective_plugins_changed_callback(
-                auth_manager.clone(),
-                Arc::clone(&thread_manager),
-                config_manager.clone(),
-                config_processor.clone(),
-                request_serialization_queues.clone(),
-            );
+            crate::effective_plugin_change::effective_plugins_changed_callback(Arc::clone(
+                &thread_manager,
+            ));
         let account_processor = AccountRequestProcessor::new(
             auth_manager.clone(),
             Arc::clone(&thread_manager),
@@ -483,12 +464,6 @@ impl MessageProcessor {
             Arc::clone(&config),
             config_manager.clone(),
             Arc::clone(&model_catalog),
-        );
-        let apps_processor = AppsRequestProcessor::new(
-            Arc::clone(&thread_manager),
-            outgoing.clone(),
-            config_manager.clone(),
-            app_list_shutdown_token,
         );
         let catalog_processor = CatalogRequestProcessor::new(
             outgoing.clone(),
@@ -526,17 +501,14 @@ impl MessageProcessor {
             thread_state_manager.clone(),
             outgoing.clone(),
             config_manager.clone(),
-            account_processor.clone(),
         );
         let plugin_processor = PluginRequestProcessor::new(
             auth_manager.clone(),
             Arc::clone(&thread_manager),
             outgoing.clone(),
-            analytics_events_client.clone(),
             config_manager.clone(),
             on_effective_plugins_changed,
         );
-        let remote_control_processor = RemoteControlRequestProcessor::new(remote_control_handle);
         let search_processor = SearchRequestProcessor::new(outgoing.clone());
         let thread_goal_processor = ThreadGoalRequestProcessor::new(
             Arc::clone(&thread_manager),
@@ -617,7 +589,6 @@ impl MessageProcessor {
             analytics_events_client.clone(),
             Arc::clone(&config),
             rpc_transport,
-            Arc::clone(&user_verification),
         );
         let external_agent_config_processor =
             ExternalAgentConfigRequestProcessor::new(ExternalAgentConfigRequestProcessorArgs {
@@ -645,7 +616,6 @@ impl MessageProcessor {
 
         Self {
             turn_admission,
-            user_verification,
             outgoing,
             startup_warnings: StartupWarnings {
                 config: config_warnings,
@@ -654,7 +624,6 @@ impl MessageProcessor {
             turn_cost_worker,
             skills_watcher,
             account_processor,
-            apps_processor,
             catalog_processor,
             command_exec_processor,
             process_exec_processor,
@@ -669,7 +638,6 @@ impl MessageProcessor {
             mcp_processor,
             plugin_processor,
             project_processor,
-            remote_control_processor,
             search_processor,
             thread_goal_processor,
             thread_queue_processor,
@@ -682,7 +650,6 @@ impl MessageProcessor {
 
     pub(crate) fn clear_runtime_references(&self) {
         self.account_processor.clear_external_auth();
-        self.apps_processor.shutdown();
         self.models_refresh_worker.shutdown();
         self.skills_watcher.shutdown();
     }
@@ -878,8 +845,6 @@ impl MessageProcessor {
         connection_id: ConnectionId,
         request_attestation: bool,
     ) {
-        self.account_processor
-            .notify_workspace_routing_to_connection(connection_id);
         self.thread_processor
             .connection_initialized(
                 connection_id,
@@ -944,9 +909,6 @@ impl MessageProcessor {
         self.account_processor
             .gateway_connection_closed(connection_id);
         self.request_serialization_queues.discard_closed().await;
-        self.outgoing
-            .disconnect_user_verification_connection(connection_id)
-            .await;
         session_state.mcp_event_streams.clear().await;
         if timeout(
             CONNECTION_RPC_DRAIN_TIMEOUT,
@@ -1161,53 +1123,6 @@ impl MessageProcessor {
             ClientRequest::Initialize { .. } => {
                 panic!("Initialize should be handled before initialized request dispatch");
             }
-            ClientRequest::UserVerificationCancel { params, .. } => {
-                self.outgoing
-                    .cancel_user_verification_request(&ConnectionRequestId {
-                        connection_id,
-                        request_id: params.request_id,
-                    })
-                    .await;
-                Ok(Some(UserVerificationCancelResponse {}.into()))
-            }
-            request @ (ClientRequest::UserVerificationStatus { .. }
-            | ClientRequest::UserVerificationEnroll { .. }
-            | ClientRequest::UserVerificationDelete { .. }
-            | ClientRequest::UserVerificationVerify { .. }) => {
-                return Box::pin(async {
-                    // Keep verification temporaries out of unrelated RPCs' stack frames.
-                    let operation = match request {
-                        ClientRequest::UserVerificationStatus { .. } => {
-                            crate::user_verification::Operation::Status
-                        }
-                        ClientRequest::UserVerificationEnroll { .. } => {
-                            crate::user_verification::Operation::Enroll
-                        }
-                        ClientRequest::UserVerificationDelete { .. } => {
-                            crate::user_verification::Operation::Delete
-                        }
-                        ClientRequest::UserVerificationVerify { params, .. } => {
-                            crate::user_verification::Operation::Verify(params)
-                        }
-                        _ => unreachable!("matched a user-verification request"),
-                    };
-                    let response = self
-                        .user_verification
-                        .handle(
-                            operation,
-                            Arc::clone(&session.rpc_gate),
-                            request_context.cancellation.clone(),
-                            session.origin,
-                        )
-                        .await?;
-                    let (payload, check) = response.into_parts();
-                    self.outgoing
-                        .send_response_as_checked(request_id.clone(), payload, check)
-                        .await;
-                    Ok(())
-                })
-                .await;
-            }
             ClientRequest::ServerDiagnostics { .. } => Ok(Some(read_server_diagnostics().into())),
             ClientRequest::ConfigRead { params, .. } => self
                 .config_processor
@@ -1250,46 +1165,6 @@ impl MessageProcessor {
                     .experimental_feature_enablement_set(request_id.clone(), params)
                     .await
             }
-            ClientRequest::RemoteControlEnable { params, .. } => self
-                .remote_control_processor
-                .enable(
-                    params.is_some_and(|params| params.ephemeral),
-                    app_server_client_name.as_deref(),
-                )
-                .await
-                .map(|response| Some(response.into())),
-            ClientRequest::RemoteControlDisable { params, .. } => self
-                .remote_control_processor
-                .disable(
-                    params.is_some_and(|params| params.ephemeral),
-                    app_server_client_name.as_deref(),
-                )
-                .await
-                .map(|response| Some(response.into())),
-            ClientRequest::RemoteControlStatusRead { .. } => self
-                .remote_control_processor
-                .status_read()
-                .map(|response| Some(response.into())),
-            ClientRequest::RemoteControlPairingStart { params, .. } => self
-                .remote_control_processor
-                .pairing_start(params, app_server_client_name.as_deref())
-                .await
-                .map(|response| Some(response.into())),
-            ClientRequest::RemoteControlPairingStatus { params, .. } => self
-                .remote_control_processor
-                .pairing_status(params)
-                .await
-                .map(|response| Some(response.into())),
-            ClientRequest::RemoteControlClientsList { params, .. } => self
-                .remote_control_processor
-                .clients_list(params)
-                .await
-                .map(|response| Some(response.into())),
-            ClientRequest::RemoteControlClientsRevoke { params, .. } => self
-                .remote_control_processor
-                .clients_revoke(params)
-                .await
-                .map(|response| Some(response.into())),
             ClientRequest::ConfigRequirementsRead { params: _, .. } => self
                 .config_processor
                 .config_requirements_read()
@@ -1675,47 +1550,9 @@ impl MessageProcessor {
             ClientRequest::PluginInstalled { params, .. } => {
                 self.plugin_processor.plugin_installed(params).await
             }
-            ClientRequest::PluginReconcile { params, .. } => {
-                self.plugin_processor
-                    .plugin_reconcile(
-                        params,
-                        self.config_processor.clone(),
-                        &self.request_serialization_queues,
-                    )
-                    .await
-            }
             ClientRequest::PluginRead { params, .. } => {
                 self.plugin_processor.plugin_read(params).await
             }
-            ClientRequest::PluginSkillRead { params, .. } => {
-                self.plugin_processor.plugin_skill_read(params).await
-            }
-            ClientRequest::PluginShareSave { params, .. } => {
-                self.plugin_processor.plugin_share_save(params).await
-            }
-            ClientRequest::PluginShareUpdateTargets { params, .. } => {
-                self.plugin_processor
-                    .plugin_share_update_targets(params)
-                    .await
-            }
-            ClientRequest::PluginShareList { params, .. } => {
-                self.plugin_processor.plugin_share_list(params).await
-            }
-            ClientRequest::PluginShareCheckout { params, .. } => {
-                self.plugin_processor.plugin_share_checkout(params).await
-            }
-            ClientRequest::PluginShareDelete { params, .. } => {
-                self.plugin_processor.plugin_share_delete(params).await
-            }
-            ClientRequest::AppsRead { params, .. } => self.apps_processor.apps_read(params).await,
-            ClientRequest::AppsList { params, .. } => {
-                self.apps_processor.apps_list(&request_id, params).await
-            }
-            ClientRequest::AppsInstalled { params, .. } => self
-                .apps_processor
-                .apps_installed(params)
-                .await
-                .map(|response| Some(response.into())),
             ClientRequest::SkillsConfigWrite { params, .. } => {
                 self.catalog_processor.skills_config_write(params).await
             }
@@ -1919,16 +1756,6 @@ impl MessageProcessor {
                     .await
                     .map(|response| Some(response.into()))
             }
-            ClientRequest::AccountSessionsList { params, .. } => self
-                .account_processor
-                .list_account_sessions(params)
-                .await
-                .map(|response| Some(ClientResponsePayload::AccountSessionsList(response))),
-            ClientRequest::AccountSessionsSwitch { params, .. } => self
-                .account_processor
-                .switch_account_session(params, &self.thread_processor, &self.turn_admission)
-                .await
-                .map(|response| Some(ClientResponsePayload::AccountSessionsSwitch(response))),
             ClientRequest::LogoutAccount { .. } => {
                 self.account_processor
                     .logout_account(request_id.clone())
@@ -1942,31 +1769,6 @@ impl MessageProcessor {
             }
             ClientRequest::GetAuthStatus { params, .. } => {
                 self.account_processor.get_auth_status(params).await
-            }
-            ClientRequest::GetAccountSecuritySetup { .. } => Ok(Some(
-                self.account_processor
-                    .get_account_security_setup()
-                    .await
-                    .into(),
-            )),
-            ClientRequest::GetAccountRateLimits { params, .. } => {
-                self.account_processor.get_account_rate_limits(params).await
-            }
-            ClientRequest::ConsumeAccountRateLimitResetCredit { params, .. } => {
-                self.account_processor
-                    .consume_account_rate_limit_reset_credit(params)
-                    .await
-            }
-            ClientRequest::GetAccountTokenUsage { params, .. } => {
-                self.account_processor.get_account_token_usage(params).await
-            }
-            ClientRequest::GetWorkspaceMessages { .. } => {
-                self.account_processor.get_workspace_messages().await
-            }
-            ClientRequest::SendAddCreditsNudgeEmail { params, .. } => {
-                self.account_processor
-                    .send_add_credits_nudge_email(params)
-                    .await
             }
             ClientRequest::GitDiffToRemote { params, .. } => {
                 self.git_processor.git_diff_to_remote(params).await
@@ -2065,7 +1867,3 @@ mod gateway_oauth_tests;
 #[cfg(test)]
 #[path = "message_processor_thread_lifecycle_tests.rs"]
 mod thread_lifecycle_tests;
-
-#[cfg(test)]
-#[path = "message_processor_workspace_routing_tests.rs"]
-mod workspace_routing_tests;

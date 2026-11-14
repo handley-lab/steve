@@ -294,35 +294,28 @@ struct McpEventStreamAuthChanges {
     manager: Arc<AuthManager>,
     receiver: watch::Receiver<u64>,
     revision: u64,
-    principal: Option<(Option<String>, Option<String>)>,
+    signed_in: bool,
 }
 
 impl McpEventStreamAuthChanges {
     fn new(manager: Arc<AuthManager>) -> Self {
         let receiver = manager.auth_change_receiver();
         let revision = *receiver.borrow();
-        let principal = manager
-            .auth_cached()
-            .map(|auth| (auth.get_account_id(), auth.get_chatgpt_user_id()));
+        let signed_in = manager.auth_cached().is_some();
         Self {
             manager,
             receiver,
             revision,
-            principal,
+            signed_in,
         }
     }
 
     async fn changed(&mut self) {
         loop {
-            if self
-                .manager
-                .auth_cached()
-                .map(|auth| (auth.get_account_id(), auth.get_chatgpt_user_id()))
-                != self.principal
-            {
+            if self.manager.auth_cached().is_some() != self.signed_in {
                 return;
             }
-            if self.receiver.changed().await.is_err() || self.principal == Some((None, None)) {
+            if self.receiver.changed().await.is_err() || self.signed_in {
                 return;
             }
             let revision = *self.receiver.borrow_and_update();

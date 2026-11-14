@@ -561,7 +561,7 @@ async fn thread_analytics_opt_out_overrides_shared_client() {
     let mut config = test_config().await;
     config.chatgpt_base_url = server.uri();
     config.model_provider.base_url = Some(server.uri());
-    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
+    let auth = CodexAuth::from_api_key("dummy");
     let shared_client = AnalyticsEventsClient::new(
         AuthManager::from_auth_for_testing(auth.clone()),
         server.uri(),
@@ -2229,11 +2229,9 @@ async fn start_thread_seeds_extension_data_for_mcp_and_lifecycle_contributors() 
                             .expect("thread-scoped MCP resolution should identify its source")
                             .clone(),
                     ));
-                let mut server = codex_mcp::codex_apps_mcp_server_config(
-                    "https://selected.invalid",
-                    /*apps_mcp_product_sku*/ None,
-                    /*originator*/ None,
-                );
+                let mut server: codex_config::McpServerConfig =
+                    toml::from_str(r#"url = "https://selected.invalid""#)
+                        .expect("streamable HTTP server config");
                 let CapabilityRootLocation::Environment { environment_id, .. } =
                     &selected_root.location;
                 let source_environment_id = environment_id.clone();
@@ -2290,8 +2288,7 @@ async fn start_thread_seeds_extension_data_for_mcp_and_lifecycle_contributors() 
     let mut extensions = codex_extension_api::ExtensionRegistryBuilder::new();
     extensions.thread_lifecycle_contributor(recorder.clone());
     extensions.mcp_server_contributor(recorder.clone());
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let manager = ThreadManager::new(
         &config,
         crate::build_startup_models(
@@ -2740,8 +2737,7 @@ async fn resume_and_fork_do_not_restore_thread_environments_from_rollout() {
     config.cwd = config.codex_home.abs();
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");
 
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let manager = ThreadManager::new(
         &config,
         crate::build_startup_models(
@@ -2900,8 +2896,7 @@ async fn explicit_installation_id_skips_codex_home_file() {
     config.cwd = config.codex_home.abs();
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");
 
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let installation_id = uuid::Uuid::new_v4().to_string();
     let state_db = init_state_db(&config).await;
     let thread_store = ThreadStoreBuilder::from_config(&config, state_db.clone()).build();
@@ -2950,8 +2945,7 @@ async fn resume_active_thread_from_rollout_returns_running_thread() {
     config.cwd = config.codex_home.abs();
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");
 
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let manager = ThreadManager::new(
         &config,
         crate::build_startup_models(
@@ -3019,8 +3013,7 @@ async fn resume_stopped_thread_from_rollout_spawns_new_thread() {
     config.cwd = config.codex_home.abs();
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");
 
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let manager = ThreadManager::new(
         &config,
         crate::build_startup_models(
@@ -3093,8 +3086,7 @@ async fn resume_stopped_thread_from_rollout_preserves_thread_source() {
     config.cwd = config.codex_home.abs();
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");
 
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let state_db = init_state_db(&config).await;
     let thread_store = ThreadStoreBuilder::from_config(&config, state_db.clone()).build();
     let manager = ThreadManager::new(
@@ -3185,8 +3177,7 @@ async fn subtree_listing_uses_injected_graph_store_without_state_db() {
         root_thread_id,
         descendant_thread_ids: descendant_thread_ids.clone(),
     });
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let manager = ThreadManager::new(
         &config,
         crate::build_startup_models(
@@ -3230,8 +3221,7 @@ async fn rollout_path_resume_and_fork_read_history_through_thread_store() {
     };
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");
 
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let state_db = init_state_db(&config).await;
     let thread_store = ThreadStoreBuilder::from_config(&config, state_db.clone()).build();
     let in_memory_store = thread_store
@@ -3344,8 +3334,7 @@ async fn metadata_update_without_result_reads_only_when_the_caller_needs_the_thr
     };
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");
 
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let thread_store = ThreadStoreBuilder::from_config(&config, /*state_db*/ None).build();
     let in_memory_store = thread_store
         .as_any()
@@ -3671,8 +3660,7 @@ async fn new_uses_active_provider_for_model_refresh(with_cache: bool) {
     config.model_provider.base_url = Some(server.uri());
     config.model_provider.requires_openai_auth = true;
 
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let manager = ThreadManager::new(
         &config,
         crate::build_startup_models(
@@ -3835,8 +3823,7 @@ async fn startup_catalog_cache_policy_controls_refresh() {
     config.model_provider.base_url = Some(server.uri());
     config.model_provider.requires_openai_auth = true;
 
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let manager = ThreadManager::new(
         &config,
         crate::build_startup_models(
@@ -4119,8 +4106,7 @@ async fn interrupted_fork_snapshot_does_not_synthesize_turn_id_for_legacy_histor
     config.cwd = config.codex_home.abs();
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");
 
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let state_db = init_state_db(&config).await;
     let manager = ThreadManager::new(
         &config,
@@ -4234,8 +4220,7 @@ async fn interrupted_fork_snapshot_preserves_explicit_turn_id() {
     config.cwd = config.codex_home.abs();
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");
 
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let state_db = init_state_db(&config).await;
     let manager = ThreadManager::new(
         &config,
@@ -4342,8 +4327,7 @@ async fn interrupted_fork_snapshot_uses_persisted_mid_turn_history_without_live_
     config.cwd = config.codex_home.abs();
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");
 
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let state_db = init_state_db(&config).await;
     let manager = ThreadManager::new(
         &config,

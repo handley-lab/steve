@@ -77,11 +77,9 @@ impl ChatWidget {
                 self.add_boxed_history(cell);
             }
             if let Some(source) = source {
-                self.note_stream_consolidation_queued();
                 self.app_event_tx
                     .send(AppEvent::ConsolidateProposedPlan(source));
             }
-            self.request_pending_usage_output_insertion_after_stream_shutdown();
         }
     }
 
@@ -149,7 +147,6 @@ impl ChatWidget {
                         thread_id,
                     )
                 });
-                self.note_stream_consolidation_queued();
                 self.app_event_tx.send(AppEvent::ConsolidateAgentMessage {
                     phase,
                     interrupted_item,
@@ -165,9 +162,6 @@ impl ChatWidget {
         self.adaptive_chunking.reset();
         if had_stream_controller && self.stream_controllers_idle() {
             self.app_event_tx.send(AppEvent::StopCommitAnimation);
-        }
-        if had_stream_controller {
-            self.request_pending_usage_output_insertion_after_stream_shutdown();
         }
         if completed_message.is_some() {
             self.transcript.active_streamed_agent_message = None;
@@ -386,21 +380,18 @@ impl ChatWidget {
             // TODO: Replace streamed output with the final plan item text if plan streaming is
             // removed or if we need to reconcile mismatches between streamed and final content.
             if let Some(source) = consolidated_plan_source {
-                self.note_stream_consolidation_queued();
                 self.app_event_tx
                     .send(AppEvent::ConsolidateProposedPlan(source));
             }
         } else if !plan_text.is_empty() {
             self.add_to_history(history_cell::new_proposed_plan(plan_text, &self.config.cwd));
         } else if let Some(source) = consolidated_plan_source {
-            self.note_stream_consolidation_queued();
             self.app_event_tx
                 .send(AppEvent::ConsolidateProposedPlan(source));
         }
         if should_restore_after_stream {
             self.status_state.pending_status_indicator_restore = true;
             self.maybe_restore_status_indicator_after_stream_idle();
-            self.request_pending_usage_output_insertion_after_stream_shutdown();
         }
     }
 

@@ -791,18 +791,6 @@ pub struct McpElicitationConstOption {
 #[ts(tag = "mode")]
 #[ts(export_to = "v2/")]
 pub enum McpServerElicitationRequest {
-    /// A device-authenticated approval; accepted responses contain the proof in `content`.
-    #[experimental("mcpServer/elicitation/request.userVerification")]
-    #[serde(rename = "openai/userVerification", rename_all = "camelCase")]
-    #[ts(rename = "openai/userVerification", rename_all = "camelCase")]
-    UserVerification {
-        #[serde(rename = "_meta")]
-        #[ts(rename = "_meta")]
-        meta: Option<JsonValue>,
-        title: String,
-        description: String,
-        challenge: String,
-    },
     #[serde(rename_all = "camelCase")]
     #[ts(rename_all = "camelCase")]
     Form {
@@ -848,17 +836,6 @@ impl TryFrom<CoreElicitationRequest> for McpServerElicitationRequest {
 
     fn try_from(value: CoreElicitationRequest) -> Result<Self, Self::Error> {
         match value {
-            CoreElicitationRequest::UserVerification {
-                meta,
-                title,
-                description,
-                challenge,
-            } => Ok(Self::UserVerification {
-                meta,
-                title,
-                description,
-                challenge,
-            }),
             CoreElicitationRequest::Form {
                 meta,
                 message,

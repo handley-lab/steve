@@ -34,7 +34,6 @@ use crate::activation_key_guard::ActivationKeyGuard;
 use crate::activation_key_guard::ActivationKeySuppression;
 use crate::app::app_server_requests::ResolvedAppServerRequest;
 use crate::app_event::AppEvent;
-use crate::app_event::ConnectorsSnapshot;
 use crate::app_event::HistoryLookupResponse;
 use crate::app_event_sender::AppEventSender;
 use crate::bottom_pane::pending_input_preview::PendingInputPreview;
@@ -76,7 +75,6 @@ use std::time::Duration;
 use std::time::Instant;
 
 mod action_required_title;
-mod actionable_banner;
 mod app_link_view;
 mod apply_patch_header;
 mod approval_overlay;
@@ -97,14 +95,11 @@ mod status_line_setup;
 mod status_line_style;
 mod status_surface_preview;
 mod title_setup;
-pub(crate) mod user_verification;
 mod voice_strip;
 mod warnings;
 mod warnings_view;
 pub(crate) use action_required_title::ACTION_REQUIRED_PREVIEW_PREFIX;
 pub(crate) use action_required_title::build_action_required_title_text;
-pub(crate) use actionable_banner::ActionableBanner;
-pub(crate) use actionable_banner::BannerDismissal;
 pub(crate) use app_link_view::AppLinkElicitationTarget;
 pub(crate) use app_link_view::AppLinkSuggestionType;
 pub(crate) use app_link_view::AppLinkView;
@@ -330,7 +325,6 @@ pub(crate) struct BottomPane {
     status: Option<StatusIndicatorWidget>,
     /// Running-hook summary supplied by the lifecycle owner after its reveal delay.
     hook_status_message: Option<String>,
-    inline_banner: Option<actionable_banner::InlineBanner>,
     /// Streaming may drop the row without losing its elapsed time or modal pause.
     status_timer: crate::status_indicator_widget::StatusTimer,
     /// Unified exec session summary source.
@@ -423,7 +417,6 @@ impl BottomPane {
             is_task_running: false,
             status: None,
             hook_status_message: None,
-            inline_banner: None,
             status_timer: crate::status_indicator_widget::StatusTimer::default(),
             unified_exec_footer: UnifiedExecFooter::new(),
             pending_input_preview: PendingInputPreview::new(),
@@ -482,11 +475,6 @@ impl BottomPane {
         self.composer.set_active_reasoning_effort_baseline(effort);
     }
 
-    pub fn set_connectors_snapshot(&mut self, snapshot: Option<ConnectorsSnapshot>) {
-        self.composer.set_connector_mentions(snapshot);
-        self.request_redraw();
-    }
-
     pub fn set_plugin_mentions(&mut self, plugins: Option<Vec<PluginCapabilitySummary>>) {
         self.composer.set_plugin_mentions(plugins);
         self.request_redraw();
@@ -542,11 +530,6 @@ impl BottomPane {
 
     pub fn set_plugins_command_enabled(&mut self, enabled: bool) {
         self.composer.set_plugins_command_enabled(enabled);
-        self.request_redraw();
-    }
-
-    pub fn set_token_activity_command_enabled(&mut self, enabled: bool) {
-        self.composer.set_token_activity_command_enabled(enabled);
         self.request_redraw();
     }
 
@@ -619,10 +602,6 @@ impl BottomPane {
     pub fn set_collaboration_modes_enabled(&mut self, enabled: bool) {
         self.composer.set_collaboration_modes_enabled(enabled);
         self.request_redraw();
-    }
-
-    pub fn set_connectors_enabled(&mut self, enabled: bool) {
-        self.composer.set_connectors_enabled(enabled);
     }
 
     #[cfg(target_os = "windows")]
@@ -992,9 +971,6 @@ impl BottomPane {
             self.request_redraw();
             InputResult::None
         } else {
-            if self.handle_inline_banner_key(key_event) {
-                return InputResult::None;
-            }
             // Allow the configured interrupt while a task is running, even when its
             // status row is hidden or the composer has focus.
             // When a popup is active, prefer dismissing it over interrupting the task.
@@ -1935,7 +1911,6 @@ impl BottomPane {
         !self.is_task_running
             && !self.shortcut_overlay_visible()
             && self.can_launch_external_editor()
-            && !self.inline_banner_accepts_dismissal()
     }
 
     pub(crate) fn shortcut_overlay_visible(&self) -> bool {
@@ -2465,11 +2440,6 @@ impl BottomPane {
         {
             return RenderableItem::Borrowed(warnings);
         }
-        if (self.is_task_running || !self.view_stack.is_empty())
-            && let Some(banner) = &self.inline_banner
-        {
-            banner.visible.set(false);
-        }
         if let Some(view) = views.last() {
             if view.presentation() == ViewPresentation::Centered {
                 RenderableItem::Owned(Box::new(view_stack::ViewStack(views)))
@@ -2478,13 +2448,6 @@ impl BottomPane {
             }
         } else {
             let mut flex = FlexRenderable::new();
-            if let Some(banner) = self
-                .inline_banner
-                .as_ref()
-                .filter(|_| !self.is_task_running)
-            {
-                flex.push(/*flex*/ 0, RenderableItem::Borrowed(banner));
-            }
             if let Some(status) = self.status_widget() {
                 flex.push(
                     /*flex*/ 0,
@@ -2563,10 +2526,7 @@ impl BottomPane {
             let question_summary = self.question_summary(Instant::now());
             // History overlays must not clear the status and previews above this composer.
             if options.command_popup_placement == CommandPopupPlacement::Overlay
-                && (has_status_or_footer
-                    || has_inline_previews
-                    || self.inline_banner.is_some()
-                    || question_summary.is_some())
+                && (has_status_or_footer || has_inline_previews || question_summary.is_some())
             {
                 options.command_popup_placement = CommandPopupPlacement::AboveComposer;
             }
@@ -2709,8 +2669,6 @@ impl Renderable for BottomPane {
 
 #[cfg(test)]
 mod tests {
-    #[path = "actionable_banner_tests.rs"]
-    mod actionable_banner_tests;
     #[path = "picker_hint_tests.rs"]
     mod picker_hint_tests;
 
@@ -2834,125 +2792,6 @@ mod tests {
         assert!(pane.flush_paste_burst_if_due());
         assert!(!pane.is_in_paste_burst());
         assert_eq!(pane.composer_text(), "main draft");
-    }
-
-    #[test]
-    fn inline_banner_snapshot() {
-        let (tx, _rx) = unbounded_channel();
-        let mut pane = test_pane(AppEventSender::new(tx));
-        pane.set_inline_banner(Some(ActionableBanner {
-            title: "Choose how to continue working".to_string(),
-            description: "A long description wraps to fit the available terminal width.\n"
-                .repeat(/*n*/ 8),
-            actions: vec![
-                SelectionItem {
-                    name: "Open usage settings".to_string(),
-                    ..Default::default()
-                },
-                SelectionItem {
-                    name: "Notify owner".to_string(),
-                    ..Default::default()
-                },
-            ],
-            ..Default::default()
-        }));
-        let width = 44;
-        let area = Rect::new(
-            /*x*/ 0,
-            /*y*/ 0,
-            width,
-            pane.desired_height(width),
-        );
-        assert_snapshot!(
-            "inline_banner_wrapped_and_truncated",
-            render_snapshot(&pane, area)
-        );
-        assert!(!pane.is_normal_backtrack_mode());
-        pane.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        assert!(pane.is_normal_backtrack_mode());
-    }
-
-    #[test]
-    fn escape_closes_shortcut_help_before_inline_banner() {
-        let (tx, _rx) = unbounded_channel();
-        let mut pane = test_pane(AppEventSender::new(tx));
-        pane.set_inline_banner(Some(ActionableBanner {
-            title: "Continue working".into(),
-            description: "Keep this notice while dismissing shortcut help".into(),
-            ..Default::default()
-        }));
-        let width = 80;
-        let area = Rect::new(
-            /*x*/ 0,
-            /*y*/ 0,
-            width,
-            pane.desired_height(width),
-        );
-        let _ = render_snapshot(&pane, area);
-        assert_eq!(pane.inline_banner_lifecycle(), (true, false));
-        pane.handle_key_event(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
-        assert!(pane.shortcut_overlay_visible());
-
-        pane.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        assert!(!pane.shortcut_overlay_visible());
-        assert_eq!(pane.inline_banner_lifecycle(), (true, false));
-
-        pane.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        assert_eq!(pane.inline_banner_lifecycle(), (true, true));
-    }
-
-    #[test]
-    fn backend_banner_snapshots_and_numbered_actions() {
-        for (kind, action, label) in [
-            ("personal_limit", "view_usage", "View usage"),
-            ("workspace_member_credits", "notify_owner", "Notify owner"),
-        ] {
-            let banner = crate::backend_banners::BackendBanner::parse(&serde_json::json!({
-                "banner_type": kind,
-                "presentation": "dismissible",
-                "title": "Usage limit\u{7} reached",
-                "description": "Your included usage is depleted.\nChoose an action to continue.",
-                "ctas": [
-                    {"action": "unsupported", "label": "Hidden action"},
-                    {"action": "view_usage", "label": "Open usage settings"},
-                    {"action": action, "label": label},
-                    {"action": "view_usage", "label": "Extra action"}
-                ]
-            }))
-            .expect("valid optional banner");
-            let (tx, mut rx) = unbounded_channel();
-            let mut pane = test_pane(AppEventSender::new(tx));
-            pane.set_inline_banner(Some(banner.actionable_banner(
-                crate::clock_format::ClockFormat::TwentyFourHour,
-                "https://chatgpt.com/backend-api",
-            )));
-            let width = 44;
-            let area = Rect::new(
-                /*x*/ 0,
-                /*y*/ 0,
-                width,
-                pane.desired_height(width),
-            );
-            assert_snapshot!(
-                format!("backend_banner_{kind}"),
-                render_snapshot(&pane, area)
-            );
-            pane.handle_key_event(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
-            let selected = match rx.try_recv().expect("numbered CTA dispatch") {
-                AppEvent::OpenUrlInBrowser { url } => url,
-                AppEvent::SendAddCreditsNudgeEmail { credit_type } => format!("{credit_type:?}"),
-                other => panic!("unexpected banner action: {other:?}"),
-            };
-            assert_eq!(
-                selected,
-                if action == "view_usage" {
-                    "https://chatgpt.com/settings/usage"
-                } else {
-                    "Credits"
-                }
-            );
-            assert!(pane.inline_banner.is_some());
-        }
     }
 
     #[derive(Default)]

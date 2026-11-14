@@ -898,10 +898,6 @@ pub(crate) async fn apply_bespoke_event_handling(
                 codex_protocol::approvals::ElicitationRequest::Form { meta: Some(meta), .. }
                     if meta.get(APPROVAL_KIND_KEY).and_then(serde_json::Value::as_str) == Some(APPROVAL_KIND_MCP_TOOL_CALL)
             );
-            let user_verification = matches!(
-                &request.request,
-                codex_protocol::approvals::ElicitationRequest::UserVerification { .. }
-            );
             let permission_guard = thread_watch_manager
                 .note_permission_requested(&conversation_id.to_string())
                 .await;
@@ -953,7 +949,6 @@ pub(crate) async fn apply_bespoke_event_handling(
                     pending_request_id,
                     PendingMcpElicitationResponse {
                         receiver: rx,
-                        user_verification,
                         mcp_tool_approval,
                     },
                     conversation,
@@ -1788,7 +1783,6 @@ async fn on_request_user_input_response(
 
 struct PendingMcpElicitationResponse {
     receiver: oneshot::Receiver<ClientRequestResult>,
-    user_verification: bool,
     mcp_tool_approval: bool,
 }
 
@@ -1805,11 +1799,7 @@ async fn on_mcp_server_elicitation_response(
     resolve_server_request_on_thread_listener(&thread_state, pending_request_id).await;
     drop(permission_guard);
     let interrupted = !matches!(&response, Ok(Ok(_)));
-    let mut response = if pending.user_verification {
-        crate::user_verification_response::from_client_result(response)
-    } else {
-        mcp_server_elicitation_response_from_client_result(response)
-    };
+    let mut response = mcp_server_elicitation_response_from_client_result(response);
 
     if pending.mcp_tool_approval
         && interrupted
@@ -2718,7 +2708,7 @@ mod tests {
         let config = load_default_config_for_test(&codex_home).await;
         let thread_manager = Arc::new(
             codex_core::test_support::thread_manager_with_models_provider_and_home(
-                CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+                CodexAuth::from_api_key("dummy"),
                 config.model_provider.clone(),
                 config.codex_home.to_path_buf(),
                 Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
@@ -3165,7 +3155,7 @@ mod tests {
         let config = load_default_config_for_test(&codex_home).await;
         let thread_manager = Arc::new(
             codex_core::test_support::thread_manager_with_models_provider_and_home(
-                CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+                CodexAuth::from_api_key("dummy"),
                 config.model_provider.clone(),
                 config.codex_home.to_path_buf(),
                 Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
@@ -3302,7 +3292,7 @@ mod tests {
         let config = load_default_config_for_test(&codex_home).await;
         let thread_manager = Arc::new(
             codex_core::test_support::thread_manager_with_models_provider_and_home(
-                CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+                CodexAuth::from_api_key("dummy"),
                 config.model_provider.clone(),
                 config.codex_home.to_path_buf(),
                 Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
@@ -3399,7 +3389,7 @@ mod tests {
         let config = load_default_config_for_test(&codex_home).await;
         let thread_manager = Arc::new(
             codex_core::test_support::thread_manager_with_models_provider_and_home(
-                CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+                CodexAuth::from_api_key("dummy"),
                 config.model_provider.clone(),
                 config.codex_home.to_path_buf(),
                 Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),

@@ -787,7 +787,7 @@ async fn run_cloud_plugin_projection_scenarios() -> anyhow::Result<()> {
         install_plugin_providers(&mut extensions, providers);
         let mut builder = test_codex()
             .with_extensions(Arc::new(extensions.build()))
-            .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+            .with_auth(CodexAuth::from_api_key("dummy"))
             .with_model_info_override("gpt-5.5", |model| model.supports_search_tool = false)
             .with_config(move |config| {
                 assert!(config.features.enable(Feature::Plugins).is_ok());

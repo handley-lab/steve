@@ -84,7 +84,6 @@ impl App {
     pub(super) fn reset_history_emission_state(&mut self) {
         self.has_emitted_history_lines = false;
         self.deferred_history_lines.clear();
-        self.last_rendered_history_tail = None;
     }
 
     fn display_lines_for_history_insert(
@@ -192,11 +191,6 @@ impl App {
             retained_lines,
             self.history_line_wrap_policy(),
         );
-        if self.pending_thread_usage_history_refresh
-            && let Err(err) = self.refresh_thread_usage_history_tail(tui)
-        {
-            tracing::warn!(error = %err, "failed to refresh thread usage after initial replay");
-        }
         self.request_scrollback_history_top_up(retained_rows);
     }
 
@@ -540,30 +534,6 @@ impl App {
                 reflowed_lines,
                 self.history_line_wrap_policy(),
             );
-        }
-        self.last_rendered_history_tail = self
-            .native_history
-            .replayable_cells(&self.transcript_cells)
-            .iter()
-            .rev()
-            .find_map(|cell| {
-                let lines = cell.display_hyperlink_lines_for_mode(
-                    width,
-                    self.chat_widget.history_render_mode(),
-                );
-                (!lines.is_empty()).then(|| super::history_ui::RenderedHistoryTail {
-                    cell: Arc::downgrade(cell),
-                    lines,
-                })
-            });
-        if let Some(status_history) = self.last_thread_usage_status_cell.as_mut()
-            && let Some(cell) = status_history.cell.upgrade()
-        {
-            status_history.lines = cell
-                .display_hyperlink_lines_for_mode(width, self.chat_widget.history_render_mode());
-        }
-        if self.pending_thread_usage_history_refresh {
-            self.refresh_thread_usage_history_tail(tui)?;
         }
         self.request_scrollback_history_top_up(reflowed_rows);
 

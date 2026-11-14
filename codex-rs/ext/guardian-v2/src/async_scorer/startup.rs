@@ -150,15 +150,6 @@ pub(super) async fn sampler_config(
         .is_none(),
         api_key_cyber_access_programs: config.features.enabled(Feature::ApiKeyCyberAccessPrograms),
         content_item_kinds: config.features.enabled(Feature::ContentItemKinds),
-        workspace_routing: if independent_provider {
-            config.workspace_routing_context()
-        } else {
-            input
-                .thread_store
-                .get_or_init(|| input.config.workspace_routing_context())
-                .as_ref()
-                .clone()
-        },
         provider: auth_context
             .as_ref()
             .map(|context| context.model_provider(config.model_provider.clone()))

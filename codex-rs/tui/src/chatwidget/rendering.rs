@@ -212,17 +212,6 @@ impl ChatWidget {
             );
         }
 
-        if let Some(cell) = self.pending_rate_limit_reset_hint() {
-            flex.push(
-                /*flex*/ 1,
-                RenderableItem::Owned(Box::new(TranscriptAreaRenderable {
-                    child: cell,
-                    top: 1,
-                    right: active_cell_right_reserve,
-                    persistent_layout: None,
-                })),
-            );
-        }
         flex.push(
             /*flex*/ 0,
             self.bottom_pane_renderable(crate::bottom_pane::ComposerRenderOptions::default())
@@ -310,39 +299,19 @@ impl ChatWidget {
         }
     }
 
-    /// Returns compact live-history lines using the current rich or raw presentation.
-    #[cfg(test)]
-    pub(crate) fn active_cell_display_hyperlink_lines(
-        &self,
-        width: u16,
-    ) -> Option<Vec<HyperlinkLine>> {
-        self.active_cell_hyperlink_lines_with(width, |cell, width| {
-            cell.display_hyperlink_lines_for_mode(width, self.history_render_mode())
-        })
-    }
-
     /// Combines the same live cells for compact and detailed transcript rendering.
     pub(super) fn active_cell_hyperlink_lines_with(
         &self,
         width: u16,
         render_cell: impl Fn(&dyn HistoryCell, u16) -> Vec<HyperlinkLine>,
     ) -> Option<Vec<HyperlinkLine>> {
-        let cells = self
-            .transcript
-            .active_cell
-            .as_deref()
-            .into_iter()
-            .chain(
-                self.realtime_conversation
-                    .pending_history_cells
-                    .iter()
-                    .chain(self.realtime_conversation.live_transcript_cells())
-                    .map(AsRef::as_ref),
-            )
-            .chain(
-                self.pending_rate_limit_reset_hint()
-                    .map(|cell| cell as &dyn HistoryCell),
-            );
+        let cells = self.transcript.active_cell.as_deref().into_iter().chain(
+            self.realtime_conversation
+                .pending_history_cells
+                .iter()
+                .chain(self.realtime_conversation.live_transcript_cells())
+                .map(AsRef::as_ref),
+        );
         let mut lines = Vec::new();
         for cell in cells {
             let cell_lines = render_cell(cell, width);

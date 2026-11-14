@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-use crate::auth::McpAuthProvider;
 use anyhow::Result;
 use anyhow::bail;
 use codex_config::types::AuthKeyringBackendKind;
@@ -35,7 +34,6 @@ pub(crate) struct EventStreamConnectionSettings {
     pub oauth_refresh_mode: McpOAuthRefreshMode,
     pub runtime_context: McpRuntimeContext,
     pub resolved_environment: std::result::Result<Option<Arc<Environment>>, String>,
-    pub auth_provider: Option<McpAuthProvider>,
     pub auth_manager: Option<Arc<AuthManager>>,
     pub auth: Option<CodexAuth>,
     pub protocol_mode: McpProtocolMode,
@@ -79,7 +77,6 @@ impl McpEventStreamOpener {
                 let startup_timeout = connection.server.config().startup_timeout_sec
                     .unwrap_or(DEFAULT_STARTUP_TIMEOUT);
                 let client = Arc::new(tokio::time::timeout(startup_timeout, make_rmcp_client(
-                    /*ema_auth*/ None,
                     CODEX_APPS_MCP_SERVER_NAME,
                     connection.server.clone(),
                     connection.store_mode,
@@ -87,7 +84,6 @@ impl McpEventStreamOpener {
                     connection.oauth_refresh_mode,
                     connection.runtime_context.clone(),
                     connection.resolved_environment.clone(),
-                    connection.auth_provider.clone(),
                     connection.protocol_mode,
                 )).await??);
                 client.initialize(
@@ -140,18 +136,8 @@ impl McpEventStreamOpener {
 
     fn matches_auth(&self, current: Option<&CodexAuth>) -> bool {
         match (self.connection.auth.as_ref(), current) {
-            (Some(CodexAuth::AgentIdentity(expected)), Some(CodexAuth::AgentIdentity(current))) => {
-                expected.record() == current.record()
-            }
-            (Some(CodexAuth::AgentIdentity(_)), _) | (_, Some(CodexAuth::AgentIdentity(_))) => {
-                false
-            }
             (Some(expected), Some(current)) => {
-                expected.get_account_id() == current.get_account_id()
-                    && expected.get_chatgpt_user_id() == current.get_chatgpt_user_id()
-                    && expected.is_workspace_account() == current.is_workspace_account()
-                    && expected.is_fedramp_account() == current.is_fedramp_account()
-                    && (expected.get_account_id().is_some() || expected == current)
+                expected.is_fedramp_account() == current.is_fedramp_account() && expected == current
             }
             (None, None) => true,
             _ => false,

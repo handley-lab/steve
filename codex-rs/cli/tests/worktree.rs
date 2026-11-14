@@ -225,15 +225,6 @@ trust_level = "trusted"
         source.join(".steve/config.toml"),
         "model = \"source-model\"\nanalytics.enabled = true\n",
     )?;
-    app_test_support::write_chatgpt_auth(
-        &home,
-        app_test_support::ChatGptAuthFixture::new("test-token")
-            .account_id("workspace-123")
-            .chatgpt_account_id("workspace-123")
-            .chatgpt_user_id("user-123")
-            .plan_type("enterprise"),
-        codex_config::types::AuthCredentialsStoreMode::File,
-    )?;
     let program = codex_utils_cargo_bin::cargo_bin("steve")?;
     // Keep cold Rosetta translation outside the timed startup assertions.
     #[cfg(all(target_os = "macos", target_arch = "x86_64"))]

@@ -1,5 +1,4 @@
 use anyhow::Result;
-use app_test_support::ChatGptAuthFixture;
 use app_test_support::MockResponsesConfig;
 use app_test_support::TestAppServer;
 use app_test_support::create_fake_paginated_rollout;
@@ -9,7 +8,6 @@ use app_test_support::create_mock_responses_server_repeating_assistant;
 use app_test_support::create_mock_responses_server_sequence_unchecked;
 use app_test_support::rollout_path;
 use app_test_support::to_response;
-use app_test_support::write_chatgpt_auth;
 use app_test_support::write_models_cache;
 use codex_app_server_protocol::ActivePermissionProfile;
 use codex_app_server_protocol::ApprovalsReviewer;
@@ -61,7 +59,6 @@ use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::UserInput;
-use codex_config::types::AuthCredentialsStoreMode;
 use codex_core::config::ConfigBuilder;
 use codex_core::test_support::construct_model_info_offline;
 use codex_features::Feature;
@@ -2394,101 +2391,6 @@ async fn thread_fork_with_empty_path_uses_thread_id() -> Result<()> {
         thread.forked_from_id.as_deref(),
         Some(conversation_id.as_str())
     );
-    Ok(())
-}
-
-#[tokio::test]
-async fn thread_fork_surfaces_cloud_config_bundle_load_errors() -> Result<()> {
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/backend-api/wham/config/bundle"))
-        .respond_with(
-            ResponseTemplate::new(401)
-                .insert_header("content-type", "text/html")
-                .set_body_string("<html>nope</html>"),
-        )
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path("/oauth/token"))
-        .respond_with(ResponseTemplate::new(401).set_body_json(json!({
-            "error": { "code": "refresh_token_invalidated" }
-        })))
-        .expect(0)
-        .mount(&server)
-        .await;
-
-    let codex_home = TempDir::new()?;
-    let model_server = create_mock_responses_server_repeating_assistant("Done").await;
-    let chatgpt_base_url = format!("{}/backend-api", server.uri());
-    MockResponsesConfig::new(&model_server.uri())
-        .with_root_config(&format!(r#"chatgpt_base_url = "{chatgpt_base_url}""#))
-        .write(codex_home.path())?;
-    write_chatgpt_auth(
-        codex_home.path(),
-        ChatGptAuthFixture::new("chatgpt-token")
-            .refresh_token("stale-refresh-token")
-            .plan_type("business")
-            .chatgpt_user_id("user-123")
-            .chatgpt_account_id("account-123")
-            .account_id("account-123"),
-        AuthCredentialsStoreMode::File,
-    )?;
-
-    let conversation_id = create_fake_rollout(
-        codex_home.path(),
-        "2025-01-05T12-00-00",
-        "2025-01-05T12:00:00Z",
-        "Saved user message",
-        Some("mock_provider"),
-        /*git_info*/ None,
-    )?;
-
-    let refresh_token_url = format!("{}/oauth/token", server.uri());
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .without_auto_env()
-        .with_env_overrides(&[
-            ("OPENAI_API_KEY", None),
-            (
-                "STEVE_REFRESH_TOKEN_URL_OVERRIDE",
-                Some(refresh_token_url.as_str()),
-            ),
-        ])
-        .build_initialized()
-        .await?;
-
-    let fork_id = mcp
-        .send_thread_fork_request(ThreadForkParams {
-            thread_id: conversation_id,
-            ..Default::default()
-        })
-        .await?;
-    let fork_err: JSONRPCError = timeout(
-        DEFAULT_READ_TIMEOUT,
-        mcp.read_stream_until_error_message(RequestId::Integer(fork_id)),
-    )
-    .await??;
-
-    assert!(
-        fork_err
-            .error
-            .message
-            .contains("failed to load configuration"),
-        "unexpected fork error: {}",
-        fork_err.error.message
-    );
-    assert_eq!(
-        fork_err.error.data,
-        Some(json!({
-            "reason": "cloudConfigBundle",
-            "errorCode": "Auth",
-            "action": "relogin",
-            "statusCode": 401,
-            "detail": "The configured service rejected the supplied credentials. Supply updated credentials.",
-        }))
-    );
-
     Ok(())
 }
 

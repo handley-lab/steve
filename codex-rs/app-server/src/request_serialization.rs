@@ -125,13 +125,6 @@ impl QueuedInitializedRequest {
         }
     }
 
-    fn new_background(future: impl Future<Output = ()> + Send + 'static) -> Self {
-        Self {
-            gate: None,
-            future: Box::pin(future),
-        }
-    }
-
     pub(crate) async fn run(self) {
         let Self { gate, future } = self;
         match gate {
@@ -174,21 +167,6 @@ impl RequestSerializationQueues {
                 queue.changed.notify_one();
             }
         }
-    }
-
-    /// Enqueue app-owned work alongside RPCs that mutate the same serialized resource.
-    pub(crate) async fn enqueue_background(
-        &self,
-        key: RequestSerializationQueueKey,
-        access: RequestSerializationAccess,
-        future: impl Future<Output = ()> + Send + 'static,
-    ) {
-        self.enqueue(
-            key,
-            access,
-            QueuedInitializedRequest::new_background(future),
-        )
-        .await;
     }
 
     pub(crate) async fn enqueue(

@@ -40,7 +40,6 @@ use crate::CodexResponsesHeaders;
 use crate::PromptCacheKey;
 use crate::tools::ExecutedToolCalls;
 use async_channel::Sender;
-use codex_api::AgentIdentityTelemetry;
 use codex_api::ApiError;
 use codex_api::AuthProvider;
 use codex_api::Compression;
@@ -142,7 +141,6 @@ use codex_model_provider::ProviderUnauthorizedRecovery;
 use codex_model_provider::ResolvedProviderRequest as CurrentClientSetup;
 use codex_model_provider::ResponsesConnectionKey;
 use codex_model_provider::SharedModelProvider;
-use codex_model_provider::WorkspaceRoutingContext;
 #[cfg(test)]
 use codex_model_provider_info::DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS;
 use codex_model_provider_info::ModelProviderInfo;
@@ -201,7 +199,6 @@ struct ModelClientState {
     thread_id: ThreadId,
     item_id_generator: ItemIdGenerator,
     provider: SharedModelProvider,
-    workspace_routing: WorkspaceRoutingContext,
     auth_env_telemetry: AuthEnvTelemetry,
     session_source: SessionSource,
     originator: String,
@@ -225,7 +222,6 @@ impl std::fmt::Debug for ModelClientState {
         f.debug_struct("ModelClientState")
             .field("thread_id", &self.thread_id)
             .field("provider", &self.provider)
-            .field("workspace_routing", &self.workspace_routing)
             .field("auth_env_telemetry", &self.auth_env_telemetry)
             .field("session_source", &self.session_source)
             .field("originator", &self.originator)
@@ -263,7 +259,6 @@ impl std::fmt::Debug for ModelClientState {
 enum ClientRouting {
     Workspace,
     ConfiguredProvider,
-    ExplicitProvider(ApiProvider),
 }
 
 #[derive(Clone, Copy)]
@@ -582,7 +577,6 @@ impl ModelClient {
         output_token_replay_enabled: bool,
         attestation_provider: Option<Arc<dyn AttestationProvider>>,
         http_client_factory: HttpClientFactory,
-        workspace_routing: WorkspaceRoutingContext,
         request_contributors: Vec<Arc<dyn codex_extension_api::ModelRequestContributor>>,
     ) -> Self {
         let codex_api_key_env_enabled = model_provider
@@ -606,7 +600,6 @@ impl ModelClient {
                 thread_id,
                 item_id_generator,
                 provider: model_provider,
-                workspace_routing,
                 auth_env_telemetry,
                 session_source,
                 originator,
@@ -662,7 +655,6 @@ impl ModelClient {
             self.state.output_token_replay_enabled,
             self.state.attestation_provider.clone(),
             self.http_client_factory.clone(),
-            self.state.workspace_routing.clone(),
             self.request_contributors.clone(),
         )
         .state;
@@ -869,14 +861,13 @@ impl ModelClient {
                 api_provider: provider.api_provider_for_auth(call_setup.auth.as_ref())?,
                 redirect_policy: call_setup.redirect_policy,
                 api_auth: Arc::clone(&call_setup.api_auth),
-                agent_identity_telemetry: call_setup.agent_identity_telemetry.clone(),
                 runtime_id: None,
                 http_client_factory,
             });
         }
         let mut setup = codex_model_provider::resolve_request(
             provider.as_ref(),
-            /*routing*/ None,
+            ClientRedirectPolicy::Default,
             http_client_factory,
         )
         .await?;
@@ -900,7 +891,6 @@ impl ModelClient {
                 .compose_auth(codex_model_provider::ResolvedProviderAuth {
                     credential: Some(selected.auth().clone()),
                     auth: selected.clone().into_auth_provider(*mode),
-                    agent_identity_telemetry: setup.agent_identity_telemetry.clone(),
                     runtime: Some(selected.clone()),
                 })
                 .await?
@@ -1022,7 +1012,6 @@ impl ModelClient {
             AuthRequestTelemetryContext::new(
                 client_setup.auth.as_ref().map(CodexAuth::auth_mode),
                 client_setup.api_auth.as_ref(),
-                client_setup.agent_identity_telemetry.clone(),
                 PendingUnauthorizedRetry::default(),
             )
             .map_err(|error| self.state.provider.map_api_error(error))?,
@@ -1338,21 +1327,16 @@ impl ModelClient {
         routing: ClientRouting,
         provider: &SharedModelProvider,
     ) -> Result<CurrentClientSetup> {
-        let (routing, explicit_provider) = match routing {
-            ClientRouting::Workspace => (Some(&self.state.workspace_routing), None),
-            ClientRouting::ConfiguredProvider => (None, None),
-            ClientRouting::ExplicitProvider(provider) => (None, Some(provider)),
+        let redirect_policy = match routing {
+            ClientRouting::Workspace => ClientRedirectPolicy::Reject,
+            ClientRouting::ConfiguredProvider => ClientRedirectPolicy::Default,
         };
-        let mut setup = codex_model_provider::resolve_request(
+        let setup = codex_model_provider::resolve_request(
             provider.as_ref(),
-            routing,
+            redirect_policy,
             self.http_client_factory.clone(),
         )
         .await?;
-        if let Some(provider) = explicit_provider {
-            setup.api_provider = provider;
-            setup.redirect_policy = ClientRedirectPolicy::Reject;
-        }
         Ok(setup)
     }
 
@@ -1382,21 +1366,10 @@ impl ModelClient {
             .unwrap_or_default()
     }
 
-    fn uses_codex_backend(&self, auth: Option<&CodexAuth>) -> bool {
-        let provider = self.state.provider.info();
-        auth.is_some_and(CodexAuth::uses_codex_backend)
-            && provider.requires_openai_auth
-            && provider.env_key.is_none()
-            && provider.experimental_bearer_token.is_none()
-            && provider.auth.is_none()
-            && provider.aws.is_none()
-    }
-
     fn set_guardian_metadata(
         &self,
         metadata: &mut Option<HashMap<String, String>>,
         parent_response_id: Option<&str>,
-        auth: Option<&CodexAuth>,
         responses_headers: &ApiHeaderMap,
     ) {
         if let Some(metadata) = metadata.as_mut() {
@@ -1409,18 +1382,6 @@ impl ModelClient {
                 "parent_response_id".to_owned(),
                 parent_response_id.to_owned(),
             );
-        }
-        if !guardian_reviewer
-            && !crate::guardian::is_basic_session_source(&self.state.session_source)
-            && matches!(
-                auth,
-                Some(CodexAuth::Chatgpt(_) | CodexAuth::ChatgptAuthTokens(_))
-            )
-            && self.uses_codex_backend(auth)
-        {
-            metadata
-                .get_or_insert_with(HashMap::new)
-                .insert("guardian_credits_requested".to_owned(), "true".to_owned());
         }
     }
 
@@ -1527,7 +1488,6 @@ impl ModelClient {
             response_debug.cf_ray.as_deref(),
             response_debug.auth_error.as_deref(),
             response_debug.auth_error_code.as_deref(),
-            auth_context.agent_identity_telemetry(),
         );
         emit_feedback_request_tags_with_auth_env(
             &FeedbackRequestTags {
@@ -1771,7 +1731,6 @@ impl ModelClientSession {
             let auth_context = AuthRequestTelemetryContext::new(
                 client_setup.auth.as_ref().map(CodexAuth::auth_mode),
                 client_setup.api_auth.as_ref(),
-                client_setup.agent_identity_telemetry.clone(),
                 pending_retry,
             )
             .map_err(|error| provider.map_api_error(error))?;
@@ -2002,7 +1961,6 @@ impl ResponsesHttpExecutor<'_> {
             let request_auth_context = AuthRequestTelemetryContext::new(
                 client_setup.auth.as_ref().map(CodexAuth::auth_mode),
                 client_setup.api_auth.as_ref(),
-                client_setup.agent_identity_telemetry.clone(),
                 pending_retry,
             )
             .map_err(|error| self.client.state.provider.map_api_error(error))?;
@@ -2034,7 +1992,6 @@ impl ResponsesHttpExecutor<'_> {
             self.client.set_guardian_metadata(
                 &mut request.client_metadata,
                 responses_metadata.parent_response_id.as_deref(),
-                client_setup.auth.as_ref(),
                 &responses_headers,
             );
             if let Some(header_value) = self.client.build_routing_hint_header(
@@ -2209,7 +2166,6 @@ impl ModelClientSession {
             let request_auth_context = AuthRequestTelemetryContext::new(
                 client_setup.auth.as_ref().map(CodexAuth::auth_mode),
                 client_setup.api_auth.as_ref(),
-                client_setup.agent_identity_telemetry.clone(),
                 pending_retry,
             )
             .map_err(|error| self.client.state.provider.map_api_error(error))?;
@@ -2386,7 +2342,6 @@ impl ModelClientSession {
             self.client.set_guardian_metadata(
                 &mut ws_payload.client_metadata,
                 responses_metadata.parent_response_id.as_deref(),
-                client_setup.auth.as_ref(),
                 &responses_headers,
             );
             let interceptors = crate::model_request::prepare(
@@ -2961,7 +2916,6 @@ struct AuthRequestTelemetryContext {
     auth_mode: Option<&'static str>,
     auth_header_attached: bool,
     auth_header_name: Option<&'static str>,
-    agent_identity_telemetry: Option<AgentIdentityTelemetry>,
     retry_after_unauthorized: bool,
     recovery_mode: Option<&'static str>,
     recovery_phase: Option<&'static str>,
@@ -2971,7 +2925,6 @@ impl AuthRequestTelemetryContext {
     fn new(
         auth_mode: Option<AuthMode>,
         api_auth: &dyn AuthProvider,
-        agent_identity_telemetry: Option<AgentIdentityTelemetry>,
         retry: PendingUnauthorizedRetry,
     ) -> std::result::Result<Self, ApiError> {
         let auth_telemetry = auth_header_telemetry(api_auth)?;
@@ -2980,23 +2933,13 @@ impl AuthRequestTelemetryContext {
                 AuthMode::ApiKey | AuthMode::BedrockApiKey | AuthMode::BedrockAccessKeys => {
                     "ApiKey"
                 }
-                AuthMode::Chatgpt
-                | AuthMode::ChatgptAuthTokens
-                | AuthMode::Headers
-                | AuthMode::AgentIdentity
-                | AuthMode::PersonalAccessToken => "Chatgpt",
             }),
             auth_header_attached: auth_telemetry.attached,
             auth_header_name: auth_telemetry.name,
-            agent_identity_telemetry,
             retry_after_unauthorized: retry.retry_after_unauthorized,
             recovery_mode: retry.recovery_mode,
             recovery_phase: retry.recovery_phase,
         })
-    }
-
-    fn agent_identity_telemetry(&self) -> Option<&AgentIdentityTelemetry> {
-        self.agent_identity_telemetry.as_ref()
     }
 }
 
@@ -3116,10 +3059,7 @@ async fn handle_unauthorized(
                 );
                 Ok(UnauthorizedRecoveryExecution { mode, phase })
             }
-            Err(
-                error @ (RefreshTokenError::Policy(_)
-                | RefreshTokenError::AccountRenewalUnavailable),
-            ) => Err(CodexErr::Fatal(error.to_string())),
+            Err(error @ RefreshTokenError::Policy(_)) => Err(CodexErr::Fatal(error.to_string())),
             Err(RefreshTokenError::Permanent(failed)) => {
                 session_telemetry.record_auth_recovery(
                     mode,
@@ -3259,7 +3199,6 @@ impl RequestTelemetry for ApiTelemetry {
             debug.cf_ray.as_deref(),
             debug.auth_error.as_deref(),
             debug.auth_error_code.as_deref(),
-            self.auth_context.agent_identity_telemetry(),
         );
         emit_feedback_request_tags_with_auth_env(
             &FeedbackRequestTags {
@@ -3314,7 +3253,6 @@ impl WebsocketTelemetry for ApiTelemetry {
             duration,
             error_message.as_deref(),
             connection_reused,
-            self.auth_context.agent_identity_telemetry(),
         );
         emit_feedback_request_tags_with_auth_env(
             &FeedbackRequestTags {

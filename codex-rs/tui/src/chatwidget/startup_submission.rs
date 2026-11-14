@@ -53,7 +53,6 @@ impl ChatWidget {
             || self.is_plan_streaming_in_tui()
             || self.is_user_turn_pending_or_running()
             || self.input_queue.submissions_paused()
-            || self.input_queue.rate_limit_recovery_pending
             || self.input_queue.recovered_queue
             || self.input_queue.has_unconfirmed_messages()
         {

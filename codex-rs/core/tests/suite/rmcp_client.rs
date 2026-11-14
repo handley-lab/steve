@@ -513,7 +513,7 @@ async fn agent_metadata_is_only_sent_to_the_selected_plugin(
     let user_override = matches!(case, AgentMetadataCase::UserOverride);
     let fixture = test_codex()
         .with_home(home)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
             if user_override {
                 insert_mcp_server(config, "sample", transport, TestMcpServerOptions::default());
@@ -1741,7 +1741,7 @@ async fn apps_enabled_turn_skips_pending_optional_mcp_without_cached_tools() -> 
     let pending_mcp_url = format!("http://{}/mcp", pending_mcp_listener.local_addr()?);
 
     let fixture = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
             config
                 .features
@@ -1925,7 +1925,7 @@ async fn startup_prewarm_connects_before_delayed_mcp_tools_then_reuses_socket(
     let service_tier = ServiceTier::Fast.request_value();
     let fixture = test_codex()
         .with_model("gpt-5.4")
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_model_info_override("gpt-5.4", move |model| {
             model.supports_search_tool = false;
             model.use_responses_lite = use_responses_lite;
@@ -2629,7 +2629,7 @@ async fn stdio_mcp_tool_call_includes_sandbox_state_meta(
 
     let rmcp_test_server_bin = remote_aware_stdio_server_bin()?;
     let fixture = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_model("gpt-5.5")
         .with_config(move |config| {
             config.prefer_mxc = prefer_mxc;
@@ -3730,7 +3730,7 @@ async fn stdio_image_responses_are_sanitized_for_text_only_model() -> anyhow::Re
     let rmcp_test_server_bin = remote_aware_stdio_server_bin()?;
 
     let fixture = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
             insert_mcp_server(
                 config,
@@ -4403,119 +4403,6 @@ async fn streamable_http_tool_call_round_trip(mode: HeadersHelperMode) -> anyhow
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn streamable_http_configured_auth_precedes_chatgpt_auth() -> anyhow::Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let server = responses::start_mock_server().await;
-    let Some(configured_auth_server) = start_streamable_http_test_server(
-        "configured-auth",
-        Some("configured-token"),
-        /*expected_gateway_token*/ None,
-    )
-    .await?
-    else {
-        return Ok(());
-    };
-    let configured_auth_url = configured_auth_server.url().to_string();
-
-    let configured_auth_fixture = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
-        .with_config(move |config| {
-            insert_mcp_server(
-                config,
-                "configured_auth",
-                McpServerTransportConfig::StreamableHttp {
-                    url: configured_auth_url,
-                    bearer_token_env_var: None,
-                    http_headers: Some(HashMap::from([(
-                        "Authorization".to_string(),
-                        "Bearer configured-token".to_string(),
-                    )])),
-                    env_http_headers: None,
-                    http_headers_helper: None,
-                },
-                TestMcpServerOptions {
-                    environment_id: remote_aware_environment_id(),
-                    auth: McpServerAuth::ChatGpt,
-                    ..Default::default()
-                },
-            );
-        })
-        .build_with_auto_env(&server)
-        .await?;
-
-    wait_for_mcp_server(&configured_auth_fixture.codex, "configured_auth").await?;
-    drop(configured_auth_fixture);
-    configured_auth_server.shutdown().await;
-
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn streamable_http_chatgpt_auth_is_not_sent_to_configured_origin() -> anyhow::Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let server = responses::start_mock_server().await;
-    let untrusted_server = MockServer::start().await;
-    let untrusted_apps = AppsTestServer::mount(&untrusted_server).await?;
-    let untrusted_mcp_url = format!("{}/api/codex/ps/mcp", untrusted_apps.chatgpt_base_url);
-    let untrusted_chatgpt_base_url = untrusted_apps.chatgpt_base_url;
-
-    let fixture = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
-        .with_config(move |config| {
-            config.chatgpt_base_url = untrusted_chatgpt_base_url;
-            insert_mcp_server(
-                config,
-                "untrusted_origin",
-                McpServerTransportConfig::StreamableHttp {
-                    url: untrusted_mcp_url,
-                    bearer_token_env_var: None,
-                    http_headers: None,
-                    env_http_headers: None,
-                    http_headers_helper: None,
-                },
-                TestMcpServerOptions {
-                    auth: McpServerAuth::ChatGpt,
-                    ..Default::default()
-                },
-            );
-        })
-        .build(&server)
-        .await?;
-
-    wait_for_mcp_server(&fixture.codex, "untrusted_origin").await?;
-    let observed_requests = untrusted_server
-        .received_requests()
-        .await
-        .expect("mock server should capture MCP startup requests")
-        .into_iter()
-        .filter(|request| request.url.path() == "/api/codex/ps/mcp")
-        .filter_map(|request| {
-            let body: Value = serde_json::from_slice(&request.body).ok()?;
-            let method = body.get("method")?.as_str()?.to_string();
-            let authorization = request
-                .headers
-                .get("authorization")
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_string);
-            Some((method, authorization))
-        })
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        observed_requests,
-        vec![
-            ("initialize".to_string(), None),
-            ("notifications/initialized".to_string(), None),
-            ("tools/list".to_string(), None),
-        ],
-    );
-
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn configured_chatgpt_base_url_does_not_grant_mcp_chatgpt_auth() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -4526,7 +4413,7 @@ async fn configured_chatgpt_base_url_does_not_grant_mcp_chatgpt_auth() -> anyhow
     let untrusted_chatgpt_base_url = untrusted_apps.chatgpt_base_url;
 
     let fixture = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_pre_build_hook(move |codex_home| {
             fs::write(
                 codex_home.join("config.toml"),

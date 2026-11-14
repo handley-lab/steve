@@ -24,7 +24,6 @@ use codex_extension_api::ToolStartInput;
 use codex_features::CurrentTimeSource;
 use codex_features::Feature;
 use codex_history::RolloutItem;
-use codex_login::AuthHeaders;
 use codex_login::CodexAuth;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_otel::MetricsClient;
@@ -144,12 +143,10 @@ impl TimeProvider for RecordingTimeProvider {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[test_case(CodexAuth::from_api_key("test-api-key"), "OpenAI", "/v1", "/v1/responses", true; "api_key_uses_responses")]
-#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(), "OpenAI", "/backend-api/codex", "/backend-api/codex/responses", true; "chatgpt_marks_guardian_by_default")]
-#[test_case(CodexAuth::Headers(AuthHeaders::new(http::HeaderMap::new())), "OpenAI", "/api/codex", "/api/codex/responses", true; "header_auth_marks_guardian_on_direct_backend")]
 #[test_case(CodexAuth::from_api_key("test-api-key"), "OpenAI", "/api/codex", "/api/codex/responses", true; "api_key_does_not_mark_guardian_on_direct_backend")]
-#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(), "OpenAI", "/v1", "/v1/responses", true; "custom_openai_url_marks_guardian")]
-#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(), "Custom", "/backend-api/codex", "/backend-api/codex/responses", true; "custom_provider_uses_responses")]
-#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(), "OpenAI", "/backend-api/codex", "/backend-api/codex/responses", false; "retry_without_response_id_keeps_last_parent")]
+#[test_case(CodexAuth::from_api_key("dummy"), "OpenAI", "/v1", "/v1/responses", true; "custom_openai_url_marks_guardian")]
+#[test_case(CodexAuth::from_api_key("dummy"), "Custom", "/backend-api/codex", "/backend-api/codex/responses", true; "custom_provider_uses_responses")]
+#[test_case(CodexAuth::from_api_key("dummy"), "OpenAI", "/backend-api/codex", "/backend-api/codex/responses", false; "retry_without_response_id_keeps_last_parent")]
 async fn guardian_session_inherits_parent_http_fallback(
     auth: CodexAuth,
     provider_name: &str,
@@ -157,8 +154,8 @@ async fn guardian_session_inherits_parent_http_fallback(
     expected_guardian_path: &str,
     response_id_present: bool,
 ) -> Result<()> {
-    let credits_enabled = auth.uses_codex_backend() && provider_name == "OpenAI";
-    let requests_parent_credits = credits_enabled && auth.is_chatgpt_auth();
+    let credits_enabled = false;
+    let requests_parent_credits = false;
     skip_if_no_network!(Ok(()));
 
     let configured_policy = "Use the task-configured Guardian policy.";
@@ -415,7 +412,7 @@ for (const phase of ["before", "after"]) {
     let server = start_mock_server().await;
     let base_url = format!("{}/backend-api/codex", streaming.uri());
     let test = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_extensions(Arc::new(extensions.build()))
         .with_config(move |config| {
             config.features.enable(Feature::CodeMode).unwrap();
@@ -888,9 +885,6 @@ async fn guardian_requests_record_only_their_own_tool_calls() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[test_case(CodexAuth::from_api_key("test-api-key"), "/v1", "gpt-5.6-luna"; "api_key_uses_luna_with_responses_lite")]
-#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(), "/backend-api/codex", "codex-auto-review"; "chatgpt_uses_codex_auto_review")]
-#[test_case(CodexAuth::Headers(AuthHeaders::new(http::HeaderMap::new())), "/api/codex", "codex-auto-review"; "header_auth_uses_codex_auto_review_on_direct_backend")]
-#[test_case(CodexAuth::Headers(AuthHeaders::new(http::HeaderMap::new())), "/v1", "codex-auto-review"; "header_auth_marks_guardian_on_custom_url")]
 async fn guardian_session_prewarms_and_is_reused_for_first_review(
     auth: CodexAuth,
     base_path: &str,
@@ -898,9 +892,8 @@ async fn guardian_session_prewarms_and_is_reused_for_first_review(
 ) -> Result<()> {
     skip_if_no_network!(Ok(()));
 
-    let uses_codex_backend = auth.uses_codex_backend();
-    let credits_enabled = uses_codex_backend;
-    let requests_parent_credits = credits_enabled && auth.is_chatgpt_auth();
+    let credits_enabled = false;
+    let requests_parent_credits = false;
     let mut review_model = codex_models_manager::test_support::model_info(expected_model);
     review_model.use_responses_lite = expected_model == "gpt-5.6-luna";
     let catalog_policy = "Test Guardian approval policy.";
@@ -1473,7 +1466,7 @@ async fn guardian_refreshes_missing_default_reviewer_once(
     let catalog_url = format!("{}/v1/models", server.uri());
     let configured_catalog = initial_catalog.clone();
     let mut builder = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_model("guardian-parent-a")
         .with_config(move |config| {
             config.permissions.approval_policy = Constrained::allow_any(AskForApproval::OnRequest);
@@ -1693,7 +1686,7 @@ async fn guardian_reviews_delayed_and_new_actions_after_catalog_refresh() -> Res
     let mut extensions = ExtensionRegistryBuilder::<Config>::new();
     extensions.tool_lifecycle_contributor(pause.clone());
     let test = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_model("guardian-parent-a")
         .with_extensions(Arc::new(extensions.build()))
         .with_config(|config| {

@@ -122,7 +122,7 @@ async fn trusts_connector_declared_by_home_owned_plugin() -> Result<()> {
 
     let server = responses::start_mock_server().await;
     let test = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_pre_build_hook(|home| {
             let plugin_root = home.join("plugins/cache/test/trusted/local");
             std::fs::create_dir_all(plugin_root.join(".codex-plugin"))

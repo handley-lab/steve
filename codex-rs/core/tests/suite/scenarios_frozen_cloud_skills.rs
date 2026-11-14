@@ -73,7 +73,7 @@ async fn frozen_cloud_skills_with_named_executor_request_history() -> Result<()>
     .await;
     let test = test_codex()
         .with_model("gpt-6-astra")
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         // Cloud parents start without the reserved local executor attachment.
         .with_exec_server_url("none")
         .with_extensions(Arc::new(extensions.build()))

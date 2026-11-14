@@ -1909,6 +1909,7 @@ impl Renderable for ListSelectionView {
     }
 }
 
+#[cfg(test)]
 impl ListSelectionView {
     pub(crate) fn rendered_item_count(&self) -> usize {
         self.rendered_item_count.get()

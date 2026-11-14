@@ -1,20 +1,12 @@
 use codex_config::test_support::CloudConfigBundleFixture;
-use codex_config::types::AuthCredentialsStoreMode;
 use codex_core::ModelClient;
-use codex_core::NewThread;
 use codex_core::Prompt;
 use codex_core::ResponseEvent;
-use codex_core::StartThreadOptions;
-use codex_core::ThreadManager;
-use codex_core::ThreadStoreBuilder;
 use codex_core::TurnInputRequest;
 use codex_core::X_CODEX_ROUTING_HINT_HEADER;
-use codex_core::resolve_installation_id;
-use codex_extension_api::empty_extension_registry;
 use codex_features::Feature;
 use codex_history::RolloutItem;
 use codex_history::RolloutLine;
-use codex_login::AuthKeyringBackendKind;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_login::auth::BedrockApiKeyAuth;
@@ -24,9 +16,7 @@ use codex_model_provider_info::AMAZON_BEDROCK_RUNTIME_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::WireApi;
 use codex_model_provider_info::built_in_model_providers;
-use codex_models_manager::manager::ModelCatalogSettings;
 use codex_otel::SessionTelemetry;
-use codex_otel::TelemetryAuthMode;
 use codex_protocol::ResponseItemId;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::CollaborationMode;
@@ -43,14 +33,8 @@ use codex_protocol::models::FunctionCallOutputContentItem;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ImageDetail;
 use codex_protocol::models::ImageReference;
-use codex_protocol::models::LocalShellAction;
-use codex_protocol::models::LocalShellExecAction;
-use codex_protocol::models::LocalShellStatus;
 use codex_protocol::models::MessagePhase;
-use codex_protocol::models::ReasoningItemContent;
-use codex_protocol::models::ReasoningItemReasoningSummary;
 use codex_protocol::models::ResponseItem;
-use codex_protocol::models::WebSearchAction;
 use codex_protocol::openai_models::InputModality;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::EventMsg;
@@ -791,7 +775,7 @@ async fn response_item_ids_are_sent_for_all_remote_v2_compaction_requests() -> a
     )
     .await;
     let test = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .build(&server)
         .await?;
 
@@ -820,58 +804,6 @@ async fn response_item_ids_are_sent_for_all_remote_v2_compaction_requests() -> a
     }
 
     Ok(())
-}
-
-/// Writes an `auth.json` into the provided `codex_home` with the specified parameters.
-/// Returns the fake JWT string written to `tokens.id_token`.
-#[expect(clippy::unwrap_used)]
-fn write_auth_json(
-    codex_home: &TempDir,
-    openai_api_key: Option<&str>,
-    chatgpt_plan_type: &str,
-    access_token: &str,
-    account_id: Option<&str>,
-) -> String {
-    use base64::Engine as _;
-
-    let header = json!({ "alg": "none", "typ": "JWT" });
-    let payload = json!({
-        "email": "user@example.com",
-        "https://api.openai.com/auth": {
-            "chatgpt_plan_type": chatgpt_plan_type,
-            "chatgpt_account_id": account_id.unwrap_or("acc-123")
-        }
-    });
-
-    let b64 = |b: &[u8]| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b);
-    let header_b64 = b64(&serde_json::to_vec(&header).unwrap());
-    let payload_b64 = b64(&serde_json::to_vec(&payload).unwrap());
-    let signature_b64 = b64(b"sig");
-    let fake_jwt = format!("{header_b64}.{payload_b64}.{signature_b64}");
-
-    let mut tokens = json!({
-        "id_token": fake_jwt,
-        "access_token": access_token,
-        "refresh_token": "refresh-test",
-    });
-    if let Some(acc) = account_id {
-        tokens["account_id"] = json!(acc);
-    }
-
-    let auth_json = json!({
-        "OPENAI_API_KEY": openai_api_key,
-        "tokens": tokens,
-        // RFC3339 datetime; value doesn't matter for these tests
-        "last_refresh": chrono::Utc::now(),
-    });
-
-    std::fs::write(
-        codex_home.path().join("auth.json"),
-        serde_json::to_string_pretty(&auth_json).unwrap(),
-    )
-    .unwrap();
-
-    fake_jwt
 }
 
 pub(super) struct ProviderAuthCommandFixture {
@@ -1848,7 +1780,6 @@ async fn send_request_with_provider(provider: ModelProviderInfo) {
         /*output_token_replay_enabled*/ false,
         /*attestation_provider*/ None,
         config.http_client_factory(),
-        config.workspace_routing_context(),
         Vec::new(),
     );
     let responses_metadata = test_turn_responses_metadata(&client, thread_id);
@@ -2016,100 +1947,6 @@ async fn chatgpt_auth_sends_correct_request() {
         request_body["include"][0].as_str().unwrap(),
         "reasoning.encrypted_content"
     );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn prefers_apikey_when_config_prefers_apikey_even_with_chatgpt_tokens() {
-    skip_if_no_network!();
-
-    // Mock server
-    let server = MockServer::start().await;
-
-    let first = ResponseTemplate::new(200)
-        .insert_header("content-type", "text/event-stream")
-        .set_body_raw(
-            sse(vec![ev_response_created("resp1"), ev_completed("resp1")]),
-            "text/event-stream",
-        );
-
-    // Expect API key header, no ChatGPT account header required.
-    Mock::given(method("POST"))
-        .and(path("/v1/responses"))
-        .and(header_regex("Authorization", r"Bearer sk-test-key"))
-        .respond_with(first)
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    let model_provider = ModelProviderInfo {
-        base_url: Some(format!("{}/v1", server.uri())),
-        supports_websockets: false,
-        ..built_in_model_providers(/* openai_base_url */ /*openai_base_url*/ None)["openai"].clone()
-    };
-
-    // Init session
-    let codex_home = TempDir::new().unwrap();
-    // Write auth.json that contains both API key and ChatGPT tokens for a plan that should prefer ChatGPT,
-    // but config will force API key preference.
-    let _jwt = write_auth_json(
-        &codex_home,
-        Some("sk-test-key"),
-        "pro",
-        "Access-123",
-        Some("acc-123"),
-    );
-
-    let mut config = load_default_config_for_test(&codex_home).await;
-    config.model_provider = model_provider;
-
-    let auth = CodexAuth::from_auth_storage(
-        codex_home.path(),
-        AuthCredentialsStoreMode::File,
-        /*chatgpt_base_url*/ None,
-        AuthKeyringBackendKind::default(),
-        &codex_login::test_support::transport_default_auth_route_config(),
-    )
-    .await
-    .expect("Failed to load CodexAuth")
-    .expect("No CodexAuth found in codex_home");
-    let auth_manager = codex_core::test_support::auth_manager_from_auth(auth);
-    let installation_id = resolve_installation_id(&config.codex_home)
-        .await
-        .expect("resolve installation id");
-    let thread_manager = ThreadManager::new(
-        &config,
-        codex_core::build_startup_models(
-            &config,
-            auth_manager.clone(),
-            installation_id,
-            Arc::new(ModelCatalogSettings::disk(config.codex_home.to_path_buf())),
-        ),
-        codex_core::CodexAppsToolsCache::default(),
-        SessionSource::Exec,
-        Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
-        empty_extension_registry(),
-        Arc::new(codex_core::test_support::EmptyUserInstructionsProvider),
-        /*analytics_events_client*/ None,
-        codex_core::passthrough_image_store(),
-        ThreadStoreBuilder::from_config(&config, /*state_db*/ None).build(),
-        /*agent_graph_store*/ None,
-        /*attestation_provider*/ None,
-        /*external_time_provider*/ None,
-    );
-    let NewThread { thread: codex, .. } = thread_manager
-        .start_thread(StartThreadOptions::new(config.clone()))
-        .await
-        .expect("create new conversation");
-
-    codex
-        .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
-            text: "hello".into(),
-            text_elements: Vec::new(),
-        }]))
-        .await
-        .unwrap();
-
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2805,7 +2642,7 @@ async fn sequential_cutoff_is_omitted_for_non_openai_provider() -> anyhow::Resul
     )
     .await;
     let TestCodex { codex, .. } = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(|config| {
             config.model_provider.name = "mock".to_string();
             let _ = config
@@ -3297,243 +3134,6 @@ async fn includes_managed_developer_instructions_once_per_request() -> anyhow::R
     }
 
     Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn azure_responses_request_does_not_store_and_preserves_prefixed_item_ids() {
-    skip_if_no_network!();
-
-    let server = MockServer::start().await;
-
-    let sse_body = concat!(
-        "data: {\"type\":\"response.created\",\"response\":{}}\n\n",
-        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\"}}\n\n",
-    );
-    let resp_mock = mount_sse_once(&server, sse_body.to_string()).await;
-
-    let provider = ModelProviderInfo {
-        name: "azure".into(),
-        base_url: Some(format!("{}/openai", server.uri())),
-        model_catalog_url: None,
-        default_model: None,
-        env_key: None,
-        env_key_instructions: None,
-        experimental_bearer_token: None,
-        auth: None,
-        gateway_oauth: None,
-        aws: None,
-        wire_api: WireApi::Responses,
-        query_params: None,
-        http_headers: None,
-        env_http_headers: None,
-        request_max_retries: Some(0),
-        stream_max_retries: Some(0),
-        stream_idle_timeout_ms: Some(5_000),
-        websocket_connect_timeout_ms: None,
-        requires_openai_auth: false,
-        supports_websockets: false,
-        supports_standalone_web_search: false,
-        capabilities: None,
-        accepts_response_continuation: false,
-        project_id: None,
-        location: None,
-        credential_file: None,
-        include_internal_metadata: false,
-    };
-
-    let codex_home = TempDir::new().unwrap();
-    let mut config = load_default_config_for_test(&codex_home).await;
-    config.model_provider_id = provider.name.clone();
-    config.model_provider = provider.clone();
-    let effort = config.model_reasoning_effort.clone();
-    let summary = config.model_reasoning_summary;
-    let model = codex_core::test_support::get_model_offline(config.model.as_deref());
-    config.model = Some(model.clone());
-    let config = Arc::new(config);
-    let model_info =
-        codex_core::test_support::construct_model_info_offline(model.as_str(), &config);
-    let thread_id = ThreadId::new();
-    let auth_manager =
-        codex_core::test_support::auth_manager_from_auth(CodexAuth::from_api_key("Test API Key"));
-    let session_telemetry = SessionTelemetry::new(
-        thread_id,
-        model.as_str(),
-        model_info.slug.as_str(),
-        /*account_id*/ None,
-        Some("test@test.com".to_string()),
-        auth_manager.auth_mode().map(TelemetryAuthMode::from),
-        "test_originator".to_string(),
-        /*log_user_prompts*/ false,
-        "test".to_string(),
-        SessionSource::Exec,
-    );
-
-    let client = ModelClient::new(
-        codex_model_provider::create_model_provider(provider.clone(), /*auth_manager*/ None),
-        thread_id,
-        uuid_v7_item_id_generator_for_test(),
-        SessionSource::Exec,
-        "test_originator".to_string(),
-        config.model_verbosity,
-        config.features.enabled(Feature::ContentItemKinds),
-        config.features.enabled(Feature::ReasoningEffortOverride),
-        /*enable_request_compression*/ false,
-        /*include_timing_metrics*/ false,
-        /*beta_features_header*/ None,
-        /*concurrent_reasoning_summaries_enabled*/ false,
-        /*output_token_replay_enabled*/ false,
-        /*attestation_provider*/ None,
-        config.http_client_factory(),
-        config.workspace_routing_context(),
-        Vec::new(),
-    );
-    let responses_metadata = test_turn_responses_metadata(&client, thread_id);
-    let mut client_session = client.new_session();
-
-    let mut prompt = Prompt::default();
-    prompt.input.push(ResponseItem::Reasoning {
-        id: Some(ResponseItemId::with_suffix("rs", "reasoning-id")),
-        summary: vec![ReasoningItemReasoningSummary::SummaryText {
-            text: "summary".into(),
-        }],
-        content: Some(vec![ReasoningItemContent::ReasoningText {
-            text: "content".into(),
-        }]),
-        encrypted_content: None,
-        internal_chat_message_metadata_passthrough: None,
-    });
-    prompt.input.push(ResponseItem::Message {
-        status: None,
-        encrypted_content: None,
-        id: Some(ResponseItemId::with_suffix("msg", "message-id")),
-        role: "assistant".into(),
-        content: vec![ContentItem::OutputText {
-            annotations: None,
-            logprobs: None,
-            text: "message".into(),
-        }],
-        phase: None,
-        internal_chat_message_metadata_passthrough: None,
-    });
-    prompt.input.push(ResponseItem::WebSearchCall {
-        encrypted_content: None,
-        id: Some(ResponseItemId::with_suffix("ws", "web-search-id")),
-        status: Some("completed".into()),
-        action: Some(WebSearchAction::Search {
-            query: Some("weather".into()),
-            queries: None,
-        }),
-        internal_chat_message_metadata_passthrough: None,
-    });
-    prompt.input.push(ResponseItem::FunctionCall {
-        status: None,
-        encrypted_content: None,
-        id: Some(ResponseItemId::with_suffix("fc", "function-id")),
-        name: "do_thing".into(),
-        namespace: None,
-        arguments: "{}".into(),
-        call_id: "function-call-id".into(),
-        encrypted_function_args: None,
-        internal_chat_message_metadata_passthrough: None,
-    });
-    prompt.input.push(ResponseItem::FunctionCallOutput {
-        id: None,
-        call_id: Some("function-call-id".into()),
-        name: None,
-        namespace: None,
-        output: FunctionCallOutputPayload::from_text("ok".into()),
-        internal_chat_message_metadata_passthrough: None,
-    });
-    prompt.input.push(ResponseItem::LocalShellCall {
-        encrypted_content: None,
-        id: Some(ResponseItemId::with_suffix("lsh", "local-shell-id")),
-        call_id: Some("local-shell-call-id".into()),
-        status: LocalShellStatus::Completed,
-        action: LocalShellAction::Exec(LocalShellExecAction {
-            command: vec!["echo".into(), "hello".into()],
-            timeout_ms: None,
-            working_directory: None,
-            env: None,
-            user: None,
-        }),
-        internal_chat_message_metadata_passthrough: None,
-    });
-    prompt.input.push(ResponseItem::CustomToolCall {
-        encrypted_content: None,
-        id: Some(ResponseItemId::with_suffix("ctc", "custom-tool-id")),
-        status: Some("completed".into()),
-        call_id: "custom-tool-call-id".into(),
-        name: "custom_tool".into(),
-        namespace: None,
-        input: "{}".into(),
-        internal_chat_message_metadata_passthrough: None,
-    });
-    prompt.input.push(ResponseItem::CustomToolCallOutput {
-        id: None,
-        call_id: "custom-tool-call-id".into(),
-        name: None,
-        output: FunctionCallOutputPayload::from_text("ok".into()),
-        internal_chat_message_metadata_passthrough: None,
-    });
-    prompt.input.push(
-        serde_json::from_value(json!({
-            "type": "message",
-            "id": "018f9e15-7a6a-7000-8000-000000000001",
-            "role": "user",
-            "content": [{"type": "input_text", "text": "legacy message"}],
-        }))
-        .expect("legacy response item should deserialize"),
-    );
-    prompt.input.push(
-        serde_json::from_value(json!({
-            "type": "message",
-            "id": "",
-            "role": "user",
-            "content": [{"type": "input_text", "text": "empty-id message"}],
-        }))
-        .expect("response item with an empty id should deserialize"),
-    );
-
-    let mut stream = client_session
-        .stream(
-            &prompt,
-            &model_info,
-            &session_telemetry,
-            effort,
-            summary.unwrap_or(ReasoningSummary::Auto),
-            /*service_tier*/ None,
-            &responses_metadata,
-            &codex_rollout_trace::InferenceTraceContext::disabled(),
-        )
-        .await
-        .expect("responses stream to start");
-
-    while let Some(event) = stream.next().await {
-        if let Ok(ResponseEvent::Completed { .. }) = event {
-            break;
-        }
-    }
-
-    let request = resp_mock.single_request();
-    assert_eq!(request.path(), "/openai/responses");
-    let body = request.body_json();
-
-    assert_eq!(body["store"], serde_json::Value::Bool(false));
-    assert_eq!(body["stream"], serde_json::Value::Bool(true));
-    let input = body["input"].as_array().expect("request input");
-    assert_eq!(input[0]["role"], "developer");
-    let input = &input[1..];
-    assert_eq!(input.len(), 10);
-    assert_eq!(input[0]["id"].as_str(), Some("rs_reasoning-id"));
-    assert_eq!(input[1]["id"].as_str(), Some("msg_message-id"));
-    assert_eq!(input[2]["id"].as_str(), Some("ws_web-search-id"));
-    assert_eq!(input[3]["id"].as_str(), Some("fc_function-id"));
-    assert_eq!(input[4]["call_id"].as_str(), Some("function-call-id"));
-    assert_eq!(input[5]["id"].as_str(), Some("lsh_local-shell-id"));
-    assert_eq!(input[6]["id"].as_str(), Some("ctc_custom-tool-id"));
-    assert_eq!(input[7]["call_id"].as_str(), Some("custom-tool-call-id"));
-    assert_eq!(input[8].get("id"), None);
-    assert_eq!(input[9].get("id"), None);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -4320,7 +3920,7 @@ async fn env_var_overrides_loaded_auth() {
 }
 
 fn create_dummy_codex_auth() -> CodexAuth {
-    CodexAuth::create_dummy_chatgpt_auth_for_testing()
+    CodexAuth::from_api_key("dummy")
 }
 
 /// Scenario:

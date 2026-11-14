@@ -1,9 +1,7 @@
 //! Exercises live catalog routing through the public model/list RPC.
 
 use anyhow::Result;
-use app_test_support::ChatGptAuthFixture;
 use app_test_support::TestAppServer;
-use app_test_support::write_chatgpt_auth;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::LoginAccountResponse;
 use codex_app_server_protocol::LogoutAccountResponse;
@@ -392,69 +390,6 @@ async fn model_list_preserves_invalid_startup_config_fallback() -> Result<()> {
     let id = server.send_logout_account_request().await?;
     let _: LogoutAccountResponse = server.read_response(id).await?;
     assert!(!list_models(&mut server).await?.data.is_empty());
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn model_list_selects_a_provider_without_replacing_the_startup_catalog() -> Result<()> {
-    let first = MockServer::start().await;
-    let second = MockServer::start().await;
-    // Startup refresh and model/list can fetch concurrently from the default provider.
-    for (server, slug) in [(&first, "first-model"), (&second, "second-model")] {
-        Mock::given(method("GET"))
-            .and(path_regex(".*/models$"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(catalog(slug)?))
-            .mount(server)
-            .await;
-    }
-    let home = TempDir::new()?;
-    std::fs::write(
-        home.path().join("config.toml"),
-        format!(
-            r#"
-model_provider = "first"
-[model_providers.first]
-name = "First"
-base_url = "{}/v1"
-requires_openai_auth = true
-[model_providers.second]
-name = "Second"
-base_url = "{}/v1"
-requires_openai_auth = true
-"#,
-            first.uri(),
-            second.uri(),
-        ),
-    )?;
-    write_chatgpt_auth(
-        home.path(),
-        ChatGptAuthFixture::new("chatgpt-access-token").plan_type("pro"),
-        AuthCredentialsStoreMode::File,
-    )?;
-    let mut server = TestAppServer::builder()
-        .with_codex_home(home.path())
-        .with_env_overrides(&[("OPENAI_API_KEY", None)])
-        .build_initialized()
-        .await?;
-    let initial = list_models(&mut server).await?;
-    assert_eq!(initial.data.len(), 1);
-    assert_eq!(initial.data[0].id, "first-model");
-    let cache_path = home.path().join("models_cache.json");
-    let initial_cache: ModelsResponse = serde_json::from_slice(&std::fs::read(&cache_path)?)?;
-
-    let select_second = |request_id| ClientRequest::ModelList {
-        request_id,
-        params: ModelListParams {
-            model_provider: Some("second".into()),
-            ..Default::default()
-        },
-    };
-    let selected: ModelListResponse = server.request(select_second).await?;
-    assert_eq!(selected.data.len(), 1);
-    assert_eq!(selected.data[0].id, "second-model");
-    let disk_catalog: ModelsResponse = serde_json::from_slice(&std::fs::read(&cache_path)?)?;
-    assert_eq!(disk_catalog, initial_cache);
-    assert_eq!(list_models(&mut server).await?, initial);
     Ok(())
 }
 

@@ -481,33 +481,6 @@ def _annotate_schema(value: Any, base: str | None = None) -> None:
         _annotate_schema(child, base)
 
 
-def _make_chatgpt_account_email_nullable(schema: dict[str, Any]) -> None:
-    definitions = schema.get("definitions")
-    if not isinstance(definitions, dict):
-        raise RuntimeError("Schema bundle is missing definitions")
-
-    account = definitions.get("Account")
-    if not isinstance(account, dict):
-        raise RuntimeError("Schema bundle is missing the Account definition")
-
-    for variant in account.get("oneOf", []):
-        if not isinstance(variant, dict):
-            continue
-        properties = variant.get("properties")
-        if not isinstance(properties, dict):
-            continue
-        account_type = properties.get("type")
-        if not isinstance(account_type, dict) or account_type.get("enum") != ["chatgpt"]:
-            continue
-        email = properties.get("email")
-        if not isinstance(email, dict):
-            raise RuntimeError("ChatGPT account schema is missing email")
-        email["type"] = ["string", "null"]
-        return
-
-    raise RuntimeError("Schema bundle is missing the ChatGPT account variant")
-
-
 def _preserve_guardian_approval_path_wrappers(schema: dict[str, Any]) -> None:
     """Preserve the path wrappers accepted by the existing Python API."""
     definitions = schema.get("definitions", {})
@@ -525,7 +498,6 @@ def _preserve_guardian_approval_path_wrappers(schema: dict[str, Any]) -> None:
 def _normalized_schema_bundle_text(schema_dir: Path) -> str:
     """Normalize the schema bundle before feeding it to the Python type generator."""
     schema = json.loads(schema_bundle_path(schema_dir).read_text())
-    _make_chatgpt_account_email_nullable(schema)
     _preserve_guardian_approval_path_wrappers(schema)
     definitions = schema.get("definitions", {})
     if isinstance(definitions, dict):

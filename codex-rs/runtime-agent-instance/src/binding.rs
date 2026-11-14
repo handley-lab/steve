@@ -150,9 +150,7 @@ impl RuntimeAuthBinding {
             recovery.next().await.map_err(|error| match error {
                 RefreshTokenError::Policy(denied) => RuntimeAuthError::Policy(denied),
                 RefreshTokenError::Permanent(error) => RuntimeAuthError::RefreshTokenFailed(error),
-                RefreshTokenError::Transient(_) | RefreshTokenError::AccountRenewalUnavailable => {
-                    RuntimeAuthError::RefreshFailed
-                }
+                RefreshTokenError::Transient(_) => RuntimeAuthError::RefreshFailed,
             })?;
             let (auth, http_client_factory) = self
                 .credentials
@@ -344,16 +342,9 @@ fn actor_authorization(
             credential,
             selection: selection.clone(),
         },
-        CodexAuth::Chatgpt(_) | CodexAuth::ChatgptAuthTokens(_) => {
-            AuthenticatedActorAuthorization::Oauth { credential }
+        CodexAuth::BedrockApiKey(_) | CodexAuth::BedrockAccessKeys(_) => {
+            return Err(RuntimeAuthError::Unsupported);
         }
-        CodexAuth::PersonalAccessToken(_) => {
-            AuthenticatedActorAuthorization::PersonalAccessToken { credential }
-        }
-        CodexAuth::Headers(_)
-        | CodexAuth::AgentIdentity(_)
-        | CodexAuth::BedrockApiKey(_)
-        | CodexAuth::BedrockAccessKeys(_) => return Err(RuntimeAuthError::Unsupported),
     })
 }
 

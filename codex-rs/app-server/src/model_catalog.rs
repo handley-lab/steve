@@ -7,7 +7,6 @@ use codex_config::ConfigLayerStack;
 use codex_core::ThreadManager;
 use codex_core::config::Config;
 use codex_features::Feature;
-use codex_login::AuthManager;
 use codex_models_manager::manager::ModelProviderError;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_models_manager::manager::SharedModelsManager;

@@ -39,53 +39,6 @@ fn interrupt_conversation_payload_stays_jsonrpc_only() -> Result<()> {
 }
 
 #[test]
-fn client_response_jsonrpc_parts_preserve_payloads_and_request_ids() -> Result<()> {
-    let payloads = [
-        (
-            ClientResponsePayload::GetAuthStatus(v1::GetAuthStatusResponse {
-                auth_method: Some(AuthMode::Chatgpt),
-                auth_token: None,
-                requires_openai_auth: Some(true),
-            }),
-            json!({
-                "authMethod": "chatgpt",
-                "authToken": null,
-                "requiresOpenaiAuth": true,
-            }),
-        ),
-        (
-            ClientResponsePayload::GetAccount(v2::GetAccountResponse {
-                user_id: None,
-                account: Some(v2::Account::ApiKey {}),
-                requires_openai_auth: false,
-                workspace_routing: None,
-            }),
-            json!({
-                "account": { "type": "apiKey" },
-                "userId": null,
-                "requiresOpenaiAuth": false,
-                "workspaceRouting": null,
-            }),
-        ),
-    ];
-
-    for (payload, expected_result) in payloads {
-        for request_id in [RequestId::Integer(7), RequestId::String("request-7".into())] {
-            let expected = (request_id.clone(), expected_result.clone());
-            let response = payload
-                .clone()
-                .into_client_response(request_id.clone())
-                .expect("request-backed payload has a typed response");
-
-            assert_eq!(response.into_jsonrpc_parts()?, expected);
-            assert_eq!(payload.to_jsonrpc_parts(request_id.clone())?, expected);
-            assert_eq!(payload.clone().into_jsonrpc_parts(request_id)?, expected);
-        }
-    }
-    Ok(())
-}
-
-#[test]
 fn client_response_jsonrpc_parts_preserve_legacy_interrupt() -> Result<()> {
     let request_id = RequestId::String("interrupt-7".into());
     let payload = ClientResponsePayload::InterruptConversation(v1::InterruptConversationResponse {

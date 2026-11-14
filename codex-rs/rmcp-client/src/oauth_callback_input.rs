@@ -3,7 +3,6 @@
 
 use super::CallbackResult;
 use super::OAuthHttpContext;
-use super::OAuthLoginPurpose;
 use super::OAuthProviderError;
 use super::OauthCallbackResult;
 use super::OauthLoginFlow;
@@ -61,7 +60,6 @@ where
         },
         scopes,
         oauth_config,
-        OAuthLoginPurpose::Mcp,
         client_registration,
         oauth_resource,
         /*launch_browser*/ false,

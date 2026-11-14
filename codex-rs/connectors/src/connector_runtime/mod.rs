@@ -81,14 +81,8 @@ impl ConnectorRuntimeContextKey {
 }
 
 /// Builds the connector runtime context key for the active Codex auth.
-pub fn connector_runtime_context_key(auth: Option<&CodexAuth>) -> ConnectorRuntimeContextKey {
-    let account_id = auth.and_then(CodexAuth::get_account_id);
-    let chatgpt_user_id = auth.and_then(CodexAuth::get_chatgpt_user_id);
-    if auth.is_some_and(CodexAuth::is_workspace_account) {
-        ConnectorRuntimeContextKey::workspace(account_id, chatgpt_user_id)
-    } else {
-        ConnectorRuntimeContextKey::personal(account_id, chatgpt_user_id)
-    }
+pub fn connector_runtime_context_key(_auth: Option<&CodexAuth>) -> ConnectorRuntimeContextKey {
+    ConnectorRuntimeContextKey::personal(/*account_id*/ None, /*chatgpt_user_id*/ None)
 }
 
 /// Returns the persisted connector runtime tools cache path for the active auth identity.

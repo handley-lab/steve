@@ -694,8 +694,7 @@ async fn callback_during_startup_releases_waiting_chats_without_sharing_authorit
 
 #[tokio::test]
 async fn connection_key_changes_with_the_owner_but_survives_credential_refresh() {
-    let manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let mut original = key(&context(), &config());
     original.auth_state = Some((manager, AuthChangeState::default()));
     let mut refreshed = original.clone();

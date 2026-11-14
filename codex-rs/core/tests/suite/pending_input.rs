@@ -544,7 +544,7 @@ async fn queue_only_agent_mail_wakes_sleeping_root_with_previous_turn_context(
     extensions.thread_lifecycle_contributor(Arc::new(SleepingRootExtension));
     let mut builder = test_codex()
         .with_model("gpt-5.4")
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_extensions(Arc::new(extensions.build()));
     let mut test = builder.build_with_auto_env(&server).await?;
 
@@ -2701,7 +2701,7 @@ async fn terminal_compaction_error_does_not_retry_pending_input(
     let base_url = format!("{}/v1", server.uri());
     let test = test_codex()
         .with_model("gpt-5.4")
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
             config.model_provider.base_url = Some(base_url);
             config.model_auto_compact_token_limit = Some(100_000);

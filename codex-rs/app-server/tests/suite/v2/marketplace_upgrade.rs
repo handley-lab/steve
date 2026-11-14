@@ -10,7 +10,6 @@ use codex_app_server_protocol::MarketplaceUpgradeParams;
 use codex_app_server_protocol::MarketplaceUpgradeResponse;
 use codex_app_server_protocol::PluginInstallParams;
 use codex_app_server_protocol::PluginInstallResponse;
-use codex_app_server_protocol::PluginListMarketplaceKind;
 use codex_app_server_protocol::PluginListParams;
 use codex_app_server_protocol::PluginListResponse;
 use codex_app_server_protocol::RequestId;
@@ -336,8 +335,6 @@ async fn automatic_upgrade_isolates_git_while_explicit_install_preserves_configu
             request_id,
             params: PluginInstallParams {
                 marketplace_path: Some(marketplace_path),
-                remote_marketplace_name: None,
-                install_attempt_id: None,
                 plugin_name: "toolkit".to_string(),
             },
         })
@@ -354,7 +351,6 @@ async fn automatic_upgrade_isolates_git_while_explicit_install_preserves_configu
             request_id,
             params: PluginListParams {
                 cwds: None,
-                marketplace_kinds: Some(vec![PluginListMarketplaceKind::Local]),
                 force_refetch: true,
             },
         })

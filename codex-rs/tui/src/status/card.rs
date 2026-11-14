@@ -10,8 +10,6 @@ use crate::version::CODEX_CLI_VERSION;
 use chrono::DateTime;
 use chrono::Local;
 use codex_app_server_protocol::AskForApproval;
-use codex_model_provider::provider_uses_first_party_auth_path;
-use codex_model_provider_info::OPENAI_PROVIDER_ID;
 use codex_model_provider_info::WireApi;
 use codex_protocol::ThreadId;
 use codex_protocol::account::PlanType;
@@ -45,7 +43,6 @@ use super::rate_limits::compose_rate_limit_data_many;
 use super::rate_limits::format_status_limit_summary;
 use super::rate_limits::render_status_limit_progress_bar;
 use super::remote_connection::RemoteConnectionStatus;
-use super::thread_usage::StatusThreadUsage;
 use crate::wrapping::RtOptions;
 use crate::wrapping::word_wrap_lines;
 use std::sync::Arc;
@@ -89,10 +86,6 @@ impl StatusHistoryHandle {
             .to_string()
     }
 
-    pub(crate) fn reserve_thread_usage_label_width(&self) {
-        self.card.thread_usage.reserve_label_width();
-    }
-
     pub(crate) fn finish_rate_limit_refresh(
         &self,
         rate_limits: &[RateLimitSnapshotDisplay],
@@ -112,13 +105,6 @@ impl StatusHistoryHandle {
         state.rate_limits = rate_limits;
         state.refreshing_rate_limits = false;
     }
-
-    pub(crate) fn set_thread_usage(
-        &self,
-        estimate: Option<codex_app_server_protocol::ThreadUsage>,
-    ) {
-        self.card.thread_usage.set_estimate(estimate);
-    }
 }
 
 #[derive(Debug)]
@@ -137,8 +123,6 @@ struct StatusHistoryCell {
     forked_from: Option<String>,
     token_usage: StatusTokenUsageData,
     rate_limit_state: Arc<RwLock<StatusRateLimitState>>,
-    thread_usage: StatusThreadUsage,
-    plan_type: Option<PlanType>,
 }
 
 #[cfg(test)]
@@ -376,7 +360,6 @@ impl StatusHistoryCell {
             refreshing_rate_limits,
         }));
         let agents_summary = Arc::new(RwLock::new(agents_summary));
-        let thread_usage = StatusThreadUsage::default();
 
         Self {
             model_name,
@@ -393,8 +376,6 @@ impl StatusHistoryCell {
             token_usage,
             agents_summary,
             rate_limit_state,
-            thread_usage,
-            plan_type: _plan_type,
         }
     }
 
@@ -734,19 +715,8 @@ impl StatusHistoryCell {
         let mut lines = Vec::new();
 
         let account_value = self.account.as_ref().map(|account| match account {
-            StatusAccountDisplay::ChatGpt { email, plan, .. } => match (email, plan) {
-                (Some(email), Some(plan)) => format!("{email} ({plan})"),
-                (Some(email), None) => email.clone(),
-                (None, Some(plan)) => plan.clone(),
-                (None, None) => "Account credentials configured".to_string(),
-            },
             StatusAccountDisplay::ApiKey => "API key configured".to_string(),
         });
-
-        let workspace = match &self.account {
-            Some(StatusAccountDisplay::ChatGpt { workspace, .. }) => workspace.as_deref(),
-            _ => None,
-        };
 
         let mut labels: Vec<String> = vec!["Model", "Directory", "Permissions", "Agents.md"]
             .into_iter()
@@ -772,9 +742,6 @@ impl StatusHistoryCell {
         if account_value.is_some() {
             push_label(&mut labels, &mut seen, "Account");
         }
-        if workspace.is_some() {
-            push_label(&mut labels, &mut seen, "ChatGPT workspace");
-        }
         if thread_name.is_some() {
             push_label(&mut labels, &mut seen, "Thread name");
         }
@@ -792,7 +759,6 @@ impl StatusHistoryCell {
             push_label(&mut labels, &mut seen, "Context window");
         }
         self.collect_rate_limit_labels(&rate_limit_state, &mut seen, &mut labels);
-        self.thread_usage.push_labels(&mut labels, &mut seen);
 
         let formatter = FieldFormatter::from_labels(labels.iter().map(String::as_str));
         let value_width = formatter.value_width(available_width);
@@ -837,9 +803,6 @@ impl StatusHistoryCell {
         if let Some(account_value) = account_value {
             lines.push(formatter.line("Account", vec![Span::from(account_value)]));
         }
-        if let Some(workspace) = workspace {
-            lines.push(formatter.line("ChatGPT workspace", vec![Span::from(workspace.to_owned())]));
-        }
 
         if let Some(thread_name) = thread_name {
             lines.push(formatter.line("Thread name", vec![Span::from(thread_name.to_string())]));
@@ -864,13 +827,6 @@ impl StatusHistoryCell {
         }
 
         lines.extend(self.rate_limit_lines(&rate_limit_state, available_width, &formatter));
-        let thread_usage_lines = self
-            .thread_usage
-            .lines(&formatter, value_width, self.plan_type);
-        if !thread_usage_lines.is_empty() {
-            lines.push(Line::from(Vec::<Span<'static>>::new()));
-            lines.extend(thread_usage_lines);
-        }
 
         // Leave room for the two-column title mark even in a tiny terminal.
         let indent = if available_width >= FieldFormatter::INDENT.len() + 2 {

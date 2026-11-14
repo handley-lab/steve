@@ -1,6 +1,5 @@
 //! Executes OAuth grants without owning credential state or choosing a recovery policy.
 
-use std::collections::BTreeMap;
 use std::time::Duration;
 
 use codex_http_client::HttpClient;
@@ -16,7 +15,6 @@ use crate::oauth::diagnostics::redact_error_url;
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum TokenEncoding {
     Form,
-    Json,
 }
 
 /// Per-endpoint transport settings. The HTTP client already owns routing and CA policy.
@@ -39,27 +37,6 @@ pub(crate) struct AuthorizationCodeGrant<'a> {
 pub(crate) struct RefreshTokenGrant<'a> {
     pub refresh_token: &'a str,
     pub resource: Option<&'a str>,
-    pub refresh_reason: Option<RefreshReason>,
-}
-
-/// Caller-reported diagnostics for AuthAPI; never evidence of token validity.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum RefreshReason {
-    ProactiveExpiry,
-    Scheduled,
-    UnauthorizedRecovery,
-    Forced,
-}
-
-impl RefreshReason {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::ProactiveExpiry => "proactive_expiry",
-            Self::Scheduled => "scheduled",
-            Self::UnauthorizedRecovery => "unauthorized_recovery",
-            Self::Forced => "forced",
-        }
-    }
 }
 
 /// Shared OAuth protocol implementation; callers retain tokens, storage, and recovery decisions.
@@ -106,9 +83,6 @@ impl<'a> OAuthClient<'a> {
         if let Some(resource) = grant.resource {
             parameters.push(("resource", resource));
         }
-        if let Some(reason) = grant.refresh_reason {
-            parameters.push(("refresh_reason", reason.as_str()));
-        }
         self.exchange(&parameters, &[grant.refresh_token]).await
     }
 
@@ -129,9 +103,6 @@ impl<'a> OAuthClient<'a> {
                     .header("Content-Type", "application/x-www-form-urlencoded")
                     .body(form.finish())
             }
-            TokenEncoding::Json => request
-                .header("Content-Type", "application/json")
-                .json(&parameters.iter().copied().collect::<BTreeMap<_, _>>()),
         };
         let response = request
             .send()
@@ -149,7 +120,3 @@ impl<'a> OAuthClient<'a> {
         })
     }
 }
-
-#[cfg(test)]
-#[path = "client_tests.rs"]
-mod tests;

@@ -490,6 +490,7 @@ fn diagnostics_flag_is_optional_and_advertised() {
     let args = [
         "tcp-tunnel",
         "--proxy-url",
+        "https://proxy.example",
         "--proxy-origins-file",
         "origins",
         "--target",

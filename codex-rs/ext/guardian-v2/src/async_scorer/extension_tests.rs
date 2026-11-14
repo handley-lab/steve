@@ -1012,7 +1012,7 @@ async fn sample_configured_conversation_history_with_delivery(
     }
     let builder = test_codex()
         .with_extensions(Arc::new(extensions.build()))
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_model_info_override("codex-auto-review", |model_info| {
             model_info
                 .model_messages

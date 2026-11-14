@@ -66,6 +66,7 @@ fn session() -> RealtimeSessionConfig {
         initial_items: Vec::new(),
         delegation_ack_filler: None,
         model: None,
+        transcription_model: None,
         session_id: None,
         event_parser: RealtimeEventParser::V1,
         session_mode: RealtimeSessionMode::Conversational,

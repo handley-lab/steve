@@ -6,7 +6,6 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
-use base64::Engine;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
 use codex_http_client::cache_system_proxy_route_for_test;
@@ -63,71 +62,6 @@ fn list_tasks_url_omits_empty_query_and_encodes_all_parameters() {
             .unwrap(),
         "https://example.test/api/codex/tasks/list?limit=10&task_filter=mine+%2F+shared&cursor=next%3Dpage&environment_id=env%26one"
     );
-}
-
-#[tokio::test]
-async fn configured_backend_does_not_follow_redirects() {
-    let configured = MockServer::start().await;
-    let destination = MockServer::start().await;
-    Mock::given(method("GET"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
-        .mount(&destination)
-        .await;
-    Mock::given(method("POST"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "task": {"id": "configured-task"}
-        })))
-        .mount(&destination)
-        .await;
-    let direct = Client::from_auth(
-        destination.uri(),
-        &CodexAuth::from_api_key("synthetic-key"),
-        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-    );
-    direct
-        .get_accounts_check()
-        .await
-        .expect("configured account service");
-    direct
-        .get_config_bundle()
-        .await
-        .expect("configured config service");
-    direct
-        .create_task(serde_json::json!({"prompt": "synthetic task"}))
-        .await
-        .expect("configured task service");
-    assert_eq!(destination.received_requests().await.unwrap().len(), 3);
-
-    for (verb, status) in [("GET", 302), ("POST", 307)] {
-        Mock::given(method(verb))
-            .respond_with(ResponseTemplate::new(status).insert_header(
-                "Location",
-                format!("{}/redirect-destination", destination.uri()),
-            ))
-            .mount(&configured)
-            .await;
-    }
-    let client = Client::from_auth(
-        configured.uri(),
-        &CodexAuth::from_api_key("synthetic-key"),
-        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-    );
-    let accounts = client.get_accounts_check().await;
-    let bundle = client.get_config_bundle().await;
-    let task = client
-        .create_task(serde_json::json!({"prompt": "synthetic task"}))
-        .await;
-    let destination_requests = destination.received_requests().await.unwrap();
-    eprintln!("destination requests: {destination_requests:#?}");
-    assert_eq!(configured.received_requests().await.unwrap().len(), 3);
-    assert_eq!(
-        destination_requests.len(),
-        3,
-        "redirects must not create requests"
-    );
-    assert!(accounts.is_err());
-    assert!(bundle.is_err());
-    assert!(task.is_err());
 }
 
 #[tokio::test]
@@ -223,8 +157,6 @@ async fn migrated_requests_preserve_query_auth_and_json_body() {
     assert!(requests[1].ends_with(r#"{"prompt":"hello"}"#));
 }
 
-const BLOCKED_ORIGIN: &str = "http://127.0.0.1:0";
-
 fn run_without_environment_proxies(test_name: &str) -> bool {
     const CHILD: &str = "STEVE_BOOTSTRAP_PROXY_TEST_CHILD";
     if std::env::var_os(CHILD).is_some() {
@@ -266,141 +198,6 @@ fn fallback_client(base_url: &str, path_style: PathStyle) -> Client {
     .unwrap()
     .with_chatgpt_account_id("workspace-123")
     .with_user_agent("bootstrap-test")
-}
-
-#[tokio::test]
-async fn bootstrap_gets_resolve_each_fallback_destination_and_preserve_headers() {
-    if run_without_environment_proxies(
-        "client::request_tests::bootstrap_gets_resolve_each_fallback_destination_and_preserve_headers",
-    ) {
-        return;
-    }
-    for (base_suffix, path_style, api_prefix) in [
-        ("", PathStyle::CodexApi, "/api/codex"),
-        ("/backend-api", PathStyle::ChatGptApi, "/wham"),
-    ] {
-        let bundle_proxy = MockServer::start().await;
-        let accounts_proxy = MockServer::start().await;
-        let base_url = format!("{BLOCKED_ORIGIN}{base_suffix}");
-        let client = fallback_client(&base_url, path_style);
-        for (endpoint, proxy) in [
-            ("config/bundle", &bundle_proxy),
-            ("accounts/check", &accounts_proxy),
-        ] {
-            let endpoint_path = format!("{base_suffix}{api_prefix}/{endpoint}");
-            cache_system_proxy_route_for_test(
-                &format!("{base_url}{api_prefix}/{endpoint}"),
-                proxy.uri(),
-            );
-            Mock::given(method("GET"))
-                .and(path(endpoint_path))
-                .and(header("authorization", "Bearer bootstrap-token"))
-                .and(header("chatgpt-account-id", "workspace-123"))
-                .and(header("user-agent", "bootstrap-test"))
-                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
-                .expect(1)
-                .mount(proxy)
-                .await;
-        }
-        client.get_config_bundle().await.expect("cloud bundle");
-        client.get_accounts_check().await.expect("accounts check");
-        bundle_proxy.verify().await;
-        accounts_proxy.verify().await;
-    }
-}
-
-#[tokio::test]
-async fn bootstrap_gets_keep_default_responses_without_proxy_retry() {
-    if run_without_environment_proxies(
-        "client::request_tests::bootstrap_gets_keep_default_responses_without_proxy_retry",
-    ) {
-        return;
-    }
-    for status in [200, 401, 403, 407, 429, 503] {
-        let issuer = MockServer::start().await;
-        let proxy = MockServer::start().await;
-        for endpoint in ["config/bundle", "accounts/check"] {
-            cache_system_proxy_route_for_test(
-                &format!("{}/api/codex/{endpoint}", issuer.uri()),
-                proxy.uri(),
-            );
-        }
-        Mock::given(method("GET"))
-            .respond_with(ResponseTemplate::new(status).set_body_json(serde_json::json!({})))
-            .expect(2)
-            .mount(&issuer)
-            .await;
-        let client = fallback_client(&issuer.uri(), PathStyle::CodexApi);
-        let bundle = client.get_config_bundle().await;
-        let accounts = client.get_accounts_check().await;
-        if status == 200 {
-            bundle.expect("default cloud route succeeds");
-            accounts.expect("default accounts route succeeds");
-        } else {
-            assert_eq!(
-                [
-                    bundle.expect_err("cloud status error").status(),
-                    accounts.expect_err("accounts status error").status(),
-                ],
-                [Some(http::StatusCode::from_u16(status).expect("valid test status")); 2]
-            );
-        }
-        issuer.verify().await;
-        assert_eq!(proxy.received_requests().await.unwrap_or_default().len(), 0);
-    }
-}
-
-#[tokio::test]
-async fn bootstrap_gets_honor_disabled_fallback() {
-    if run_without_environment_proxies(
-        "client::request_tests::bootstrap_gets_honor_disabled_fallback",
-    ) {
-        return;
-    }
-    let proxy = MockServer::start().await;
-    let base_url = BLOCKED_ORIGIN;
-    for endpoint in ["config/bundle", "accounts/check"] {
-        cache_system_proxy_route_for_test(&format!("{base_url}/api/codex/{endpoint}"), proxy.uri());
-    }
-    let client = Client::new(
-        base_url,
-        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-    );
-    assert!(client.get_config_bundle().await.is_err());
-    assert!(client.get_accounts_check().await.is_err());
-    assert_eq!(proxy.received_requests().await.unwrap_or_default().len(), 0);
-}
-
-#[tokio::test]
-async fn bootstrap_gets_preserve_network_policy_with_fallback_enabled() {
-    let issuer = MockServer::start().await;
-    let proxy = MockServer::start().await;
-    for endpoint in ["config/bundle", "accounts/check"] {
-        cache_system_proxy_route_for_test(
-            &format!("{}/api/codex/{endpoint}", issuer.uri()),
-            proxy.uri(),
-        );
-    }
-    let controller = codex_http_client::NetworkPolicyController::default();
-    let client = Client::new(
-        issuer.uri(),
-        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault)
-            .with_system_proxy_fallback()
-            .with_network_policy(controller.policy()),
-    );
-    assert!(matches!(
-        client.get_config_bundle().await,
-        Err(RequestError::Policy(_))
-    ));
-    assert!(matches!(
-        client.get_accounts_check().await,
-        Err(RequestError::Policy(_))
-    ));
-    assert_eq!(
-        issuer.received_requests().await.unwrap_or_default().len(),
-        0
-    );
-    assert_eq!(proxy.received_requests().await.unwrap_or_default().len(), 0);
 }
 
 #[tokio::test]
@@ -508,36 +305,4 @@ async fn bootstrap_get_recovers_from_stalled_body_before_cloud_startup_timeout()
         .expect("proxy retry must fit inside the cloud startup budget")
         .expect("cloud bundle via proxy");
     proxy.verify().await;
-}
-
-#[tokio::test]
-async fn identity_header_errors_preserve_credential_recovery() {
-    for (code, recoverable) in [
-        ("invalid_agent_instance_assertion", false),
-        ("token_expired", true),
-    ] {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/api/codex/accounts/check"))
-            .respond_with(
-                ResponseTemplate::new(401)
-                    .insert_header(
-                        "x-error-json",
-                        base64::engine::general_purpose::STANDARD
-                            .encode(serde_json::json!({"error": {"code": code}}).to_string()),
-                    )
-                    .set_body_json(serde_json::json!({"detail": "Unauthorized"})),
-            )
-            .expect(1)
-            .mount(&server)
-            .await;
-        let client = Client::new(
-            server.uri(),
-            HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-        );
-        let error = client.get_accounts_check().await.unwrap_err();
-        assert_eq!(error.status(), Some(StatusCode::UNAUTHORIZED));
-        assert_eq!(error.is_unauthorized(), recoverable, "{code}");
-        server.verify().await;
-    }
 }

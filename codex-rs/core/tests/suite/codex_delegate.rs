@@ -12,16 +12,9 @@ use codex_protocol::protocol::ReviewTarget;
 use codex_protocol::protocol::ThreadSettingsOverrides;
 use codex_protocol::user_input::UserInput;
 use codex_utils_path_uri::PathUri;
-use core_test_support::PathExt;
-use core_test_support::apps_test_server::AppsTestServer;
-use core_test_support::apps_test_server::SEARCH_CALENDAR_CREATE_TOOL;
-use core_test_support::apps_test_server::SEARCH_CALENDAR_NAMESPACE;
-use core_test_support::apps_test_server::recorded_apps_tool_calls;
-use core_test_support::apps_test_server::search_capable_apps_builder;
 use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
 use core_test_support::responses::ev_function_call;
-use core_test_support::responses::ev_function_call_with_namespace;
 use core_test_support::responses::ev_reasoning_item_added;
 use core_test_support::responses::ev_reasoning_summary_text_delta;
 use core_test_support::responses::ev_response_created;
@@ -147,109 +140,6 @@ async fn codex_delegate_rejects_escalation_requests_when_parent_can_prompt() {
     assert!(
         response.contains("approval policy is Never"),
         "escalation should be rejected by the delegate's approval policy: {response}"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn codex_delegate_rejects_legacy_mcp_approvals_without_prompting() {
-    skip_if_no_network!();
-
-    let server = start_mock_server().await;
-    let apps_server = AppsTestServer::mount(&server)
-        .await
-        .expect("mount mock app server");
-    let call_id = "review-calendar-call";
-    let arguments = serde_json::json!({
-        "title": "Review meeting",
-        "starts_at": "2026-08-12T12:00:00Z"
-    });
-    let response_mock = mount_sse_sequence(
-        &server,
-        vec![
-            sse(vec![
-                ev_response_created("resp-1"),
-                ev_function_call_with_namespace(
-                    call_id,
-                    SEARCH_CALENDAR_NAMESPACE,
-                    SEARCH_CALENDAR_CREATE_TOOL,
-                    &arguments.to_string(),
-                ),
-                ev_completed("resp-1"),
-            ]),
-            sse(vec![ev_response_created("resp-2"), ev_completed("resp-2")]),
-        ],
-    )
-    .await;
-
-    let test = search_capable_apps_builder(apps_server.chatgpt_base_url)
-        .with_config(|config| {
-            config.permissions.approval_policy = Constrained::allow_any(AskForApproval::OnRequest);
-            config
-                .permissions
-                .set_permission_profile(PermissionProfile::read_only())
-                .expect("review delegate should inherit a restricted permission profile");
-            let config_path = config.codex_home.join("config.toml").abs();
-            let app_config = toml::from_str(
-                r#"
-[apps.calendar]
-default_tools_approval_mode = "prompt"
-"#,
-            )
-            .expect("app approval configuration should parse");
-            config.config_layer_stack = config
-                .config_layer_stack
-                .with_user_config(&config_path, app_config)
-                .expect("app approval configuration should be valid");
-            config
-                .features
-                .disable(Feature::ToolCallMcpElicitation)
-                .expect("legacy MCP approvals should be available");
-        })
-        .build_with_auto_env(&server)
-        .await
-        .expect("build review delegate with legacy MCP approvals");
-
-    test.codex
-        .submit(Op::Review {
-            review_request: ReviewRequest {
-                target: ReviewTarget::Custom {
-                    instructions: "Review the [$calendar](app://calendar) integration".to_string(),
-                },
-                user_facing_hint: None,
-            },
-        })
-        .await
-        .expect("submit review");
-
-    let event = wait_for_event(&test.codex, |event| {
-        matches!(
-            event,
-            EventMsg::RequestUserInput(_)
-                | EventMsg::ElicitationRequest(_)
-                | EventMsg::TurnComplete(_)
-        )
-    })
-    .await;
-    assert!(
-        matches!(event, EventMsg::TurnComplete(_)),
-        "review delegate should reject legacy MCP approvals without prompting: {event:?}"
-    );
-
-    let requests = response_mock.requests();
-    let [_, completion_request] = requests.as_slice() else {
-        panic!("expected the model request and MCP-denial continuation");
-    };
-    let output = completion_request.function_call_output(call_id);
-    let response = output["output"][1]["text"]
-        .as_str()
-        .expect("MCP tool output should contain an input_text item");
-    assert!(
-        response.contains("approval policy is never"),
-        "MCP tool should be rejected by the delegate's approval policy: {response}"
-    );
-    assert!(
-        recorded_apps_tool_calls(&server).await.is_empty(),
-        "MCP tool requiring approval should never execute"
     );
 }
 

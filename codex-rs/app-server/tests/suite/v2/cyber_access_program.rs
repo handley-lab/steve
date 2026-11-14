@@ -1,7 +1,5 @@
 use anyhow::Result;
-use app_test_support::ChatGptAuthFixture;
 use app_test_support::TestAppServer;
-use app_test_support::write_chatgpt_auth;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::CodexErrorInfo;
 use codex_app_server_protocol::CyberAccessProgram;
@@ -627,11 +625,6 @@ async fn start_chatgpt_app(home: &Path, server: &MockServer) -> Result<TestAppSe
             "model = \"gpt-5.5\"\napproval_policy = \"never\"\nopenai_base_url = \"{}/v1\"\ncli_auth_credentials_store = \"file\"\n",
             server.uri()
         ),
-    )?;
-    write_chatgpt_auth(
-        home,
-        ChatGptAuthFixture::new("chatgpt-test-token").plan_type("pro"),
-        AuthCredentialsStoreMode::File,
     )?;
     TestAppServer::builder()
         .with_codex_home(home)

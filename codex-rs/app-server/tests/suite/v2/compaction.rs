@@ -6,10 +6,8 @@
 //! 3) Assert: verify item/started + item/completed notifications for context compaction.
 
 use anyhow::Result;
-use app_test_support::ChatGptAuthFixture;
 use app_test_support::MockResponsesConfig;
 use app_test_support::TestAppServer;
-use app_test_support::write_chatgpt_auth;
 use codex_app_server_protocol::CodexErrorInfo;
 use codex_app_server_protocol::ItemCompletedNotification;
 use codex_app_server_protocol::ItemStartedNotification;
@@ -33,7 +31,6 @@ use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::UserInput as V2UserInput;
-use codex_config::types::AuthCredentialsStoreMode;
 use codex_features::Feature;
 use codex_utils_absolute_path::test_support::PathExt;
 use core_test_support::responses;
@@ -361,108 +358,6 @@ async fn compaction_error_window_reaches_analytics(
             expected_window
         ])
     );
-    Ok(())
-}
-
-#[test_case(CompactionRoute::Local; "local")]
-#[test_case(CompactionRoute::Remote; "streamed remote")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn auto_compaction_emits_started_and_completed_items(route: CompactionRoute) -> Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let server = responses::start_mock_server().await;
-    let sse1 = responses::sse(vec![
-        responses::ev_assistant_message("m1", "FIRST_REPLY"),
-        responses::ev_completed_with_tokens("r1", /*total_tokens*/ 70_000),
-    ]);
-    let sse2 = responses::sse(vec![
-        responses::ev_assistant_message("m2", "SECOND_REPLY"),
-        responses::ev_completed_with_tokens("r2", /*total_tokens*/ 330_000),
-    ]);
-    let summary = match route {
-        CompactionRoute::Local => responses::ev_assistant_message("m3", "LOCAL_SUMMARY"),
-        CompactionRoute::Remote => serde_json::json!({
-            "type": "response.output_item.done",
-            "item": {
-                "type": "compaction",
-                "encrypted_content": "ENCRYPTED_COMPACTION_SUMMARY",
-            },
-        }),
-    };
-    let sse3 = responses::sse(vec![
-        summary,
-        responses::ev_completed_with_tokens("r3", /*total_tokens*/ 200),
-    ]);
-    let sse4 = responses::sse(vec![
-        responses::ev_assistant_message("m4", "FINAL_REPLY"),
-        responses::ev_completed_with_tokens("r4", /*total_tokens*/ 120),
-    ]);
-    let requests = responses::mount_sse_sequence(&server, vec![sse1, sse2, sse3, sse4]).await;
-
-    let codex_home = TempDir::new()?;
-    let mut config = compaction_config(&server.uri(), /*auto_compact_limit*/ 200_000);
-    if let CompactionRoute::Remote = route {
-        config = config
-            .with_provider_name("OpenAI")
-            .with_provider_config("requires_openai_auth = true");
-        write_chatgpt_auth(
-            codex_home.path(),
-            ChatGptAuthFixture::new("access-chatgpt").plan_type("pro"),
-            AuthCredentialsStoreMode::File,
-        )?;
-    }
-    config.write(codex_home.path())?;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .with_env_overrides(&[("OPENAI_API_KEY", None)])
-        .build_initialized_with_timeout(DEFAULT_READ_TIMEOUT)
-        .await?;
-
-    let thread_id = start_thread(&mut mcp).await?;
-    for message in ["first", "second", "third"] {
-        send_turn_and_wait(&mut mcp, &thread_id, message).await?;
-    }
-
-    let started = wait_for_context_compaction_started(&mut mcp).await?;
-    let completed = wait_for_context_compaction_completed(&mut mcp).await?;
-
-    let ThreadItemPayload::ContextCompaction { id: started_id } = started.item.payload else {
-        unreachable!("started item should be context compaction");
-    };
-    let ThreadItemPayload::ContextCompaction { id: completed_id } = completed.item.payload else {
-        unreachable!("completed item should be context compaction");
-    };
-
-    assert_eq!(started.thread_id, thread_id);
-    assert_eq!(completed.thread_id, thread_id);
-    assert_eq!(started_id, completed_id);
-
-    let requests = requests.requests();
-    assert_eq!(requests.len(), 4);
-    let compact_request = &requests[2];
-    assert_eq!(compact_request.path(), "/v1/responses");
-    match route {
-        CompactionRoute::Local => {
-            assert!(
-                compact_request
-                    .inputs_of_type("compaction_trigger")
-                    .is_empty()
-            );
-            assert!(compact_request.body_contains_text(COMPACT_PROMPT));
-        }
-        CompactionRoute::Remote => {
-            assert_eq!(
-                compact_request.inputs_of_type("compaction_trigger").len(),
-                1
-            );
-            assert_eq!(
-                requests[3].inputs_of_type("compaction")[0]["encrypted_content"],
-                "ENCRYPTED_COMPACTION_SUMMARY"
-            );
-        }
-    }
-
     Ok(())
 }
 

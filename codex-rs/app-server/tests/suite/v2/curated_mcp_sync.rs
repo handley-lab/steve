@@ -6,16 +6,13 @@ use std::time::Duration;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::ensure;
-use app_test_support::ChatGptAuthFixture;
 use app_test_support::MockResponsesConfig;
 use app_test_support::TestAppServer;
-use app_test_support::write_chatgpt_auth;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::LoginAccountResponse;
 use codex_app_server_protocol::McpServerToolCallParams;
 use codex_app_server_protocol::McpServerToolCallResponse;
 use codex_app_server_protocol::ThreadStartParams;
-use codex_config::types::AuthCredentialsStoreMode;
 use codex_features::Feature;
 use core_test_support::responses;
 use pretty_assertions::assert_eq;
@@ -157,14 +154,6 @@ enabled = true
 url = "{mcp_server_url}/mcp""#
             ))
             .write(&codex_home)?;
-        write_chatgpt_auth(
-            &codex_home,
-            ChatGptAuthFixture::new("chatgpt-token")
-                .account_id("account-123")
-                .chatgpt_user_id("user-123")
-                .chatgpt_account_id("account-123"),
-            AuthCredentialsStoreMode::File,
-        )?;
 
         let inherited_path = std::env::var_os("PATH").context("PATH should be set")?;
         let child_path = std::env::join_paths(

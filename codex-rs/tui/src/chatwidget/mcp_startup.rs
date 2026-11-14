@@ -205,8 +205,6 @@ impl ChatWidget {
         &mut self,
         notification: McpServerStatusUpdatedNotification,
     ) {
-        let refresh_connector_mentions = notification.name == "codex_apps"
-            && notification.status == McpServerStartupState::Ready;
         let status = match notification.status {
             McpServerStartupState::Starting => McpStartupStatus::Starting,
             McpServerStartupState::Ready => McpStartupStatus::Ready,
@@ -219,8 +217,5 @@ impl ChatWidget {
             McpServerStartupState::Cancelled => McpStartupStatus::Cancelled,
         };
         self.update_mcp_startup_status(notification.name, status);
-        if refresh_connector_mentions {
-            self.refresh_connector_mentions(/*force_refresh*/ false);
-        }
     }
 }

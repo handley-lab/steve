@@ -231,7 +231,6 @@ pub(super) async fn run_main_inner(
             &codex_home,
             codex_config::loader::system_config_toml_file(),
             || codex_config::loader::has_local_managed_configuration(&codex_home),
-            |name| std::env::var_os(name),
         )
     {
         startup_draft::StartupDraftInitialScreen::Onboarding
@@ -378,14 +377,12 @@ pub(super) async fn run_main_inner(
     } else {
         Ok(())
     };
-    let cloud_config_bundle = startup_draft
-        .run_until(cloud_config_bundle_for_app_server_target(
-            &app_server_target,
-            &bootstrap_config,
-            &codex_home,
-            &embedded_network_policy,
-        ))
-        .await??;
+    let cloud_config_bundle = cloud_config_bundle_for_app_server_target(
+        &app_server_target,
+        &bootstrap_config,
+        &codex_home,
+        &embedded_network_policy,
+    )?;
     let bootstrap_config_toml = &bootstrap_config.config_toml;
 
     let cwd_override = if app_server_target.uses_remote_workspace() {
@@ -501,17 +498,13 @@ pub(super) async fn run_main_inner(
         config.cwd.as_path(),
     );
 
-    let mut cloud_config_bundle = startup_draft
-        .run_until(managed_config_bundle_loader_for_storage(
-            embedded_network_policy.bind_bootstrap_auth(
-                app_server_target.auth_config_for_cloud_loader(config.auth_config()),
-                config.chatgpt_path_style,
-            ),
+    let mut cloud_config_bundle = managed_config_bundle_loader_for_storage(
+        embedded_network_policy.bind_bootstrap_auth(
+            app_server_target.auth_config_for_cloud_loader(config.auth_config()),
             config.chatgpt_path_style,
-            config.config_layer_stack.requirements_toml(),
-            /*enable_codex_api_key_env*/ false,
-        ))
-        .await??;
+        ),
+        config.config_layer_stack.requirements_toml(),
+    );
     let managed_worktree = if cli.shared.worktree {
         let (destination, bundle, worktree) = startup_draft
             .run_until(worktree_startup::prepare(

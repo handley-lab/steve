@@ -51,7 +51,3 @@ impl OutgoingMessageSender {
         });
     }
 }
-
-#[cfg(test)]
-#[path = "account_notifications_tests.rs"]
-mod tests;

@@ -112,9 +112,13 @@ impl DecisionsSampler {
         model_provider: SharedModelProvider,
         model: String,
     ) -> Result<Self, DecisionsError> {
-        codex_model_provider::resolve_request(model_provider.as_ref(), None, factory.clone())
-            .await
-            .map_err(|_| DecisionsError::ClientSetup)?;
+        codex_model_provider::resolve_request(
+            model_provider.as_ref(),
+            codex_login::default_client::ClientRedirectPolicy::Default,
+            factory.clone(),
+        )
+        .await
+        .map_err(|_| DecisionsError::ClientSetup)?;
         Ok(Self {
             provider: model_provider,
             factory,
@@ -208,7 +212,7 @@ impl DecisionsSampler {
         }
         let setup = codex_model_provider::resolve_request(
             self.provider.as_ref(),
-            None,
+            codex_login::default_client::ClientRedirectPolicy::Default,
             self.factory.clone(),
         )
         .await

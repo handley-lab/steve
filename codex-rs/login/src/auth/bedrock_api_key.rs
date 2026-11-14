@@ -37,10 +37,6 @@ pub fn login_with_bedrock_api_key(
     let auth_dot_json = AuthDotJson {
         auth_mode: Some(AuthMode::BedrockApiKey),
         openai_api_key: None,
-        tokens: None,
-        last_refresh: None,
-        agent_identity: None,
-        personal_access_token: None,
         bedrock_api_key: Some(BedrockApiKeyAuth {
             api_key: api_key.to_string(),
             region: region.to_string(),

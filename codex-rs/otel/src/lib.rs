@@ -70,11 +70,6 @@ impl From<AuthMode> for TelemetryAuthMode {
             AuthMode::ApiKey | AuthMode::BedrockApiKey | AuthMode::BedrockAccessKeys => {
                 Self::ApiKey
             }
-            AuthMode::Chatgpt
-            | AuthMode::ChatgptAuthTokens
-            | AuthMode::Headers
-            | AuthMode::AgentIdentity
-            | AuthMode::PersonalAccessToken => Self::Chatgpt,
         }
     }
 }

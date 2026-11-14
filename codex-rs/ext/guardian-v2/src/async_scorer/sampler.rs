@@ -23,7 +23,6 @@ use codex_extension_api::ExtensionMetrics;
 use codex_history::ResponseItemEnvelope;
 use codex_http_client::HttpClientFactory;
 use codex_model_provider::SharedModelProvider;
-use codex_model_provider::WorkspaceRoutingContext;
 use codex_protocol::error::CodexErr;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::CatalogModel;
@@ -51,8 +50,6 @@ pub struct LunaSamplerConfig {
     pub content_item_kinds: bool,
     /// False when the parent host confines its explicit program to that thread.
     pub inherit_parent_cyber_access_program: bool,
-    /// Routing scope and retained configuration layers for the owning thread.
-    pub workspace_routing: WorkspaceRoutingContext,
     /// Effective proxy, custom-CA, and cookie configuration.
     pub http_client_factory: HttpClientFactory,
     /// Owning runtime session identifier.

@@ -528,15 +528,11 @@ async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcess
                 config_warnings: args.config_warnings,
                 startup_warnings_tx,
                 session_source: args.session_source,
-                user_verification: Arc::new(crate::user_verification::Service::new(Arc::clone(
-                    &auth_manager,
-                ))),
                 auth_manager,
                 runtime_auth_slot,
                 installation_id,
                 code_mode_session_provider: None,
                 rpc_transport: AppServerRpcTransport::InProcess,
-                remote_control_handle: None,
                 plugin_startup_tasks: Some(PluginStartupConfig::Current),
             }));
             let mut thread_created_rx = processor.thread_created_receiver();

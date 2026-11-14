@@ -10,13 +10,10 @@
 use codex_core::config::Config;
 use codex_core::config::edit::ConfigEdit;
 use codex_core::config::edit::ConfigEditsBuilder;
-use codex_login::login_with_access_token;
 use codex_login::login_with_api_key;
 use codex_login::logout_all_stores;
-use codex_mcp::ema_auth_scope;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::config_types::ForcedLoginMethod;
-use codex_rmcp_client::EnterpriseOAuthCredentialGuard;
 use codex_utils_cli::CliConfigOverrides;
 use std::fs::OpenOptions;
 use std::io::IsTerminal;
@@ -29,8 +26,6 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 const API_KEY_LOGIN_DISABLED_MESSAGE: &str = "API key login is disabled by configuration.";
-const ACCESS_TOKEN_LOGIN_DISABLED_MESSAGE: &str =
-    "Access token login is disabled. Use API key login instead.";
 const LOGIN_SUCCESS_MESSAGE: &str = "Successfully logged in";
 const API_KEY_AUTHENTICATION_NOTICE: &str = "Authentication is checked when you send a request.";
 const DEFAULT_LOGIN_LOG_FILTER: &str =
@@ -172,59 +167,11 @@ pub async fn run_login_with_api_key(
     }
 }
 
-pub async fn run_login_with_access_token(
-    cli_config_overrides: CliConfigOverrides,
-    access_token: String,
-) -> ! {
-    let config = load_managed_login_config_or_exit(cli_config_overrides).await;
-    let _login_log_guard = init_login_file_logging(&config);
-    tracing::info!("starting access token login flow");
-
-    if !config
-        .auth_config()
-        .is_login_method_allowed(ForcedLoginMethod::Chatgpt)
-    {
-        eprintln!("{ACCESS_TOKEN_LOGIN_DISABLED_MESSAGE}");
-        std::process::exit(1);
-    }
-
-    let auth_route_config = config.auth_route_config();
-    let effective_chatgpt_workspaces = config.auth_config().effective_chatgpt_workspaces();
-    match login_with_access_token(
-        &config.codex_home,
-        &access_token,
-        config.cli_auth_credentials_store_mode,
-        effective_chatgpt_workspaces.as_deref(),
-        Some(&config.chatgpt_base_url),
-        config.auth_keyring_backend_kind(),
-        &auth_route_config,
-    )
-    .await
-    {
-        Ok(_) => {
-            eprintln!("{LOGIN_SUCCESS_MESSAGE}");
-            std::process::exit(0);
-        }
-        Err(e) => {
-            eprintln!("Error logging in with access token: {e}");
-            std::process::exit(1);
-        }
-    }
-}
-
 pub fn read_api_key_from_stdin() -> String {
     read_stdin_secret(
         "--with-api-key expects the API key on stdin. Try piping it, e.g. `printenv OPENAI_API_KEY | steve login --with-api-key`.",
         "Reading API key from stdin...",
         "No API key provided via stdin.",
-    )
-}
-
-pub fn read_access_token_from_stdin() -> String {
-    read_stdin_secret(
-        "--with-access-token expects the access token on stdin. Try piping it, e.g. `printenv STEVE_ACCESS_TOKEN | steve login --with-access-token`.",
-        "Reading access token from stdin...",
-        "No access token provided via stdin.",
     )
 }
 
@@ -273,21 +220,6 @@ pub async fn run_login_status(cli_config_overrides: CliConfigOverrides) -> ! {
                     std::process::exit(1);
                 }
             },
-            AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens => {
-                eprintln!("Logged in using ChatGPT");
-                std::process::exit(0);
-            }
-            AuthMode::Headers => {
-                unreachable!("header auth cannot be loaded from auth storage")
-            }
-            AuthMode::AgentIdentity => {
-                eprintln!("Logged in using access token");
-                std::process::exit(0);
-            }
-            AuthMode::PersonalAccessToken => {
-                eprintln!("Logged in using personal access token");
-                std::process::exit(0);
-            }
             AuthMode::BedrockApiKey => {
                 eprintln!("Logged in using Amazon Bedrock API key");
                 std::process::exit(0);
@@ -330,37 +262,6 @@ pub async fn run_logout(cli_config_overrides: CliConfigOverrides) -> ! {
         Ok(false)
     };
 
-    // Cleanup is independent of the current feature gate. Retain the grant lock
-    // through account removal so another process cannot commit a late login.
-    let enterprise_guard = async {
-        let Some(profile) = &config.mcp_enterprise_managed_auth else {
-            return Ok::<_, anyhow::Error>(None);
-        };
-        let auth = config
-            .auth_config()
-            .load_auth(/*enable_codex_api_key_env*/ false)
-            .await?;
-        let Some(scope) = ema_auth_scope(auth.as_ref()) else {
-            return Ok(None);
-        };
-        EnterpriseOAuthCredentialGuard::acquire(
-            &profile.idp.credential_name(&scope),
-            &profile.idp.issuer,
-            config.auth_keyring_backend_kind(),
-        )
-        .await
-        .map(Some)
-    }
-    .await;
-    let cleanup_failed = match &enterprise_guard {
-        Ok(Some(guard)) => guard.delete_tokens().is_err(),
-        Ok(None) => false,
-        Err(_) => true,
-    };
-    if cleanup_failed {
-        eprintln!("Warning: failed to remove enterprise authorization; continuing account logout");
-    }
-
     let logged_out = match logout_all_stores(
         &config.codex_home,
         config.cli_auth_credentials_store_mode,
@@ -372,7 +273,6 @@ pub async fn run_logout(cli_config_overrides: CliConfigOverrides) -> ! {
             std::process::exit(1);
         }
     };
-    drop(enterprise_guard);
 
     let cleared_bedrock_config =
         if let Some(paths) = ConfigEditsBuilder::bedrock_provider_config_paths_to_clear(&config) {

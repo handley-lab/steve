@@ -19,9 +19,9 @@ async fn mismatched_and_legacy_cache_entries_fetch_the_current_catalog() {
         let manager = OpenAiModelsManager::new_with_cache(
             cache.clone(),
             endpoint.clone(),
-            Some(AuthManager::from_auth_for_testing(
-                CodexAuth::create_dummy_chatgpt_auth_for_testing(),
-            )),
+            Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
+                "dummy",
+            ))),
         );
         manager
             .ensure_initialized(DEFAULT_HTTP_CLIENT_FACTORY)

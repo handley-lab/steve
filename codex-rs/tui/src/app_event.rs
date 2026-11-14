@@ -10,16 +10,11 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use crate::inline_visualization::InlineVisualizationContext;
-use codex_app_server_protocol::AddCreditsNudgeCreditType;
-use codex_app_server_protocol::AddCreditsNudgeEmailStatus;
-use codex_app_server_protocol::ConsumeAccountRateLimitResetCreditResponse;
 use codex_app_server_protocol::DynamicToolCallResponse;
-use codex_app_server_protocol::GetAccountRateLimitsResponse;
 use codex_app_server_protocol::MarketplaceAddResponse;
 use codex_app_server_protocol::MarketplaceRemoveResponse;
 use codex_app_server_protocol::MarketplaceUpgradeResponse;
@@ -28,7 +23,6 @@ use codex_app_server_protocol::McpServerStatus;
 use codex_app_server_protocol::McpServerStatusDetail;
 use codex_app_server_protocol::PluginInstallResponse;
 use codex_app_server_protocol::PluginListResponse;
-use codex_app_server_protocol::PluginMarketplaceEntry;
 use codex_app_server_protocol::PluginReadParams;
 use codex_app_server_protocol::PluginReadResponse;
 use codex_app_server_protocol::PluginUninstallResponse;
@@ -37,7 +31,6 @@ use codex_app_server_protocol::SkillsListResponse;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadGoalStatus;
 use codex_app_server_protocol::ThreadItemsListResponse;
-use codex_connectors::AppInfo;
 use codex_file_search::FileMatch;
 use codex_message_history::HistoryBatchCursor;
 use codex_protocol::ThreadId;
@@ -56,8 +49,6 @@ use crate::bottom_pane::StatusLineItem;
 use crate::bottom_pane::TerminalTitleItem;
 use crate::chatwidget::AstraModelPickerAction;
 use crate::chatwidget::ConfiguredPetLoadGeneration;
-use crate::chatwidget::ConnectorScopeGeneration;
-use crate::chatwidget::ThreadUsageOutcome;
 use crate::chatwidget::UserMessage;
 use crate::experimental_features::FeatureWriteResult;
 use crate::goal_files::GoalDraft;
@@ -183,62 +174,9 @@ pub(crate) enum WindowsSandboxEnableMode {
     Legacy,
 }
 
-#[derive(Debug, Clone)]
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-pub(crate) struct ConnectorsSnapshot {
-    pub(crate) connectors: Vec<AppInfo>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum PluginLocation {
-    Local { marketplace_path: AbsolutePathBuf },
-    Remote { marketplace_name: String },
-}
-
-impl PluginLocation {
-    pub(crate) fn into_request_params(self) -> (Option<AbsolutePathBuf>, Option<String>) {
-        match self {
-            PluginLocation::Local { marketplace_path } => (Some(marketplace_path), None),
-            PluginLocation::Remote { marketplace_name } => (None, Some(marketplace_name)),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PluginRemoteSectionError {
-    pub(crate) section_id: String,
-    pub(crate) label: String,
-    pub(crate) message: String,
-}
-
-/// Distinguishes why a rate-limit refresh was requested so the completion
-/// handler can route the result correctly.
-///
-/// A `StartupPrefetch` fires once, concurrently with the rest of TUI init, and
-/// updates the cached snapshots and any available reset-credit notice (no
-/// status card to finalize). A `StatusCommand` is tied to a specific `/status`
-/// invocation and must call `finish_status_rate_limit_refresh` when done so the
-/// card stops showing a "refreshing" state. A `UsageMenu` refreshes a cached
-/// zero reset count so the disabled menu entry can become available without a
-/// restart. A `ResetPicker` refreshes the rate limits and detailed reset-credit
-/// rows before showing redemption choices.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RateLimitRefreshOrigin {
-    /// Eagerly fetched after bootstrap for `/status` data and reset availability.
-    StartupPrefetch { reset_hint_request_id: u64 },
-    /// User-initiated via `/status`; the `request_id` correlates with the
-    /// status card that should be updated when the fetch completes.
-    StatusCommand { request_id: u64 },
-    /// User reopened `/usage` while the cached reset-credit count was zero.
-    UsageMenu { request_id: u64 },
-    /// User opened the reset-credit picker.
-    ResetPicker { request_id: u64 },
-    /// Refresh requested after a reset credit was successfully consumed.
-    ResetConsume { request_id: u64 },
-    /// Refresh backend recovery after an inference limit error.
-    Recovery,
-    /// Background account usage read, scheduled more frequently near exhaustion.
-    Periodic,
+pub(crate) struct PluginLocation {
+    pub(crate) marketplace_path: AbsolutePathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -352,16 +290,6 @@ impl CapturedSideWork {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, IntoStaticStr)]
 pub(crate) enum AppEvent {
-    AccountEmailLoaded {
-        request_id: uuid::Uuid,
-        email: Option<String>,
-        workspace: Option<String>,
-    },
-    SecuritySetupLoaded {
-        request_id: uuid::Uuid,
-        identity: crate::security_setup::Identity,
-        notice: crate::security_setup::Notice,
-    },
     OpenDaemonMenu,
     ConfirmDaemonRestart,
     RunDaemonRestart,
@@ -535,24 +463,6 @@ pub(crate) enum AppEvent {
         model: String,
         turn: AppCommand,
         prompt: UserMessage,
-    },
-
-    /// Sign the challenge associated with an approved elicitation.
-    UserVerificationApproved {
-        thread_id: ThreadId,
-        server_name: String,
-        request_id: AppServerRequestId,
-    },
-    /// Return a controller-owned verification result, never a native provider handle.
-    UserVerificationFinished {
-        thread_id: ThreadId,
-        server_name: String,
-        request_id: AppServerRequestId,
-        attempt_id: Uuid,
-        result: Result<
-            codex_app_server_protocol::UserVerificationProof,
-            crate::app_command::UserVerificationFailure,
-        >,
     },
 
     /// Interrupt, fork, and retry a safety-buffered turn with the server-selected model.
@@ -870,16 +780,6 @@ pub(crate) enum AppEvent {
         matches: Vec<crate::task_mentions::TaskMention>,
     },
 
-    /// Refresh account rate limits in the background.
-    RefreshRateLimits {
-        origin: RateLimitRefreshOrigin,
-    },
-
-    /// Reconcile inherited account usage with an attached task before its queued input runs.
-    ApplyBackendBannerFallback {
-        thread_id: ThreadId,
-    },
-
     /// Open the current thread goal summary/action menu.
     OpenThreadGoalMenu {
         thread_id: ThreadId,
@@ -908,46 +808,6 @@ pub(crate) enum AppEvent {
         thread_id: ThreadId,
     },
 
-    /// Result of refreshing rate limits.
-    RateLimitsLoaded {
-        request_id: u64,
-        origin: RateLimitRefreshOrigin,
-        hard_stop_generation: u64,
-        result: Result<GetAccountRateLimitsResponse, String>,
-    },
-
-    /// Open the authenticated account analytics dashboard.
-    OpenAnalytics {
-        view: Option<crate::analytics::TokenActivityView>,
-    },
-
-    /// Open the reset-credit flow selected from the `/usage` menu.
-    OpenRateLimitResetCredits,
-
-    /// Confirm the reset credit selected from the reset-credit picker.
-    OpenRateLimitResetConfirmation {
-        picker_request_id: u64,
-        confirmation_gate: Arc<AtomicBool>,
-        credit_id: Option<String>,
-        reset_title: String,
-        reset_detail: Option<String>,
-        reset_description: String,
-    },
-
-    /// Consume one reset credit using a stable idempotency key.
-    ConsumeRateLimitResetCredit {
-        idempotency_key: String,
-        credit_id: Option<String>,
-    },
-
-    /// Result of consuming one reset credit.
-    RateLimitResetCreditConsumed {
-        request_id: u64,
-        idempotency_key: String,
-        credit_id: Option<String>,
-        result: Result<ConsumeAccountRateLimitResetCreditResponse, String>,
-    },
-
     /// Restore the displayed thread's live terminals after replaying its history.
     RestoreBackgroundTerminals(ThreadId),
     BackgroundTerminalsLoaded {
@@ -955,78 +815,8 @@ pub(crate) enum AppEvent {
         terminals: Vec<codex_app_server_protocol::ThreadBackgroundTerminal>,
     },
 
-    /// Fetch backend-estimated usage for the currently visible enterprise thread.
-    RefreshThreadUsage {
-        thread_id: ThreadId,
-        request_id: u64,
-    },
-
-    /// Result of fetching backend-estimated usage for a specific thread.
-    ThreadUsageLoaded {
-        thread_id: ThreadId,
-        request_id: u64,
-        result: Result<ThreadUsageOutcome, String>,
-    },
-
-    /// Result of fetching usage for the selected dashboard task.
-    AgentsOverviewUsageLoaded {
-        thread_id: ThreadId,
-        request_id: Uuid,
-        result: Result<ThreadUsageOutcome, String>,
-    },
-
-    /// Fetch workspace messages for the status-line headline item.
-    RefreshStatusLineWorkspaceHeadline {
-        request_id: u64,
-    },
-
-    /// Commit settled asynchronous usage output after active-output barriers clear.
-    CommitPendingUsageOutput,
-
-    /// Commit settled asynchronous usage output after stream shutdown.
-    CommitPendingUsageOutputAfterStreamShutdown,
-
-    /// Send a user-confirmed request to notify the workspace owner.
-    SendAddCreditsNudgeEmail {
-        credit_type: AddCreditsNudgeCreditType,
-    },
-
-    /// Result of notifying the workspace owner.
-    AddCreditsNudgeEmailFinished {
-        request_id: Uuid,
-        result: Result<AddCreditsNudgeEmailStatus, String>,
-    },
-
-    /// Result of prefetching connectors.
-    ConnectorsLoaded {
-        thread_id: Option<ThreadId>,
-        cwd: PathBuf,
-        generation: ConnectorScopeGeneration,
-        result: Result<ConnectorsSnapshot, String>,
-        is_final: bool,
-    },
-
-    /// Thread-scoped installed applications that may actually be mentioned.
-    InstalledConnectorMentionsLoaded {
-        thread_id: Option<ThreadId>,
-        cwd: PathBuf,
-        generation: ConnectorScopeGeneration,
-        result: Result<ConnectorsSnapshot, String>,
-    },
-
     /// Result of computing a `/diff` command.
     DiffResult(PathBuf, String),
-
-    /// Open the app link view in the bottom pane.
-    OpenAppLink {
-        app_id: String,
-        title: String,
-        description: Option<String>,
-        instructions: String,
-        url: String,
-        is_installed: bool,
-        is_enabled: bool,
-    },
 
     /// Open the provided URL in the user's browser.
     OpenUrlInBrowser {
@@ -1071,23 +861,6 @@ pub(crate) enum AppEvent {
         result: Result<Option<crate::pets::AmbientPet>, String>,
     },
 
-    /// Refresh app connector state and mention bindings.
-    RefreshConnectors {
-        force_refetch: bool,
-    },
-
-    /// Fetch apps only while the originating account, workspace, and thread remain current.
-    FetchConnectorsList {
-        force_refetch: bool,
-        generation: ConnectorScopeGeneration,
-    },
-
-    /// Refresh callable installed applications without loading the app directory.
-    FetchInstalledConnectorMentions {
-        force_refresh: bool,
-        generation: ConnectorScopeGeneration,
-    },
-
     /// Fetch plugin marketplace state for the provided working directory.
     FetchPluginsList {
         cwd: PathBuf,
@@ -1108,13 +881,6 @@ pub(crate) enum AppEvent {
     OpenPluginsList {
         cwd: PathBuf,
         response: PluginListResponse,
-    },
-
-    /// Result of explicitly fetching remote-backed plugin sections.
-    PluginRemoteSectionsLoaded {
-        cwd: PathBuf,
-        marketplaces: Vec<PluginMarketplaceEntry>,
-        section_errors: Vec<PluginRemoteSectionError>,
     },
 
     /// Result of fetching lifecycle hook inventory.
@@ -1271,9 +1037,7 @@ pub(crate) enum AppEvent {
     },
 
     /// Advance the post-install plugin app-auth flow.
-    PluginInstallAuthAdvance {
-        refresh_connectors: bool,
-    },
+    PluginInstallAuthAdvance,
 
     /// Abandon the post-install plugin app-auth flow.
     PluginInstallAuthAbandon,
@@ -1397,12 +1161,6 @@ pub(crate) enum AppEvent {
 
     /// Update the current reasoning effort in the running app and widget.
     UpdateReasoningEffort(Option<ReasoningEffort>),
-
-    /// Change Reserve effort only on the task that opened the picker, without saving defaults.
-    UpdateLunaReserveReasoning {
-        thread_id: ThreadId,
-        effort: Option<ReasoningEffort>,
-    },
 
     /// Update the current model slug in the running app and widget.
     UpdateModel(String),
@@ -1769,11 +1527,6 @@ pub(crate) enum AppEvent {
     /// Open the approval popup.
     FullScreenApprovalRequest(ApprovalRequest),
 
-    /// Inspect the complete verification request without deciding it.
-    FullScreenUserVerificationRequest(
-        crate::bottom_pane::user_verification::UserVerificationRequest,
-    ),
-
     /// Open feedback for the active connection.
     OpenFeedback,
 
@@ -1817,11 +1570,6 @@ pub(crate) enum AppEvent {
     StatusLineGitSummaryUpdated {
         cwd: PathBuf,
         summary: crate::chatwidget::StatusLineGitSummary,
-    },
-    /// Async update of the workspace notification headline for status line rendering.
-    StatusLineWorkspaceHeadlineUpdated {
-        request_id: u64,
-        result: Result<crate::workspace_messages::WorkspaceHeadlineFetchResult, String>,
     },
     /// Apply a user-confirmed status-line item ordering/selection.
     StatusLineSetup {

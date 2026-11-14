@@ -19,7 +19,6 @@ use crate::types::AuthCredentialsStoreMode;
 use crate::types::FeedbackConfigToml;
 use crate::types::History;
 use crate::types::MarketplaceConfig;
-use crate::types::McpEnterpriseManagedAuthConfig;
 use crate::types::McpServerConfig;
 use crate::types::MemoriesToml;
 use crate::types::Notice;
@@ -305,10 +304,6 @@ pub struct ConfigToml {
     #[schemars(schema_with = "crate::schema::mcp_servers_schema")]
     pub mcp_servers: HashMap<String, McpServerConfig>,
 
-    /// Trusted enterprise IdP shared by EMA-enabled MCP servers and plugins.
-    #[serde(default)]
-    pub mcp_enterprise_managed_auth: Option<McpEnterpriseManagedAuthConfig>,
-
     /// Preferred backend for storing MCP OAuth credentials.
     /// keyring: Use an OS-specific keyring service.
     ///          https://github.com/openai/codex/blob/main/codex-rs/rmcp-client/src/oauth.rs#L2
@@ -426,10 +421,6 @@ pub struct ConfigToml {
 
     /// Path dialect for the account backend. Omission selects `codex_api`.
     pub chatgpt_path_style: Option<AccountPathStyle>,
-
-    /// Additional HTTP(S) origins permitted to receive file uploads from the backend.
-    /// The configured backend's own origin is already permitted.
-    pub file_upload_origins: Option<Vec<String>>,
 
     /// Optional product SKU forwarded on host-owned Codex Apps MCP requests.
     pub apps_mcp_product_sku: Option<String>,

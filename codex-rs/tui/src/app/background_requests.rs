@@ -7,19 +7,9 @@
 use super::feedback_upload::deliver_feedback;
 use super::plugin_mentions::fetch_plugin_mentions;
 use super::*;
-use crate::app_event::ConnectorsSnapshot;
 use crate::app_event::FeedbackDestination;
 use crate::app_event::FeedbackReceipt;
-use crate::app_info::app_info_from_api;
-use crate::chatwidget::ThreadUsageOutcome;
 use crate::config_update::format_config_error;
-use codex_app_server_protocol::AppsListParams;
-use codex_app_server_protocol::AppsListResponse;
-use codex_app_server_protocol::ConsumeAccountRateLimitResetCreditParams;
-use codex_app_server_protocol::ConsumeAccountRateLimitResetCreditResponse;
-use codex_app_server_protocol::GetAccountRateLimitsParams;
-use codex_app_server_protocol::GetAccountTokenUsageParams;
-use codex_app_server_protocol::GetAccountTokenUsageResponse;
 use codex_app_server_protocol::MarketplaceAddParams;
 use codex_app_server_protocol::MarketplaceAddResponse;
 use codex_app_server_protocol::MarketplaceRemoveParams;
@@ -34,13 +24,6 @@ use crate::hooks_rpc::fetch_hooks_list;
 use crate::hooks_rpc::write_hook_trust;
 use crate::hooks_rpc::write_hook_trusts;
 use codex_utils_absolute_path::AbsolutePathBuf;
-
-pub(super) const THREAD_USAGE_FETCH_TIMEOUT: std::time::Duration =
-    std::time::Duration::from_secs(/*secs*/ 65);
-const RATE_LIMIT_RESET_REQUEST_TIMEOUT: std::time::Duration =
-    std::time::Duration::from_secs(/*secs*/ 15);
-const WORKSPACE_HEADLINE_FETCH_TIMEOUT: std::time::Duration =
-    std::time::Duration::from_millis(/*millis*/ 2000);
 
 impl App {
     pub(super) fn start_mcp_login(
@@ -101,153 +84,6 @@ impl App {
         })
     }
 
-    /// Spawns a background task to fetch account rate limits and deliver the
-    /// result as a `RateLimitsLoaded` event.
-    ///
-    /// Recovery requests are coalesced and bounded by the reset-request timeout. The origin
-    /// also identifies command-specific completion work, such as finalizing a `/status` card,
-    /// without confusing sparse inference notifications with authoritative usage responses.
-    pub(crate) fn refresh_rate_limits(
-        &mut self,
-        app_server: &AppServerSession,
-        origin: RateLimitRefreshOrigin,
-    ) {
-        if matches!(
-            origin,
-            RateLimitRefreshOrigin::Recovery | RateLimitRefreshOrigin::ResetConsume { .. }
-        ) {
-            self.chat_widget.invalidate_ordinary_usage_recovery();
-            self.chat_widget.hold_rate_limit_recovery();
-        }
-        let Some((request_id, hard_stop_generation)) = self
-            .rate_limit_refresh_state
-            .start(origin, &mut self.rate_limit_hard_stop_generation)
-        else {
-            return;
-        };
-        self.chat_widget.start_usage_notice_read(request_id);
-        let request_handle = app_server.request_handle();
-        let app_event_tx = self.app_event_tx.clone();
-        tokio::spawn(async move {
-            let request = fetch_account_rate_limits(request_handle, origin);
-            let result = match origin {
-                RateLimitRefreshOrigin::Recovery
-                | RateLimitRefreshOrigin::Periodic
-                | RateLimitRefreshOrigin::ResetConsume { .. }
-                | RateLimitRefreshOrigin::ResetPicker { .. } => {
-                    tokio::time::timeout(RATE_LIMIT_RESET_REQUEST_TIMEOUT, request)
-                        .await
-                        .map_err(|_| "account/rateLimits/read timed out in TUI".to_string())
-                        .and_then(|result| result.map_err(|err| err.to_string()))
-                }
-                RateLimitRefreshOrigin::StartupPrefetch { .. }
-                | RateLimitRefreshOrigin::StatusCommand { .. }
-                | RateLimitRefreshOrigin::UsageMenu { .. } => {
-                    request.await.map_err(|err| err.to_string())
-                }
-            };
-            app_event_tx.send(AppEvent::RateLimitsLoaded {
-                request_id,
-                origin,
-                hard_stop_generation,
-                result,
-            });
-        });
-    }
-
-    pub(super) fn refresh_thread_usage(
-        &mut self,
-        app_server: &AppServerSession,
-        thread_id: ThreadId,
-        request_id: u64,
-    ) {
-        let request_handle = app_server.request_handle();
-        let app_event_tx = self.app_event_tx.clone();
-        tokio::spawn(async move {
-            let result = tokio::time::timeout(
-                THREAD_USAGE_FETCH_TIMEOUT,
-                fetch_thread_usage(request_handle, thread_id),
-            )
-            .await
-            .map_err(|_| "thread usage request timed out in TUI".to_string())
-            .and_then(|result| result.map_err(|err| err.to_string()));
-            app_event_tx.send(AppEvent::ThreadUsageLoaded {
-                thread_id,
-                request_id,
-                result,
-            });
-        });
-    }
-
-    pub(super) fn consume_rate_limit_reset_credit(
-        &mut self,
-        app_server: &AppServerSession,
-        request_id: u64,
-        idempotency_key: String,
-        credit_id: Option<String>,
-    ) {
-        let request_handle = app_server.request_handle();
-        let app_event_tx = self.app_event_tx.clone();
-        tokio::spawn(async move {
-            let result = tokio::time::timeout(
-                RATE_LIMIT_RESET_REQUEST_TIMEOUT,
-                consume_rate_limit_reset_credit_request(
-                    request_handle,
-                    idempotency_key.clone(),
-                    credit_id.clone(),
-                ),
-            )
-            .await
-            .map_err(|_| "account/rateLimitResetCredit/consume timed out in TUI".to_string())
-            .and_then(|result| result.map_err(|err| err.to_string()));
-            app_event_tx.send(AppEvent::RateLimitResetCreditConsumed {
-                request_id,
-                idempotency_key,
-                credit_id,
-                result,
-            });
-        });
-    }
-
-    pub(super) fn refresh_status_line_workspace_headline(
-        &mut self,
-        app_server: &AppServerSession,
-        request_id: u64,
-    ) {
-        let request_handle = app_server.request_handle();
-        let app_event_tx = self.app_event_tx.clone();
-        tokio::spawn(async move {
-            let result = tokio::time::timeout(
-                WORKSPACE_HEADLINE_FETCH_TIMEOUT,
-                fetch_workspace_messages(request_handle),
-            )
-            .await
-            .map_err(|_| "account/workspaceMessages/read timed out in TUI".to_string())
-            .and_then(|result| {
-                result
-                    .map(crate::workspace_messages::workspace_headline_from_response)
-                    .map_err(|err| err.to_string())
-            });
-            app_event_tx.send(AppEvent::StatusLineWorkspaceHeadlineUpdated { request_id, result });
-        });
-    }
-
-    pub(super) fn send_add_credits_nudge_email(
-        &mut self,
-        app_server: &AppServerSession,
-        request_id: Uuid,
-        credit_type: AddCreditsNudgeCreditType,
-    ) {
-        let request_handle = app_server.request_handle();
-        let app_event_tx = self.app_event_tx.clone();
-        tokio::spawn(async move {
-            let result = send_add_credits_nudge_email(request_handle, credit_type)
-                .await
-                .map_err(|err| err.to_string());
-            app_event_tx.send(AppEvent::AddCreditsNudgeEmailFinished { request_id, result });
-        });
-    }
-
     /// Starts the initial skills refresh without delaying the first interactive frame.
     ///
     /// Startup only needs skill metadata to populate skill mentions and the skills UI; the prompt can be
@@ -279,63 +115,15 @@ impl App {
         });
     }
 
-    pub(super) fn fetch_connectors_list(
-        &mut self,
-        app_server: &AppServerSession,
-        force_refetch: bool,
-    ) {
-        let request_handle = app_server.request_handle();
-        let app_event_tx = self.app_event_tx.clone();
-        let thread_id = self.current_displayed_thread_id();
-        let cwd = self.chat_widget.config_ref().cwd.to_path_buf();
-        let generation = self.chat_widget.connector_scope_generation();
-        tokio::spawn(async move {
-            let result = fetch_connectors_list(
-                request_handle,
-                force_refetch,
-                thread_id.map(|thread_id| thread_id.to_string()),
-            )
-            .await
-            .map_err(|err| err.to_string());
-            app_event_tx.send(AppEvent::ConnectorsLoaded {
-                thread_id,
-                cwd,
-                generation,
-                result,
-                is_final: true,
-            });
-        });
-    }
-
     pub(super) fn fetch_plugins_list(&mut self, app_server: &AppServerSession, cwd: PathBuf) {
         self.chat_widget.on_plugins_list_fetch_started(cwd.clone());
         let request_handle = app_server.request_handle();
         let app_event_tx = self.app_event_tx.clone();
-        let plugin_sharing_enabled = self.config.features.enabled(Feature::PluginSharing);
-        let remote_plugin_enabled = self.config.features.enabled(Feature::RemotePlugin);
         tokio::spawn(async move {
-            let result = fetch_plugins_list(request_handle.clone(), cwd.clone())
+            let result = fetch_plugins_list(request_handle, cwd.clone())
                 .await
                 .map_err(|err| err.to_string());
-            let should_fetch_additional_remote_sections = result.is_ok();
-            app_event_tx.send(AppEvent::PluginsLoaded {
-                cwd: cwd.clone(),
-                result,
-            });
-            if should_fetch_additional_remote_sections {
-                let (marketplaces, section_errors) = fetch_additional_plugin_remote_sections(
-                    request_handle,
-                    cwd.clone(),
-                    plugin_sharing_enabled,
-                    remote_plugin_enabled,
-                )
-                .await;
-                app_event_tx.send(AppEvent::PluginRemoteSectionsLoaded {
-                    cwd,
-                    marketplaces,
-                    section_errors,
-                });
-            }
+            app_event_tx.send(AppEvent::PluginsLoaded { cwd, result });
         });
     }
 
@@ -839,105 +627,6 @@ pub(super) async fn fetch_all_mcp_server_statuses(
     Ok(statuses)
 }
 
-pub(super) async fn fetch_account_rate_limits(
-    request_handle: AppServerRequestHandle,
-    origin: RateLimitRefreshOrigin,
-) -> Result<GetAccountRateLimitsResponse> {
-    let request_id = RequestId::String(format!("account-rate-limits-{}", Uuid::new_v4()));
-    let result = request_handle
-        .request_typed(ClientRequest::GetAccountRateLimits {
-            request_id: request_id.clone(),
-            params: Some(GetAccountRateLimitsParams {
-                supports_luna_reserve: true,
-                exclude_reset_credit_details: origin == RateLimitRefreshOrigin::Periodic,
-            }),
-        })
-        .await;
-    // Older remote app servers accept only null params. Keep their usage reads working
-    // without opting them into exposure or pretending that they support the new capability.
-    if matches!(
-        &result,
-        Err(codex_app_server_client::TypedRequestError::Server { source, .. })
-            if matches!(source.code, -32600 | -32602)
-    ) {
-        return request_handle
-            .request_typed(ClientRequest::GetAccountRateLimits {
-                request_id,
-                params: None,
-            })
-            .await
-            .wrap_err("account/rateLimits/read failed in TUI");
-    }
-    result.wrap_err("account/rateLimits/read failed in TUI")
-}
-
-pub(super) async fn fetch_thread_usage(
-    request_handle: AppServerRequestHandle,
-    thread_id: ThreadId,
-) -> Result<ThreadUsageOutcome> {
-    let request_id = RequestId::String(format!("thread-usage-{}", Uuid::new_v4()));
-    let response: GetAccountTokenUsageResponse = request_handle
-        .request_typed(ClientRequest::GetAccountTokenUsage {
-            request_id,
-            params: Some(GetAccountTokenUsageParams {
-                thread_id: Some(thread_id.to_string()),
-            }),
-        })
-        .await
-        .wrap_err("account/usage/read failed for thread usage in TUI")?;
-    Ok(response
-        .thread_usage
-        .map(ThreadUsageOutcome::Available)
-        .unwrap_or(ThreadUsageOutcome::Disabled))
-}
-
-pub(super) async fn consume_rate_limit_reset_credit_request(
-    request_handle: AppServerRequestHandle,
-    idempotency_key: String,
-    credit_id: Option<String>,
-) -> Result<ConsumeAccountRateLimitResetCreditResponse> {
-    let request_id = RequestId::String(format!("consume-rate-limit-reset-{}", Uuid::new_v4()));
-    request_handle
-        .request_typed(ClientRequest::ConsumeAccountRateLimitResetCredit {
-            request_id,
-            params: ConsumeAccountRateLimitResetCreditParams {
-                idempotency_key,
-                credit_id,
-            },
-        })
-        .await
-        .wrap_err("account/rateLimitResetCredit/consume failed in TUI")
-}
-
-pub(super) async fn fetch_workspace_messages(
-    request_handle: AppServerRequestHandle,
-) -> Result<codex_app_server_protocol::GetWorkspaceMessagesResponse> {
-    let request_id = RequestId::String(format!("workspace-messages-{}", Uuid::new_v4()));
-    request_handle
-        .request_typed(ClientRequest::GetWorkspaceMessages {
-            request_id,
-            params: None,
-        })
-        .await
-        .wrap_err("account/workspaceMessages/read failed in TUI")
-}
-
-pub(super) async fn send_add_credits_nudge_email(
-    request_handle: AppServerRequestHandle,
-    credit_type: AddCreditsNudgeCreditType,
-) -> Result<codex_app_server_protocol::AddCreditsNudgeEmailStatus> {
-    let request_id = RequestId::String(format!("add-credits-nudge-{}", Uuid::new_v4()));
-    let response: codex_app_server_protocol::SendAddCreditsNudgeEmailResponse = request_handle
-        .request_typed(ClientRequest::SendAddCreditsNudgeEmail {
-            request_id,
-            params: SendAddCreditsNudgeEmailParams { credit_type },
-        })
-        .await
-        .wrap_err("account/sendAddCreditsNudgeEmail failed in TUI")?;
-
-    Ok(response.status)
-}
-
 pub(super) async fn fetch_skills_list(
     request_handle: AppServerRequestHandle,
     request_id: RequestId,
@@ -949,29 +638,6 @@ pub(super) async fn fetch_skills_list(
         .wrap_err("skills/list failed in TUI")
 }
 
-pub(super) async fn fetch_connectors_list(
-    request_handle: AppServerRequestHandle,
-    force_refetch: bool,
-    thread_id: Option<String>,
-) -> Result<ConnectorsSnapshot> {
-    let request_id = RequestId::String(format!("apps-list-{}", Uuid::new_v4()));
-    let response: AppsListResponse = request_handle
-        .request_typed(ClientRequest::AppsList {
-            request_id,
-            params: AppsListParams {
-                cursor: None,
-                limit: None,
-                thread_id,
-                force_refetch,
-            },
-        })
-        .await
-        .wrap_err("app/list failed in TUI")?;
-    Ok(ConnectorsSnapshot {
-        connectors: response.data.into_iter().map(app_info_from_api).collect(),
-    })
-}
-
 pub(super) async fn fetch_plugins_list(
     request_handle: AppServerRequestHandle,
     cwd: PathBuf,
@@ -981,114 +647,6 @@ pub(super) async fn fetch_plugins_list(
         .wrap_err("plugin/list failed while loading the plugins menu")?;
     hide_cli_only_plugin_marketplaces(&mut response);
     Ok(response)
-}
-
-pub(super) async fn fetch_additional_plugin_remote_sections(
-    request_handle: AppServerRequestHandle,
-    cwd: PathBuf,
-    plugin_sharing_enabled: bool,
-    remote_plugin_enabled: bool,
-) -> (Vec<PluginMarketplaceEntry>, Vec<PluginRemoteSectionError>) {
-    let mut marketplaces = Vec::new();
-    let mut section_errors = Vec::new();
-    let mut sections = Vec::new();
-    if !remote_plugin_enabled {
-        sections.push((
-            "vertical",
-            "OpenAI Curated",
-            vec![PluginListMarketplaceKind::Vertical],
-        ));
-    }
-    sections.push((
-        "workspace",
-        "Workspace",
-        vec![PluginListMarketplaceKind::WorkspaceDirectory],
-    ));
-    if plugin_sharing_enabled {
-        sections.push((
-            "shared-with-me",
-            "Shared with me",
-            vec![PluginListMarketplaceKind::SharedWithMe],
-        ));
-    } else {
-        section_errors.push(plugin_sharing_disabled_remote_section_error());
-    }
-
-    for (section_id, label, marketplace_kinds) in sections {
-        match request_plugin_list_for_kinds(request_handle.clone(), cwd.clone(), marketplace_kinds)
-            .await
-        {
-            Ok(mut response) => {
-                hide_cli_only_plugin_marketplaces(&mut response);
-                marketplaces.extend(response.marketplaces);
-            }
-            Err(err) => {
-                let message = format!("{err:#}");
-                section_errors.push(PluginRemoteSectionError {
-                    section_id: section_id.to_string(),
-                    label: label.to_string(),
-                    message: plugin_remote_section_error_message(label, &message),
-                });
-            }
-        }
-    }
-
-    (marketplaces, section_errors)
-}
-
-fn plugin_remote_section_error_message(label: &str, err: &str) -> String {
-    let next_step = plugin_remote_section_error_next_step(label, err);
-    if next_step.is_empty() {
-        err.to_string()
-    } else {
-        format!("{err} {next_step}")
-    }
-}
-
-fn plugin_remote_section_error_next_step(label: &str, err: &str) -> &'static str {
-    let err = err.to_ascii_lowercase();
-    if err.contains("api key auth is not supported") {
-        "Sign in with ChatGPT auth; API key auth cannot load remote plugin catalogs"
-    } else if err.contains("authentication required")
-        || err.contains("not signed in")
-        || err.contains("not logged in")
-    {
-        "Sign in to ChatGPT, then try loading this section again"
-    } else if err.contains("steve plugins are disabled")
-        || err.contains("plugin sharing is disabled")
-        || err.contains("plugin sharing is not enabled")
-        || err.contains("feature disabled")
-    {
-        "Ask a workspace admin to enable Steve plugins or plugin sharing"
-    } else if err.contains("workspace") && (err.contains("access") || err.contains("mismatch")) {
-        "Switch to the matching workspace or ask the sharer for access"
-    } else if err.contains("not found") || err.contains("status 404") {
-        "Check that you are signed in to the correct workspace and still have access"
-    } else if err.contains("old build") || err.contains("update steve") || err.contains("stale") {
-        "Update Steve, then try opening the shared plugin again"
-    } else if err.contains("service unavailable")
-        || err.contains("temporarily unavailable")
-        || err.contains("status 503")
-        || err.contains("failed to send")
-        || err.contains("request")
-        || err.contains("status")
-    {
-        "Try again later; local plugin functionality is still available"
-    } else if err.contains("disabled by admin") || err.contains("admin disabled") {
-        "Ask a workspace admin to confirm plugin access"
-    } else if label == "Shared with me" && err.contains("plugin") && err.contains("disabled") {
-        "Ask the sharer or a workspace admin to confirm plugin access"
-    } else {
-        ""
-    }
-}
-
-fn plugin_sharing_disabled_remote_section_error() -> PluginRemoteSectionError {
-    PluginRemoteSectionError {
-        section_id: "shared-with-me".to_string(),
-        label: "Shared with me".to_string(),
-        message: "Enable plugin sharing for this Steve session to load shared plugins".to_string(),
-    }
 }
 
 const CLI_HIDDEN_PLUGIN_MARKETPLACES: &[&str] = &["openai-bundled"];
@@ -1103,23 +661,6 @@ pub(super) async fn request_plugin_list(
     request_handle: AppServerRequestHandle,
     cwd: PathBuf,
 ) -> Result<PluginListResponse> {
-    request_plugin_list_with_marketplace_kinds(request_handle, cwd, /*marketplace_kinds*/ None)
-        .await
-}
-
-pub(super) async fn request_plugin_list_for_kinds(
-    request_handle: AppServerRequestHandle,
-    cwd: PathBuf,
-    marketplace_kinds: Vec<PluginListMarketplaceKind>,
-) -> Result<PluginListResponse> {
-    request_plugin_list_with_marketplace_kinds(request_handle, cwd, Some(marketplace_kinds)).await
-}
-
-async fn request_plugin_list_with_marketplace_kinds(
-    request_handle: AppServerRequestHandle,
-    cwd: PathBuf,
-    marketplace_kinds: Option<Vec<PluginListMarketplaceKind>>,
-) -> Result<PluginListResponse> {
     let cwd = AbsolutePathBuf::try_from(cwd).wrap_err("plugin list cwd must be absolute")?;
     let request_id = RequestId::String(format!("plugin-list-{}", Uuid::new_v4()));
     request_handle
@@ -1127,7 +668,6 @@ async fn request_plugin_list_with_marketplace_kinds(
             request_id,
             params: PluginListParams {
                 cwds: Some(vec![cwd]),
-                marketplace_kinds,
                 force_refetch: false,
             },
         })
@@ -1227,14 +767,11 @@ pub(super) async fn fetch_plugin_install(
     plugin_name: String,
 ) -> Result<PluginInstallResponse> {
     let request_id = RequestId::String(format!("plugin-install-{}", Uuid::new_v4()));
-    let (marketplace_path, remote_marketplace_name) = location.into_request_params();
     request_handle
         .request_typed(ClientRequest::PluginInstall {
             request_id,
             params: PluginInstallParams {
-                marketplace_path,
-                remote_marketplace_name,
-                install_attempt_id: None,
+                marketplace_path: Some(location.marketplace_path),
                 plugin_name,
             },
         })
@@ -1377,106 +914,8 @@ pub(super) fn mcp_inventory_maps_from_statuses(statuses: Vec<McpServerStatus>) -
 mod tests {
     use super::*;
     use crate::app::test_support::make_test_app;
-    use app_test_support::ChatGptAuthFixture;
-    use app_test_support::write_chatgpt_auth;
-    use codex_app_server_protocol::PluginMarketplaceEntry;
-    use codex_app_server_protocol::ThreadUsage;
-    use codex_config::types::AuthCredentialsStoreMode;
     use codex_protocol::mcp::Tool;
-    use codex_utils_absolute_path::AbsolutePathBuf;
     use pretty_assertions::assert_eq;
-
-    #[tokio::test]
-    async fn fetch_thread_usage_uses_app_server_auth_after_persisted_account_changes() {
-        let mut app = make_test_app().await;
-        let server = wiremock::MockServer::start().await;
-        let thread_id = ThreadId::new();
-        app.config.chatgpt_base_url = server.uri();
-        app.cli_kv_overrides = vec![(
-            "chatgpt_base_url".to_string(),
-            toml::Value::String(server.uri()),
-        )];
-        app.config.cli_auth_credentials_store_mode = AuthCredentialsStoreMode::File;
-        wiremock::Mock::given(wiremock::matchers::method("GET"))
-            .and(wiremock::matchers::path("/api/codex/config/bundle"))
-            .respond_with(wiremock::ResponseTemplate::new(/*s*/ 200).set_body_string("{}"))
-            .mount(&server)
-            .await;
-        std::fs::write(
-            app.config.codex_home.join("config.toml"),
-            format!("chatgpt_base_url = {:?}\n", server.uri()),
-        )
-        .expect("persist endpoint for account config reloads");
-        write_chatgpt_auth(
-            app.config.codex_home.as_path(),
-            ChatGptAuthFixture::new("chatgpt-token").account_id("account-123"),
-            AuthCredentialsStoreMode::File,
-        )
-        .expect("write ChatGPT authentication");
-        let app_server = crate::start_app_server_for_picker(
-            crate::backend_id::BackendId::new(),
-            &app.config,
-            &crate::AppServerTarget::Embedded,
-            app.cli_kv_overrides.clone(),
-            app.loader_overrides.clone(),
-            /*state_db*/ None,
-            app.environment_manager.clone(),
-        )
-        .await
-        .expect("start authenticated embedded app server");
-        write_chatgpt_auth(
-            app.config.codex_home.as_path(),
-            ChatGptAuthFixture::new("different-token").account_id("different-account"),
-            AuthCredentialsStoreMode::File,
-        )
-        .expect("replace persisted ChatGPT authentication");
-
-        wiremock::Mock::given(wiremock::matchers::method("POST"))
-            .and(wiremock::matchers::path(
-                "/api/codex/usage/thread_usage/query",
-            ))
-            .and(wiremock::matchers::header(
-                "authorization",
-                "Bearer chatgpt-token",
-            ))
-            .and(wiremock::matchers::header(
-                "chatgpt-account-id",
-                "account-123",
-            ))
-            .and(wiremock::matchers::body_json(serde_json::json!({
-                "thread_ids": [thread_id.to_string()]
-            })))
-            .respond_with(wiremock::ResponseTemplate::new(/*s*/ 200).set_body_json(
-                serde_json::json!({
-                    "threads": [{
-                        "thread_id": thread_id.to_string(),
-                        "estimated_usage_credits_micros": 0,
-                        "estimated_usage_usd_micros": 0,
-                        "native_usage_usd_micros": 750_000
-                    }]
-                }),
-            ))
-            .expect(/*r*/ 1)
-            .mount(&server)
-            .await;
-
-        assert_eq!(
-            fetch_thread_usage(app_server.request_handle(), thread_id)
-                .await
-                .expect("read thread usage through the authenticated app server"),
-            ThreadUsageOutcome::Available(ThreadUsage {
-                native_usage_usd_micros: Some(750_000),
-                thread_id: thread_id.to_string(),
-                estimated_usage_credits_micros: 0,
-                estimated_usage_usd_micros: Some(0),
-                groups: Vec::new(),
-            })
-        );
-    }
-
-    fn test_absolute_path(path: &str) -> AbsolutePathBuf {
-        AbsolutePathBuf::try_from(PathBuf::from(path)).expect("absolute test path")
-    }
 
     #[test]
     fn marketplace_add_source_for_request_resolves_relative_local_paths() {
@@ -1500,126 +939,6 @@ mod tests {
         assert_eq!(
             marketplace_add_source_for_request(&cwd, "~/marketplace".to_string()),
             "~/marketplace"
-        );
-    }
-
-    #[test]
-    fn hide_cli_only_plugin_marketplaces_removes_openai_bundled() {
-        let mut response = PluginListResponse {
-            marketplaces: vec![
-                PluginMarketplaceEntry {
-                    name: "openai-bundled".to_string(),
-                    path: Some(test_absolute_path("/marketplaces/openai-bundled")),
-                    interface: None,
-                    plugins: Vec::new(),
-                },
-                PluginMarketplaceEntry {
-                    name: "openai-curated".to_string(),
-                    path: Some(test_absolute_path("/marketplaces/openai-curated")),
-                    interface: None,
-                    plugins: Vec::new(),
-                },
-            ],
-            marketplace_load_errors: Vec::new(),
-            featured_plugin_ids: Vec::new(),
-        };
-
-        hide_cli_only_plugin_marketplaces(&mut response);
-
-        assert_eq!(
-            response.marketplaces,
-            vec![PluginMarketplaceEntry {
-                name: "openai-curated".to_string(),
-                path: Some(test_absolute_path("/marketplaces/openai-curated")),
-                interface: None,
-                plugins: Vec::new(),
-            }]
-        );
-    }
-
-    #[test]
-    fn plugin_location_request_params_select_exactly_one_location() {
-        let local_path = test_absolute_path("/marketplaces/local");
-
-        assert_eq!(
-            PluginLocation::Local {
-                marketplace_path: local_path.clone()
-            }
-            .into_request_params(),
-            (Some(local_path), None)
-        );
-        assert_eq!(
-            PluginLocation::Remote {
-                marketplace_name: "workspace-directory".to_string()
-            }
-            .into_request_params(),
-            (None, Some("workspace-directory".to_string()))
-        );
-    }
-
-    #[test]
-    fn plugin_remote_section_error_message_adds_concrete_next_steps() {
-        let cases = [
-            (
-                "Workspace",
-                "chatgpt authentication required for remote plugin catalog",
-                "Sign in to ChatGPT, then try loading this section again",
-            ),
-            (
-                "OpenAI Curated",
-                "chatgpt authentication required for remote plugin catalog; api key auth is not supported",
-                "Sign in with ChatGPT auth; API key auth cannot load remote plugin catalogs",
-            ),
-            (
-                "Shared with me",
-                "remote plugin catalog request failed with status 404: missing",
-                "Check that you are signed in to the correct workspace and still have access",
-            ),
-            (
-                "Shared with me",
-                "workspace access mismatch",
-                "Switch to the matching workspace or ask the sharer for access",
-            ),
-            (
-                "Shared with me",
-                "old build fallback",
-                "Update Steve, then try opening the shared plugin again",
-            ),
-            (
-                "Shared with me",
-                "remote service unavailable",
-                "Try again later; local plugin functionality is still available",
-            ),
-            (
-                "Workspace",
-                "plugin disabled by admin",
-                "Ask a workspace admin to confirm plugin access",
-            ),
-            (
-                "Shared with me",
-                "plugin sharing is not enabled",
-                "Ask a workspace admin to enable Steve plugins or plugin sharing",
-            ),
-        ];
-
-        for (label, err, next_step) in cases {
-            assert_eq!(
-                plugin_remote_section_error_message(label, err),
-                format!("{err} {next_step}")
-            );
-        }
-    }
-
-    #[test]
-    fn plugin_sharing_disabled_remote_section_error_targets_shared_with_me() {
-        assert_eq!(
-            plugin_sharing_disabled_remote_section_error(),
-            PluginRemoteSectionError {
-                section_id: "shared-with-me".to_string(),
-                label: "Shared with me".to_string(),
-                message: "Enable plugin sharing for this Steve session to load shared plugins"
-                    .to_string(),
-            }
         );
     }
 

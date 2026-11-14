@@ -14,15 +14,12 @@ pub(crate) mod auth;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use codex_config::ConfigLayerStack;
 use codex_config::Constrained;
-use codex_config::McpEnterpriseManagedAuthConfig;
-use codex_config::McpServerAuth;
 use codex_config::McpServerConfig;
 use codex_config::McpServerTransportConfig;
 use codex_config::types::AppToolApproval;
@@ -66,7 +63,6 @@ pub const CODEX_APPS_MCP_SERVER_NAME: &str = "codex_apps";
 pub(crate) const DEFAULT_CODEX_APPS_MCP_PRODUCT_SKU: &str = "codex";
 const MCP_TOOL_NAME_PREFIX: &str = "mcp";
 const MCP_TOOL_NAME_DELIMITER: &str = "__";
-const CODEX_CONNECTORS_TOKEN_ENV_VAR: &str = "STEVE_CONNECTORS_TOKEN";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum McpSnapshotDetail {
@@ -138,13 +134,6 @@ pub struct McpConfig {
     pub requires_read_only_mcp_tools: bool,
     /// Codex home directory used for MCP OAuth state and app-tool cache files.
     pub codex_home: PathBuf,
-    /// Trusted enterprise IdP inherited after normal catalog and policy resolution.
-    pub mcp_enterprise_managed_auth: Option<McpEnterpriseManagedAuthConfig>,
-    /// Retires only EMA connections and pending exchanges for this config snapshot.
-    pub mcp_ema_cancellation: codex_config::McpEmaCancellation,
-    pub xaa_enabled: bool,
-    /// Shared sign-in requirements for account-backed enterprise MCP.
-    pub ema_state: Arc<crate::EmaState>,
     /// Preferred credential store for MCP OAuth tokens.
     pub mcp_oauth_credentials_store_mode: OAuthCredentialsStoreMode,
     /// OAuth refresh ownership selected for new MCP connections.
@@ -368,19 +357,12 @@ impl ToolPluginContext {
     }
 }
 
-pub fn host_owned_codex_apps_enabled(config: &McpConfig, auth: Option<&CodexAuth>) -> bool {
-    config.apps_enabled && auth.is_some_and(CodexAuth::uses_codex_backend)
-}
-
 pub fn configured_mcp_servers(config: &McpConfig) -> HashMap<String, McpServerConfig> {
     config.mcp_server_catalog.configured_servers()
 }
 
-pub fn effective_mcp_servers(
-    config: &McpConfig,
-    auth: Option<&CodexAuth>,
-) -> HashMap<String, EffectiveMcpServer> {
-    effective_mcp_servers_from_configured(configured_mcp_servers(config), config, auth)
+pub fn effective_mcp_servers(config: &McpConfig) -> HashMap<String, EffectiveMcpServer> {
+    effective_mcp_servers_from_configured(configured_mcp_servers(config), config)
 }
 
 pub(crate) fn is_trusted_chatgpt_mcp_server(
@@ -416,11 +398,10 @@ pub(crate) fn is_trusted_chatgpt_mcp_server(
 pub fn effective_mcp_servers_from_configured(
     configured_servers: HashMap<String, McpServerConfig>,
     config: &McpConfig,
-    auth: Option<&CodexAuth>,
 ) -> HashMap<String, EffectiveMcpServer> {
     let mut servers = configured_servers
         .into_iter()
-        .map(|(name, mut server)| {
+        .map(|(name, server)| {
             #[expect(
                 clippy::expect_used,
                 reason = "materialized servers must have catalog registrations"
@@ -429,14 +410,6 @@ pub fn effective_mcp_servers_from_configured(
                 .mcp_server_catalog
                 .server(&name)
                 .expect("materialized MCP server must have a catalog registration");
-            match server.auth.clone() {
-                McpServerAuth::ChatGpt => {
-                    if !is_trusted_chatgpt_mcp_server(&server.transport, &config.chatgpt_base_url) {
-                        server.auth = McpServerAuth::OAuth;
-                    }
-                }
-                McpServerAuth::OAuth | McpServerAuth::EmaAuth => {}
-            }
             (
                 name,
                 EffectiveMcpServer::from_config_with_policy(
@@ -447,9 +420,7 @@ pub fn effective_mcp_servers_from_configured(
             )
         })
         .collect::<HashMap<_, _>>();
-    if !host_owned_codex_apps_enabled(config, auth) {
-        servers.remove(CODEX_APPS_MCP_SERVER_NAME);
-    }
+    servers.remove(CODEX_APPS_MCP_SERVER_NAME);
     servers
 }
 
@@ -461,28 +432,22 @@ pub fn tool_plugin_context(config: &McpConfig) -> ToolPluginContext {
 pub async fn read_mcp_resource(
     config: &McpConfig,
     auth: Option<&CodexAuth>,
-    runtime_auth: Option<(
-        codex_runtime_agent_instance::RuntimeAuthSlot,
-        codex_features::RuntimeAuthMode,
-    )>,
     runtime_context: McpRuntimeContext,
     codex_apps_tools_cache: ConnectorRuntimeManager<ToolInfo>,
     tool_catalog_cache: crate::McpToolCatalogCache,
     server: &str,
     params: ReadResourceRequestParams,
 ) -> anyhow::Result<ReadResourceResult> {
-    let mut mcp_servers = effective_mcp_servers(config, auth);
+    let mut mcp_servers = effective_mcp_servers(config);
     mcp_servers.retain(|name, _| name == server);
     let cancel_token = CancellationToken::new();
     let runtime_config = config.for_threadless_operations(&mcp_servers);
     let manager = McpConnectionSet::new(
-        /*ema_auth*/ None,
         /*existing_ema*/ None,
         /*previous*/ None,
         McpPublicationGate::already_published(),
         McpRuntimeInput {
             network_policy_metadata: None,
-            runtime_auth,
             startup_policy: McpStartupPolicy::Eager,
             config: Arc::new(runtime_config),
             plugins_available: false,
@@ -527,18 +492,13 @@ pub struct McpServerStatusSnapshot {
 pub async fn collect_mcp_server_status_snapshot_with_detail(
     config: &McpConfig,
     auth: Option<&CodexAuth>,
-    auth_manager: Option<&Arc<codex_login::AuthManager>>,
-    runtime_auth: Option<(
-        codex_runtime_agent_instance::RuntimeAuthSlot,
-        codex_features::RuntimeAuthMode,
-    )>,
     runtime_context: McpRuntimeContext,
     codex_apps_tools_cache: ConnectorRuntimeManager<ToolInfo>,
     tool_catalog_cache: crate::McpToolCatalogCache,
     detail: McpSnapshotDetail,
     server_name: Option<&str>,
 ) -> McpServerStatusSnapshot {
-    let mut mcp_servers = effective_mcp_servers(config, auth);
+    let mut mcp_servers = effective_mcp_servers(config);
     mcp_servers.retain(|name, _| server_name.is_none_or(|selected| name == selected));
     if mcp_servers.is_empty() {
         return McpServerStatusSnapshot {
@@ -558,9 +518,6 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
         mcp_servers.iter(),
         config.mcp_oauth_credentials_store_mode,
         config.auth_keyring_backend_kind,
-        auth,
-        auth_manager,
-        &config.ema_state,
         &runtime_context,
     )
     .await;
@@ -570,13 +527,11 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
     let cancel_token = CancellationToken::new();
     let runtime_config = config.for_threadless_operations(&mcp_servers);
     let mcp_connection_manager = McpConnectionSet::new(
-        /*ema_auth*/ None,
         /*existing_ema*/ None,
         /*previous*/ None,
         McpPublicationGate::already_published(),
         McpRuntimeInput {
             network_policy_metadata: None,
-            runtime_auth,
             startup_policy: McpStartupPolicy::Eager,
             config: Arc::new(runtime_config),
             plugins_available: false,
@@ -629,94 +584,6 @@ pub(crate) fn sanitize_responses_api_tool_name(name: &str) -> String {
         "_".to_string()
     } else {
         sanitized
-    }
-}
-
-fn codex_apps_mcp_bearer_token_env_var() -> Option<String> {
-    match env::var(CODEX_CONNECTORS_TOKEN_ENV_VAR) {
-        Ok(value) if !value.trim().is_empty() => Some(CODEX_CONNECTORS_TOKEN_ENV_VAR.to_string()),
-        Ok(_) => None,
-        Err(env::VarError::NotPresent) => None,
-        Err(env::VarError::NotUnicode(_)) => Some(CODEX_CONNECTORS_TOKEN_ENV_VAR.to_string()),
-    }
-}
-
-fn normalize_codex_apps_base_url(base_url: &str) -> String {
-    base_url.trim_end_matches('/').to_string()
-}
-
-fn codex_apps_mcp_url_for_base_url(base_url: &str) -> String {
-    let base_url = normalize_codex_apps_base_url(base_url);
-    let base_url = if base_url.contains("/backend-api") || base_url.contains("/api/codex") {
-        base_url
-    } else {
-        format!("{base_url}/api/codex")
-    };
-    format!("{base_url}/ps/mcp")
-}
-
-pub fn codex_apps_mcp_server_config(
-    chatgpt_base_url: &str,
-    apps_mcp_product_sku: Option<&str>,
-    originator: Option<&str>,
-) -> McpServerConfig {
-    mcp_server_config_for_url(
-        codex_apps_mcp_url_for_base_url(chatgpt_base_url),
-        apps_mcp_product_sku,
-        originator,
-        McpServerAuth::ChatGpt,
-    )
-}
-
-/// Builds the ChatGPT-hosted plugin runtime served by plugin-service.
-pub fn hosted_plugin_runtime_mcp_server_config(
-    chatgpt_base_url: &str,
-    apps_mcp_product_sku: Option<&str>,
-    originator: Option<&str>,
-) -> McpServerConfig {
-    codex_apps_mcp_server_config(chatgpt_base_url, apps_mcp_product_sku, originator)
-}
-
-fn mcp_server_config_for_url(
-    url: String,
-    apps_mcp_product_sku: Option<&str>,
-    originator: Option<&str>,
-    auth_mode: McpServerAuth,
-) -> McpServerConfig {
-    let product_sku = apps_mcp_product_sku.unwrap_or(DEFAULT_CODEX_APPS_MCP_PRODUCT_SKU);
-    let mut http_headers =
-        HashMap::from([("X-OpenAI-Product-Sku".to_string(), product_sku.to_string())]);
-    if let Some(originator) = originator {
-        http_headers.insert("originator".to_string(), originator.to_string());
-    }
-    let env_http_headers = None;
-
-    McpServerConfig {
-        transport: McpServerTransportConfig::StreamableHttp {
-            url,
-            bearer_token_env_var: codex_apps_mcp_bearer_token_env_var(),
-            http_headers: Some(http_headers),
-            env_http_headers,
-            http_headers_helper: None,
-        },
-        auth: auth_mode,
-        environment_id: codex_config::DEFAULT_MCP_SERVER_ENVIRONMENT_ID.to_string(),
-        enabled: true,
-        required: false,
-        startup_readiness: Default::default(),
-        supports_parallel_tool_calls: false,
-        tool_input_schema_max_bytes: None,
-        omit_tools_from: None,
-        disabled_reason: None,
-        startup_timeout_sec: Some(Duration::from_secs(30)),
-        tool_timeout_sec: None,
-        default_tools_approval_mode: None,
-        enabled_tools: None,
-        disabled_tools: None,
-        scopes: None,
-        oauth: None,
-        oauth_resource: None,
-        tools: HashMap::new(),
     }
 }
 
@@ -881,12 +748,7 @@ pub(crate) async fn collect_mcp_server_status_snapshot_from_manager(
     // connection attempt instead of retaining the credential-presence status read beforehand.
     let mut auth_statuses = auth_statuses_from_entries(&auth_status_entries);
     for server_name in mcp_connection_manager.authentication_failed_servers().await {
-        if auth_statuses.get(&server_name) == Some(&McpAuthStatus::OAuth)
-            || auth_status_entries
-                .get(&server_name)
-                .and_then(|entry| entry.config.as_ref())
-                .is_some_and(|config| matches!(config.auth, McpServerAuth::EmaAuth))
-        {
+        if auth_statuses.get(&server_name) == Some(&McpAuthStatus::OAuth) {
             auth_statuses.insert(server_name, McpAuthStatus::NotLoggedIn);
         }
     }

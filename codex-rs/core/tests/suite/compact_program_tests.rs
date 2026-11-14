@@ -126,7 +126,7 @@ async fn model_switch_program_pair(
             std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
                 .expect("explicit test provider");
         })
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_model(previous_model)
         .with_config(move |config| {
             config.model_catalog = Some(models.clone());
@@ -424,7 +424,7 @@ async fn api_key_resume_compaction_retries_current_program(
             std::fs::write(home.join("config.toml"), "model_provider = 'openai'\n")
                 .expect("explicit test provider");
         })
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_model(previous_model)
         .with_config(move |config| {
             config.model_catalog = Some(initial_models.clone());

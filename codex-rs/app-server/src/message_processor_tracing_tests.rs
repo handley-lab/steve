@@ -278,15 +278,11 @@ pub(super) async fn build_test_processor(
         config_warnings: Vec::new(),
         startup_warnings_tx: mpsc::unbounded_channel().0,
         session_source: SessionSource::VSCode,
-        user_verification: Arc::new(crate::user_verification::Service::new(Arc::clone(
-            &auth_manager,
-        ))),
         auth_manager,
         runtime_auth_slot: None,
         installation_id: "11111111-1111-4111-8111-111111111111".to_string(),
         code_mode_session_provider: None,
         rpc_transport: AppServerRpcTransport::Stdio,
-        remote_control_handle: None,
         plugin_startup_tasks: Some(PluginStartupConfig::Current),
     }));
     (processor, outgoing_rx)

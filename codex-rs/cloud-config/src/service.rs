@@ -4,12 +4,10 @@
 //! updates both the on-disk cache and the bundle observed by future config loads.
 //! One-shot network loads can disable disk-cache reads and writes.
 
-use crate::backend::BundleClient;
 use crate::backend::BundleRequestError;
 use crate::backend::RetryableFailureKind;
 use crate::cache::CacheLoadStatus;
 use crate::cache::CloudConfigBundleCache;
-use crate::chatgpt::ChatGptSource;
 use crate::config_source::BundleSource;
 use crate::metrics::emit_fetch_attempt_metric;
 use crate::metrics::emit_fetch_final_metric;
@@ -22,9 +20,7 @@ use codex_config::CloudConfigBundleLoadError;
 use codex_config::CloudConfigBundleLoadErrorCode;
 use codex_config::CloudConfigBundlePolicy;
 use codex_config::CloudConfigBundleSnapshot;
-use codex_login::AuthManager;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::Mutex;
@@ -59,24 +55,6 @@ pub(crate) struct CloudConfigBundleService<S: BundleSource> {
     timeout: Duration,
     latest_bundle: OnceCell<Mutex<CloudConfigBundleSnapshot>>,
     pub(crate) policy: CloudConfigBundlePolicy,
-}
-
-impl<C: BundleClient + 'static> CloudConfigBundleService<ChatGptSource<C>> {
-    pub(crate) fn new(
-        auth_manager: Arc<AuthManager>,
-        client: Arc<C>,
-        codex_home: PathBuf,
-        timeout: Duration,
-    ) -> Self {
-        Self::from_source(
-            ChatGptSource {
-                auth_manager,
-                client,
-            },
-            codex_home,
-            timeout,
-        )
-    }
 }
 
 impl<S: BundleSource + 'static> CloudConfigBundleService<S> {
@@ -515,7 +493,3 @@ impl<S: BundleSource + 'static> CloudConfigBundleService<S> {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "service_tests.rs"]
-mod tests;

@@ -469,9 +469,7 @@ async fn cold_root_resume_restores_agent_identity_and_role_on_followup() -> Resu
         .mount(&server)
         .await;
     let analytics_client = AnalyticsEventsClient::new(
-        codex_core::test_support::auth_manager_from_auth(
-            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
-        ),
+        codex_core::test_support::auth_manager_from_auth(CodexAuth::from_api_key("dummy")),
         server.uri(),
         /* analytics_enabled */ Some(true),
     );

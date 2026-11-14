@@ -987,7 +987,7 @@ async fn review_uses_custom_review_model_from_config() {
     let codex_home = Arc::new(TempDir::new().unwrap());
     let test = test_codex()
         .with_home(Arc::clone(&codex_home))
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(|config| {
             config.model = Some("gpt-4.1".to_string());
             config.review_model = Some("custom-review-model".to_string());

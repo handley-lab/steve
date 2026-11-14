@@ -293,59 +293,6 @@ async fn inline_permission_discovery_retry_preserves_profile_id() {
 }
 
 #[tokio::test]
-async fn permission_discovery_discards_stale_results_and_preserves_covering_modal() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-    chat.config.explicit_permission_profile_mode = true;
-    chat.open_permissions_popup();
-    let first = chat.permission_popup_request_id.unwrap();
-    chat.handle_key_event(KeyEvent::from(KeyCode::Esc));
-    chat.on_permission_profiles_loaded(first, Ok(Discovery::local(&chat.config)));
-    assert!(!chat.bottom_pane.has_active_view());
-    chat.permission_discovery = None;
-    chat.dispatch_command(SlashCommand::Permissions);
-    while rx.try_recv().is_ok() {}
-    chat.open_permissions_popup();
-    let second = chat.permission_popup_request_id.unwrap();
-    chat.on_permission_profiles_loaded(first, Ok(Discovery::local(&chat.config)));
-    assert!(chat.permission_popup_request_is_current(second));
-    chat.update_account_state(
-        /*status_account_display*/ None, /*plan_type*/ None,
-        /*has_chatgpt_account*/ false, /*has_codex_backend_auth*/ false,
-    );
-    chat.on_permission_profiles_loaded(second, Ok(Discovery::local(&chat.config)));
-    assert!(!chat.bottom_pane.has_active_view());
-    assert!(
-        std::iter::from_fn(|| rx.try_recv().ok())
-            .any(|event| matches!(event, AppEvent::SettingsSelectionClosed)),
-        "an invalidated menu must settle the input hold"
-    );
-
-    chat.permission_discovery = None;
-    chat.open_permissions_popup();
-    let request_id = chat.permission_popup_request_id.unwrap();
-    chat.on_request_user_input(ToolRequestUserInputParams {
-        thread_id: "thread-1".into(),
-        turn_id: "turn-1".into(),
-        item_id: "question".into(),
-        questions: Vec::new(),
-        is_blocking: true,
-        auto_resolution_ms: None,
-    });
-    chat.on_permission_profiles_loaded(request_id, Ok(Discovery::local(&chat.config)));
-    assert!(chat.bottom_pane.has_active_view());
-    while rx.try_recv().is_ok() {}
-    chat.dismiss_app_server_request(&ResolvedAppServerRequest::UserInput {
-        call_id: "question".into(),
-    });
-    assert!(!chat.bottom_pane.has_active_view());
-    assert!(
-        std::iter::from_fn(|| rx.try_recv().ok())
-            .any(|event| matches!(event, AppEvent::SettingsSelectionClosed)),
-        "resolving the covering request must release the permissions hold"
-    );
-}
-
-#[tokio::test]
 async fn permission_discovery_failure_can_retry_and_empty_catalog_keeps_current_profile() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.config.explicit_permission_profile_mode = true;

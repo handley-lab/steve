@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::OnceLock;
 use std::sync::atomic::AtomicI64;
 use std::sync::atomic::Ordering;
 use std::time::SystemTime;
@@ -51,9 +50,6 @@ static PENDING_SERVER_REQUESTS: Gauge = Gauge::new("app.server_requests.pending"
 mod account_notifications;
 pub(crate) use account_notifications::AccountNotification;
 
-#[path = "user_verification_auth.rs"]
-mod user_verification_auth;
-
 /// Stable identifier for a client request scoped to a transport connection.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct ConnectionRequestId {
@@ -76,7 +72,6 @@ pub(crate) struct RequestContext {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RequestCancellationScope {
     Unavailable,
-    UserVerification,
     ThreadSample,
 }
 
@@ -95,10 +90,6 @@ impl RequestContext {
                 "process/spawn" | "process/writeStdin" | "process/resizePty" | "process/kill"
             ),
             cancellation_scope: match method {
-                "userVerification/status"
-                | "userVerification/enroll"
-                | "userVerification/delete"
-                | "userVerification/verify" => RequestCancellationScope::UserVerification,
                 "thread/sample" => RequestCancellationScope::ThreadSample,
                 _ => RequestCancellationScope::Unavailable,
             },
@@ -135,8 +126,6 @@ pub(crate) enum OutgoingEnvelope {
 
 /// Sends messages to the client and manages request callbacks.
 pub(crate) struct OutgoingMessageSender {
-    verification_auth: OnceLock<Arc<codex_login::AuthManager>>,
-    verification_connections: Mutex<HashSet<ConnectionId>>,
     human_approval_connections: Mutex<HashSet<ConnectionId>>,
     next_server_request_id: AtomicI64,
     sender: mpsc::Sender<OutgoingEnvelope>,
@@ -158,9 +147,6 @@ pub(crate) struct ThreadScopedOutgoingMessageSender {
 
 struct PendingCallbackEntry {
     human_approval_recipients: HashSet<ConnectionId>,
-    verification_owner: Option<ConnectionId>,
-    verification_auth_revision: Option<u64>,
-    verification_identity: Option<user_verification_auth::Identity>,
     callback: oneshot::Sender<ClientRequestResult>,
     thread_id: Option<ThreadId>,
     request: ServerRequest,
@@ -271,8 +257,6 @@ impl OutgoingMessageSender {
         analytics_events_client: AnalyticsEventsClient,
     ) -> Self {
         Self {
-            verification_auth: OnceLock::new(),
-            verification_connections: Mutex::new(HashSet::new()),
             human_approval_connections: Mutex::new(HashSet::new()),
             next_server_request_id: AtomicI64::new(0),
             process_reply_sender: sender.clone(),
@@ -301,15 +285,6 @@ impl OutgoingMessageSender {
         }
     }
 
-    pub(crate) async fn cancel_user_verification_request(&self, request_id: &ConnectionRequestId) {
-        let contexts = self.request_contexts.lock().await;
-        if let Some(context) = contexts.get(request_id)
-            && context.cancellation_scope == RequestCancellationScope::UserVerification
-        {
-            context.cancellation.cancel();
-        }
-    }
-
     pub(crate) async fn cancel_thread_sample_request(&self, request_id: &ConnectionRequestId) {
         let contexts = self.request_contexts.lock().await;
         if let Some(context) = contexts.get(request_id)
@@ -331,8 +306,6 @@ impl OutgoingMessageSender {
             .lock()
             .await
             .remove(&connection_id);
-        self.disconnect_user_verification_connection(connection_id)
-            .await;
         let mut request_contexts = self.request_contexts.lock().await;
         request_contexts.retain(|request_id, _| request_id.connection_id != connection_id);
     }
@@ -371,16 +344,6 @@ impl OutgoingMessageSender {
         self.request_contexts.lock().await.len()
     }
 
-    pub(crate) async fn send_request(
-        &self,
-        request: ServerRequestPayload,
-    ) -> (RequestId, oneshot::Receiver<ClientRequestResult>) {
-        self.send_request_to_connections(
-            /*connection_ids*/ None, request, /*thread_id*/ None,
-        )
-        .await
-    }
-
     fn next_request_id(&self) -> RequestId {
         RequestId::Integer(self.next_server_request_id.fetch_add(1, Ordering::Relaxed))
     }
@@ -394,24 +357,6 @@ impl OutgoingMessageSender {
         let id = self.next_request_id();
         let outgoing_message_id = id.clone();
         let request = request.request_with_id(outgoing_message_id.clone());
-        let user_verification = matches!(
-            &request,
-            ServerRequest::McpServerElicitationRequest { params, .. }
-                if matches!(&params.request, codex_app_server_protocol::McpServerElicitationRequest::UserVerification { .. })
-        );
-        // Snapshot before waiting on eligibility or callback locks. A request cannot inherit
-        // whichever account happens to be current after an unrelated operation releases a lock.
-        let verification_auth_revision = user_verification
-            .then(|| self.verification_auth_revision())
-            .flatten();
-        let verification_identity = user_verification
-            .then(|| self.verification_identity())
-            .flatten();
-        let auth_changed = || {
-            user_verification
-                && (verification_auth_revision != self.verification_auth_revision()
-                    || verification_identity != self.verification_identity())
-        };
         let (tx_approve, rx_approve) = oneshot::channel();
         let human_connections;
         let connection_ids = if requires_human_approval(&request) {
@@ -429,23 +374,6 @@ impl OutgoingMessageSender {
         } else {
             connection_ids
         };
-        // One app owns this ceremony. Reconnect and other subscribers cannot answer it.
-        let verification_owner = if user_verification {
-            let eligible = self.verification_connections.lock().await;
-            connection_ids
-                .and_then(|ids| ids.iter().find(|id| eligible.contains(*id)))
-                .copied()
-        } else {
-            None
-        };
-        if user_verification && (verification_owner.is_none() || auth_changed()) {
-            return (outgoing_message_id, rx_approve);
-        }
-        let connection_ids = if user_verification {
-            verification_owner.as_ref().map(std::slice::from_ref)
-        } else {
-            connection_ids
-        };
         {
             let mut request_id_to_callback = self.request_id_to_callback.lock().await;
             request_id_to_callback.insert(
@@ -456,9 +384,6 @@ impl OutgoingMessageSender {
                     } else {
                         HashSet::new()
                     },
-                    verification_owner,
-                    verification_auth_revision,
-                    verification_identity: verification_identity.clone(),
                     callback: tx_approve,
                     thread_id,
                     request: request.clone(),
@@ -466,19 +391,6 @@ impl OutgoingMessageSender {
                 },
             );
         }
-        // Disconnect may finish its callback cleanup before registration acquires the lock.
-        // Recheck afterward so that ordering cannot leave an orphaned verification callback.
-        if let Some(owner) = verification_owner {
-            let eligible = self.verification_connections.lock().await.contains(&owner);
-            if !eligible || auth_changed() {
-                self.request_id_to_callback
-                    .lock()
-                    .await
-                    .remove(&outgoing_message_id);
-                return (outgoing_message_id, rx_approve);
-            }
-        }
-
         let outgoing_message = OutgoingMessage::Request(request.clone());
         let send_result = match connection_ids {
             None => {
@@ -571,9 +483,7 @@ impl OutgoingMessageSender {
         match entry {
             Some((id, entry)) => {
                 let completed_at_ms = now_unix_timestamp_ms();
-                if entry.verification_owner.is_none()
-                    && let Ok(response) = entry.request.response_from_result(result.clone())
-                {
+                if let Ok(response) = entry.request.response_from_result(result.clone()) {
                     tracing::info!("<- response: {response:?}");
                     if !matches!(response, ServerResponse::PermissionsRequestApproval { .. }) {
                         self.analytics_events_client
@@ -671,17 +581,6 @@ impl OutgoingMessageSender {
         {
             return None;
         }
-        if let Some(owner) = entry.verification_owner {
-            if owner != connection_id {
-                return None;
-            }
-            if entry.verification_identity != self.verification_identity()
-                || entry.verification_auth_revision != self.verification_auth_revision()
-            {
-                callbacks.remove(id);
-                return None;
-            }
-        }
         callbacks.remove_entry(id)
     }
 
@@ -693,8 +592,7 @@ impl OutgoingMessageSender {
         let mut requests = request_id_to_callback
             .values()
             .filter_map(|entry| {
-                (entry.thread_id == Some(thread_id) && entry.verification_owner.is_none())
-                    .then_some(entry.request.clone())
+                (entry.thread_id == Some(thread_id)).then_some(entry.request.clone())
             })
             .collect::<Vec<_>>();
         requests.sort_by(|left, right| left.id().cmp(right.id()));
@@ -763,44 +661,6 @@ impl OutgoingMessageSender {
     ) {
         self.send_response_as_inner(request_id, response, /*thread_originator*/ None)
             .await;
-    }
-
-    /// Revalidates a sensitive result after reserving queue capacity, with no
-    /// suspension between the identity check and handing off the response.
-    pub(crate) async fn send_response_as_checked(
-        &self,
-        request_id: ConnectionRequestId,
-        response: ClientResponsePayload,
-        check: impl FnOnce() -> std::result::Result<(), JSONRPCErrorError>,
-    ) {
-        // Remain cancellable while waiting to deliver a proof, including after native work ends.
-        let permit = self.sender.reserve().await;
-        let _context = self.take_request_context(&request_id).await;
-        let Ok(permit) = permit else {
-            return;
-        };
-        let message = match check() {
-            Ok(()) => {
-                self.analytics_events_client.track_response(
-                    request_id.connection_id.0,
-                    request_id.request_id.clone(),
-                    &response,
-                );
-                OutgoingMessage::Response(OutgoingResponse {
-                    id: request_id.request_id,
-                    result: Box::new(response),
-                })
-            }
-            Err(error) => OutgoingMessage::Error(OutgoingError {
-                id: request_id.request_id,
-                error,
-            }),
-        };
-        permit.send(OutgoingEnvelope::ToConnection {
-            connection_id: request_id.connection_id,
-            message,
-            write_complete_tx: None,
-        });
     }
 
     async fn send_response_as_inner(
@@ -1036,22 +896,11 @@ fn requires_human_approval(request: &ServerRequest) -> bool {
 mod thread_sample_cancel_context_tests;
 
 #[cfg(test)]
-#[path = "user_verification_ownership_tests.rs"]
-mod user_verification_ownership_tests;
-
-#[cfg(test)]
-#[path = "user_verification_cancel_context_tests.rs"]
-mod user_verification_cancel_context_tests;
-
-#[cfg(test)]
 mod tests {
     use std::time::Duration;
 
     use codex_app_server_protocol::AccountLoginCompletedNotification;
     use codex_app_server_protocol::AccountRateLimitsUpdatedNotification;
-    use codex_app_server_protocol::AccountUpdatedNotification;
-    use codex_app_server_protocol::ApplyPatchApprovalParams;
-    use codex_app_server_protocol::AuthMode;
     use codex_app_server_protocol::CommandExecutionApprovalDecision;
     use codex_app_server_protocol::CommandExecutionRequestApprovalParams;
     use codex_app_server_protocol::ConfigWarningNotification;
@@ -1083,7 +932,6 @@ mod tests {
                 login_id: Some(Uuid::nil().to_string()),
                 success: true,
                 error: None,
-                onboarding_entrypoint: None,
             });
 
         let jsonrpc_notification =
@@ -1098,39 +946,12 @@ mod tests {
                     "loginId": Uuid::nil().to_string(),
                     "success": true,
                     "error": null,
-                    "onboardingEntrypoint": null,
                 },
                 "emittedAtMs": 1_234,
             }),
             serde_json::to_value(jsonrpc_notification)
                 .expect("ensure the strum macros serialize the method field correctly"),
             "ensure the strum macros serialize the method field correctly"
-        );
-    }
-
-    #[test]
-    fn verify_account_login_completed_notification_serialization() {
-        let notification =
-            ServerNotification::AccountLoginCompleted(AccountLoginCompletedNotification {
-                login_id: Some(Uuid::nil().to_string()),
-                success: true,
-                error: None,
-                onboarding_entrypoint: None,
-            });
-
-        assert_eq!(
-            json!({
-                "method": "account/login/completed",
-                "params": {
-                    "loginId": Uuid::nil().to_string(),
-                    "success": true,
-                    "error": null,
-                    "onboardingEntrypoint": null,
-                },
-            }),
-            serde_json::to_value(notification)
-                .expect("ensure the notification serializes correctly"),
-            "ensure the notification serializes correctly"
         );
     }
 
@@ -1176,27 +997,6 @@ mod tests {
                         "planType": "self_serve_business_prolite",
                         "rateLimitReachedType": null
                     }
-                },
-            }),
-            serde_json::to_value(notification)
-                .expect("ensure the notification serializes correctly"),
-            "ensure the notification serializes correctly"
-        );
-    }
-
-    #[test]
-    fn verify_account_updated_notification_serialization() {
-        let notification = ServerNotification::AccountUpdated(AccountUpdatedNotification {
-            auth_mode: Some(AuthMode::Chatgpt),
-            plan_type: Some(PlanType::SelfServeBusinessProLite),
-        });
-
-        assert_eq!(
-            json!({
-                "method": "account/updated",
-                "params": {
-                    "authMode": "chatgpt",
-                    "planType": "self_serve_business_prolite"
                 },
             }),
             serde_json::to_value(notification)
@@ -1626,37 +1426,6 @@ mod tests {
         outgoing.connection_closed(ConnectionId(9)).await;
 
         assert_eq!(outgoing.request_context_count().await, 1);
-    }
-
-    #[tokio::test]
-    async fn notify_client_error_forwards_error_to_waiter() {
-        let (tx, _rx) = mpsc::channel::<OutgoingEnvelope>(4);
-        let outgoing =
-            OutgoingMessageSender::new(tx, codex_analytics::AnalyticsEventsClient::disabled());
-
-        let (request_id, wait_for_result) = outgoing
-            .send_request(ServerRequestPayload::ApplyPatchApproval(
-                ApplyPatchApprovalParams {
-                    conversation_id: ThreadId::new(),
-                    call_id: "call-id".to_string(),
-                    file_changes: HashMap::new(),
-                    reason: None,
-                    grant_root: None,
-                },
-            ))
-            .await;
-
-        let error = internal_error("refresh failed");
-
-        outgoing
-            .notify_client_error(ConnectionId(1), request_id, error.clone())
-            .await;
-
-        let result = timeout(Duration::from_secs(1), wait_for_result)
-            .await
-            .expect("wait should not time out")
-            .expect("waiter should receive a callback");
-        assert_eq!(result, Err(error));
     }
 
     #[tokio::test]

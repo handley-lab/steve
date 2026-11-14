@@ -37,13 +37,8 @@ async fn daybreak_status_surfaces_follow_the_thread_preference() {
 #[tokio::test]
 async fn goal_clock_refresh_redraws_only_when_elapsed_label_changes() {
     let (frame_requester, mut draw_rx) = FrameRequester::test_channel();
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual_with_auth(
-        /*model_override*/ None,
-        /*has_chatgpt_account*/ false,
-        /*has_codex_backend_auth*/ false,
-        frame_requester,
-    )
-    .await;
+    let (mut chat, _rx, _op_rx) =
+        make_chatwidget_manual_with_auth(/*model_override*/ None, frame_requester).await;
     chat.set_feature_enabled(Feature::Goals, /*enabled*/ true);
     chat.bottom_pane.set_task_running(/*running*/ true);
     chat.bottom_pane.hide_status_indicator();

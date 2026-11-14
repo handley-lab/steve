@@ -1497,12 +1497,6 @@
           },
           "type": "object"
         },
-        "file_upload_origins": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
         "include_apps_instructions": {
           "type": "boolean"
         },
@@ -2815,31 +2809,6 @@
       },
       "type": "object"
     },
-    "McpEmaTokenEndpointAuthMethod": {
-      "description": "Token endpoint authentication selected by a confidential EMA client registration.",
-      "enum": [
-        "client_secret_basic",
-        "client_secret_post"
-      ],
-      "type": "string"
-    },
-    "McpEnterpriseManagedAuthConfig": {
-      "additionalProperties": false,
-      "properties": {
-        "idp": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/McpServerIdpOAuthConfig"
-            }
-          ],
-          "description": "Shared enterprise authorization, independent of Codex account credentials."
-        }
-      },
-      "required": [
-        "idp"
-      ],
-      "type": "object"
-    },
     "McpServerAuth": {
       "description": "Authentication flow for an HTTP MCP server. Explicit credentials take precedence for OAuth and ChatGPT; EMA rejects alternate credentials and fallback.",
       "oneOf": [
@@ -2847,20 +2816,6 @@
           "description": "Use stored MCP OAuth credentials when available. Starting an OAuth login is a separate operation.",
           "enum": [
             "oauth"
-          ],
-          "type": "string"
-        },
-        {
-          "description": "Use the current ChatGPT session for servers on the trusted first-party ChatGPT origin. If no ChatGPT session provider is available, startup can still fall back to stored OAuth credentials.",
-          "enum": [
-            "chatgpt"
-          ],
-          "type": "string"
-        },
-        {
-          "description": "Exchange an enterprise IdP refresh token for resource-specific authorization. Alternate credentials and ordinary OAuth fallback are not permitted.",
-          "enum": [
-            "ema_auth"
           ],
           "type": "string"
         }
@@ -2888,44 +2843,10 @@
         }
       ]
     },
-    "McpServerIdpOAuthConfig": {
-      "additionalProperties": false,
-      "properties": {
-        "client_id": {
-          "description": "OAuth client registered with that enterprise IdP.",
-          "type": "string"
-        },
-        "client_secret": {
-          "description": "Provisioned client secret for confidential IdP login and token exchange. Omitted for a public client.",
-          "type": "string"
-        },
-        "issuer": {
-          "description": "Issuer used for enterprise OAuth discovery and identity validation.",
-          "type": "string"
-        },
-        "token_endpoint_auth_method": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/McpEmaTokenEndpointAuthMethod"
-            }
-          ],
-          "description": "Registered EMA client authentication method. Defaults to client_secret_basic when a secret is configured; requires a client secret."
-        }
-      },
-      "required": [
-        "client_id",
-        "issuer"
-      ],
-      "type": "object"
-    },
     "McpServerOAuthConfig": {
       "additionalProperties": false,
       "description": "Client settings for MCP OAuth login or enterprise token exchange.",
       "properties": {
-        "authorization_server_issuer": {
-          "description": "Expected resource authorization server issuer for EMA token exchange.",
-          "type": "string"
-        },
         "callback_port": {
           "description": "Fixed callback port that takes precedence over Codex's global OAuth callback port.",
           "format": "uint16",
@@ -2943,14 +2864,6 @@
         "client_secret": {
           "description": "OAuth client secret used for token exchange with a pre-registered client.",
           "type": "string"
-        },
-        "token_endpoint_auth_method": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/McpEmaTokenEndpointAuthMethod"
-            }
-          ],
-          "description": "Registered EMA client authentication method. Defaults to client_secret_basic when a secret is configured; requires a client secret."
         }
       },
       "type": "object"
@@ -8601,13 +8514,6 @@
       ],
       "description": "Optional URI-based file opener. If set, citations to files in the model output will be hyperlinked using the specified URI scheme."
     },
-    "file_upload_origins": {
-      "description": "Additional HTTP(S) origins permitted to receive file uploads from the backend. The configured backend's own origin is already permitted.",
-      "items": {
-        "type": "string"
-      },
-      "type": "array"
-    },
     "forced_chatgpt_workspace_id": {
       "allOf": [
         {
@@ -8711,15 +8617,6 @@
       "default": {},
       "description": "User-level marketplace entries keyed by marketplace name.",
       "type": "object"
-    },
-    "mcp_enterprise_managed_auth": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/McpEnterpriseManagedAuthConfig"
-        }
-      ],
-      "default": null,
-      "description": "Trusted enterprise IdP shared by EMA-enabled MCP servers and plugins."
     },
     "mcp_oauth_callback_port": {
       "description": "Optional fixed port for the local HTTP callback server used during MCP OAuth login. When unset, Codex will bind to an ephemeral port chosen by the OS.",

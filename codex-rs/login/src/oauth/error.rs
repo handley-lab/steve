@@ -7,7 +7,6 @@ use codex_http_client::HttpResponse;
 use http::StatusCode;
 use serde_json::Value;
 
-use crate::oauth::diagnostics::redact_error_url;
 use crate::oauth::diagnostics::redact_request_secrets;
 
 #[derive(thiserror::Error)]
@@ -40,7 +39,6 @@ impl fmt::Debug for OAuthError {
 /// Preserve each caller's existing diagnostic-read contract.
 #[derive(Clone, Copy)]
 pub(crate) enum ErrorBodyLimit {
-    Unlimited,
     Bytes(usize),
 }
 
@@ -50,7 +48,6 @@ pub(crate) struct TokenRejection {
     pub status: StatusCode,
     pub request_id: Option<String>,
     pub detail: TokenErrorDetail,
-    pub body_read_error: Option<HttpError>,
 }
 
 impl TokenRejection {
@@ -71,7 +68,6 @@ impl TokenRejection {
                     .collect()
             });
         let body = match limit {
-            ErrorBodyLimit::Unlimited => response.text().await,
             ErrorBodyLimit::Bytes(limit) => {
                 let mut body = Vec::new();
                 loop {
@@ -88,18 +84,11 @@ impl TokenRejection {
                 }
             }
         };
-        let (detail, body_read_error) = match body {
-            Ok(body) => (TokenErrorDetail::parse(&body, secrets), None),
-            Err(error) => (
-                TokenErrorDetail::parse("", secrets),
-                Some(redact_error_url(error)),
-            ),
-        };
+        let detail = TokenErrorDetail::parse(&body.unwrap_or_default(), secrets);
         Self {
             status,
             request_id,
             detail,
-            body_read_error,
         }
     }
 }

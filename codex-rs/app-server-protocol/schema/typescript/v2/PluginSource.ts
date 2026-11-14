@@ -11,4 +11,4 @@ version: string | null,
 /**
  * Optional HTTPS registry URL. Authentication stays in the user's npm config.
  */
-registry: string | null, } | { "type": "remote" };
+registry: string | null, };

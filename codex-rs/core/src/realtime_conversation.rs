@@ -32,7 +32,6 @@ use codex_api::map_api_error;
 use codex_async_utils::OrCancelExt;
 use codex_config::config_toml::RealtimeWsMode;
 use codex_config::config_toml::RealtimeWsVersion;
-use codex_features::Feature;
 use codex_http_client::HttpClientFactory;
 use codex_login::CodexAuth;
 use codex_login::auth::is_fedramp_api_key;
@@ -824,7 +823,6 @@ impl RealtimeConversationManager {
             let task = existing_call::attach(existing_call::ExistingCallAttachment {
                 attachment_cancellation: attachment_control.token.clone(),
                 client,
-                api_provider,
                 model_client,
                 auth_context,
                 http_client_factory,
@@ -1499,7 +1497,7 @@ async fn prepare_realtime_start(
         runtime_auth: None,
     };
     let (auth, mut http_client_factory) = match auth_manager.auth_with_http_client_factory().await {
-        Some((auth, captured_factory)) if auth.is_chatgpt_auth() || auth.is_api_key_auth() => {
+        Some((auth, captured_factory)) if auth.is_api_key_auth() => {
             let factory = config.http_client_factory();
             let policy = factory
                 .network_policy()
