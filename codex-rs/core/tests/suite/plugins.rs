@@ -1,6 +1,5 @@
 #![allow(clippy::unwrap_used)]
 
-use core_test_support::test_codex::local_requests;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -14,29 +13,16 @@ use codex_core::TurnInputRequest;
 use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::set_project_trust_level;
-use codex_core_plugins::store::PluginStore;
 use codex_extension_api::ExtensionRegistry;
 use codex_extension_api::ExtensionRegistryBuilder;
 use codex_features::Feature;
 use codex_login::CodexAuth;
 use codex_mcp::CODEX_APPS_MCP_SERVER_NAME;
-use codex_model_provider_info::AMAZON_BEDROCK_PROVIDER_ID;
-use codex_model_provider_info::OPENAI_PROVIDER_ID;
-use codex_plugin::PluginId;
-use codex_protocol::auth::AuthMode;
-use codex_protocol::config_types::CollaborationMode;
-use codex_protocol::config_types::ModeKind;
-use codex_protocol::config_types::Settings;
 use codex_protocol::config_types::TrustLevel;
 use codex_protocol::mcp::ClientMcpExtensions;
-use codex_protocol::models::PermissionProfile;
-use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::EventMsg;
-#[cfg(unix)]
-use codex_protocol::protocol::GranularApprovalConfig;
 use codex_protocol::protocol::ThreadSettingsOverrides;
 use codex_protocol::user_input::UserInput;
-use codex_skills_extension::HostSkillsLoadInput;
 use codex_skills_extension::SkillsExtensionConfig;
 use codex_skills_extension::install;
 use core_test_support::apps_test_server::AppsTestServer;
@@ -46,7 +32,6 @@ use core_test_support::responses::ResponseMock;
 use core_test_support::responses::ResponsesRequest;
 use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
-use core_test_support::responses::ev_function_call;
 use core_test_support::responses::ev_function_call_with_namespace;
 use core_test_support::responses::ev_response_created;
 use core_test_support::responses::ev_tool_search_call;
@@ -56,15 +41,10 @@ use core_test_support::responses::namespace_child_tool;
 use core_test_support::responses::sse;
 use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
-use core_test_support::skip_if_remote;
-#[cfg(unix)]
-use core_test_support::skip_if_sandbox;
-use core_test_support::skip_if_target_windows;
 use core_test_support::stdio_server_bin;
 use core_test_support::submit_thread_settings;
 use core_test_support::test_codex::TestCodex;
 use core_test_support::test_codex::test_codex;
-use core_test_support::test_codex::turn_permission_fields;
 use core_test_support::wait_for_event;
 use core_test_support::wait_for_event_match;
 use core_test_support::wait_for_mcp_server;
@@ -74,20 +54,16 @@ use test_case::test_case;
 use wiremock::Mock;
 use wiremock::MockServer;
 use wiremock::ResponseTemplate;
-use wiremock::matchers::header;
-use wiremock::matchers::method;
 use wiremock::matchers::path;
 
 const SAMPLE_PLUGIN_CONFIG_NAME: &str = "sample@test";
 const SAMPLE_REMOTE_PLUGIN_CONFIG_NAME: &str = "sample@openai-curated-remote";
 const SAMPLE_PLUGIN_DISPLAY_NAME: &str = "sample";
 const SAMPLE_PLUGIN_DESCRIPTION: &str = "inspect sample data";
-const SAMPLE_REMOTE_PLUGIN_ID: &str = "plugins~Plugin_sample";
 const SAMPLE_PLUGIN_APP_NAMESPACE: &str = "mcp__codex_apps__google_calendar";
 const SAMPLE_PLUGIN_MCP_NAMESPACE: &str = "mcp__sample";
 const PLUGIN_APP_SEARCH_CALL_ID: &str = "plugin-app-search";
 const PLUGIN_MCP_SEARCH_CALL_ID: &str = "plugin-mcp-search";
-const REMOTE_PLUGIN_CONFIG_NAME: &str = "sample@openai-curated-remote";
 
 fn skills_extensions() -> Arc<ExtensionRegistry<Config>> {
     let mut extensions = ExtensionRegistryBuilder::<Config>::new();
@@ -138,47 +114,8 @@ fn write_sample_plugin_manifest_and_config_at_root(
     plugin_root
 }
 
-fn write_remote_plugin_script_and_config(home: &TempDir) -> std::path::PathBuf {
-    let plugin_id = PluginId::parse(REMOTE_PLUGIN_CONFIG_NAME).expect("plugin id");
-    let store = PluginStore::new(home.path().to_path_buf());
-    let plugin_root = store.plugin_root(&plugin_id, "1.2.3");
-    let script_path = plugin_root.join("scripts/run.sh");
-    std::fs::create_dir_all(plugin_root.join(".codex-plugin"))
-        .expect("create remote plugin manifest dir");
-    std::fs::create_dir_all(script_path.parent().expect("script parent"))
-        .expect("create remote plugin scripts dir");
-    std::fs::write(
-        plugin_root.join(".codex-plugin/plugin.json"),
-        r#"{"name":"sample","version":"1.2.3"}"#,
-    )
-    .expect("write remote plugin manifest");
-    std::fs::write(&script_path, "echo remote attribution\n").expect("write remote plugin script");
-    store
-        .write_remote_plugin_id(&plugin_id, "plugins~Plugin_sample")
-        .expect("persist remote plugin id");
-    std::fs::write(
-        home.path().join("config.toml"),
-        format!(
-            "[features]\nplugins = true\n\n[plugins.\"{REMOTE_PLUGIN_CONFIG_NAME}\"]\nenabled = true\n"
-        ),
-    )
-    .expect("write remote plugin config");
-    script_path.into_path_buf()
-}
-
 fn write_plugin_skill_plugin(home: &TempDir) -> std::path::PathBuf {
     write_sample_plugin_skill(write_sample_plugin_manifest_and_config(home))
-}
-
-fn write_remote_plugin_skill_plugin(home: &TempDir) -> std::path::PathBuf {
-    let plugin_root = home
-        .path()
-        .join("plugins/cache/openai-curated-remote/sample/local");
-    write_sample_plugin_skill(write_sample_plugin_manifest_and_config_at_root(
-        home,
-        plugin_root,
-        SAMPLE_REMOTE_PLUGIN_CONFIG_NAME,
-    ))
 }
 
 fn write_sample_plugin_skill(plugin_root: std::path::PathBuf) -> std::path::PathBuf {
@@ -292,7 +229,7 @@ async fn build_analytics_plugin_test_codex(
     let chatgpt_base_url = server.uri();
     let mut builder = test_codex()
         .with_home(codex_home)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_model("gpt-5.2")
         .with_config(move |config| {
             config.chatgpt_base_url = chatgpt_base_url;
@@ -307,7 +244,7 @@ async fn build_apps_enabled_plugin_test_codex(
 ) -> Result<TestCodex> {
     let mut builder = test_codex()
         .with_home(codex_home)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
             config
                 .features
@@ -376,9 +313,7 @@ async fn shared_analytics_client_preserves_session_products() -> Result<()> {
         .mount(&server)
         .await;
     let client = AnalyticsEventsClient::new(
-        codex_core::test_support::auth_manager_from_auth(
-            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
-        ),
+        codex_core::test_support::auth_manager_from_auth(CodexAuth::from_api_key("dummy")),
         server.uri(),
         /*analytics_enabled*/ Some(true),
     );
@@ -467,429 +402,6 @@ async fn shared_analytics_client_preserves_session_products() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn persisted_remote_plugin_command_attribution_flows_through_turn_context() -> Result<()> {
-    skip_if_target_windows!(Ok(()), "executes a POSIX shell script");
-    skip_if_no_network!(Ok(()));
-    skip_if_remote!(
-        Ok(()),
-        "remote plugin attribution fixture uses a local Codex home cache"
-    );
-
-    let server = start_mock_server().await;
-    let codex_home = Arc::new(TempDir::new()?);
-    let script_path = write_remote_plugin_script_and_config(codex_home.as_ref());
-    std::fs::write(
-        &script_path,
-        r#"printf '%s' '{"version":1,"measurements":[{"name":"files_scanned","value":7}]}' > "$STEVE_PLUGIN_METRICS_OUTPUT"
-"#,
-    )?;
-    let plugin_root = script_path
-        .parent()
-        .and_then(std::path::Path::parent)
-        .expect("plugin root");
-    std::fs::write(
-        plugin_root.join("analytics.yaml"),
-        "version: 1\noperations: {scan: {path: ./scripts/run.sh, measurements: {files_scanned: {}}}}\n",
-    )?;
-    let builder = test_codex();
-    let command = shlex::try_join(["/bin/sh", script_path.to_string_lossy().as_ref()])?;
-    let call_id = "remote-plugin-command";
-    let arguments = serde_json::to_string(&serde_json::json!({
-        "cmd": command,
-        "login": false,
-    }))?;
-    mount_sse_sequence(
-        &server,
-        vec![
-            sse(vec![
-                ev_response_created("resp-1"),
-                ev_function_call(call_id, "exec_command", &arguments),
-                ev_completed("resp-1"),
-            ]),
-            sse(vec![
-                ev_response_created("resp-2"),
-                ev_assistant_message("msg-1", "done"),
-                ev_completed("resp-2"),
-            ]),
-        ],
-    )
-    .await;
-
-    let chatgpt_base_url = server.uri();
-    let mut builder = builder
-        .with_home(Arc::clone(&codex_home))
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
-        .with_model("gpt-5.2")
-        .with_config(move |config| config.chatgpt_base_url = chatgpt_base_url);
-    let test_codex = builder.build_with_auto_env(&server).await?;
-    let codex = Arc::clone(&test_codex.codex);
-    let cwd = test_codex.config.cwd.clone();
-    let session_model = test_codex.session_configured.model.clone();
-    let (sandbox_policy, permission_profile) =
-        turn_permission_fields(PermissionProfile::read_only(), cwd.as_path());
-    codex
-        .start_or_steer_turn(
-            TurnInputRequest::user_input(vec![codex_protocol::user_input::UserInput::Text {
-                text: "run the remote plugin script".into(),
-                text_elements: Vec::new(),
-            }])
-            .with_thread_settings(ThreadSettingsOverrides {
-                environments: Some(local_requests(cwd)),
-                approval_policy: Some(AskForApproval::Never),
-                sandbox_policy: Some(sandbox_policy),
-                permission_profile,
-                collaboration_mode: Some(CollaborationMode {
-                    mode: ModeKind::Default,
-                    settings: Settings {
-                        model: session_model,
-                        reasoning_effort: None,
-                        developer_instructions: None,
-                    },
-                }),
-                ..Default::default()
-            }),
-        )
-        .await?;
-
-    let begin = wait_for_event_match(&codex, |event| match event {
-        EventMsg::ExecCommandBegin(event) if event.call_id == call_id => Some(event.clone()),
-        _ => None,
-    })
-    .await;
-    let end = wait_for_event_match(&codex, |event| match event {
-        EventMsg::ExecCommandEnd(event) if event.call_id == call_id => Some(event.clone()),
-        _ => None,
-    })
-    .await;
-    assert_eq!(
-        end.exit_code, 0,
-        "sandboxed plugin command failed: {}",
-        end.aggregated_output
-    );
-    wait_for_event(&codex, |event| matches!(event, EventMsg::TurnComplete(_))).await;
-
-    for (plugin_id, script_path) in [
-        (begin.plugin_id.as_deref(), begin.script_path.as_deref()),
-        (end.plugin_id.as_deref(), end.script_path.as_deref()),
-    ] {
-        assert_eq!(plugin_id, Some(REMOTE_PLUGIN_CONFIG_NAME));
-        assert_eq!(script_path, Some("scripts/run.sh"));
-    }
-
-    let measurement = wait_for_analytics_event(&server, "codex_plugin_measurement_event").await;
-    assert_eq!(
-        serde_json::json!({
-            "plugin_id": measurement["event_params"]["plugin_id"],
-            "operation": measurement["event_params"]["operation"],
-            "measurement_name": measurement["event_params"]["measurement_name"],
-            "number_value": measurement["event_params"]["number_value"],
-        }),
-        serde_json::json!({
-            "plugin_id": REMOTE_PLUGIN_CONFIG_NAME,
-            "operation": "scan",
-            "measurement_name": "files_scanned",
-            "number_value": 7.0,
-        })
-    );
-
-    Ok(())
-}
-
-#[cfg(unix)]
-#[test_case(codex_exec_server::LOCAL_ENVIRONMENT_ID; "local")]
-#[test_case(codex_exec_server::REMOTE_ENVIRONMENT_ID; "remote")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn plugin_metrics_stdin_works_with_sandbox_approval_disabled(
-    environment_id: &str,
-) -> Result<()> {
-    skip_if_no_network!(Ok(()));
-    skip_if_sandbox!(Ok(()));
-    let server = start_mock_server().await;
-    let home = Arc::new(TempDir::new()?);
-    let script = write_remote_plugin_script_and_config(home.as_ref());
-    std::fs::write(
-        &script,
-        r#"test -n "${STEVE_PLUGIN_METRICS_OUTPUT:-}" || exit 2
-IFS= read -r input
-test "$input" = continue || exit 3
-printf '%s' '{"version":1,"measurements":[{"name":"files_scanned","value":7}]}' > "$STEVE_PLUGIN_METRICS_OUTPUT" || exit 4
-printf 'STDIN_OK\n'
-"#,
-    )?;
-    std::fs::write(
-        script
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("analytics.yaml"),
-        "version: 1\noperations: {scan: {path: ./scripts/run.sh, measurements: {files_scanned: {}}}}\n",
-    )?;
-    let command = shlex::try_join(["/bin/sh", script.to_string_lossy().as_ref()])?;
-    let responses = mount_sse_sequence(
-        &server,
-        vec![
-            sse(vec![
-                ev_function_call(
-                    "open",
-                    "exec_command",
-                    &serde_json::json!({
-                        "cmd": command,
-                        "login": false,
-                        "tty": true,
-                        "yield_time_ms": 1000,
-                        "environment_id": environment_id,
-                    })
-                    .to_string(),
-                ),
-                ev_completed("opened"),
-            ]),
-            sse(vec![
-                ev_function_call(
-                    "input",
-                    "write_stdin",
-                    &serde_json::json!({
-                        "session_id": 1000,
-                        "chars": "continue\n",
-                        "yield_time_ms": 1000,
-                    })
-                    .to_string(),
-                ),
-                ev_completed("sent"),
-            ]),
-            sse(vec![ev_completed("done")]),
-        ],
-    )
-    .await;
-    let base_url = server.uri();
-    let mut builder = test_codex()
-        .with_home(home)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
-        .with_model("gpt-5.2")
-        .with_config(move |config| {
-            config.chatgpt_base_url = base_url;
-            config.analytics_enabled = Some(true);
-            config
-                .features
-                .enable(Feature::SkipHostSkillDiscovery)
-                .unwrap();
-        });
-    // Exercise both native and executor-managed sandboxes with the same plugin fixture.
-    let _executor = if environment_id == codex_exec_server::REMOTE_ENVIRONMENT_ID {
-        let executor = core_test_support::exec_server::ExecServerProcess::start().await?;
-        builder = builder.with_exec_server_url(executor.websocket_url.clone());
-        Some(executor)
-    } else {
-        None
-    };
-    let test = builder.build(&server).await?;
-    let (sandbox_policy, permission_profile) =
-        turn_permission_fields(PermissionProfile::read_only(), test.config.cwd.as_path());
-    test.codex
-        .start_or_steer_turn(
-            TurnInputRequest::user_input(vec![UserInput::Text {
-                text: "send input to the plugin".into(),
-                text_elements: Vec::new(),
-            }])
-            .with_thread_settings(ThreadSettingsOverrides {
-                approval_policy: Some(AskForApproval::Granular(GranularApprovalConfig {
-                    sandbox_approval: false,
-                    rules: false,
-                    skill_approval: false,
-                    request_permissions: false,
-                    mcp_elicitations: false,
-                })),
-                sandbox_policy: Some(sandbox_policy),
-                permission_profile,
-                ..Default::default()
-            }),
-        )
-        .await?;
-    wait_for_event(&test.codex, |event| {
-        matches!(event, EventMsg::TurnComplete(_))
-    })
-    .await;
-    let output = responses.function_call_output_text("input").unwrap();
-    assert!(output.contains("Process exited with code 0"), "{output}");
-    assert!(output.contains("STDIN_OK"), "{output}");
-    let measurement = wait_for_analytics_event(&server, "codex_plugin_measurement_event").await;
-    assert_eq!(
-        serde_json::json!({
-            "plugin_id": measurement["event_params"]["plugin_id"],
-            "measurement_name": measurement["event_params"]["measurement_name"],
-            "number_value": measurement["event_params"]["number_value"],
-        }),
-        serde_json::json!({
-            "plugin_id": REMOTE_PLUGIN_CONFIG_NAME,
-            "measurement_name": "files_scanned",
-            "number_value": 7.0,
-        }),
-    );
-    Ok(())
-}
-
-#[cfg(unix)]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn remote_plugin_measurements_require_the_frontend_version() -> Result<()> {
-    skip_if_no_network!(Ok(()));
-    // This fixture needs a real remote transport with separately controlled frontend
-    // and executor caches, rather than the runner's automatic executor selection.
-    let executor = core_test_support::exec_server::ExecServerProcess::start().await?;
-    let server = start_mock_server().await;
-    let home = Arc::new(TempDir::new()?);
-    let frontend_script = write_remote_plugin_script_and_config(home.as_ref());
-    let script = r#"if [ -n "${STEVE_PLUGIN_METRICS_OUTPUT:-}" ]; then
-  printf '%s' '{"version":1,"measurements":[{"name":"duration_ms","value":7,"dimensions":{"release":"v1"}}]}' > "$STEVE_PLUGIN_METRICS_OUTPUT"
-else
-  printf 'no metrics sidecar\n'
-fi
-"#;
-    std::fs::write(&frontend_script, script)?;
-    std::fs::write(
-        frontend_script
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("analytics.yaml"),
-        "version: 1\noperations:\n  dependency_install:\n    path: ./scripts/run.sh\n    measurements:\n      duration_ms:\n        dimensions:\n          release: [v1]\n",
-    )?;
-    let executor_home = TempDir::new()?;
-    let mut responses = Vec::new();
-    for (version, call_id) in [("2.0.0", "wrong-version"), ("1.2.3", "matching-version")] {
-        let root = executor_home.path().join(format!(
-            "plugins/cache/openai-curated-remote/sample/{version}"
-        ));
-        std::fs::create_dir_all(root.join("scripts"))?;
-        let path = root.join("scripts/run.sh");
-        std::fs::write(&path, script)?;
-        // The executor's declaration is never an authority, even for matching bytes.
-        std::fs::write(
-            root.join("analytics.yaml"),
-            "version: 1\noperations: {untrusted: {path: ./scripts/run.sh, measurements: {other: {}}}}\n",
-        )?;
-        // A plugin-shaped alias must use the canonical plugin's identity and version.
-        let alias = executor_home.path().join(format!(
-            "plugins/cache/openai-curated-remote/apparent-plugin/{version}"
-        ));
-        std::fs::create_dir_all(alias.parent().unwrap())?;
-        std::os::unix::fs::symlink(&root, &alias)?;
-        let alias_script = alias.join("scripts/run.sh");
-        let command = shlex::try_join(["/bin/sh", alias_script.to_string_lossy().as_ref()])?;
-        responses.push(sse(vec![
-            ev_response_created(call_id),
-            ev_function_call(
-                call_id,
-                "exec_command",
-                &serde_json::json!({
-                    "cmd": command,
-                    "login": false,
-                    "environment_id": codex_exec_server::REMOTE_ENVIRONMENT_ID,
-                    "yield_time_ms": 1000,
-                })
-                .to_string(),
-            ),
-            ev_completed(call_id),
-        ]));
-    }
-    responses.push(sse(vec![
-        ev_response_created("done"),
-        ev_assistant_message("done-message", "done"),
-        ev_completed("done"),
-    ]));
-    let response_mock = mount_sse_sequence(&server, responses).await;
-    let base_url = server.uri();
-    let mut builder = test_codex()
-        .with_exec_server_url(executor.websocket_url.clone())
-        .with_home(home)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
-        .with_model("gpt-5.2")
-        .with_config(move |config| {
-            config.chatgpt_base_url = base_url;
-            config.analytics_enabled = Some(true);
-            config
-                .features
-                .enable(Feature::SkipHostSkillDiscovery)
-                .unwrap();
-        });
-    let test = builder.build(&server).await?;
-    let manager = test.thread_manager.environment_manager();
-    let remote = manager.default_environment().unwrap();
-    tokio::time::timeout(Duration::from_secs(30), remote.wait_until_ready()).await??;
-    assert!(remote.is_remote());
-    let (sandbox_policy, permission_profile) =
-        turn_permission_fields(PermissionProfile::Disabled, test.config.cwd.as_path());
-    test.codex
-        .start_or_steer_turn(
-            TurnInputRequest::user_input(vec![UserInput::Text {
-                text: "run both plugin versions".into(),
-                text_elements: Vec::new(),
-            }])
-            .with_thread_settings(ThreadSettingsOverrides {
-                approval_policy: Some(AskForApproval::Never),
-                sandbox_policy: Some(sandbox_policy),
-                permission_profile,
-                ..Default::default()
-            }),
-        )
-        .await?;
-    for call_id in ["wrong-version", "matching-version"] {
-        let expected = (Some(REMOTE_PLUGIN_CONFIG_NAME), Some("scripts/run.sh"));
-        let begin = wait_for_event_match(&test.codex, |event| match event {
-            EventMsg::ExecCommandBegin(event) if event.call_id == call_id => Some(event.clone()),
-            _ => None,
-        })
-        .await;
-        let end = wait_for_event_match(&test.codex, |event| match event {
-            EventMsg::ExecCommandEnd(event) if event.call_id == call_id => Some(event.clone()),
-            _ => None,
-        })
-        .await;
-        assert_eq!(end.exit_code, 0, "{}", end.aggregated_output);
-        assert_eq!(
-            (begin.plugin_id.as_deref(), begin.script_path.as_deref()),
-            expected
-        );
-        assert_eq!(
-            (end.plugin_id.as_deref(), end.script_path.as_deref()),
-            expected
-        );
-    }
-    wait_for_event(&test.codex, |event| {
-        matches!(event, EventMsg::TurnComplete(_))
-    })
-    .await;
-    assert!(
-        response_mock
-            .function_call_output_text("wrong-version")
-            .unwrap()
-            .contains("no metrics sidecar")
-    );
-    let event = wait_for_analytics_event(&server, "codex_plugin_measurement_event").await;
-    assert_eq!(
-        serde_json::json!({
-            "plugin_id": event["event_params"]["plugin_id"],
-            "operation": event["event_params"]["operation"],
-            "measurement_name": event["event_params"]["measurement_name"],
-            "number_value": event["event_params"]["number_value"],
-            "dimensions": event["event_params"]["dimensions"],
-            "thread_id": event["event_params"]["thread_id"],
-            "item_id": event["event_params"]["item_id"],
-        }),
-        serde_json::json!({
-            "plugin_id": REMOTE_PLUGIN_CONFIG_NAME,
-            "operation": "dependency_install",
-            "measurement_name": "duration_ms",
-            "number_value": 7.0,
-            "dimensions": {"release": "v1"},
-            "thread_id": test.session_configured.thread_id.to_string(),
-            "item_id": "matching-version",
-        })
-    );
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn thread_disabled_plugins_filter_skills_and_tools_without_changing_shared_plugins()
 -> Result<()> {
     skip_if_no_network!(Ok(()));
@@ -906,7 +418,7 @@ async fn thread_disabled_plugins_filter_skills_and_tools_without_changing_shared
     let mut builder = test_codex()
         .with_home(home)
         .with_extensions(skills_extensions())
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
             config.features.enable(Feature::Apps).unwrap();
             config.chatgpt_base_url = apps.chatgpt_base_url;
@@ -1229,130 +741,6 @@ async fn legacy_plugin_skill_prompt_remains_complete() -> Result<()> {
     Ok(())
 }
 
-#[test_case("sites", None, true, true, (true, false); "sites enabled remote supersedes bundled")]
-#[test_case("sites", Some("tpp"), true, true, (true, false); "sites configured work sku")]
-#[test_case("sites", None, false, true, (false, false); "sites disabled remote does not reactivate bundled")]
-#[test_case("sites", None, true, false, (false, true); "sites missing remote bundle preserves bundled")]
-#[test_case("visualize", None, true, true, (true, false); "visualize enabled remote supersedes bundled")]
-#[test_case("visualize", None, false, true, (false, false); "visualize disabled remote does not reactivate bundled")]
-#[test_case("visualize", None, true, false, (false, true); "visualize missing remote bundle preserves bundled")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn bundled_plugin_compatibility_guard_in_agent_turn(
-    plugin_name: &str,
-    product_sku: Option<&str>,
-    remote_enabled: bool,
-    cache_remote_plugin: bool,
-    expected_skills: (bool, bool),
-) -> Result<()> {
-    skip_if_no_network!(Ok(()));
-    let server = start_mock_server().await;
-    let response = mount_sse_once(
-        &server,
-        sse(vec![ev_response_created("resp1"), ev_completed("resp1")]),
-    )
-    .await;
-    Mock::given(method("GET"))
-        .and(path("/ps/plugins/installed"))
-        .and(header("OAI-Product-Sku", product_sku.unwrap_or("codex")))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "plugins": [{
-                "id": format!("plugins~Plugin_{plugin_name}"),
-                "name": plugin_name,
-                "scope": "GLOBAL",
-                "status": "ENABLED",
-                "installation_policy": "AVAILABLE",
-                "authentication_policy": "ON_USE",
-                "release": {
-                    "version": "local",
-                    "display_name": plugin_name,
-                    "description": plugin_name,
-                    "interface": {},
-                },
-                "enabled": remote_enabled,
-            }],
-            "pagination": {"next_page_token": null},
-        })))
-        .mount(&server)
-        .await;
-
-    let codex_home = Arc::new(TempDir::new()?);
-    std::fs::write(
-        codex_home.path().join("config.toml"),
-        format!(
-            r#"[features]
-plugins = true
-remote_plugin = true
-
-[plugins."{plugin_name}@openai-bundled"]
-enabled = true
-"#
-        ),
-    )?;
-    for (marketplace, skill) in [
-        ("openai-bundled", "bundled-skill"),
-        ("openai-curated-remote", "remote-skill"),
-    ] {
-        if marketplace == "openai-curated-remote" && !cache_remote_plugin {
-            continue;
-        }
-        let root = codex_home
-            .path()
-            .join(format!("plugins/cache/{marketplace}/{plugin_name}/local"));
-        std::fs::create_dir_all(root.join(".codex-plugin"))?;
-        std::fs::write(
-            root.join(".codex-plugin/plugin.json"),
-            format!(r#"{{"name":"{plugin_name}"}}"#),
-        )?;
-        let skill_dir = root.join("skills").join(skill);
-        std::fs::create_dir_all(&skill_dir)?;
-        std::fs::write(
-            skill_dir.join("SKILL.md"),
-            format!("---\nname: {skill}\ndescription: test skill\n---\n\n# body\n"),
-        )?;
-    }
-
-    let chatgpt_base_url = server.uri();
-    let product_sku = product_sku.map(str::to_owned);
-    let mut builder = test_codex()
-        .with_home(codex_home)
-        .with_extensions(skills_extensions())
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
-        .with_config(move |config| {
-            config.chatgpt_base_url = chatgpt_base_url;
-            config.apps_mcp_product_sku = product_sku;
-        });
-    let test = builder.build_with_auto_env(&server).await?;
-
-    let auth = test.thread_manager.auth_manager().auth().await;
-    test.thread_manager
-        .plugins_manager()
-        .reconcile_remote_installed_plugins(&test.config.plugins_config_input(), auth.as_ref())
-        .await?;
-
-    test.codex
-        .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
-            text: format!("Inspect the available {plugin_name} skills."),
-            text_elements: Vec::new(),
-        }]))
-        .await?;
-    wait_for_event(&test.codex, |event| {
-        matches!(event, EventMsg::TurnComplete(_))
-    })
-    .await;
-
-    let requests = response.requests();
-    let developer_text = requests[0].message_input_texts("developer").join("\n");
-    assert_eq!(
-        (
-            developer_text.contains(&format!("{plugin_name}:remote-skill")),
-            developer_text.contains(&format!("{plugin_name}:bundled-skill")),
-        ),
-        expected_skills,
-        "unexpected {plugin_name} skills in developer prompt: {developer_text:?}"
-    );
-    Ok(())
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_plugin_root_mcp_stdio_tool_round_trip_expands_reserved_paths_and_codex_env_overlay()
 -> Result<()> {
@@ -1507,276 +895,6 @@ async fn agent_plugin_root_mcp_stdio_tool_round_trip_expands_reserved_paths_and_
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn curated_plugin_skills_follow_auth_switch() -> Result<()> {
-    const CHATGPT_CURATED_PLUGIN_SKILL: &str = "chatgpt-plugin:chatgpt-skill";
-    const API_CURATED_PLUGIN_SKILL: &str = "api-plugin:api-skill";
-    const CURATED_PLUGIN_SKILLS: &[&str] =
-        &[CHATGPT_CURATED_PLUGIN_SKILL, API_CURATED_PLUGIN_SKILL];
-
-    #[derive(Clone, Copy)]
-    enum TargetAuth {
-        Chatgpt,
-        ApiKey,
-        BedrockApiKey,
-        NoCodexAuth,
-    }
-
-    #[derive(Clone, Copy)]
-    struct Fixture {
-        name: &'static str,
-        target_auth: TargetAuth,
-        target_model_provider_id: &'static str,
-        expected_target_loaded_plugin_skills: &'static [&'static str],
-        expected_target_skill_description: &'static str,
-    }
-
-    const FIXTURES: &[Fixture] = &[
-        Fixture {
-            name: "ChatGPT",
-            target_auth: TargetAuth::Chatgpt,
-            target_model_provider_id: OPENAI_PROVIDER_ID,
-            expected_target_loaded_plugin_skills: CURATED_PLUGIN_SKILLS,
-            expected_target_skill_description: "chatgpt description",
-        },
-        Fixture {
-            name: "ChatGPT with a custom provider",
-            target_auth: TargetAuth::Chatgpt,
-            target_model_provider_id: "ollama",
-            expected_target_loaded_plugin_skills: CURATED_PLUGIN_SKILLS,
-            expected_target_skill_description: "chatgpt description",
-        },
-        Fixture {
-            name: "API key",
-            target_auth: TargetAuth::ApiKey,
-            target_model_provider_id: OPENAI_PROVIDER_ID,
-            expected_target_loaded_plugin_skills: CURATED_PLUGIN_SKILLS,
-            expected_target_skill_description: "api description before",
-        },
-        Fixture {
-            name: "Bedrock API key",
-            target_auth: TargetAuth::BedrockApiKey,
-            target_model_provider_id: AMAZON_BEDROCK_PROVIDER_ID,
-            expected_target_loaded_plugin_skills: CURATED_PLUGIN_SKILLS,
-            expected_target_skill_description: "api description before",
-        },
-        Fixture {
-            name: "ambient Bedrock",
-            target_auth: TargetAuth::NoCodexAuth,
-            target_model_provider_id: AMAZON_BEDROCK_PROVIDER_ID,
-            expected_target_loaded_plugin_skills: CURATED_PLUGIN_SKILLS,
-            expected_target_skill_description: "api description before",
-        },
-        Fixture {
-            name: "unauthenticated OpenAI",
-            target_auth: TargetAuth::NoCodexAuth,
-            target_model_provider_id: OPENAI_PROVIDER_ID,
-            expected_target_loaded_plugin_skills: CURATED_PLUGIN_SKILLS,
-            expected_target_skill_description: "api description before",
-        },
-        Fixture {
-            name: "unauthenticated custom provider",
-            target_auth: TargetAuth::NoCodexAuth,
-            target_model_provider_id: "ollama",
-            expected_target_loaded_plugin_skills: CURATED_PLUGIN_SKILLS,
-            expected_target_skill_description: "api description before",
-        },
-    ];
-
-    async fn loaded_plugin_skills_for_config(test_codex: &TestCodex, config: &Config) -> String {
-        let plugins_input = config.plugins_config_input();
-        let plugins_manager = test_codex.thread_manager.plugins_manager();
-        let plugin_outcome = plugins_manager.plugins_for_config(&plugins_input).await;
-        let skills_input = HostSkillsLoadInput::new(
-            config.cwd.clone(),
-            plugin_outcome.effective_plugin_skill_roots(),
-            config.config_layer_stack.clone(),
-        )
-        .with_plugin_skill_snapshots(
-            plugins_manager.plugin_skill_snapshots_for_config(&plugins_input),
-        );
-        let skills_snapshot = test_codex
-            .thread_manager
-            .skills_service()
-            .snapshot_for_config(&skills_input, /*repository*/ None)
-            .await;
-        skills_snapshot
-            .outcome()
-            .skills
-            .iter()
-            .filter_map(|skill| {
-                let plugin_id = skill.plugin_id.as_deref()?;
-                let plugin_name = plugin_id
-                    .split_once('@')
-                    .map_or(plugin_id, |(plugin_name, _)| plugin_name);
-                Some(format!(
-                    "{plugin_name}:{}\n{}",
-                    skill.name, skill.description
-                ))
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-
-    skip_if_no_network!(Ok(()));
-    let assert_loaded_plugin_skills =
-        |fixture_name: &str, phase: &str, skills: &str, expected: &[&str]| {
-            let loaded_plugin_skills = CURATED_PLUGIN_SKILLS
-                .iter()
-                .copied()
-                .filter(|plugin_skill| skills.contains(plugin_skill))
-                .collect::<Vec<_>>();
-            assert_eq!(
-                loaded_plugin_skills.as_slice(),
-                expected,
-                "unexpected curated plugin skills for {fixture_name} during {phase}: {skills:?}"
-            );
-        };
-
-    for fixture in FIXTURES {
-        let server = start_mock_server().await;
-        Mock::given(method("GET"))
-            .and(path("/v1/models"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .insert_header("content-type", "application/json")
-                    .set_body_json(serde_json::json!({
-                        "data": [{"id": "gpt-5.5", "mode": "chat"}]
-                    })),
-            )
-            .with_priority(1)
-            .mount(&server)
-            .await;
-
-        let codex_home = Arc::new(TempDir::new()?);
-        std::fs::write(
-            codex_home.path().join("config.toml"),
-            r#"model_provider = "openai"
-[features]
-plugins = true
-remote_plugin = false
-
-[plugins."chatgpt-plugin@openai-curated"]
-enabled = true
-
-[plugins."api-plugin@openai-api-curated"]
-enabled = true
-"#,
-        )?;
-        for (marketplace_name, plugin_name, skill_name, description) in [
-            (
-                "openai-curated",
-                "chatgpt-plugin",
-                "chatgpt-skill",
-                "chatgpt description",
-            ),
-            (
-                "openai-api-curated",
-                "api-plugin",
-                "api-skill",
-                "api description before",
-            ),
-        ] {
-            let plugin_root = codex_home
-                .path()
-                .join("plugins/cache")
-                .join(marketplace_name)
-                .join(plugin_name)
-                .join("local");
-            std::fs::create_dir_all(plugin_root.join(".codex-plugin"))?;
-            std::fs::write(
-                plugin_root.join(".codex-plugin/plugin.json"),
-                format!(r#"{{"name":"{plugin_name}","description":"{plugin_name}"}}"#),
-            )?;
-            let skill_dir = plugin_root.join("skills").join(skill_name);
-            std::fs::create_dir_all(&skill_dir)?;
-            std::fs::write(
-                skill_dir.join("SKILL.md"),
-                format!("---\ndescription: {description}\n---\n\n# body\n"),
-            )?;
-        }
-
-        let mut builder = test_codex()
-            .with_home(Arc::clone(&codex_home))
-            .with_extensions(skills_extensions())
-            .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
-            .with_config(|config| {
-                config.model_providers.insert(
-                    OPENAI_PROVIDER_ID.to_string(),
-                    config.model_provider.clone(),
-                );
-            });
-        let test_codex = builder.build_with_auto_env(&server).await?;
-        let initial_skills = loaded_plugin_skills_for_config(&test_codex, &test_codex.config).await;
-        assert_loaded_plugin_skills(
-            fixture.name,
-            "initial ChatGPT config",
-            &initial_skills,
-            CURATED_PLUGIN_SKILLS,
-        );
-        assert!(initial_skills.contains("chatgpt description"));
-
-        std::fs::write(
-            codex_home.path().join(
-                "plugins/cache/openai-api-curated/api-plugin/local/skills/api-skill/SKILL.md",
-            ),
-            "---\ndescription: api description after\n---\n\n# body\n",
-        )?;
-
-        let expected_auth_mode = match fixture.target_auth {
-            TargetAuth::Chatgpt => Some(AuthMode::Chatgpt),
-            TargetAuth::ApiKey => {
-                codex_login::login_with_api_key(
-                    codex_home.path(),
-                    "test-api-key",
-                    codex_login::AuthCredentialsStoreMode::File,
-                    codex_login::AuthKeyringBackendKind::default(),
-                )?;
-                test_codex.thread_manager.auth_manager().reload().await;
-                Some(AuthMode::ApiKey)
-            }
-            TargetAuth::BedrockApiKey => {
-                codex_login::login_with_bedrock_api_key(
-                    codex_home.path(),
-                    "test-bedrock-api-key",
-                    "us-east-1",
-                    codex_login::AuthCredentialsStoreMode::File,
-                    codex_login::AuthKeyringBackendKind::default(),
-                )?;
-                test_codex.thread_manager.auth_manager().reload().await;
-                Some(AuthMode::BedrockApiKey)
-            }
-            TargetAuth::NoCodexAuth => {
-                test_codex.thread_manager.auth_manager().logout().await?;
-                None
-            }
-        };
-        assert_eq!(
-            test_codex.thread_manager.auth_manager().get_api_auth_mode(),
-            expected_auth_mode
-        );
-        test_codex.thread_manager.skills_service().clear_cache();
-        let mut target_config = test_codex.config.clone();
-        target_config.model_provider_id = fixture.target_model_provider_id.to_string();
-        let target_skills = loaded_plugin_skills_for_config(&test_codex, &target_config).await;
-        assert_loaded_plugin_skills(
-            fixture.name,
-            "target config",
-            &target_skills,
-            fixture.expected_target_loaded_plugin_skills,
-        );
-        assert!(
-            target_skills.contains(fixture.expected_target_skill_description),
-            "expected {:?} in current skills: {skills:?}",
-            fixture.expected_target_skill_description,
-            skills = target_skills
-        );
-        assert!(!target_skills.contains("api description after"));
-    }
-
-    Ok(())
-}
-
 #[test_case(true; "apps enabled")]
 #[test_case(false; "apps disabled without direct MCP fallback")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1823,7 +941,7 @@ async fn curated_agent_plugin_app_routing_reaches_turns(apps_enabled: bool) -> R
     )?;
     let mut builder = test_codex()
         .with_home(codex_home)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
             config
                 .features
@@ -2310,131 +1428,6 @@ async fn explicit_plugin_mentions_track_plugin_used_analytics() -> Result<()> {
     assert!(event["event_params"]["turn_id"].as_str().is_some());
 
     Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn explicit_plugin_skill_invocation_tracks_remote_plugin_id() -> Result<()> {
-    skip_if_no_network!(Ok(()));
-    let server = start_mock_server().await;
-    let _resp_mock = mount_sse_once(
-        &server,
-        sse(vec![ev_response_created("resp-1"), ev_completed("resp-1")]),
-    )
-    .await;
-
-    let codex_home = Arc::new(TempDir::new()?);
-    let skill_path = dunce::canonicalize(write_remote_plugin_skill_plugin(codex_home.as_ref()))?;
-    persist_sample_remote_plugin_id(codex_home.as_ref());
-    let test_codex = build_analytics_plugin_test_codex(&server, codex_home).await?;
-    let codex = Arc::clone(&test_codex.codex);
-
-    codex
-        .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Skill {
-            name: "sample:sample-search".into(),
-            path: skill_path,
-        }]))
-        .await?;
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
-
-    let event = wait_for_analytics_event(&server, "skill_invocation").await;
-    assert_eq!(
-        event["event_params"]["plugin_id"],
-        SAMPLE_REMOTE_PLUGIN_CONFIG_NAME
-    );
-    assert_eq!(
-        event["event_params"]["remote_plugin_id"],
-        SAMPLE_REMOTE_PLUGIN_ID
-    );
-    assert_eq!(event["event_params"]["invoke_type"], "explicit");
-
-    Ok(())
-}
-
-#[derive(Clone, Copy)]
-enum ImplicitPluginSkillInvocation {
-    SkillDocumentRead,
-    SkillScriptRun,
-}
-
-#[test_case(ImplicitPluginSkillInvocation::SkillDocumentRead; "skill document read")]
-#[test_case(ImplicitPluginSkillInvocation::SkillScriptRun; "skill script run")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn implicit_plugin_skill_invocation_tracks_remote_plugin_id(
-    invocation: ImplicitPluginSkillInvocation,
-) -> Result<()> {
-    skip_if_target_windows!(Ok(()), "executes POSIX cat and bash commands");
-    skip_if_remote!(Ok(()), "shell commands use host plugin-cache paths");
-    skip_if_no_network!(Ok(()));
-    let server = start_mock_server().await;
-    let codex_home = Arc::new(TempDir::new()?);
-    let skill_path = write_remote_plugin_skill_plugin(codex_home.as_ref());
-    persist_sample_remote_plugin_id(codex_home.as_ref());
-    let command = match invocation {
-        ImplicitPluginSkillInvocation::SkillDocumentRead => {
-            format!("cat {}", skill_path.display())
-        }
-        ImplicitPluginSkillInvocation::SkillScriptRun => {
-            let script_path = skill_path
-                .parent()
-                .expect("skill path should have a parent")
-                .join("scripts/test.sh");
-            std::fs::create_dir_all(
-                script_path
-                    .parent()
-                    .expect("script path should have a parent"),
-            )?;
-            std::fs::write(&script_path, "echo skill script invoked\n")?;
-            format!("bash {}", script_path.display())
-        }
-    };
-    let command_args = serde_json::json!({
-        "cmd": command,
-        "login": false,
-    })
-    .to_string();
-    let _resp_mock = mount_sse_sequence(
-        &server,
-        vec![
-            sse(vec![
-                ev_response_created("resp-1"),
-                ev_function_call("call-1", "exec_command", &command_args),
-                ev_completed("resp-1"),
-            ]),
-            sse(vec![ev_response_created("resp-2"), ev_completed("resp-2")]),
-        ],
-    )
-    .await;
-    let test_codex = build_analytics_plugin_test_codex(&server, codex_home).await?;
-    let codex = Arc::clone(&test_codex.codex);
-
-    codex
-        .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
-            text: "inspect the sample skill".into(),
-            text_elements: Vec::new(),
-        }]))
-        .await?;
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
-
-    let event = wait_for_analytics_event(&server, "skill_invocation").await;
-    assert_eq!(
-        event["event_params"]["plugin_id"],
-        SAMPLE_REMOTE_PLUGIN_CONFIG_NAME
-    );
-    assert_eq!(
-        event["event_params"]["remote_plugin_id"],
-        SAMPLE_REMOTE_PLUGIN_ID
-    );
-    assert_eq!(event["event_params"]["invoke_type"], "implicit");
-
-    Ok(())
-}
-
-fn persist_sample_remote_plugin_id(home: &TempDir) {
-    let plugin_id =
-        PluginId::parse(SAMPLE_REMOTE_PLUGIN_CONFIG_NAME).expect("remote plugin id should parse");
-    PluginStore::new(home.path().to_path_buf())
-        .write_remote_plugin_id(&plugin_id, SAMPLE_REMOTE_PLUGIN_ID)
-        .expect("persist remote plugin id");
 }
 
 async fn wait_for_analytics_event(server: &MockServer, event_type: &str) -> serde_json::Value {

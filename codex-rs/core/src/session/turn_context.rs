@@ -3,7 +3,6 @@ use super::token_budget::has_explicit_settings;
 use super::token_budget::resolve_token_budget;
 use super::*;
 use crate::config::TokenBudgetConfig;
-use crate::cyber_access_program;
 use crate::environment_selection::EnvironmentAttachment;
 use crate::environment_selection::EnvironmentConfigOrigin;
 use crate::environment_selection::TurnEnvironmentSnapshot;
@@ -686,7 +685,11 @@ impl TurnContext {
         for identity in identities {
             let id = match identity.remote_plugin_id {
                 Some(remote_id) => {
-                    if !codex_core_plugins::remote::is_valid_remote_plugin_id(&remote_id) {
+                    if remote_id.is_empty()
+                        || !remote_id
+                            .chars()
+                            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '~'))
+                    {
                         return None;
                     }
                     remote_id
@@ -828,17 +831,6 @@ impl TurnContext {
     /// Step-scoped consumers should use their captured `StepContext::settings`.
     pub(crate) fn model_context_window(&self) -> Option<i64> {
         self.model_info().usable_context_window()
-    }
-
-    pub(crate) fn apps_enabled(&self) -> bool {
-        let uses_codex_backend = self
-            .auth_manager
-            .as_deref()
-            .is_some_and(AuthManager::current_auth_uses_codex_backend);
-        self.config
-            .features
-            .apps_enabled_for_auth(uses_codex_backend)
-            && self.config.orchestrator_mcp_enabled
     }
 
     pub(crate) async fn with_model(

@@ -236,92 +236,6 @@ async fn submit_user_message_with_mode_sets_coding_collaboration_mode() {
 }
 
 #[tokio::test]
-async fn reasoning_selection_in_plan_mode_opens_scope_prompt_event() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
-    chat.thread_id = Some(ThreadId::new());
-    chat.set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
-    let plan_mask = collaboration_modes::plan_mask(chat.model_catalog.as_ref())
-        .expect("expected plan collaboration mode");
-    chat.set_collaboration_mask(plan_mask);
-    let _ = drain_insert_history(&mut rx);
-    set_chatgpt_auth(&mut chat);
-    chat.set_reasoning_effort(Some(ReasoningEffortConfig::High));
-
-    let preset = get_available_model(&chat, "gpt-5.5");
-    chat.open_reasoning_popup(preset);
-    chat.handle_key_event(KeyEvent::from(KeyCode::Down));
-    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
-
-    let event = rx.try_recv().expect("expected AppEvent");
-    assert_matches!(
-        event,
-        AppEvent::OpenPlanReasoningScopePrompt {
-            model,
-            effort: Some(_)
-        } if model == "gpt-5.5"
-    );
-}
-
-#[tokio::test]
-async fn reasoning_selection_in_plan_mode_without_effort_change_does_not_open_scope_prompt_event() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
-    chat.thread_id = Some(ThreadId::new());
-    chat.set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
-    let plan_mask = collaboration_modes::plan_mask(chat.model_catalog.as_ref())
-        .expect("expected plan collaboration mode");
-    chat.set_collaboration_mask(plan_mask);
-    let _ = drain_insert_history(&mut rx);
-    set_chatgpt_auth(&mut chat);
-
-    chat.set_reasoning_effort(Some(ReasoningEffortConfig::Medium));
-
-    let preset = get_available_model(&chat, "gpt-5.5");
-    chat.open_reasoning_popup(preset);
-    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
-
-    let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
-    assert!(
-        events.iter().any(|event| matches!(
-            event,
-            AppEvent::ApplyModelSelection { model, effort: Some(_) }
-                if model == "gpt-5.5"
-        )),
-        "expected model and reasoning update event; events: {events:?}"
-    );
-}
-
-#[tokio::test]
-async fn reasoning_selection_in_plan_mode_matching_plan_effort_but_different_global_opens_scope_prompt()
- {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
-    chat.thread_id = Some(ThreadId::new());
-    chat.set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
-    let plan_mask = collaboration_modes::plan_mask(chat.model_catalog.as_ref())
-        .expect("expected plan collaboration mode");
-    chat.set_collaboration_mask(plan_mask);
-    let _ = drain_insert_history(&mut rx);
-    set_chatgpt_auth(&mut chat);
-
-    // Reproduce: Plan effective reasoning remains the preset (medium), but the
-    // global default differs (high). Pressing Enter on the current Plan choice
-    // should open the scope prompt rather than silently rewriting the global default.
-    chat.set_reasoning_effort(Some(ReasoningEffortConfig::High));
-
-    let preset = get_available_model(&chat, "gpt-5.5");
-    chat.open_reasoning_popup(preset);
-    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
-
-    let event = rx.try_recv().expect("expected AppEvent");
-    assert_matches!(
-        event,
-        AppEvent::OpenPlanReasoningScopePrompt {
-            model,
-            effort: Some(ReasoningEffortConfig::Medium)
-        } if model == "gpt-5.5"
-    );
-}
-
-#[tokio::test]
 async fn reasoning_shortcut_in_plan_mode_updates_plan_override_without_prompt_or_persist() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
     chat.thread_id = Some(ThreadId::new());
@@ -412,55 +326,6 @@ async fn advanced_reasoning_selection_in_plan_mode_uses_expected_scope() {
             )));
         }
     }
-}
-
-#[tokio::test]
-async fn plan_mode_reasoning_override_is_marked_current_in_reasoning_popup() {
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
-    chat.set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
-    set_chatgpt_auth(&mut chat);
-    chat.set_reasoning_effort(Some(ReasoningEffortConfig::High));
-    chat.set_plan_mode_reasoning_effort(Some(ReasoningEffortConfig::Low));
-
-    let plan_mask = collaboration_modes::plan_mask(chat.model_catalog.as_ref())
-        .expect("expected plan collaboration mode");
-    chat.set_collaboration_mask(plan_mask);
-
-    let preset = get_available_model(&chat, "gpt-5.5");
-    chat.open_reasoning_popup(preset);
-
-    let popup = render_bottom_popup(&chat, /*width*/ 100);
-    assert!(popup.contains("Low (current)"));
-    assert!(
-        !popup.contains("High (current)"),
-        "expected Plan override to drive current reasoning label, got: {popup}"
-    );
-}
-
-#[tokio::test]
-async fn reasoning_selection_in_plan_mode_model_switch_does_not_open_scope_prompt_event() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
-    chat.thread_id = Some(ThreadId::new());
-    chat.set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
-    let plan_mask = collaboration_modes::plan_mask(chat.model_catalog.as_ref())
-        .expect("expected plan collaboration mode");
-    chat.set_collaboration_mask(plan_mask);
-    let _ = drain_insert_history(&mut rx);
-    set_chatgpt_auth(&mut chat);
-
-    let preset = get_available_model(&chat, "gpt-5.6-terra");
-    chat.open_reasoning_popup(preset);
-    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
-
-    let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
-    assert!(
-        events.iter().any(|event| matches!(
-            event,
-            AppEvent::ApplyModelSelection { model, effort: Some(_) }
-                if model == "gpt-5.6-terra"
-        )),
-        "expected model and reasoning update event; events: {events:?}"
-    );
 }
 
 #[tokio::test]
@@ -1070,39 +935,6 @@ async fn plan_implementation_popup_shows_after_new_plan_follows_steer() {
 }
 
 #[tokio::test]
-async fn plan_implementation_popup_skips_when_rate_limit_prompt_pending() {
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("gpt-5")).await;
-    chat.has_chatgpt_account = true;
-    chat.set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
-    let plan_mask = collaboration_modes::mask_for_kind(chat.model_catalog.as_ref(), ModeKind::Plan)
-        .expect("expected plan collaboration mask");
-    chat.set_collaboration_mask(plan_mask);
-
-    chat.on_task_started();
-    chat.on_plan_update(UpdatePlanArgs {
-        explanation: None,
-        plan: vec![PlanItemArg {
-            step: "First".to_string(),
-            status: StepStatus::Pending,
-        }],
-    });
-    chat.on_rate_limit_snapshot(Some(snapshot(/*percent*/ 92.0)));
-    chat.on_task_complete(
-        /*last_agent_message*/ None, /*completion*/ None, /*from_replay*/ false,
-    );
-
-    let popup = render_bottom_popup(&chat, /*width*/ 80);
-    assert!(
-        popup.contains("Approaching rate limits"),
-        "expected rate limit popup, got {popup:?}"
-    );
-    assert!(
-        !popup.contains(PLAN_IMPLEMENTATION_TITLE),
-        "expected plan popup to be skipped, got {popup:?}"
-    );
-}
-
-#[tokio::test]
 async fn plan_completion_restores_status_indicator_after_streaming_plan_output() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
@@ -1622,13 +1454,10 @@ async fn make_startup_chat_with_cli_overrides(
         workspace_command_runner: None,
         initial_user_message: None,
         enhanced_keys_supported: false,
-        has_chatgpt_account: false,
-        has_codex_backend_auth: false,
         model_catalog: test_model_catalog(&cfg),
         feedback: codex_feedback::CodexFeedback::new(),
         is_first_run: true,
         status_account_display: None,
-        initial_plan_type: None,
         model: Some(resolved_model),
         startup_tooltip_override: None,
         status_line_invalid_items_warned: Arc::new(AtomicBool::new(false)),

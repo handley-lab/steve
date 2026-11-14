@@ -1,49 +1,7 @@
 //! Provider and authentication dimensions that partition model catalogs.
 
 use super::*;
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use pretty_assertions::assert_eq;
-
-fn chatgpt_auth(email: &str, user: &str, account: &str, plan: &str, signature: &str) -> CodexAuth {
-    let claims = serde_json::json!({
-        "email": email,
-        "https://api.openai.com/auth": {"chatgpt_user_id": user}
-    });
-    let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap());
-    CodexAuth::from_external_chatgpt_tokens(
-        &format!("e30.{payload}.{signature}"),
-        account,
-        Some(plan),
-    )
-    .unwrap()
-}
-
-#[test]
-fn cache_identity_tracks_account_email_user_plan_and_auth_mode_but_not_token_refresh() {
-    let mut provider =
-        ModelProviderInfo::create_openai_provider(Some("https://example.com/v1".into()));
-    provider.requires_openai_auth = true;
-    // The endpoint residency test temporarily sets the process default to US.
-    provider.http_headers = Some(std::collections::HashMap::from([(
-        codex_login::default_client::RESIDENCY_HEADER_NAME.to_string(),
-        "us".into(),
-    )]));
-    let initial = chatgpt_auth("one@example.com", "user", "account", "team", "first");
-    let key = identity(&provider, Some(&initial)).unwrap();
-    let refreshed = chatgpt_auth("one@example.com", "user", "account", "team", "second");
-    assert_eq!(identity(&provider, Some(&refreshed)).unwrap(), key);
-    for auth in [
-        chatgpt_auth("two@example.com", "user", "account", "team", "first"),
-        chatgpt_auth("one@example.com", "other", "account", "team", "first"),
-        chatgpt_auth("one@example.com", "user", "other", "team", "first"),
-        chatgpt_auth("one@example.com", "user", "account", "plus", "first"),
-        CodexAuth::from_api_key("api-key"),
-    ] {
-        assert_ne!(identity(&provider, Some(&auth)).unwrap(), key);
-    }
-    assert_ne!(identity(&provider, /*auth*/ None).unwrap(), key);
-}
 
 #[test]
 fn cache_identity_tracks_provider_routing_and_effective_api_credentials() {
@@ -82,31 +40,6 @@ fn cache_identity_tracks_provider_routing_and_effective_api_credentials() {
 }
 
 #[test]
-fn cache_identity_distinguishes_auth_requirements_and_unknown_plans() {
-    let mut provider =
-        ModelProviderInfo::create_openai_provider(Some("https://example.com/v1".into()));
-    provider.requires_openai_auth = true;
-    let first = chatgpt_auth(
-        "one@example.com",
-        "user",
-        "account",
-        "future-plan-one",
-        "first",
-    );
-    let second = chatgpt_auth(
-        "one@example.com",
-        "user",
-        "account",
-        "future-plan-two",
-        "first",
-    );
-    let key = identity(&provider, Some(&first)).unwrap();
-    assert_ne!(key, identity(&provider, Some(&second)).unwrap());
-    provider.requires_openai_auth = false;
-    assert_ne!(key, identity(&provider, Some(&first)).unwrap());
-}
-
-#[test]
 fn cache_identity_tracks_catalog_url() {
     let auth = CodexAuth::from_api_key("test-key");
     let mut provider =
@@ -126,50 +59,6 @@ fn cache_identity_tracks_catalog_url() {
 }
 
 #[test]
-fn cache_identity_ignores_unselected_account_snapshots() {
-    let provider =
-        ModelProviderInfo::create_openai_provider(Some("https://catalog.example/v1".into()));
-    let key = identity(&provider, None).unwrap();
-    for auth in [
-        CodexAuth::from_api_key("unselected-key"),
-        chatgpt_auth("one@example.com", "user", "account", "team", "first"),
-        chatgpt_auth(
-            "two@example.com",
-            "other",
-            "other-account",
-            "plus",
-            "second",
-        ),
-    ] {
-        assert_eq!(identity(&provider, Some(&auth)).unwrap(), key);
-    }
-}
-
-#[test]
-fn cache_identity_own_bearer_ignores_unselected_account_snapshots() {
-    let mut provider =
-        ModelProviderInfo::create_openai_provider(Some("https://catalog.example/v1".into()));
-    provider.requires_openai_auth = true;
-    provider.experimental_bearer_token = Some("selected-provider-key".into());
-    let key = identity(&provider, None).unwrap();
-    for auth in [
-        CodexAuth::from_api_key("unselected-key"),
-        chatgpt_auth("one@example.com", "user", "account", "team", "first"),
-        chatgpt_auth(
-            "two@example.com",
-            "other",
-            "other-account",
-            "plus",
-            "second",
-        ),
-    ] {
-        assert_eq!(identity(&provider, Some(&auth)).unwrap(), key);
-    }
-    provider.experimental_bearer_token = Some("changed-provider-key".into());
-    assert_ne!(identity(&provider, None).unwrap(), key);
-}
-
-#[test]
 fn cache_identity_command_auth_keeps_opaque_credential_isolation() {
     let mut provider =
         ModelProviderInfo::create_openai_provider(Some("https://catalog.example/v1".into()));
@@ -185,32 +74,5 @@ fn cache_identity_command_auth_keeps_opaque_credential_isolation() {
     assert_ne!(
         identity(&provider, Some(&first)).unwrap(),
         identity(&provider, Some(&second)).unwrap()
-    );
-}
-
-#[test]
-fn provider_key_catalog_identity_does_not_depend_on_unused_login() {
-    let mut provider =
-        ModelProviderInfo::create_openai_provider(Some("https://api.openai.com/v1".into()));
-    // Keep this input stable while the residency test changes the process default.
-    provider.http_headers = Some(std::collections::HashMap::from([(
-        codex_login::default_client::RESIDENCY_HEADER_NAME.to_string(),
-        "us".into(),
-    )]));
-    provider.requires_openai_auth = false;
-    provider.experimental_bearer_token = Some("provider-key".into());
-    let identity_without_login = identity(&provider, /*auth*/ None).unwrap();
-    let selected_key = CodexAuth::from_api_key("provider-key");
-    let unused_login = chatgpt_auth("user@example.com", "user", "workspace", "team", "token");
-    for auth in [&selected_key, &unused_login] {
-        assert_eq!(
-            identity(&provider, Some(auth)).unwrap(),
-            identity_without_login
-        );
-    }
-    provider.experimental_bearer_token = Some("different-provider-key".into());
-    assert_ne!(
-        identity(&provider, /*auth*/ None).unwrap(),
-        identity_without_login
     );
 }

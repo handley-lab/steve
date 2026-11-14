@@ -173,7 +173,7 @@ text({ names: result.skills.map(skill => skill.name), warnings: result.warnings,
     );
     let chatgpt_base_url = server.uri();
     let mut builder = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| config.chatgpt_base_url = chatgpt_base_url)
         // Local executors disable cloud skill discovery.
         .with_exec_server_url("none")
@@ -518,7 +518,7 @@ async fn production_turn_aliases_discovered_singleton_cloud_locator() -> Result<
     );
     let chatgpt_base_url = server.uri();
     let mut builder = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| config.chatgpt_base_url = chatgpt_base_url)
         .with_exec_server_url("none")
         .with_extensions(Arc::new(extensions.build()))
@@ -609,7 +609,7 @@ async fn cloud_skill_reads_run_in_parallel() -> Result<()> {
     );
     let chatgpt_base_url = server.uri();
     let mut builder = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_exec_server_url("none")
         .with_extensions(Arc::new(extensions.build()))
         .with_config(move |config| {
@@ -734,7 +734,7 @@ async fn cloud_skill_can_read_referenced_resource_without_an_executor() -> Resul
     );
     let chatgpt_base_url = responses_server.uri();
     let mut builder = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| config.chatgpt_base_url = chatgpt_base_url)
         .with_exec_server_url("none")
         .with_extensions(Arc::new(extensions.build()))

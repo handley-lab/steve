@@ -662,16 +662,6 @@ impl Features {
         reasoning_effort == Some(&ReasoningEffort::Persistent)
     }
 
-    pub fn apps_enabled_for_auth(&self, has_chatgpt_auth: bool) -> bool {
-        self.enabled(Feature::Apps) && has_chatgpt_auth
-    }
-
-    pub fn plugin_recommendations_enabled(&self) -> bool {
-        self.enabled(Feature::Apps)
-            && self.enabled(Feature::Plugins)
-            && (self.enabled(Feature::ToolSuggest) || self.enabled(Feature::RecommendedPlugins))
-    }
-
     pub fn use_legacy_landlock(&self) -> bool {
         self.enabled(Feature::UseLegacyLandlock)
     }

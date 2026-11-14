@@ -7,7 +7,6 @@ use crate::rate_limits::parse_rate_limit_reached_type;
 use base64::Engine;
 use chrono::DateTime;
 use chrono::Utc;
-use codex_protocol::auth::PlanType;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::CodexErrorDetails;
 use codex_protocol::error::ConnectionFailedError;
@@ -239,7 +238,6 @@ fn map_api_error_details(err: ApiError) -> CodexErr {
                                 .resets_at
                                 .and_then(|seconds| DateTime::<Utc>::from_timestamp(seconds, 0));
                             return CodexErr::UsageLimitReached(UsageLimitReachedError {
-                                plan_type: err.error.plan_type,
                                 resets_at,
                                 limit_window_minutes: err
                                     .error
@@ -400,7 +398,6 @@ struct UsageErrorBody {
     code: Option<String>,
     #[serde(rename = "type")]
     error_type: Option<String>,
-    plan_type: Option<PlanType>,
     resets_at: Option<i64>,
     limit_window_minutes: Option<Value>,
 }

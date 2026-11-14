@@ -442,7 +442,6 @@ use self::slash_input::SlashValidation;
 use self::slash_input::SubmissionValidation;
 use self::vim_history::VimHistory;
 use crate::app_event::AppEvent;
-use crate::app_event::ConnectorsSnapshot;
 use crate::app_event_sender::AppEventSender;
 use crate::bottom_pane::LocalImageAttachment;
 use crate::bottom_pane::MentionBinding;
@@ -453,10 +452,7 @@ use crate::history_cell;
 use crate::skills_helpers::skill_display_name;
 use crate::tui::FrameRequester;
 use crate::ui_consts::LIVE_PREFIX_COLS;
-#[cfg(test)]
-use codex_app_server_protocol::SkillInterface;
 use codex_app_server_protocol::SkillMetadata;
-use codex_connectors::AppInfo;
 use codex_file_search::FileMatch;
 #[cfg(test)]
 use codex_plugin::AppConnectorId;
@@ -554,7 +550,6 @@ fn parent_owned_command_is_allowed(command: SlashCommand, args: &str) -> bool {
                 | SlashCommand::Status
                 | SlashCommand::Warnings
                 | SlashCommand::Daemon
-                | SlashCommand::Usage
                 | SlashCommand::Ide
                 | SlashCommand::DebugConfig
                 | SlashCommand::Theme
@@ -564,7 +559,6 @@ fn parent_owned_command_is_allowed(command: SlashCommand, args: &str) -> bool {
                 | SlashCommand::MemoryDrop
                 | SlashCommand::MemoryUpdate
                 | SlashCommand::Mcp
-                | SlashCommand::Apps
                 | SlashCommand::Plugins
                 | SlashCommand::Rollout
         )
@@ -664,12 +658,9 @@ pub(crate) struct ChatComposer {
     skills: Option<Vec<SkillMetadata>>,
     plugins: Option<Vec<PluginCapabilitySummary>>,
     task_mentions: Option<Vec<crate::task_mentions::TaskMention>>,
-    connectors_snapshot: Option<ConnectorsSnapshot>,
     collaboration_modes_enabled: bool,
     config: ChatComposerConfig,
-    connectors_enabled: bool,
     plugins_command_enabled: bool,
-    token_activity_command_enabled: bool,
     service_tier_commands_enabled: bool,
     service_tier_commands: Vec<ServiceTierCommand>,
     mentions_v2_enabled: bool,
@@ -849,12 +840,9 @@ impl ChatComposer {
             skills: None,
             plugins: None,
             task_mentions: None,
-            connectors_snapshot: None,
             collaboration_modes_enabled: false,
             config,
-            connectors_enabled: false,
             plugins_command_enabled: false,
-            token_activity_command_enabled: false,
             service_tier_commands_enabled: false,
             service_tier_commands: Vec::new(),
             mentions_v2_enabled: false,
@@ -1005,12 +993,6 @@ impl ChatComposer {
         self.update_slash_command_catalog(|composer| composer.plugins_command_enabled = enabled);
     }
 
-    pub fn set_token_activity_command_enabled(&mut self, enabled: bool) {
-        self.update_slash_command_catalog(|composer| {
-            composer.token_activity_command_enabled = enabled
-        });
-    }
-
     pub fn set_mentions_v2_enabled(&mut self, enabled: bool) {
         self.mentions_v2_enabled = enabled;
         self.history.set_at_mention_restore_enabled(enabled);
@@ -1023,11 +1005,6 @@ impl ChatComposer {
     /// `ChatWidget` layer still performs capability checks before images are submitted.
     pub fn set_image_paste_enabled(&mut self, enabled: bool) {
         self.config.image_paste_enabled = enabled;
-    }
-
-    pub fn set_connector_mentions(&mut self, connectors_snapshot: Option<ConnectorsSnapshot>) {
-        self.connectors_snapshot = connectors_snapshot;
-        self.sync_popups();
     }
 
     pub(crate) fn take_mention_bindings(&mut self) -> Vec<MentionBinding> {
@@ -1053,10 +1030,6 @@ impl ChatComposer {
         self.update_slash_command_catalog(|composer| {
             composer.collaboration_modes_enabled = enabled
         });
-    }
-
-    pub fn set_connectors_enabled(&mut self, enabled: bool) {
-        self.update_slash_command_catalog(|composer| composer.connectors_enabled = enabled);
     }
 
     pub fn set_service_tier_commands_enabled(&mut self, enabled: bool) {
@@ -2738,12 +2711,7 @@ impl ChatComposer {
             .plugins
             .as_ref()
             .is_some_and(|plugins| !plugins.is_empty());
-        let connectors_ready = self.connectors_enabled
-            && self
-                .connectors_snapshot
-                .as_ref()
-                .is_some_and(|snapshot| !snapshot.connectors.is_empty());
-        skills_ready || plugins_ready || connectors_ready
+        skills_ready || plugins_ready
     }
 
     fn current_prefixed_token(
@@ -4394,44 +4362,7 @@ impl ChatComposer {
             }
         }
 
-        if self.connectors_enabled
-            && let Some(snapshot) = self.connectors_snapshot.as_ref()
-        {
-            for connector in &snapshot.connectors {
-                if !connector.is_accessible || !connector.is_enabled {
-                    continue;
-                }
-                let display_name = codex_connectors::metadata::connector_display_label(connector);
-                let description = Some(Self::connector_brief_description(connector));
-                let slug = codex_connectors::metadata::connector_mention_slug(connector);
-                let search_terms = vec![display_name.clone(), connector.id.clone(), slug.clone()];
-                let connector_id = connector.id.as_str();
-                mentions.push(MentionItem {
-                    display_name: display_name.clone(),
-                    description,
-                    insert_text: format!("${slug}"),
-                    search_terms,
-                    path: Some(format!("app://{connector_id}")),
-                    category_tag: Some("[App]".to_string()),
-                    sort_rank: 1,
-                });
-            }
-        }
-
         mentions
-    }
-
-    fn connector_brief_description(connector: &AppInfo) -> String {
-        Self::connector_description(connector).unwrap_or_default()
-    }
-
-    fn connector_description(connector: &AppInfo) -> Option<String> {
-        connector
-            .description
-            .as_deref()
-            .map(str::trim)
-            .filter(|description| !description.is_empty())
-            .map(str::to_string)
     }
 
     fn set_has_focus(&mut self, has_focus: bool) {
@@ -6898,90 +6829,6 @@ mod tests {
     }
 
     #[test]
-    fn set_connector_mentions_refreshes_open_mention_popup() {
-        let (tx, _rx) = unbounded_channel::<AppEvent>();
-        let sender = AppEventSender::new(tx);
-        let mut composer = ChatComposer::new(
-            /*has_input_focus*/ true,
-            sender,
-            /*enhanced_keys_supported*/ false,
-            "Ask Steve to do anything".to_string(),
-            /*disable_paste_burst*/ false,
-        );
-        composer.set_connectors_enabled(/*enabled*/ true);
-        composer.set_text_content("$".to_string(), Vec::new(), Vec::new());
-        assert!(matches!(composer.popups.active, ActivePopup::None));
-
-        let connectors = vec![AppInfo {
-            id: "connector_1".to_string(),
-            name: "Notion".to_string(),
-            description: Some("Workspace docs".to_string()),
-            logo_url: None,
-            logo_url_dark: None,
-            icon_assets: None,
-            icon_dark_assets: None,
-            distribution_channel: None,
-            branding: None,
-            app_metadata: None,
-            labels: None,
-            install_url: Some("https://example.test/notion".to_string()),
-            is_accessible: true,
-            is_enabled: true,
-            plugin_display_names: Vec::new(),
-        }];
-        composer.set_connector_mentions(Some(ConnectorsSnapshot { connectors }));
-
-        let ActivePopup::Skill(popup) = &composer.popups.active else {
-            panic!("expected mention popup to open after connectors update");
-        };
-        let mention = popup
-            .selected_mention()
-            .expect("expected connector mention to be selected");
-        assert_eq!(mention.insert_text, "$notion".to_string());
-        assert_eq!(mention.path, Some("app://connector_1".to_string()));
-    }
-
-    #[test]
-    fn set_connector_mentions_skips_disabled_connectors() {
-        let (tx, _rx) = unbounded_channel::<AppEvent>();
-        let sender = AppEventSender::new(tx);
-        let mut composer = ChatComposer::new(
-            /*has_input_focus*/ true,
-            sender,
-            /*enhanced_keys_supported*/ false,
-            "Ask Steve to do anything".to_string(),
-            /*disable_paste_burst*/ false,
-        );
-        composer.set_connectors_enabled(/*enabled*/ true);
-        composer.set_text_content("$".to_string(), Vec::new(), Vec::new());
-        assert!(matches!(composer.popups.active, ActivePopup::None));
-
-        let connectors = vec![AppInfo {
-            id: "connector_1".to_string(),
-            name: "Notion".to_string(),
-            description: Some("Workspace docs".to_string()),
-            logo_url: None,
-            logo_url_dark: None,
-            icon_assets: None,
-            icon_dark_assets: None,
-            distribution_channel: None,
-            branding: None,
-            app_metadata: None,
-            labels: None,
-            install_url: Some("https://example.test/notion".to_string()),
-            is_accessible: true,
-            is_enabled: false,
-            plugin_display_names: Vec::new(),
-        }];
-        composer.set_connector_mentions(Some(ConnectorsSnapshot { connectors }));
-
-        assert!(
-            matches!(composer.popups.active, ActivePopup::None),
-            "disabled connectors should not appear in the mention popup"
-        );
-    }
-
-    #[test]
     fn set_plugin_mentions_refreshes_open_mention_popup() {
         let (tx, _rx) = unbounded_channel::<AppEvent>();
         let sender = AppEventSender::new(tx);
@@ -7726,105 +7573,6 @@ mod tests {
     }
 
     #[test]
-    fn mention_items_keep_direct_skills_and_apps_with_unified_mentions() {
-        let skill_path = test_path_buf("/tmp/repo/google-calendar/SKILL.md").abs();
-        let (tx, _rx) = unbounded_channel::<AppEvent>();
-        let sender = AppEventSender::new(tx);
-        let mut composer = ChatComposer::new(
-            /*has_input_focus*/ true,
-            sender,
-            /*enhanced_keys_supported*/ false,
-            "Ask Steve to do anything".to_string(),
-            /*disable_paste_burst*/ false,
-        );
-        composer.set_connectors_enabled(/*enabled*/ true);
-        composer.set_text_content("$goog".to_string(), Vec::new(), Vec::new());
-        composer.set_skill_mentions(Some(vec![SkillMetadata {
-            name: "google-calendar:availability".to_string(),
-            description: "Find availability and plan event changes".to_string(),
-            short_description: None,
-            interface: Some(SkillInterface {
-                display_name: Some("Google Calendar".to_string()),
-                short_description: None,
-                icon_small: None,
-                icon_large: None,
-                icon_small_url: None,
-                icon_large_url: None,
-                brand_color: None,
-                default_prompt: None,
-            }),
-            dependencies: None,
-            path: skill_path.clone().into(),
-            scope: crate::test_support::skill_scope_repo(),
-            enabled: true,
-            plugin_id: Some("google-calendar@debug".to_string()),
-        }]));
-        composer.set_plugin_mentions(Some(vec![PluginCapabilitySummary {
-            config_name: "google-calendar@debug".to_string(),
-            display_name: "Google Calendar".to_string(),
-            plugin_namespace: None,
-            description: Some(
-                "Connect Google Calendar for scheduling, availability, and event management."
-                    .to_string(),
-            ),
-            has_skills: true,
-            mcp_server_names: vec!["google-calendar".to_string()],
-            app_connector_ids: vec![AppConnectorId("google_calendar".to_string())],
-        }]));
-        composer.set_connector_mentions(Some(ConnectorsSnapshot {
-            connectors: vec![AppInfo {
-                id: "google_calendar".to_string(),
-                name: "Google Calendar".to_string(),
-                description: Some("Look up events and availability".to_string()),
-                logo_url: None,
-                logo_url_dark: None,
-                icon_assets: None,
-                icon_dark_assets: None,
-                distribution_channel: None,
-                branding: None,
-                app_metadata: None,
-                labels: None,
-                install_url: Some("https://example.test/google-calendar".to_string()),
-                is_accessible: true,
-                is_enabled: true,
-                plugin_display_names: vec!["Google Calendar".to_string()],
-            }],
-        }));
-
-        let mentions = composer.mention_items();
-        assert_eq!(mentions.len(), 3);
-        assert_eq!(mentions[0].category_tag, Some("[Skill]".to_string()));
-        assert_eq!(mentions[0].path, Some(skill_path.display().to_string()));
-        assert_eq!(mentions[0].display_name, "Google Calendar".to_string());
-        assert_eq!(mentions[1].category_tag, Some("[Plugin]".to_string()));
-        assert_eq!(
-            mentions[1].path,
-            Some("plugin://google-calendar@debug".to_string())
-        );
-        assert_eq!(mentions[2].category_tag, Some("[App]".to_string()));
-        assert_eq!(mentions[2].path, Some("app://google_calendar".to_string()));
-
-        composer.set_mentions_v2_enabled(/*enabled*/ true);
-        assert_eq!(
-            composer
-                .mention_items()
-                .into_iter()
-                .map(|mention| (mention.insert_text, mention.path))
-                .collect::<Vec<_>>(),
-            vec![
-                (
-                    "$google-calendar:availability".to_string(),
-                    Some(skill_path.display().to_string()),
-                ),
-                (
-                    "$google-calendar".to_string(),
-                    Some("app://google_calendar".to_string()),
-                ),
-            ],
-        );
-    }
-
-    #[test]
     fn plugin_mention_popup_snapshot() {
         snapshot_composer_state(
             "plugin_mention_popup",
@@ -8018,109 +7766,6 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(queries, vec![String::new(), "foo".to_string()]);
-    }
-
-    #[test]
-    fn mention_popup_type_prefixes_snapshot() {
-        snapshot_composer_state_with_width(
-            "mention_popup_type_prefixes",
-            /*width*/ 72,
-            /*enhanced_keys_supported*/ false,
-            |composer| {
-                composer.set_mentions_v2_enabled(/*enabled*/ true);
-                composer.set_connectors_enabled(/*enabled*/ true);
-                composer.set_text_content("$goog".to_string(), Vec::new(), Vec::new());
-                composer.set_skill_mentions(Some(vec![SkillMetadata {
-                    name: "google-calendar-skill".to_string(),
-                    description: "Find availability and plan event changes".to_string(),
-                    short_description: None,
-                    interface: Some(SkillInterface {
-                        display_name: Some("Google Calendar".to_string()),
-                        short_description: None,
-                        icon_small: None,
-                        icon_large: None,
-                        icon_small_url: None,
-                        icon_large_url: None,
-                        brand_color: None,
-                        default_prompt: None,
-                    }),
-                    dependencies: None,
-                    path: test_path_buf("/tmp/repo/google-calendar/SKILL.md")
-                        .abs()
-                        .into(),
-                    scope: crate::test_support::skill_scope_repo(),
-                    enabled: true,
-                    plugin_id: None,
-                }]));
-                composer.set_plugin_mentions(Some(vec![PluginCapabilitySummary {
-                config_name: "google-calendar@debug".to_string(),
-                display_name: "Google Calendar".to_string(),
-                plugin_namespace: None,
-                description: Some(
-                    "Connect Google Calendar for scheduling, availability, and event management."
-                        .to_string(),
-                ),
-                has_skills: false,
-                mcp_server_names: vec!["google-calendar".to_string()],
-                app_connector_ids: Vec::new(),
-            }]));
-                composer.set_connector_mentions(Some(ConnectorsSnapshot {
-                    connectors: vec![AppInfo {
-                        id: "google_calendar".to_string(),
-                        name: "Google Calendar".to_string(),
-                        description: Some("Look up events and availability".to_string()),
-                        logo_url: None,
-                        logo_url_dark: None,
-                        icon_assets: None,
-                        icon_dark_assets: None,
-                        distribution_channel: None,
-                        branding: None,
-                        app_metadata: None,
-                        labels: None,
-                        install_url: Some("https://example.test/google-calendar".to_string()),
-                        is_accessible: true,
-                        is_enabled: true,
-                        plugin_display_names: Vec::new(),
-                    }],
-                }));
-            },
-        );
-    }
-
-    #[test]
-    fn set_connector_mentions_excludes_disabled_apps_from_mention_popup() {
-        let (tx, _rx) = unbounded_channel::<AppEvent>();
-        let sender = AppEventSender::new(tx);
-        let mut composer = ChatComposer::new(
-            /*has_input_focus*/ true,
-            sender,
-            /*enhanced_keys_supported*/ false,
-            "Ask Steve to do anything".to_string(),
-            /*disable_paste_burst*/ false,
-        );
-        composer.set_connectors_enabled(/*enabled*/ true);
-        composer.set_text_content("$".to_string(), Vec::new(), Vec::new());
-
-        let connectors = vec![AppInfo {
-            id: "connector_1".to_string(),
-            name: "Notion".to_string(),
-            description: Some("Workspace docs".to_string()),
-            logo_url: None,
-            logo_url_dark: None,
-            icon_assets: None,
-            icon_dark_assets: None,
-            distribution_channel: None,
-            branding: None,
-            app_metadata: None,
-            labels: None,
-            install_url: Some("https://example.test/notion".to_string()),
-            is_accessible: true,
-            is_enabled: false,
-            plugin_display_names: Vec::new(),
-        }];
-        composer.set_connector_mentions(Some(ConnectorsSnapshot { connectors }));
-
-        assert!(matches!(composer.popups.active, ActivePopup::None));
     }
 
     #[test]

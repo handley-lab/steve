@@ -30,7 +30,7 @@ remote_compaction = "v2"
     )?;
     let test = test_codex()
         .with_home(home)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(|config| {
             configure_scenario_catalog(config);
             let base_url = config.model_provider.base_url.clone();

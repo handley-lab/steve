@@ -2,7 +2,6 @@
 //! steal the reader's position in the owned transcript.
 
 use super::*;
-use codex_app_server_protocol::RateLimitResetCreditsSummary;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use pretty_assertions::assert_eq;
@@ -213,75 +212,6 @@ async fn settings_picker_save_failures_reveal_their_errors() -> Result<()> {
             unclosed table, expected `]`
             ");
         }
-    }
-    tui.set_owned_screen(/*owned*/ false)?;
-    server.shutdown().await?;
-    Ok(())
-}
-
-#[tokio::test]
-async fn settings_confirmations_reveal_their_history_output() -> Result<()> {
-    let (mut app, mut events, _op_rx) = make_test_app_with_channels().await;
-    let mut tui = crate::tui::test_support::make_test_tui()?;
-    let mut server = start_config_write_test_app_server(&app).await?;
-    tui.set_owned_screen(/*owned*/ true)?;
-    // A stale thread id makes the active-thread update fail independently of config writes.
-    let thread_id = ThreadId::new();
-    app.active_thread_id = Some(thread_id);
-    app.chat_widget
-        .handle_thread_session(test_thread_session(thread_id, app.config.cwd.to_path_buf()));
-    for (event, output) in [
-        (
-            AppEvent::SelectSessionModel {
-                model: "test-provider/gpt-5.5".into(),
-                effort: Some(ReasoningEffortConfig::High),
-                service_tier: None,
-            },
-            "Failed to update thread settings",
-        ),
-        (
-            AppEvent::UpdateLunaReserveReasoning {
-                thread_id,
-                effort: Some(ReasoningEffortConfig::High),
-            },
-            "Failed to update thread settings",
-        ),
-        (AppEvent::ResetMemories, "Reset local memories."),
-        (
-            AppEvent::KeymapCaptured {
-                context: "global".into(),
-                action: "find_transcript".into(),
-                key: "f12".into(),
-                intent: crate::app_event::KeymapEditIntent::ReplaceAll,
-            },
-            "global.find_transcript",
-        ),
-        (
-            AppEvent::KeymapCleared {
-                context: "global".into(),
-                action: "find_transcript".into(),
-            },
-            "Removed custom shortcut",
-        ),
-    ] {
-        hold_older_history(&mut app, &mut tui);
-        while events.try_recv().is_ok() {}
-        if matches!(event, AppEvent::UpdateLunaReserveReasoning { .. }) {
-            app.chat_widget
-                .set_model(crate::model_catalog::LUNA_RESERVE_MODEL);
-        }
-        let previous_cells = app.transcript_cells.len();
-        app.handle_event(&mut tui, &mut server, event).await?;
-        while let Ok(event) = events.try_recv() {
-            app.handle_event(&mut tui, &mut server, event).await?;
-        }
-        assert!(app.transcript_view.is_following());
-        let messages = app.transcript_cells[previous_cells..]
-            .iter()
-            .map(|cell| lines_to_single_string(&cell.display_lines(/*width*/ 80)))
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(messages.contains(output), "expected {output:?}: {messages}");
     }
     tui.set_owned_screen(/*owned*/ false)?;
     server.shutdown().await?;
@@ -511,49 +441,6 @@ async fn dynamic_service_tier_command_returns_to_latest() -> Result<()> {
                 if tier == ServiceTier::Fast.request_value()
         ))
     );
-
-    tui.set_owned_screen(/*owned*/ false)?;
-    server.shutdown().await?;
-    Ok(())
-}
-
-#[tokio::test]
-async fn usage_picker_opens_analytics_without_moving_the_background_transcript() -> Result<()> {
-    let (mut app, mut events, _op_rx) = make_test_app_with_channels().await;
-    set_chatgpt_auth(&mut app.chat_widget);
-    let startup_request = app.chat_widget.start_rate_limit_reset_startup_check();
-    assert!(app.chat_widget.finish_rate_limit_reset_hint_refresh(
-        startup_request,
-        Vec::new(),
-        Ok(RateLimitResetCreditsSummary {
-            available_count: 1,
-            credits: None,
-        }),
-    ));
-    let mut tui = crate::tui::test_support::make_test_tui()?;
-    let mut server = start_config_write_test_app_server(&app).await?;
-    tui.set_owned_screen(/*owned*/ true)?;
-    hold_older_history(&mut app, &mut tui);
-    while events.try_recv().is_ok() {}
-
-    submit_local_command(&mut app, "/usage");
-    let follow = events.try_recv().expect("usage command follow event");
-    assert_matches!(&follow, AppEvent::FollowTranscript);
-    app.handle_event(&mut tui, &mut server, follow).await?;
-    assert!(render_bottom_popup(&app.chat_widget, /*width*/ 80).contains("View analytics"));
-    while events.try_recv().is_ok() {}
-    app.transcript_view
-        .jump_to_entry(&app.transcript_cells, /*index*/ 0);
-
-    app.chat_widget
-        .handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    let open = events.try_recv().expect("usage picker action");
-    assert_matches!(&open, AppEvent::OpenAnalytics { view: None });
-    let held = transcript_buffer(&mut app);
-    app.handle_event(&mut tui, &mut server, open).await?;
-    assert!(matches!(app.overlay.as_ref(), Some(Overlay::Analytics(_))));
-    assert_eq!(transcript_buffer(&mut app), held);
-    assert!(!app.transcript_view.is_following());
 
     tui.set_owned_screen(/*owned*/ false)?;
     server.shutdown().await?;

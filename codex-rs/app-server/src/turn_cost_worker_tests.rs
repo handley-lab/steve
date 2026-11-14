@@ -26,9 +26,6 @@ use wiremock::matchers::path;
 
 const TURN_COST_PATH: &str = "/v1/analytics/codex/turn-costs";
 
-#[path = "turn_cost_worker_chatgpt_tests.rs"]
-mod chatgpt;
-
 #[test_case(None; "absent inference endpoint")]
 #[test_case(Some(" \t"); "blank inference endpoint")]
 #[test_case(Some("http://127.0.0.1:1/unused-inference"); "independent inference endpoint")]
@@ -277,8 +274,7 @@ async fn custom_provider_does_not_send_chatgpt_auth_for_turn_costs() {
         .respond_with(ResponseTemplate::new(500))
         .mount(&server)
         .await;
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let codex_home = TempDir::new().expect("temporary Codex home");
     let mut config = ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())

@@ -4,7 +4,6 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::auth::McpAuthProvider;
 use crate::mcp::CODEX_APPS_MCP_SERVER_NAME;
 use crate::runtime::McpRuntimeContext;
 use codex_config::AppToolApproval;
@@ -16,7 +15,6 @@ use codex_config::types::AuthKeyringBackendKind;
 use codex_config::types::OAuthCredentialsStoreMode;
 use codex_connectors::ConnectorRuntimeContextKey;
 use codex_exec_server::Environment;
-use codex_login::CodexAuth;
 use codex_protocol::mcp::ClientMcpExtensions;
 use codex_rmcp_client::McpOAuthRefreshMode;
 use codex_rmcp_client::McpProtocolMode;
@@ -89,15 +87,9 @@ impl EffectiveMcpServer {
     ///
     /// The reserved `codex_apps` server has a per-chat catalog. Servers with runtime or
     /// enterprise-managed credentials need that chat's authentication state.
-    pub(crate) fn can_discover_local_stdio(
-        &self,
-        server_name: &str,
-        runtime_auth_provider: Option<&McpAuthProvider>,
-    ) -> bool {
+    pub(crate) fn can_discover_local_stdio(&self, server_name: &str) -> bool {
         server_name != CODEX_APPS_MCP_SERVER_NAME
             && self.config.is_local_environment()
-            && runtime_auth_provider.is_none()
-            && !matches!(self.config.auth, McpServerAuth::EmaAuth)
             && self
                 .stdio_protocol_mode(McpProtocolMode::DiscoverLocalStdio)
                 .is_some()
@@ -176,9 +168,6 @@ pub(crate) struct McpServerConnectionIdentity {
     resolved_environment: Result<Option<Arc<Environment>>, String>,
     local_stdio_fallback_cwd: Option<PathBuf>,
     referenced_environment_variables: Vec<(String, Option<OsString>)>,
-    runtime_auth: Option<CodexAuth>,
-    runtime_auth_token: Option<String>,
-    runtime_auth_mode: Option<codex_features::RuntimeAuthMode>,
     codex_apps_cache_identity: Option<(PathBuf, ConnectorRuntimeContextKey)>,
     client_elicitation_capability: ElicitationCapability,
     client_mcp_extensions: ClientMcpExtensions,
@@ -197,9 +186,6 @@ impl McpServerConnectionIdentity {
         oauth_refresh_mode: McpOAuthRefreshMode,
         resolved_environment: &Result<Option<Arc<Environment>>, String>,
         runtime_context: &McpRuntimeContext,
-        runtime_auth_provider: Option<&McpAuthProvider>,
-        runtime_auth_mode: Option<codex_features::RuntimeAuthMode>,
-        auth: Option<&CodexAuth>,
         codex_apps_cache_identity: Option<(PathBuf, ConnectorRuntimeContextKey)>,
         client_elicitation_capability: ElicitationCapability,
         client_mcp_extensions: ClientMcpExtensions,
@@ -211,38 +197,31 @@ impl McpServerConnectionIdentity {
                 .bytes()
                 .all(|byte| byte == b'\t' || (byte >= b' ' && byte != 0x7f))
         };
-        let stored_oauth_url = if runtime_auth_provider.is_none()
-            && !matches!(config.auth, McpServerAuth::EmaAuth)
-            && (!matches!(config.auth, McpServerAuth::ChatGpt) || config.is_local_environment())
-        {
-            match &config.transport {
-                McpServerTransportConfig::StreamableHttp {
-                    url,
-                    bearer_token_env_var: None,
-                    http_headers,
-                    env_http_headers,
-                    http_headers_helper: _,
-                } if !http_headers.as_ref().is_some_and(|headers| {
-                    headers.iter().any(|(name, value)| {
-                        name.eq_ignore_ascii_case("authorization") && valid_http_header_value(value)
+        let stored_oauth_url = match &config.transport {
+            McpServerTransportConfig::StreamableHttp {
+                url,
+                bearer_token_env_var: None,
+                http_headers,
+                env_http_headers,
+                http_headers_helper: _,
+            } if !http_headers.as_ref().is_some_and(|headers| {
+                headers.iter().any(|(name, value)| {
+                    name.eq_ignore_ascii_case("authorization") && valid_http_header_value(value)
+                })
+            }) && !env_http_headers.as_ref().is_some_and(|headers| {
+                server.credential_policy() == McpCredentialPolicy::HostFallbackAllowed
+                    && headers.iter().any(|(name, env_var)| {
+                        name.eq_ignore_ascii_case("authorization")
+                            && std::env::var(env_var).is_ok_and(|value| {
+                                !value.trim().is_empty() && valid_http_header_value(&value)
+                            })
                     })
-                }) && !env_http_headers.as_ref().is_some_and(|headers| {
-                    server.credential_policy() == McpCredentialPolicy::HostFallbackAllowed
-                        && headers.iter().any(|(name, env_var)| {
-                            name.eq_ignore_ascii_case("authorization")
-                                && std::env::var(env_var).is_ok_and(|value| {
-                                    !value.trim().is_empty() && valid_http_header_value(&value)
-                                })
-                        })
-                }) =>
-                {
-                    Some(url)
-                }
-                McpServerTransportConfig::StreamableHttp { .. }
-                | McpServerTransportConfig::Stdio { .. } => None,
+            }) =>
+            {
+                Some(url)
             }
-        } else {
-            None
+            McpServerTransportConfig::StreamableHttp { .. }
+            | McpServerTransportConfig::Stdio { .. } => None,
         };
         let oauth_credentials = stored_oauth_url.map_or(Ok(None), |url| {
             let credential_name = config.oauth_credential_name(server_name);
@@ -282,8 +261,6 @@ impl McpServerConnectionIdentity {
             McpCredentialPolicy::HostFallbackAllowed => referenced_environment_variables(config),
             McpCredentialPolicy::ExecutorOnly => Vec::new(),
         };
-        let runtime_auth = runtime_auth_provider.and(auth).cloned();
-        let runtime_auth_token = runtime_auth.as_ref().and_then(|auth| auth.get_token().ok());
         let oauth_store_was_contended = oauth_credentials
             .as_ref()
             .ok()
@@ -306,9 +283,6 @@ impl McpServerConnectionIdentity {
             resolved_environment: resolved_environment.clone(),
             local_stdio_fallback_cwd,
             referenced_environment_variables,
-            runtime_auth,
-            runtime_auth_token,
-            runtime_auth_mode,
             codex_apps_cache_identity,
             client_elicitation_capability,
             client_mcp_extensions,
@@ -318,19 +292,6 @@ impl McpServerConnectionIdentity {
     }
 
     pub(crate) fn has_same_connection_config(&self, other: &Self) -> bool {
-        let same_runtime_auth = match (&self.runtime_auth, &other.runtime_auth) {
-            (Some(CodexAuth::AgentIdentity(left)), Some(CodexAuth::AgentIdentity(right))) => {
-                left.record() == right.record()
-            }
-            (Some(left), Some(right)) => {
-                left == right
-                    && left.get_account_id() == right.get_account_id()
-                    && left.get_chatgpt_user_id() == right.get_chatgpt_user_id()
-                    && left.is_fedramp_account() == right.is_fedramp_account()
-            }
-            (None, None) => true,
-            (Some(_), None) | (None, Some(_)) => false,
-        };
         self.auth == other.auth
             && self.credential_policy == other.credential_policy
             && self.transport == other.transport
@@ -346,9 +307,6 @@ impl McpServerConnectionIdentity {
             && same_resolved_environment(&self.resolved_environment, &other.resolved_environment)
             && self.local_stdio_fallback_cwd == other.local_stdio_fallback_cwd
             && self.referenced_environment_variables == other.referenced_environment_variables
-            && same_runtime_auth
-            && self.runtime_auth_token == other.runtime_auth_token
-            && self.runtime_auth_mode == other.runtime_auth_mode
             && self.codex_apps_cache_identity == other.codex_apps_cache_identity
             && self.client_elicitation_capability == other.client_elicitation_capability
             && self.client_mcp_extensions == other.client_mcp_extensions

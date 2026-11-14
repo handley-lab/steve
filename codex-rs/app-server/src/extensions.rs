@@ -18,7 +18,6 @@ use codex_extension_api::ExtensionWarning;
 use codex_extension_api::TurnStartAdmission;
 use codex_goal_extension::GoalExtensionConfig;
 use codex_goal_extension::GoalService;
-use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::Event;
@@ -42,9 +41,6 @@ pub(crate) struct ThreadExtensionDependencies {
     pub(crate) environment_manager: Arc<EnvironmentManager>,
     pub(crate) executor_skill_provider: Arc<dyn codex_skills_extension::SkillProvider>,
     pub(crate) cloud_skill_provider: Option<Arc<dyn codex_skills_extension::SkillProvider>>,
-    pub(crate) git_attribution_base_url: String,
-    pub(crate) git_attribution_path_style: codex_config::AccountPathStyle,
-    pub(crate) http_client_factory: HttpClientFactory,
     /// Process-scoped queue shared by idle dispatch and app-server requests.
     pub(crate) queue_service: Option<Arc<QueuedItemService>>,
     pub(crate) turn_start_admission: Option<Arc<dyn TurnStartAdmission>>,
@@ -65,9 +61,6 @@ pub(crate) fn thread_extensions(
         environment_manager,
         executor_skill_provider,
         cloud_skill_provider,
-        git_attribution_base_url,
-        git_attribution_path_style,
-        http_client_factory,
         queue_service,
         turn_start_admission,
     } = dependencies;
@@ -100,16 +93,8 @@ pub(crate) fn thread_extensions(
             },
         );
     }
-    codex_git_attribution::install(
-        &mut builder,
-        auth_manager.clone(),
-        git_attribution_base_url,
-        git_attribution_path_style,
-        http_client_factory,
-    );
     codex_guardian_v2::install(&mut builder, auth_manager.clone(), thread_manager);
     codex_memories_extension::install(&mut builder, codex_otel::global());
-    codex_mcp_extension::install(&mut builder);
     codex_mcp_extension::install_plugins(&mut builder, environment_manager);
     codex_web_search_extension::install(&mut builder, auth_manager.clone());
     codex_image_generation_extension::install(&mut builder, auth_manager, |config: &Config| {

@@ -11,8 +11,8 @@ Native packages are available as GitHub Actions artifacts for Linux, macOS and
 Windows on x86-64 and ARM64. See [installing a binary package](docs/steve-install.md)
 for downloads, checksum verification and installation. Installers, npm packages
 and Python packages are not yet published; upstream Codex installers do not
-install Steve. The linked network inventory describes the original pinned
-baseline, not this branch.
+install Steve. Observed traffic and its limits are recorded in the
+[network audit](docs/steve-network-audit.md).
 
 To build from source, run this from the repository root. It creates a local
 package containing the CLI, code-mode

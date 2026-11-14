@@ -24,7 +24,7 @@ use test_case::test_case;
 
 fn builder(incremental_tools: bool, token_budget: bool) -> TestCodexBuilder {
     test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_model_info_override("gpt-5.4", |model| {
             model.use_responses_lite = true;
             model.tool_mode = Some(ToolMode::CodeMode);

@@ -49,6 +49,7 @@ async fn configured_model_is_used_for_generation_and_editing() {
         let request = request_for_call_args(
             "local-image-model",
             &ImagegenArgs {
+                gif: None,
                 prompt: "paint a moonlit lake".to_string(),
                 transparent_background: false,
                 referenced_image_paths: None,
@@ -94,7 +95,6 @@ fn test_usage_limit_failure_without_an_exhausted_window_reset() {
         (None, None),
     ] {
         let error = CodexErr::UsageLimitReached(UsageLimitReachedError {
-            plan_type: None,
             resets_at: None,
             limit_window_minutes: None,
             rate_limits: Some(Box::new(

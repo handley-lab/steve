@@ -97,22 +97,6 @@ impl ThreadToolTransport {
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct ToolServices {
-    pub(crate) task_tools: bool,
-    pub(crate) worktrees: Option<crate::managed_worktree_tools::ManagedWorktreeTools>,
-}
-
-impl ToolServices {
-    pub(crate) fn namespace(&self) -> &'static str {
-        if self.task_tools {
-            dynamic_tools::NAMESPACE
-        } else {
-            "steve_worktrees"
-        }
-    }
-}
-
 type ToolConnection = Arc<RwLock<Option<(AppServerRequestHandle, AppEventSender)>>>;
 
 pub(crate) struct DynamicToolMcpServer {

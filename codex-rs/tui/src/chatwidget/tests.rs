@@ -27,8 +27,6 @@ pub(super) use crate::token_usage::TokenUsage;
 pub(super) use crate::token_usage::TokenUsageInfo;
 pub(super) use crate::tui::FrameRequester;
 pub(super) use assert_matches::assert_matches;
-pub(super) use codex_app_server_protocol::AddCreditsNudgeCreditType;
-pub(super) use codex_app_server_protocol::AddCreditsNudgeEmailStatus;
 pub(super) use codex_app_server_protocol::AdditionalFileSystemPermissions as AppServerAdditionalFileSystemPermissions;
 pub(super) use codex_app_server_protocol::AdditionalNetworkPermissions as AppServerAdditionalNetworkPermissions;
 pub(super) use codex_app_server_protocol::AdditionalPermissionProfile as AppServerAdditionalPermissionProfile;
@@ -45,7 +43,6 @@ pub(super) use codex_app_server_protocol::CommandExecutionSource as ExecCommandS
 pub(super) use codex_app_server_protocol::CommandExecutionSource as AppServerCommandExecutionSource;
 pub(super) use codex_app_server_protocol::CommandExecutionStatus as AppServerCommandExecutionStatus;
 pub(super) use codex_app_server_protocol::ConfigWarningNotification;
-pub(super) use codex_app_server_protocol::CreditsSnapshot;
 pub(super) use codex_app_server_protocol::ErrorNotification;
 pub(super) use codex_app_server_protocol::ExecPolicyAmendment;
 pub(super) use codex_app_server_protocol::FileUpdateChange;
@@ -93,7 +90,6 @@ pub(super) use codex_app_server_protocol::PluginMarketplaceEntry;
 pub(super) use codex_app_server_protocol::PluginReadResponse;
 pub(super) use codex_app_server_protocol::PluginSource;
 pub(super) use codex_app_server_protocol::PluginSummary;
-pub(super) use codex_app_server_protocol::RateLimitReachedType;
 pub(super) use codex_app_server_protocol::RateLimitSnapshot;
 pub(super) use codex_app_server_protocol::RateLimitWindow;
 pub(super) use codex_app_server_protocol::ReasoningSummaryTextDeltaNotification;
@@ -129,7 +125,6 @@ pub(super) use codex_models_manager::test_support::get_model_offline_for_tests;
 pub(super) use codex_otel::RuntimeMetricsSummary;
 pub(super) use codex_otel::SessionTelemetry;
 pub(super) use codex_protocol::ThreadId;
-pub(super) use codex_protocol::account::PlanType;
 pub(super) use codex_protocol::approvals::GuardianAssessmentAction;
 pub(super) use codex_protocol::approvals::GuardianAssessmentDecisionSource;
 pub(super) use codex_protocol::approvals::GuardianAssessmentEvent;
@@ -228,8 +223,6 @@ fn next_goal_draft(
 
 mod app_server;
 mod approval_requests;
-#[path = "tests/backend_banners_tests.rs"]
-mod backend_banners_tests;
 #[path = "tests/bedrock_catalog_tests.rs"]
 mod bedrock_catalog_tests;
 #[path = "tests/collaboration_catalog_tests.rs"]
@@ -257,8 +250,6 @@ mod history_projection;
 mod history_replay;
 #[path = "tests/home_cleanup_tests.rs"]
 mod home_cleanup_tests;
-#[path = "tests/luna_reserve_usage_tests.rs"]
-mod luna_reserve_usage_tests;
 mod mcp_startup;
 #[path = "tests/misalignment_policy_tests.rs"]
 mod misalignment_policy;
@@ -277,8 +268,6 @@ mod plugin_catalog;
 mod popups_and_settings;
 #[path = "tests/program_status.rs"]
 mod program_status;
-#[path = "tests/rate_limit_recovery_tests.rs"]
-mod rate_limit_recovery_tests;
 #[path = "tests/reasoning_status_tests.rs"]
 mod reasoning_status_tests;
 #[path = "tests/replay_render_tests.rs"]
@@ -308,13 +297,11 @@ mod terminal_program_status;
 mod terminal_title;
 #[path = "tests/tool_activity_tests.rs"]
 mod tool_activity_tests;
-mod usage;
 #[path = "tests/worktree_picker_tests.rs"]
 mod worktree_picker;
 
 pub(crate) use helpers::make_chatwidget_manual_with_sender;
 pub(crate) use helpers::render_bottom_popup;
-pub(crate) use helpers::set_chatgpt_auth;
 pub(crate) use helpers::set_fast_mode_test_catalog;
 pub(super) use helpers::*;
 
@@ -329,9 +316,6 @@ mod list_spacing_tests;
 
 #[path = "tests/question_notifications_tests.rs"]
 mod question_notifications_tests;
-
-#[path = "tests/security_setup_tests.rs"]
-mod security_setup_tests;
 
 #[path = "tests/quick_dials_tests.rs"]
 mod quick_dials_tests;

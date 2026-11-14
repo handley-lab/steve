@@ -1,5 +1,4 @@
 use super::*;
-use crate::status::StatusAccountDisplay;
 use assert_matches::assert_matches;
 use codex_config::types::ModelAvailabilityNuxConfig;
 use codex_protocol::config_types::ServiceTier;

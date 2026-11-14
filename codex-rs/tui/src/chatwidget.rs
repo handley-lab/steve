@@ -78,8 +78,6 @@ use crate::text_formatting::proper_join;
 use crate::token_usage::TokenUsage;
 use crate::token_usage::TokenUsageInfo;
 use crate::version::CODEX_CLI_VERSION;
-use codex_app_server_protocol::AddCreditsNudgeCreditType;
-use codex_app_server_protocol::AddCreditsNudgeEmailStatus;
 use codex_app_server_protocol::AppSummary;
 use codex_app_server_protocol::CodexErrorInfo as AppServerCodexErrorInfo;
 use codex_app_server_protocol::CollabAgentTool;
@@ -121,7 +119,6 @@ use codex_config::Constrained;
 use codex_config::ConstraintResult;
 use codex_config::types::ApprovalsReviewer;
 use codex_config::types::Notifications;
-use codex_connectors::AppInfo;
 use codex_features::Feature;
 use codex_git_utils::current_branch_name;
 use codex_git_utils::get_git_repo_root;
@@ -176,7 +173,6 @@ const MEMORIES_DOC_URL: &str = "https://developers.openai.com/codex/memories";
 const PLAN_MODE_REASONING_SCOPE_TITLE: &str = "Apply reasoning change";
 const PLAN_MODE_REASONING_SCOPE_PLAN_ONLY: &str = "Apply to Plan mode override";
 const PLAN_MODE_REASONING_SCOPE_ALL_MODES: &str = "Apply to global default and Plan mode override";
-const CONNECTORS_SELECTION_VIEW_ID: &str = "connectors-selection";
 const PET_SELECTION_LOADING_VIEW_ID: &str = "pet-selection-loading";
 const AMBIENT_PET_WRAP_GAP_COLUMNS: u16 = 2;
 const TUI_STUB_MESSAGE: &str = "Not available in TUI yet.";
@@ -191,7 +187,6 @@ fn normalize_thread_name(name: &str) -> Option<String> {
 use crate::app_event::AppEvent;
 use crate::app_event::ExitMode;
 use crate::app_event::PermissionProfileSelection;
-use crate::app_event::RateLimitRefreshOrigin;
 use crate::app_event_sender::AppEventSender;
 use crate::auto_review_denials;
 use crate::auto_review_denials::RecentAutoReviewDenials;
@@ -201,7 +196,6 @@ use crate::bottom_pane::BottomPane;
 use crate::bottom_pane::BottomPaneParams;
 use crate::bottom_pane::CancellationEvent;
 use crate::bottom_pane::CollaborationModeIndicator;
-use crate::bottom_pane::ColumnWidthMode;
 use crate::bottom_pane::DOUBLE_PRESS_QUIT_SHORTCUT_ENABLED;
 use crate::bottom_pane::ExecApprovalRequest;
 use crate::bottom_pane::ExperimentalFeaturesView;
@@ -258,13 +252,9 @@ mod activity_groups;
 mod activity_presentation;
 mod command_lifecycle;
 mod config_panel;
-mod connector_mentions;
-mod connectors;
 mod constructor;
 mod dynamic_activity;
 mod empty_state_policy;
-pub(crate) use self::connectors::ConnectorScopeGeneration;
-use self::connectors::ConnectorsState;
 mod exec_state;
 use self::exec_state::RunningCommand;
 use self::exec_state::UnifiedExecProcessSummary;
@@ -316,9 +306,7 @@ mod slash_command_args;
 mod slash_dispatch;
 mod worktree_picker;
 use self::skills::collect_tool_mentions;
-use self::skills::find_app_mentions;
 use self::skills::find_skill_mentions_with_tool_mentions;
-use self::skills::is_app_mentionable;
 mod plugin_catalog;
 mod plugins;
 use self::plugins::PluginInstallAuthFlowState;
@@ -340,12 +328,7 @@ mod permission_shortcuts;
 mod permissions_menu;
 pub(crate) use self::permissions_menu::auto_review_available;
 pub(crate) use self::permissions_menu::cyber_model_approval_reviewer;
-mod backend_banners;
 mod compaction;
-mod luna_reserve_model;
-mod luna_reserve_return;
-mod security_setup;
-pub(crate) use backend_banners::AutomaticModelSwitchReason;
 mod protocol;
 pub(crate) use protocol::final_agent_message;
 pub(crate) use protocol::needs_agent_message;
@@ -359,7 +342,6 @@ use self::rate_limits::app_server_rate_limit_error_kind;
 pub(crate) use self::rate_limits::fallback_limit_label;
 use self::rate_limits::is_app_server_cyber_policy_error;
 mod recap;
-mod reset_credits;
 pub(crate) use self::rate_limits::limit_label_for_window;
 mod completion;
 mod realtime;
@@ -401,19 +383,15 @@ mod status_surfaces;
 use self::status_surface_commands::StatusSurfaceOverrides;
 mod streaming;
 use self::status_surfaces::CachedProjectRootName;
-mod thread_usage;
-pub(crate) use self::thread_usage::ThreadUsageOutcome;
 mod tool_lifecycle;
 mod tool_requests;
 mod transcript;
 mod transcript_export;
 mod tui_mode_picker;
-mod usage_history;
 use self::transcript::TranscriptState;
 mod turn_lifecycle;
 mod turn_runtime;
 use self::turn_lifecycle::TurnLifecycleState;
-mod usage;
 mod user_messages;
 mod working_directory;
 use self::user_messages::MessageDelivery;
@@ -487,14 +465,11 @@ pub(crate) struct ChatWidgetInit {
     pub(crate) workspace_command_runner: Option<WorkspaceCommandRunner>,
     pub(crate) initial_user_message: Option<UserMessage>,
     pub(crate) enhanced_keys_supported: bool,
-    pub(crate) has_chatgpt_account: bool,
     pub(crate) requires_openai_auth: bool,
-    pub(crate) has_codex_backend_auth: bool,
     pub(crate) model_catalog: Arc<ModelCatalog>,
     pub(crate) feedback: codex_feedback::CodexFeedback,
     pub(crate) is_first_run: bool,
     pub(crate) status_account_display: Option<StatusAccountDisplay>,
-    pub(crate) initial_plan_type: Option<PlanType>,
     pub(crate) model: Option<String>,
     pub(crate) startup_tooltip_override: Option<String>,
     // Shared latch so we only warn once about invalid status-line item IDs.
@@ -544,9 +519,7 @@ pub(crate) struct ChatWidget {
     current_collaboration_mode: CollaborationMode,
     /// The currently active collaboration mask, if any.
     active_collaboration_mask: Option<CollaborationModeMask>,
-    has_chatgpt_account: bool,
     pub(crate) requires_openai_auth: bool,
-    has_codex_backend_auth: bool,
     model_catalog: Arc<ModelCatalog>,
     model_popup_request_id: Option<uuid::Uuid>,
     pub(crate) cloud_picker_selection:
@@ -579,35 +552,16 @@ pub(crate) struct ChatWidget {
     // Status and polling use account usage reads; response streams may identify meters differently.
     rate_limit_snapshots_by_limit_id: BTreeMap<String, RateLimitSnapshotDisplay>,
     refreshing_status_outputs: Vec<(u64, StatusHistoryHandle)>,
-    next_status_refresh_request_id: u64,
-    pending_rate_limit_reset_request_id: Option<u64>,
-    pending_rate_limit_reset_idempotency_key: Option<String>,
-    rate_limit_reset_picker_request_id: Option<u64>,
-    pending_rate_limit_reset_hint_request_id: Option<u64>,
-    pending_usage_menu_rate_limit_request_id: Option<u64>,
-    pending_rate_limit_reset_hint: Option<PlainHistoryCell>,
-    available_rate_limit_reset_credits: Option<i64>,
-    next_rate_limit_reset_request_id: u64,
     plan_type: Option<PlanType>,
     codex_rate_limit_reached_type: Option<RateLimitReachedType>,
     codex_spend_control_reached: Option<bool>,
     rate_limit_warnings: RateLimitWarningState,
     clock_format: crate::clock_format::ClockFormat,
     usage_notice_state: usage_notice::UsageNoticeState,
-    backend_banner_state: backend_banners::BackendBannerState,
-    pub(crate) security_setup_request_id: uuid::Uuid,
-    security_setup_presented: bool,
-    security_setup_identity: Option<crate::security_setup::Identity>,
-    security_setup_dismissed: bool,
-    automatic_model_switch_state: backend_banners::AutomaticModelSwitchState,
-    backend_banner_notice_model: Option<String>,
-    // Remember the account's Reserve entry notice across chats and transient banner refreshes.
-    luna_reserve_notice_account_id: Option<String>,
     pub(crate) warning_display_state: WarningDisplayState,
     pub(crate) composer_images: Option<crate::transcript_image::composer::ComposerImages>,
     pub(crate) rendered_selection: std::cell::RefCell<crate::rendered_selection::RenderedSelection>,
     rate_limit_switch_prompt: RateLimitSwitchPromptState,
-    add_credits_nudge_email_in_flight: Option<rate_limits::PendingCreditsNudge>,
     adaptive_chunking: AdaptiveChunkingPolicy,
     // Stream lifecycle controller
     stream_controller: Option<StreamController>,
@@ -641,13 +595,9 @@ pub(crate) struct ChatWidget {
     mcp_startup_status: Option<HashMap<String, McpStartupStatus>>,
     /// Last diagnostic per server, so replayed terminal updates are only reported once.
     mcp_startup_last_diagnostics: HashMap<String, McpStartupStatus>,
-    connectors: ConnectorsState,
     ide_context: IdeContextState,
     plugins_cache: PluginsCacheState,
     plugins_fetch_state: PluginListFetchState,
-    plugin_remote_sections_loading: bool,
-    plugin_remote_sections_loaded: bool,
-    plugin_remote_section_errors: Vec<crate::app_event::PluginRemoteSectionError>,
     plugin_install_apps_needing_auth: Vec<AppSummary>,
     plugin_install_auth_flow: Option<PluginInstallAuthFlowState>,
     plugins_active_tab_id: Option<String>,
@@ -778,19 +728,9 @@ pub(crate) struct ChatWidget {
     status_line_git_summary_pending: bool,
     // True once we've attempted a Git summary lookup for the current CWD.
     status_line_git_summary_lookup_complete: bool,
-    // Cached workspace notification headline for the status line.
-    status_line_workspace_headline: Option<String>,
-    // Request ID for the async workspace headline fetch currently in flight.
-    status_line_workspace_headline_pending_request_id: Option<u64>,
-    // Request ID to assign to the next workspace headline fetch.
-    next_status_line_workspace_headline_request_id: u64,
-    // Last time a workspace headline fetch was requested.
-    status_line_workspace_headline_last_requested_at: Option<Instant>,
-    // Set after the backend reports the workspace-message feature gate is disabled.
-    status_line_workspace_messages_disabled: bool,
-    // Cached backend-estimated cost and bounded refresh state for the current thread.
-    thread_usage: thread_usage::ThreadUsageState,
     // Current thread-goal status shown in the status line when plan mode is inactive.
+    // True while a replayed turn completion is being applied.
+    replaying_turn_completion: bool,
     current_goal_status_indicator: Option<GoalStatusIndicator>,
     current_goal_status: Option<GoalStatusState>,
     external_editor_state: ExternalEditorState,
@@ -1228,8 +1168,6 @@ impl ChatWidget {
         {
             self.refresh_terminal_title();
         }
-        self.refresh_status_line_if_workspace_headline_due();
-        self.refresh_thread_usage_if_settlement_due();
         self.refresh_terminal_program_status();
     }
 
@@ -1246,7 +1184,6 @@ impl ChatWidget {
     fn flush_active_cell(&mut self) {
         if let Some(active) = self.transcript.take_active_cell() {
             self.app_event_tx.send(AppEvent::InsertHistoryCell(active));
-            self.request_pending_usage_output_insertion();
         }
     }
 
@@ -1278,7 +1215,6 @@ impl ChatWidget {
         };
         if let Some(active) = self.take_history_insertion_prefix(cell.as_ref()) {
             self.app_event_tx.send(AppEvent::InsertHistoryCell(active));
-            self.request_pending_usage_output_insertion();
         }
         self.app_event_tx.send(AppEvent::InsertHistoryCell(cell));
     }
@@ -1496,7 +1432,6 @@ impl ChatWidget {
                 computer.mark_failed();
             }
             self.add_boxed_history(cell);
-            self.request_pending_usage_output_insertion();
         }
     }
 
@@ -2041,7 +1976,6 @@ impl ChatWidget {
     pub(crate) fn active_cell_transcript_key(&self) -> Option<ActiveCellTranscriptKey> {
         let cell = self.transcript.active_cell.as_ref();
         let mut realtime_cells = self.realtime_conversation.live_transcript_cells();
-        let rate_limit_reset_hint = self.pending_rate_limit_reset_hint();
         if cell.is_none()
             && self
                 .realtime_conversation
@@ -2049,18 +1983,13 @@ impl ChatWidget {
                 .next()
                 .is_none()
             && self.realtime_conversation.pending_history_cells.is_empty()
-            && rate_limit_reset_hint.is_none()
         {
             return None;
         }
-        let live_sources: [Option<&dyn HistoryCell>; 2] = [
-            cell.map(AsRef::as_ref),
-            rate_limit_reset_hint.map(|cell| cell as &dyn HistoryCell),
-        ];
         Some(ActiveCellTranscriptKey {
-            cacheable: live_sources
+            cacheable: cell
+                .map(AsRef::as_ref)
                 .into_iter()
-                .flatten()
                 .chain(
                     self.realtime_conversation
                         .pending_history_cells
@@ -2147,7 +2076,6 @@ impl Drop for ChatWidget {
                 .send(AppEvent::StopRealtimeConversation { thread_id });
         }
         self.reset_realtime_conversation();
-        self.stop_rate_limit_poller();
     }
 }
 

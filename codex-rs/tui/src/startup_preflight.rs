@@ -2,7 +2,6 @@
 //!
 //! Existing configuration, daemon, or authentication state keeps the composer visible.
 
-use std::ffi::OsString;
 use std::io;
 use std::path::Path;
 
@@ -21,16 +20,7 @@ pub(super) fn should_delay_startup_composer_for_first_login(
     codex_home: &Path,
     system_config_path: io::Result<AbsolutePathBuf>,
     managed_configuration: impl FnOnce() -> io::Result<bool>,
-    environment_variable: impl Fn(&str) -> Option<OsString>,
 ) -> bool {
-    if environment_variable(codex_login::CODEX_ACCESS_TOKEN_ENV_VAR).is_some_and(|credential| {
-        credential
-            .to_str()
-            .is_some_and(|value| !value.trim().is_empty())
-    }) {
-        return false;
-    }
-
     let Ok(system_config_path) = system_config_path else {
         return false;
     };

@@ -3,29 +3,22 @@ use std::time::Duration;
 
 use anyhow::Context;
 use anyhow::Result;
-use app_test_support::ChatGptAuthFixture;
 use app_test_support::TestAppServer;
 use app_test_support::create_final_assistant_message_sse_response;
 use app_test_support::to_response;
-use app_test_support::write_chatgpt_auth;
 use app_test_support::write_mock_responses_config_toml_with_chatgpt_base_url;
-use codex_app_server_protocol::AppInfo;
 use codex_app_server_protocol::CapabilityRootLocation;
 use codex_app_server_protocol::EnvironmentAddResponse;
 use codex_app_server_protocol::EnvironmentInfoResponse;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::SelectedCapabilityRoot;
-use codex_app_server_protocol::ThreadResumeParams;
-use codex_app_server_protocol::ThreadResumeResponse;
 use codex_app_server_protocol::ThreadStartParams;
 use codex_app_server_protocol::ThreadStartResponse;
 use codex_app_server_protocol::TurnEnvironmentParams;
 use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::UserInput;
-use codex_config::types::AuthCredentialsStoreMode;
 use codex_exec_server::LOCAL_ENVIRONMENT_ID;
-use codex_protocol::protocol::PLUGINS_INSTRUCTIONS_OPEN_TAG;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path_uri::PathUri;
 use core_test_support::process::wait_for_pid_file;
@@ -33,7 +26,6 @@ use core_test_support::responses;
 use core_test_support::responses::ResponsesRequest;
 use core_test_support::stdio_server_bin;
 use pretty_assertions::assert_eq;
-use pretty_assertions::assert_ne;
 use serde_json::json;
 use tempfile::TempDir;
 use test_case::test_case;
@@ -45,8 +37,6 @@ use tokio::time::timeout;
 
 use super::analytics::mount_analytics_capture;
 use super::analytics::wait_for_matching_analytics_event;
-use super::app_list::connector_tool;
-use super::app_list::start_apps_server_with_delays;
 
 const READ_TIMEOUT: Duration = Duration::from_secs(20);
 const EXECUTOR_ID: &str = "executor-1";
@@ -62,7 +52,6 @@ const NO_SELECTED_SKILLS_MESSAGE: &str = "No selected-environment skills are cur
 const RESTORED_SELECTED_SKILLS_MESSAGE: &str =
     "The previously listed selected-environment skills are available again.";
 const MCP_SERVER_NAME: &str = "executor_probe";
-const MCP_CALL_ID: &str = "selected-executor-mcp-call";
 const CONNECTOR_ID: &str = "calendar";
 
 #[derive(Clone, Copy)]
@@ -196,314 +185,6 @@ async fn selected_plugin_mcp_startup_respects_explicit_mentions(
     Ok(())
 }
 
-#[test_case(false; "direct selected root discovery")]
-#[test_case(true; "batched executor capability discovery")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn managed_plugins_requirement_disables_selected_executor_plugin_capabilities(
-    executor_capability_discovery: bool,
-) -> Result<()> {
-    let responses_server = responses::start_mock_server().await;
-    let (apps_url, apps_server_handle) = start_apps_server_with_delays(
-        vec![AppInfo {
-            id: CONNECTOR_ID.to_string(),
-            name: "Calendar".to_string(),
-            description: None,
-            logo_url: None,
-            logo_url_dark: None,
-            icon_assets: None,
-            icon_dark_assets: None,
-            distribution_channel: None,
-            branding: None,
-            app_metadata: None,
-            labels: None,
-            install_url: None,
-            is_accessible: false,
-            is_enabled: true,
-            plugin_display_names: Vec::new(),
-        }],
-        vec![connector_tool(CONNECTOR_ID, "Calendar")?],
-        Duration::ZERO,
-        Duration::ZERO,
-    )
-    .await?;
-    let fixture = selected_capability_fixture(&responses_server.uri(), &apps_url)?;
-    let config_path = fixture.codex_home.path().join("config.toml");
-    let config = std::fs::read_to_string(&config_path)?.replace(
-        "executor_capability_discovery = true",
-        &format!("executor_capability_discovery = {executor_capability_discovery}\nplugins = true"),
-    );
-    std::fs::write(config_path, config)?;
-    std::fs::write(
-        fixture.codex_home.path().join("requirements.toml"),
-        "[features]\nplugins = false\n",
-    )?;
-    let response_mock = responses::mount_sse_once(
-        &responses_server,
-        responses::sse(vec![
-            responses::ev_response_created("disabled-selected-plugin"),
-            responses::ev_assistant_message("disabled-selected-plugin-message", "Done"),
-            responses::ev_completed("disabled-selected-plugin"),
-        ]),
-    )
-    .await;
-
-    let mut app_server = TestAppServer::builder()
-        .with_codex_home(fixture.codex_home.path())
-        .without_auto_env()
-        .build()
-        .await?;
-    timeout(READ_TIMEOUT, app_server.initialize()).await??;
-    let thread_id = start_thread(
-        &mut app_server,
-        fixture.selected_root,
-        fixture.environment_cwd.clone(),
-    )
-    .await?;
-    let mut exec_server =
-        spawn_exec_server(fixture.codex_home.path(), &fixture.exec_server_url).await?;
-    add_environment(&mut app_server, &fixture.exec_server_url).await?;
-
-    run_turn(
-        &mut app_server,
-        &thread_id,
-        "Inspect the disabled selected plugin capabilities",
-        fixture.environment_cwd,
-        &[LOCAL_ENVIRONMENT_ID, EXECUTOR_ID],
-    )
-    .await?;
-
-    assert!(
-        !fixture.pid_file.exists(),
-        "the disabled selected plugin MCP server must never start"
-    );
-    assert_selected_capabilities_absent(&response_mock.single_request());
-
-    exec_server.kill().await?;
-    apps_server_handle.abort();
-    let _ = apps_server_handle.await;
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn selected_capability_stack_tracks_environment_selection_and_resume() -> Result<()> {
-    let responses_server = responses::start_mock_server().await;
-    let (apps_url, apps_server_handle) = start_apps_server_with_delays(
-        vec![AppInfo {
-            id: CONNECTOR_ID.to_string(),
-            name: "Calendar".to_string(),
-            description: None,
-            logo_url: None,
-            logo_url_dark: None,
-            icon_assets: None,
-            icon_dark_assets: None,
-            distribution_channel: None,
-            branding: None,
-            app_metadata: None,
-            labels: None,
-            install_url: None,
-            is_accessible: false,
-            is_enabled: true,
-            plugin_display_names: Vec::new(),
-        }],
-        vec![connector_tool(CONNECTOR_ID, "Calendar")?],
-        Duration::ZERO,
-        Duration::ZERO,
-    )
-    .await?;
-    let fixture = selected_capability_fixture(&responses_server.uri(), &apps_url)?;
-
-    let response_mock = responses::mount_sse_sequence(
-        &responses_server,
-        vec![
-            responses::sse(vec![
-                responses::ev_response_created("environment-unavailable"),
-                responses::ev_assistant_message("unavailable-message", "Waiting"),
-                responses::ev_completed("environment-unavailable"),
-            ]),
-            responses::sse(vec![
-                responses::ev_response_created("environment-available-call"),
-                responses::ev_function_call_with_namespace(
-                    MCP_CALL_ID,
-                    &format!("mcp__{MCP_SERVER_NAME}"),
-                    "echo",
-                    &json!({
-                        "message": "hello from the selected executor",
-                        "env_var": EXECUTOR_ENV_NAME,
-                    })
-                    .to_string(),
-                ),
-                responses::ev_completed("environment-available-call"),
-            ]),
-            responses::sse(vec![
-                responses::ev_response_created("environment-available-done"),
-                responses::ev_assistant_message("available-message", "Done"),
-                responses::ev_completed("environment-available-done"),
-            ]),
-            responses::sse(vec![
-                responses::ev_response_created("unchanged-step"),
-                responses::ev_assistant_message("unchanged-message", "Still ready"),
-                responses::ev_completed("unchanged-step"),
-            ]),
-            responses::sse(vec![
-                responses::ev_response_created("resumed-unavailable-step"),
-                responses::ev_assistant_message(
-                    "resumed-unavailable-message",
-                    "Unavailable after resume",
-                ),
-                responses::ev_completed("resumed-unavailable-step"),
-            ]),
-            responses::sse(vec![
-                responses::ev_response_created("reattached-step"),
-                responses::ev_assistant_message("reattached-message", "Ready after reattach"),
-                responses::ev_completed("reattached-step"),
-            ]),
-        ],
-    )
-    .await;
-
-    let mut app_server = TestAppServer::builder()
-        .with_codex_home(fixture.codex_home.path())
-        // This fixture owns environments.toml and selects its environments explicitly.
-        .without_auto_env()
-        .build()
-        .await?;
-    timeout(READ_TIMEOUT, app_server.initialize()).await??;
-    let thread_id = start_thread(
-        &mut app_server,
-        fixture.selected_root.clone(),
-        fixture.environment_cwd.clone(),
-    )
-    .await?;
-
-    run_turn(
-        &mut app_server,
-        &thread_id,
-        "Inspect the current capabilities",
-        fixture.environment_cwd.clone(),
-        &[LOCAL_ENVIRONMENT_ID],
-    )
-    .await?;
-    let initial_requests = response_mock.requests();
-    assert_selected_capabilities_absent(&initial_requests[0]);
-
-    let mut exec_server =
-        spawn_exec_server(fixture.codex_home.path(), &fixture.exec_server_url).await?;
-    add_environment(&mut app_server, &fixture.exec_server_url).await?;
-
-    // The next turn selects the executor; its server mention waits for MCP startup.
-    run_turn(
-        &mut app_server,
-        &thread_id,
-        &format!("Use ${SKILL_NAME} and call [${MCP_SERVER_NAME}](mcp://{MCP_SERVER_NAME})"),
-        fixture.environment_cwd.clone(),
-        &[LOCAL_ENVIRONMENT_ID, EXECUTOR_ID],
-    )
-    .await?;
-    let first_mcp_pid = wait_for_pid_file(&fixture.pid_file).await?;
-
-    run_turn(
-        &mut app_server,
-        &thread_id,
-        "Continue with the same selected capabilities",
-        fixture.environment_cwd.clone(),
-        &[LOCAL_ENVIRONMENT_ID, EXECUTOR_ID],
-    )
-    .await?;
-    assert_eq!(first_mcp_pid, wait_for_pid_file(&fixture.pid_file).await?);
-
-    exec_server.kill().await?;
-    drop(app_server);
-    std::fs::remove_file(&fixture.pid_file)?;
-
-    let mut app_server = TestAppServer::builder()
-        .with_codex_home(fixture.codex_home.path())
-        // This fixture owns environments.toml and selects its environments explicitly.
-        .without_auto_env()
-        .build()
-        .await?;
-    timeout(READ_TIMEOUT, app_server.initialize()).await??;
-    let request_id = app_server
-        .send_thread_resume_request(ThreadResumeParams {
-            thread_id: thread_id.clone(),
-            ..Default::default()
-        })
-        .await?;
-    let response = timeout(
-        READ_TIMEOUT,
-        app_server.read_stream_until_response_message(RequestId::Integer(request_id)),
-    )
-    .await??;
-    let ThreadResumeResponse { thread, .. } = to_response(response)?;
-    assert_eq!(thread_id, thread.id);
-
-    run_turn(
-        &mut app_server,
-        &thread_id,
-        "Inspect capabilities while the selected executor is unavailable",
-        fixture.environment_cwd.clone(),
-        &[LOCAL_ENVIRONMENT_ID],
-    )
-    .await?;
-    let requests = response_mock.requests();
-    assert_eq!(5, requests.len());
-    assert_selected_plugin_tools_absent(&requests[4]);
-    assert!(
-        latest_selected_skill_update(&requests[4])
-            .is_some_and(|text| text.contains(NO_SELECTED_SKILLS_MESSAGE))
-    );
-
-    exec_server = spawn_exec_server(fixture.codex_home.path(), &fixture.exec_server_url).await?;
-    add_environment(&mut app_server, &fixture.exec_server_url).await?;
-
-    run_turn(
-        &mut app_server,
-        &thread_id,
-        &format!(
-            "Use ${SKILL_NAME} with [${MCP_SERVER_NAME}](mcp://{MCP_SERVER_NAME}) after reattaching the selected executor"
-        ),
-        fixture.environment_cwd,
-        &[LOCAL_ENVIRONMENT_ID, EXECUTOR_ID],
-    )
-    .await?;
-    let resumed_mcp_pid = wait_for_pid_file(&fixture.pid_file).await?;
-    assert_ne!(first_mcp_pid, resumed_mcp_pid);
-
-    let requests = response_mock.requests();
-    assert_eq!(6, requests.len());
-    for request in &requests[1..4] {
-        assert_selected_skill_is_injected(request, /*expected_count*/ 1);
-        assert_selected_plugin_tools(request);
-        assert_plugin_guidance_count(request, /*expected_count*/ 0);
-    }
-    assert_plugin_guidance_count(&requests[4], /*expected_count*/ 0);
-    assert_selected_skill_is_injected(&requests[5], /*expected_count*/ 2);
-    assert!(
-        latest_selected_skill_update(&requests[5])
-            .is_some_and(|text| text.contains(RESTORED_SELECTED_SKILLS_MESSAGE))
-    );
-    assert_eq!(
-        1,
-        requests[5]
-            .message_input_texts("developer")
-            .into_iter()
-            .filter(|text| text.contains(SKILL_DESCRIPTION))
-            .count(),
-        "reattaching should retain the original catalog without repeating it"
-    );
-    assert_selected_plugin_tools(&requests[5]);
-    let output = requests[2].function_call_output(MCP_CALL_ID);
-    let output = output["output"]
-        .as_str()
-        .expect("MCP function output should be text");
-    assert!(output.contains("ECHOING: hello from the selected executor"));
-    assert!(output.contains(EXECUTOR_ENV_VALUE));
-
-    exec_server.kill().await?;
-    apps_server_handle.abort();
-    let _ = apps_server_handle.await;
-    Ok(())
-}
-
 struct SelectedCapabilityFixture {
     codex_home: TempDir,
     _plugin: TempDir,
@@ -549,15 +230,6 @@ fn selected_capability_fixture(
         format!(
             "{config}\n[features]\napps = true\nexecutor_capability_discovery = true\n\n[skills]\ninclude_instructions = true\n"
         ),
-    )?;
-    write_chatgpt_auth(
-        codex_home.path(),
-        ChatGptAuthFixture::new("chatgpt-token")
-            .account_id("account-123")
-            .email("selected-capability-stack@example.com")
-            .plan_type("pro")
-            .chatgpt_account_id("account-123"),
-        AuthCredentialsStoreMode::File,
     )?;
 
     // Reserve the URL before app-server starts. The configured environment initially fails to
@@ -635,60 +307,6 @@ fn selected_capability_fixture(
     })
 }
 
-fn assert_selected_capabilities_absent(request: &ResponsesRequest) {
-    assert!(
-        request
-            .message_input_texts("developer")
-            .into_iter()
-            .all(|text| !text.contains(SKILL_DESCRIPTION))
-    );
-    assert_selected_plugin_tools_absent(request);
-    assert_plugin_guidance_count(request, /*expected_count*/ 0);
-}
-
-fn assert_selected_plugin_tools_absent(request: &ResponsesRequest) {
-    assert!(
-        request
-            .tool_by_name(&format!("mcp__{MCP_SERVER_NAME}"), "echo")
-            .is_none()
-    );
-    let connector = request
-        .tool_by_name("mcp__codex_apps__calendar", "connector_calendar")
-        .expect("host connector should remain model-visible");
-    assert!(
-        connector["description"]
-            .as_str()
-            .is_some_and(|description| !description.contains(PLUGIN_DISPLAY_NAME))
-    );
-}
-
-fn assert_plugin_guidance_count(request: &ResponsesRequest, expected_count: usize) {
-    assert_eq!(
-        expected_count,
-        request
-            .message_input_texts("developer")
-            .into_iter()
-            .filter(|text| text.starts_with(PLUGINS_INSTRUCTIONS_OPEN_TAG))
-            .count()
-    );
-}
-
-fn assert_selected_skill_is_injected(request: &ResponsesRequest, expected_count: usize) {
-    assert_selected_skill_catalog_available(request);
-
-    let skill_fragments = request
-        .message_input_texts("user")
-        .into_iter()
-        .filter(|text| text.starts_with("<skill>"))
-        .collect::<Vec<_>>();
-    assert_eq!(expected_count, skill_fragments.len());
-    for fragment in skill_fragments {
-        assert!(fragment.contains(&format!("<name>{SKILL_NAME}</name>")));
-        assert!(fragment.contains(SKILL_BODY_MARKER));
-        assert!(!fragment.contains(LOCAL_SKILL_BODY_MARKER));
-    }
-}
-
 fn assert_selected_skill_catalog_available(request: &ResponsesRequest) {
     let latest_update = latest_selected_skill_update(request)
         .expect("selected skill availability should be model-visible");
@@ -710,22 +328,6 @@ fn latest_selected_skill_update(request: &ResponsesRequest) -> Option<String> {
                 || text.contains(NO_SELECTED_SKILLS_MESSAGE)
                 || text.contains(RESTORED_SELECTED_SKILLS_MESSAGE)
         })
-}
-
-fn assert_selected_plugin_tools(request: &ResponsesRequest) {
-    assert!(
-        request
-            .tool_by_name(&format!("mcp__{MCP_SERVER_NAME}"), "echo")
-            .is_some()
-    );
-    let connector = request
-        .tool_by_name("mcp__codex_apps__calendar", "connector_calendar")
-        .expect("selected connector should be model-visible");
-    assert!(
-        connector["description"]
-            .as_str()
-            .is_some_and(|description| description.contains(PLUGIN_DISPLAY_NAME))
-    );
 }
 
 async fn start_thread(
@@ -752,46 +354,6 @@ async fn start_thread(
     .await??;
     let ThreadStartResponse { thread, .. } = to_response(response)?;
     Ok(thread.id)
-}
-
-async fn run_turn(
-    app_server: &mut TestAppServer,
-    thread_id: &str,
-    text: &str,
-    environment_cwd: AbsolutePathBuf,
-    environment_ids: &[&str],
-) -> Result<()> {
-    let request_id = app_server
-        .send_turn_start_request(TurnStartParams {
-            thread_id: thread_id.to_string(),
-            input: vec![UserInput::Text {
-                text: text.to_string(),
-                text_elements: Vec::new(),
-            }],
-            environments: Some(
-                environment_ids
-                    .iter()
-                    .map(|environment_id| TurnEnvironmentParams {
-                        environment_id: (*environment_id).to_string(),
-                        cwd: environment_cwd.clone().into(),
-                        runtime_workspace_roots: None,
-                    })
-                    .collect(),
-            ),
-            ..Default::default()
-        })
-        .await?;
-    timeout(
-        READ_TIMEOUT,
-        app_server.read_stream_until_response_message(RequestId::Integer(request_id)),
-    )
-    .await??;
-    timeout(
-        READ_TIMEOUT,
-        app_server.read_stream_until_notification_message("turn/completed"),
-    )
-    .await??;
-    Ok(())
 }
 
 async fn add_environment(app_server: &mut TestAppServer, exec_server_url: &str) -> Result<()> {

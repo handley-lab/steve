@@ -210,7 +210,7 @@ async fn guardian_history_preserves_reviewer_across_parent_compaction() -> Resul
     skip_if_no_network!(Ok(()));
     let server = start_mock_server().await;
     let test = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_model("gpt-5.5")
         .with_model_info_override("gpt-5.5", |model| {
             model.comp_hash = Some("same-model".to_owned());

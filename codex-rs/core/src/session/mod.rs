@@ -34,7 +34,6 @@ use crate::context::ManagedDeveloperInstructions;
 use crate::context::ModelSwitchInstructions;
 use crate::context::MultiAgentRoleInstructions;
 use crate::context::NetworkRuleSaved;
-use crate::context::RecommendedPluginsInstructions;
 use crate::context::world_state::Placement;
 use crate::context::world_state::WorldState;
 use crate::context::world_state::WorldStateSnapshot;
@@ -358,7 +357,6 @@ use crate::windows_sandbox::local_binding_policy_for_sandbox;
 use crate::windows_sandbox::managed_proxy_routing_for_windows_sandbox;
 use codex_core_plugins::PluginCommandAttribution;
 use codex_core_plugins::PluginsManager;
-use codex_core_plugins::RecommendedPluginCandidatesInput;
 use codex_git_utils::get_git_repo_root;
 use codex_history::CodexHarnessMetadata;
 use codex_history::CompactedItem;
@@ -900,7 +898,6 @@ impl Session {
             );
         }
 
-        let auth = auth_manager.auth_cached();
         // Forked subagents keep their parent's activation with the copied history.
         // Fresh children restore configured preferences before applying startup defaults.
         let inherits_token_budget = matches!(&conversation_history, InitialHistory::Forked(_))
@@ -4471,51 +4468,23 @@ impl Session {
             if let Some(messages) = model_messages.notes() {
                 extension_data.insert(messages.clone());
             }
-            let mut required_servers = required_servers.to_vec();
-            if settings.model_info.web_search_provider
-                == Some(codex_protocol::openai_models::WebSearchProvider::SearchMcp)
-                && turn_context.apps_enabled()
-                && !turn_context.config.requires_native_search()
-                && (turn_context.config.web_search_mode.value()
-                    != codex_protocol::config_types::WebSearchMode::Disabled
-                    || turn_context
-                        .config
-                        .features
-                        .enabled(codex_features::Feature::HostedSearchPolicy))
-            {
-                required_servers.push(codex_mcp::CODEX_APPS_MCP_SERVER_NAME.to_owned());
-            }
-            let (mcp, prepared_recommendations) = tokio::join!(
-                // MCP refresh can be large; keep it off the sampling request's stack.
-                Box::pin(self.mcp_runtime_for_step(
-                    turn_context.as_ref(),
-                    &selected_capability_roots,
-                    &required_servers,
-                    required_plugins,
-                )),
-                turn::prepare_tool_recommendations(self.as_ref(), turn_context.as_ref()),
-            );
-            let search = crate::model_search::resolve(
+            let required_servers = required_servers.to_vec();
+            // MCP refresh can be large; keep it off the sampling request's stack.
+            let mcp = Box::pin(self.mcp_runtime_for_step(
                 turn_context.as_ref(),
-                &settings,
-                &mcp,
-                &self.services,
-            )
+                &selected_capability_roots,
+                &required_servers,
+                required_plugins,
+            ))
             .await;
+            let search = crate::model_search::resolve(turn_context.as_ref(), &settings).await;
             extension_data.insert(match &search {
                 Some(crate::model_search::ModelSearch::Native { mode, .. }) => *mode,
                 _ => turn_context.config.web_search_mode.value(),
             });
-            let mcp = if let Some(search) = search {
-                let binding = match &search {
-                    crate::model_search::ModelSearch::Hosted { binding, .. } => Arc::clone(binding),
-                    _ => mcp,
-                };
+            if let Some(search) = search {
                 extension_data.insert(search);
-                binding
-            } else {
-                mcp
-            };
+            }
             extension_data.insert(selected_capability_roots);
             let selected_environments = environments.all_selections();
             let select_plugins = |discovery, discovery_v2| {
@@ -4607,7 +4576,6 @@ impl Session {
                 &environments,
                 &mcp,
                 &extension_data,
-                prepared_recommendations,
                 &dynamic_tools,
             )
             .await?;
@@ -5138,32 +5106,6 @@ impl Session {
             developer_sections
                 .push(DeveloperInstructions::new(developer_instructions).render_fragment());
         }
-        let loaded_plugins = self
-            .services
-            .plugins_manager
-            .plugins_for_config(&turn_context.config.plugins_config_input())
-            .await
-            .without_plugins(&turn_context.disabled_plugin_ids);
-        let recommended_plugin_candidates = if turn_context
-            .config
-            .features
-            .plugin_recommendations_enabled()
-        {
-            let auth = self.services.auth_manager.auth().await;
-            let plugins_config = turn_context.config.plugins_config_input();
-            self.services
-                .plugins_manager
-                .recommended_plugin_candidates_for_config(RecommendedPluginCandidatesInput {
-                    plugins_config: &plugins_config,
-                    loaded_plugins: &loaded_plugins,
-                    auth: auth.as_ref(),
-                    disabled_tools: &turn_context.config.tool_suggest.disabled_tools,
-                    app_server_client_name: turn_context.app_server_client_name.as_deref(),
-                })
-                .await
-        } else {
-            None
-        };
         let context_contributors = self.services.extensions.context_contributors().to_vec();
         for contributor in &context_contributors {
             for fragment in contributor
@@ -5309,20 +5251,6 @@ impl Session {
                     "user" => contextual_user_sections.push(fragment.render_fragment()),
                     _ => {}
                 }
-            }
-
-            if next_item.is_none()
-                && let Some(recommended_plugins) = recommended_plugin_candidates
-                    .as_deref()
-                    .and_then(|plugins| {
-                        RecommendedPluginsInstructions::from_plugins(
-                            plugins,
-                            &ResolvedModelMessages::from_model(&step_context.settings.model_info)
-                                .plugin_recommendations(),
-                        )
-                    })
-            {
-                developer_sections.push(recommended_plugins.render_fragment());
             }
 
             if let Some(developer_message) = crate::context_manager::updates::build_rendered_message(

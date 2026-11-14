@@ -11,7 +11,6 @@ use crate::connectors;
 use crate::guardian::GuardianApprovalRequest;
 use crate::guardian::GuardianMcpAnnotations;
 use crate::guardian::GuardianReviewContext;
-use crate::mcp_openai_file::rewrite_mcp_tool_arguments_for_openai_files;
 use crate::mcp_tool_approval_templates::RenderedMcpToolApprovalParam;
 use crate::mcp_tool_approval_templates::render_mcp_tool_approval_template;
 use crate::session::session::Session;
@@ -31,7 +30,6 @@ use codex_analytics::ElicitationType;
 use codex_analytics::InvocationType;
 use codex_analytics::McpToolCallElicitation;
 use codex_analytics::build_track_events_context;
-use codex_api::HostedFileUploadContext;
 use codex_config::ConfigLayerSource;
 use codex_config::types::AppToolApproval;
 use codex_connectors::AppToolPolicy;
@@ -483,42 +481,11 @@ async fn handle_approved_mcp_tool_call(
     let server_origin = prepared_call.server_origin().map(str::to_string);
 
     let start = Instant::now();
-    let mut tool_input = arguments_value
+    let tool_input = arguments_value
         .clone()
         .unwrap_or_else(|| JsonValue::Object(serde_json::Map::new()));
     let is_search = prepared_call.is_host_owned_apps()
         && codex_mcp::is_model_search_tool(prepared_call.tool_info());
-    let search = if is_search {
-        step_context
-            .extension_data
-            .get::<crate::model_search::ModelSearch>()
-    } else {
-        None
-    };
-    // Code Mode can retain this step past a later turn's first native call.
-    // A call rejected here never reaches the peer or acquires MCP attribution.
-    if matches!(
-        search.as_deref(),
-        Some(crate::model_search::ModelSearch::Hosted { .. })
-    ) && !crate::model_search::SearchOwner::admit(
-        &sess.services.thread_extension_data,
-        codex_protocol::openai_models::WebSearchProvider::SearchMcp,
-    ) {
-        let result = notify_mcp_tool_call_skip(
-            sess,
-            turn_context,
-            call_id,
-            invocation,
-            item_metadata,
-            "This thread is using native search".to_string(),
-            /*already_started*/ true,
-        )
-        .await;
-        return HandledMcpToolCall {
-            result: CallToolResult::from_result(result),
-            tool_input,
-        };
-    }
     let mut elicitation_type = None;
     let mut request_error_code = None;
     let result = async {
@@ -553,28 +520,6 @@ async fn handle_approved_mcp_tool_call(
                     }
                     maybe_mark_thread_memory_mode_polluted(sess, turn_context, &prepared_call)
                         .await;
-                    let hosted_upload = item_metadata
-                        .connector_id
-                        .as_ref()
-                        .zip(item_metadata.action_name.as_ref())
-                        .map(|(connector_id, action_name)| HostedFileUploadContext {
-                            thread_id: None,
-                            connector_id: connector_id.clone(),
-                            action_name: action_name.clone(),
-                            model: step_context.settings.model_info.slug.clone(),
-                        });
-                    let rewritten_arguments = rewrite_mcp_tool_arguments_for_openai_files(
-                        sess,
-                        step_context,
-                        arguments_value,
-                        metadata.openai_file_input_optional_fields.as_ref(),
-                        hosted_upload.as_ref(),
-                    )
-                    .await
-                    .map_err(anyhow::Error::msg)?;
-                    if let Some(rewritten_arguments) = rewritten_arguments.as_ref() {
-                        tool_input = rewritten_arguments.clone();
-                    }
                     let mut request_meta = build_mcp_tool_call_request_meta(
                         step_context,
                         &server,
@@ -601,32 +546,6 @@ async fn handle_approved_mcp_tool_call(
                             serde_json::json!(turn_context.cyber_access_program),
                         );
                     }
-                    let request_meta = if let Some(crate::model_search::ModelSearch::Hosted {
-                        binding,
-                        context,
-                    }) = search.as_deref()
-                    {
-                        let mut meta = request_meta.unwrap_or_else(|| serde_json::json!({}));
-                        let turn_meta = meta
-                            .as_object_mut()
-                            .ok_or_else(|| anyhow::anyhow!("invalid MCP metadata"))?
-                            .entry(crate::X_CODEX_TURN_METADATA_HEADER)
-                            .or_insert_with(|| serde_json::json!({}));
-                        crate::model_search::with_search_context(turn_meta, context)?;
-                        let pin = binding
-                            .search_invocation_context(&prepared_call)
-                            .ok_or_else(|| {
-                                anyhow::anyhow!("Search MCP connection changed after discovery")
-                            })?;
-                        let apps = meta
-                            .get_mut(MCP_TOOL_CODEX_APPS_META_KEY)
-                            .and_then(serde_json::Value::as_object_mut)
-                            .ok_or_else(|| anyhow::anyhow!("missing hosted Apps call metadata"))?;
-                        apps.insert("invocation_context".to_string(), pin.clone());
-                        Some(meta)
-                    } else {
-                        request_meta
-                    };
                     let request_meta = with_mcp_tool_call_ids_meta(
                         request_meta,
                         &sess.thread_id.to_string(),
@@ -669,7 +588,7 @@ async fn handle_approved_mcp_tool_call(
                         )
                         .await?;
                     }
-                    Ok((rewritten_arguments, request_meta))
+                    Ok((arguments_value, request_meta))
                 })
                 .await
                 .map_err(|error| {
@@ -965,22 +884,15 @@ async fn maybe_request_codex_apps_auth_elicitation(
         return result;
     }
 
-    refresh_codex_apps_after_connector_auth(sess, turn_context).await;
+    refresh_codex_apps_after_connector_auth(sess).await;
     auth_elicitation_completed_result(&plan.auth_failure, result.meta)
 }
 
-async fn refresh_codex_apps_after_connector_auth(sess: &Arc<Session>, turn_context: &TurnContext) {
+async fn refresh_codex_apps_after_connector_auth(sess: &Arc<Session>) {
     let mcp_tools_result = sess.hard_refresh_latest_codex_apps_tools().await;
 
     match mcp_tools_result {
-        Ok(mcp_tools) => {
-            let auth = sess.services.auth_manager.auth().await;
-            connectors::refresh_accessible_connectors_cache_from_mcp_tools(
-                &turn_context.config,
-                auth.as_ref(),
-                &mcp_tools,
-            );
-        }
+        Ok(_) => {}
         Err(err) => {
             tracing::warn!("failed to refresh Codex Apps tools after connector auth: {err:#}");
         }
@@ -1315,7 +1227,6 @@ pub(crate) struct McpToolApprovalMetadata {
     mcp_app_resource_uri: Option<String>,
     mcp_app_ui: Option<McpAppUi>,
     codex_apps_meta: Option<serde_json::Map<String, serde_json::Value>>,
-    openai_file_input_optional_fields: Option<HashMap<String, Vec<String>>>,
 }
 
 #[derive(Clone)]
@@ -2137,21 +2048,7 @@ fn mcp_tool_metadata(
         mcp_app_resource_uri,
         mcp_app_ui,
         codex_apps_meta,
-        // Disallow custom MCPs from uploading files via fileParams.
-        openai_file_input_optional_fields: openai_file_input_optional_fields_for_server(
-            server,
-            &tool_info.openai_file_input_optional_fields,
-        ),
     })
-}
-
-fn openai_file_input_optional_fields_for_server(
-    server: &str,
-    openai_file_input_optional_fields: &HashMap<String, Vec<String>>,
-) -> Option<HashMap<String, Vec<String>>> {
-    (server == CODEX_APPS_MCP_SERVER_NAME)
-        .then(|| openai_file_input_optional_fields.clone())
-        .filter(|params| !params.is_empty())
 }
 
 fn get_mcp_app_resource_uri(

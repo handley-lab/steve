@@ -425,11 +425,8 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
                 bootstrap_auth_config(&codex_home, &gate_bootstrap)?,
                 gate_path_style,
             ),
-            gate_path_style,
             gate_bootstrap.config_layer_stack.requirements_toml(),
-            /*enable_codex_api_key_env*/ false,
-        )
-        .await?;
+        );
         let gate_config = ConfigBuilder::default()
             .codex_home(codex_home.to_path_buf())
             .cli_overrides(cli_kv_overrides.clone())
@@ -524,16 +521,10 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         bootstrap_auth_config(&codex_home, &bootstrap_config)?,
         path_style,
     );
-    // API keys cannot fetch workspace-managed configuration. Preserve the
-    // existing ChatGPT bootstrap identity even when model requests allow
-    // STEVE_API_KEY.
     let cloud_config_bundle = managed_config_bundle_loader_for_storage(
         bootstrap_auth_config,
-        path_style,
         bootstrap_config.config_layer_stack.requirements_toml(),
-        /*enable_codex_api_key_env*/ false,
-    )
-    .await?;
+    );
     if let Some(worktree) = managed_worktree.as_ref() {
         // Destination auth can fetch source policy that the host bootstrap could not.
         let source_config = ConfigBuilder::default()
@@ -2272,15 +2263,6 @@ async fn handle_server_request(
                     "dynamic tool calls are not supported in exec mode for thread `{}`",
                     params.thread_id
                 ),
-            )
-            .await
-        }
-        ServerRequest::ChatgptAuthTokensRefresh { request_id, .. } => {
-            reject_server_request(
-                client,
-                request_id,
-                &method,
-                "chatgpt auth token refresh is not supported in exec mode".to_string(),
             )
             .await
         }

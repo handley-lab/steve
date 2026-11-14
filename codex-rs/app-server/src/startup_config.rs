@@ -17,7 +17,6 @@ use codex_login::default_client::SetOriginatorError;
 use codex_login::default_client::USER_AGENT_SUFFIX;
 use codex_login::default_client::set_default_client_residency_requirement;
 use codex_login::default_client::set_default_originator;
-use codex_login::read_codex_access_token_from_env;
 use codex_utils_cli::CliConfigOverrides;
 use serde::Serialize;
 use std::io;
@@ -31,7 +30,7 @@ pub struct StartupConfigArgs {
     pub startup_sign_out: bool,
 
     /// Validate configuration and print requirements as JSON without starting the app server.
-    #[arg(long, conflicts_with_all = ["listen", "stdio", "remote_control", "managed_daemon"])]
+    #[arg(long, conflicts_with_all = ["listen", "stdio", "managed_daemon"])]
     pub print_startup_config: bool,
 
     /// ClientInfo JSON used for configuration/auth request identity.
@@ -82,11 +81,6 @@ async fn read_startup_config(
     strict_config: bool,
     startup: StartupConfigArgs,
 ) -> Result<StartupConfig, JSONRPCErrorError> {
-    if startup.startup_sign_out && read_codex_access_token_from_env().is_some() {
-        return Err(crate::error_code::invalid_request(
-            "Configured external authentication is owned by the app-server host and cannot be changed during startup recovery.",
-        ));
-    }
     if let Some(client) = startup.startup_client_info {
         match set_default_originator(client.name.clone()) {
             Ok(()) | Err(SetOriginatorError::AlreadyInitialized) => {}
@@ -140,7 +134,7 @@ async fn read_startup_config(
         set_default_client_residency_requirement(config.enforce_residency.value());
         let config = logout_configured_account(&manager, &auth, &config).await?;
         clear_account_configuration(&manager, &config).await?;
-        manager.update_managed_config_loader(Arc::clone(&auth), &config);
+        manager.update_managed_config_loader(&config);
         manager
             .load_latest_config(cwd)
             .await

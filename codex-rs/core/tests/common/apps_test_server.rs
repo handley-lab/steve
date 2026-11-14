@@ -1,6 +1,4 @@
 use crate::PathExt;
-use crate::test_codex::TestCodexBuilder;
-use crate::test_codex::test_codex;
 use anyhow::Result;
 use codex_config::types::AppToolApproval;
 use codex_core::config::Config;
@@ -9,7 +7,6 @@ use codex_extension_api::McpServerContribution;
 use codex_extension_api::McpServerContributionContext;
 use codex_extension_api::McpServerContributor;
 use codex_features::Feature;
-use codex_login::CodexAuth;
 use codex_protocol::config_types::ApprovalsReviewer;
 use serde_json::Value;
 use serde_json::json;
@@ -322,13 +319,6 @@ pub fn configure_search_capable_apps(config: &mut Config, apps_base_url: &str) {
     configure_search_capable_model(config);
 }
 
-pub fn apps_enabled_builder(apps_base_url: impl Into<String>) -> TestCodexBuilder {
-    let apps_base_url = apps_base_url.into();
-    test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
-        .with_config(move |config| configure_apps(config, apps_base_url.as_str()))
-}
-
 pub fn set_default_app_approval_mode_and_reviewer(
     config: &mut Config,
     approval_mode: AppToolApproval,
@@ -346,13 +336,6 @@ pub fn set_default_app_approval_mode_and_reviewer(
         .config_layer_stack
         .with_user_config(&path, user_config)
         .expect("apps user config should be valid");
-}
-
-pub fn search_capable_apps_builder(apps_base_url: impl Into<String>) -> TestCodexBuilder {
-    let apps_base_url = apps_base_url.into();
-    test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
-        .with_config(move |config| configure_search_capable_apps(config, apps_base_url.as_str()))
 }
 
 fn apps_tool_call_id(body: &Value) -> Option<&str> {

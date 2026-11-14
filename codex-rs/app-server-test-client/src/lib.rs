@@ -37,7 +37,6 @@ use codex_app_server_protocol::DynamicToolSpec;
 use codex_app_server_protocol::FileChangeApprovalDecision;
 use codex_app_server_protocol::FileChangeRequestApprovalParams;
 use codex_app_server_protocol::FileChangeRequestApprovalResponse;
-use codex_app_server_protocol::GetAccountRateLimitsResponse;
 use codex_app_server_protocol::InitializeCapabilities;
 use codex_app_server_protocol::InitializeParams;
 use codex_app_server_protocol::InitializeResponse;
@@ -89,9 +88,6 @@ use url::Url;
 use uuid::Uuid;
 
 mod loopback_responses_server;
-mod plugin_analytics_capture;
-mod plugin_analytics_mutation_smoke;
-mod plugin_analytics_smoke;
 mod request_user_input;
 
 const NOTIFICATIONS_TO_OPT_OUT: &[&str] = &[
@@ -233,8 +229,6 @@ enum CliCommand {
     },
     /// Log out of the current account and wait for the account update.
     TestLogout,
-    /// Fetch the current account rate limits from the Codex app-server.
-    GetAccountRateLimits,
     /// List the available models from the Codex app-server.
     #[command(name = "model-list")]
     ModelList,
@@ -274,39 +268,6 @@ enum CliCommand {
         /// Seconds the helper script should sleep while the timeout is paused.
         #[arg(long, default_value_t = 15)]
         hold_seconds: u64,
-    },
-    /// Exercise remote plugin analytics through production app-server RPC paths.
-    #[command(name = "plugin-analytics-smoke")]
-    PluginAnalyticsSmoke {
-        /// Installed local plugin id, such as `linear@openai-curated-remote`.
-        #[arg(long)]
-        plugin_id: String,
-        /// JSONL output path. Defaults to a PID-specific file under the system temp directory.
-        #[arg(long)]
-        capture_file: Option<PathBuf>,
-    },
-    /// Install and uninstall one remote plugin while validating analytics capture.
-    #[command(name = "plugin-analytics-mutation-smoke")]
-    PluginAnalyticsMutationSmoke {
-        /// Backend remote plugin id. The plugin must be initially uninstalled.
-        #[arg(long)]
-        remote_plugin_id: String,
-        /// Acknowledge that this command mutates the active account's plugin state.
-        #[arg(long)]
-        confirm_account_mutation: bool,
-        /// JSONL output path. Defaults to a PID-specific file under the system temp directory.
-        #[arg(long)]
-        capture_file: Option<PathBuf>,
-    },
-    /// Best-effort recovery command that uninstalls one remote plugin.
-    #[command(name = "plugin-remote-uninstall")]
-    PluginRemoteUninstall {
-        /// Backend remote plugin id to uninstall.
-        #[arg(long)]
-        remote_plugin_id: String,
-        /// Acknowledge that this command mutates the active account's plugin state.
-        #[arg(long)]
-        confirm_account_mutation: bool,
     },
 }
 
@@ -415,11 +376,6 @@ pub async fn run() -> Result<()> {
             let endpoint = resolve_endpoint(codex_bin, url)?;
             test_logout(&endpoint, &config_overrides).await
         }
-        CliCommand::GetAccountRateLimits => {
-            ensure_dynamic_tools_unused(&dynamic_tools, "get-account-rate-limits")?;
-            let endpoint = resolve_endpoint(codex_bin, url)?;
-            get_account_rate_limits(&endpoint, &config_overrides).await
-        }
         CliCommand::ModelList => {
             ensure_dynamic_tools_unused(&dynamic_tools, "model-list")?;
             let endpoint = resolve_endpoint(codex_bin, url)?;
@@ -455,58 +411,6 @@ pub async fn run() -> Result<()> {
                 workspace,
                 script,
                 hold_seconds,
-            )
-        }
-        CliCommand::PluginAnalyticsSmoke {
-            plugin_id,
-            capture_file,
-        } => {
-            ensure_dynamic_tools_unused(&dynamic_tools, "plugin-analytics-smoke")?;
-            if url.is_some() {
-                bail!("plugin-analytics-smoke requires --codex-bin and does not support --url");
-            }
-            let codex_bin = codex_bin.context("plugin-analytics-smoke requires --codex-bin")?;
-            plugin_analytics_smoke::run(&codex_bin, &config_overrides, &plugin_id, capture_file)
-        }
-        CliCommand::PluginAnalyticsMutationSmoke {
-            remote_plugin_id,
-            confirm_account_mutation,
-            capture_file,
-        } => {
-            ensure_dynamic_tools_unused(&dynamic_tools, "plugin-analytics-mutation-smoke")?;
-            if url.is_some() {
-                bail!(
-                    "plugin-analytics-mutation-smoke requires --codex-bin and does not support --url"
-                );
-            }
-            let codex_bin =
-                codex_bin.context("plugin-analytics-mutation-smoke requires --codex-bin")?;
-            plugin_analytics_mutation_smoke::run(
-                &codex_bin,
-                &config_overrides,
-                &remote_plugin_id,
-                plugin_analytics_mutation_smoke::AccountMutationConfirmation::from_flag(
-                    confirm_account_mutation,
-                ),
-                capture_file,
-            )
-        }
-        CliCommand::PluginRemoteUninstall {
-            remote_plugin_id,
-            confirm_account_mutation,
-        } => {
-            ensure_dynamic_tools_unused(&dynamic_tools, "plugin-remote-uninstall")?;
-            if url.is_some() {
-                bail!("plugin-remote-uninstall requires --codex-bin and does not support --url");
-            }
-            let codex_bin = codex_bin.context("plugin-remote-uninstall requires --codex-bin")?;
-            plugin_analytics_mutation_smoke::run_cleanup(
-                &codex_bin,
-                &config_overrides,
-                &remote_plugin_id,
-                plugin_analytics_mutation_smoke::AccountMutationConfirmation::from_flag(
-                    confirm_account_mutation,
-                ),
             )
         }
     }
@@ -1056,24 +960,6 @@ async fn test_login(
     .await
 }
 
-async fn get_account_rate_limits(endpoint: &Endpoint, config_overrides: &[String]) -> Result<()> {
-    with_client(
-        "get-account-rate-limits",
-        endpoint,
-        config_overrides,
-        |client| {
-            let initialize = client.initialize()?;
-            println!("< initialize response: {initialize:?}");
-
-            let response = client.get_account_rate_limits()?;
-            println!("< account/rateLimits/read response: {response:?}");
-
-            Ok(())
-        },
-    )
-    .await
-}
-
 async fn test_logout(endpoint: &Endpoint, config_overrides: &[String]) -> Result<()> {
     with_client("test-logout", endpoint, config_overrides, |client| {
         let initialize = client.initialize()?;
@@ -1612,16 +1498,6 @@ impl CodexClient {
         };
 
         self.send_request(request, request_id, "turn/start")
-    }
-
-    fn get_account_rate_limits(&mut self) -> Result<GetAccountRateLimitsResponse> {
-        let request_id = self.request_id();
-        let request = ClientRequest::GetAccountRateLimits {
-            request_id: request_id.clone(),
-            params: None,
-        };
-
-        self.send_request(request, request_id, "account/rateLimits/read")
     }
 
     fn logout_account(&mut self) -> Result<LogoutAccountResponse> {

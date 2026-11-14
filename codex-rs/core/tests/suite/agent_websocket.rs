@@ -100,7 +100,7 @@ async fn spawned_agent_prewarm_handshake_inherits_effective_root_service_tier(
     };
     let test = test_codex()
         .with_model("gpt-5.4")
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_model_info_override("gpt-5.4", move |model| {
             model.service_tiers.push(ModelServiceTier {
                 id: tier.to_string(),
@@ -281,7 +281,7 @@ async fn pending_host_tier_settings_reply_does_not_block_interrupt() -> Result<(
     let release_completion = server.gate_response_event(&completed);
     let test = test_codex()
         .with_model("gpt-5.4")
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(|config| {
             // Keep sampling behind the gate until the explicit interrupt.
             config.features.disable(Feature::InstantInterrupt).unwrap();
@@ -507,7 +507,7 @@ async fn detached_host_child_inherits_root_service_tier_at_prewarm_and_each_step
     .await;
     let test = test_codex()
         .with_model("gpt-5.4")
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_model_info_override("gpt-5.4", |model| {
             model.service_tiers.push(ModelServiceTier {
                 id: "priority".into(),
@@ -1097,7 +1097,7 @@ async fn websocket_v2_first_turn_sends_full_create_when_tier_changes_after_start
                 })
                 .collect();
         })
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
             for feature in [Feature::ResponsesWebsocketsV2, Feature::FastMode] {
                 config

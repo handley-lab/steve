@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::GatewayAuthManager;
-use codex_api::AgentIdentityTelemetry;
 use codex_api::ModelsClient;
 use codex_api::RequestTelemetry;
 use codex_api::ReqwestTransport;
@@ -42,7 +41,6 @@ use sha2::Digest;
 use sha2::Sha256;
 use tokio::time::timeout;
 
-use crate::auth::agent_identity_telemetry;
 use crate::combined_auth::compose_auth;
 use crate::combined_auth::gateway_header;
 use crate::request_setup::resolve_request_auth;
@@ -100,11 +98,6 @@ impl OpenAiModelsEndpoint {
                 None
             }
         }
-    }
-
-    fn has_provider_api_key(&self) -> bool {
-        self.provider_info.env_key.is_some()
-            || self.provider_info.experimental_bearer_token.is_some()
     }
 
     async fn list_models(
@@ -196,17 +189,11 @@ impl OpenAiModelsEndpoint {
         };
         let auth_telemetry = auth_header_telemetry(api_auth.as_ref())
             .map_err(|error| map_api_error(error.into()))?;
-        let agent_identity_telemetry = if let Some(CodexAuth::AgentIdentity(auth)) = auth.as_ref() {
-            Some(agent_identity_telemetry(auth))
-        } else {
-            None
-        };
         let request_telemetry: Arc<dyn RequestTelemetry> = Arc::new(ModelsRequestTelemetry {
             include_response_debug: self.provider_info.model_catalog_url.is_none(),
             auth_mode: auth_mode.map(|mode| TelemetryAuthMode::from(mode).to_string()),
             auth_header_attached: auth_telemetry.attached,
             auth_header_name: auth_telemetry.name,
-            agent_identity_telemetry,
             auth_env: self.auth_env(),
         });
         let (models, etag) = {
@@ -401,7 +388,6 @@ struct ModelsRequestTelemetry {
     auth_mode: Option<String>,
     auth_header_attached: bool,
     auth_header_name: Option<&'static str>,
-    agent_identity_telemetry: Option<AgentIdentityTelemetry>,
     auth_env: AuthEnvTelemetry,
 }
 
@@ -443,8 +429,6 @@ impl RequestTelemetry for ModelsRequestTelemetry {
             auth.error = response_debug.auth_error.as_deref(),
             auth.error_code = response_debug.auth_error_code.as_deref(),
             auth.mode = self.auth_mode.as_deref(),
-            auth.agent_id = self.agent_identity_telemetry.as_ref().map(|metadata| metadata.agent_id.as_str()),
-            auth.task_id = self.agent_identity_telemetry.as_ref().map(|metadata| metadata.task_id.as_str()),
         );
         tracing::event!(
             target: "codex_otel.trace_safe",
@@ -469,8 +453,6 @@ impl RequestTelemetry for ModelsRequestTelemetry {
             auth.error = response_debug.auth_error.as_deref(),
             auth.error_code = response_debug.auth_error_code.as_deref(),
             auth.mode = self.auth_mode.as_deref(),
-            auth.agent_id = self.agent_identity_telemetry.as_ref().map(|metadata| metadata.agent_id.as_str()),
-            auth.task_id = self.agent_identity_telemetry.as_ref().map(|metadata| metadata.task_id.as_str()),
         );
         emit_feedback_request_tags_with_auth_env(
             &FeedbackRequestTags {
@@ -509,7 +491,3 @@ mod tests;
 #[cfg(test)]
 #[path = "models_endpoint_runtime_auth_tests.rs"]
 mod runtime_auth_tests;
-
-#[cfg(test)]
-#[path = "models_endpoint_refresh_tests.rs"]
-mod refresh_tests;

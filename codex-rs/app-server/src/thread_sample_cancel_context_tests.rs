@@ -7,16 +7,7 @@ use pretty_assertions::assert_eq;
 async fn thread_sample_cancel_only_signals_matching_request_contexts() {
     let (tx, _rx) = mpsc::channel(/*buffer*/ 1);
     let outgoing = OutgoingMessageSender::new(tx, AnalyticsEventsClient::disabled());
-    for method in [
-        "thread/sample",
-        "thread/sample/cancel",
-        "userVerification/status",
-        "userVerification/enroll",
-        "userVerification/delete",
-        "userVerification/verify",
-        "userVerification/cancel",
-        "turn/start",
-    ] {
+    for method in ["thread/sample", "thread/sample/cancel", "turn/start"] {
         let target = ConnectionRequestId {
             connection_id: ConnectionId(1),
             request_id: RequestId::Integer(7),

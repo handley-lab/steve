@@ -50,7 +50,7 @@ async fn refresh_models_on_models_etag_mismatch_and_avoid_duplicate_models_fetch
     )
     .await;
 
-    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
+    let auth = CodexAuth::from_api_key("dummy");
     let mut builder = test_codex()
         .with_auth(auth)
         .with_model("gpt-5.2")

@@ -135,8 +135,7 @@ async fn originator_catalogs_are_isolated_and_reused_from_disk() {
     }
     let client = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
     for _ in 0..2 {
-        let auth =
-            AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+        let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
         let endpoint = Arc::new(OpenAiModelsEndpoint::new(
             provider.clone(),
             Some(Arc::clone(&auth)),

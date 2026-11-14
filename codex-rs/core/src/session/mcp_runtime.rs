@@ -353,7 +353,7 @@ impl Session {
                     && desired.config.effective_local_windows_sandbox_type()
                         == SandboxType::WindowsMxc,
             );
-        let mcp_servers = effective_mcp_servers(&config, auth.as_ref());
+        let mcp_servers = effective_mcp_servers(&config);
         config.set_server_permissions(
             &mcp_servers,
             desired.environments.turn_environments().map(|environment| {
@@ -373,7 +373,6 @@ impl Session {
             self.mcp_runtime_context(&desired.environments, &desired.local_process_cwd);
         McpRuntimeInput {
             network_policy_metadata: None,
-            runtime_auth: None,
             startup_policy: if matches!(desired.session_source, SessionSource::SubAgent(_)) {
                 McpStartupPolicy::DeferCachedServers
             } else if desired

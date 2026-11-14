@@ -22,11 +22,8 @@ use serde_json::json;
 use test_case::test_case;
 
 #[test_case(CodexAuth::from_api_key("test-api-key"), false, false; "api_key")]
-#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(), false, false; "chatgpt")]
 #[test_case(CodexAuth::from_api_key("test-api-key"), true, false; "api_key_independent_reviewer")]
-#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(), true, false; "chatgpt_independent_reviewer")]
 #[test_case(CodexAuth::from_api_key("test-api-key"), false, true; "api_key_parent_only")]
-#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(), false, true; "chatgpt_parent_only")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn guardian_reused_reviewer_respects_parent_program_scope(
     auth: CodexAuth,

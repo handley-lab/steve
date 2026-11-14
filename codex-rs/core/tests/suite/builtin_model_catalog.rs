@@ -20,7 +20,6 @@ use wiremock::matchers::method;
 use wiremock::matchers::path;
 
 #[test_case(CodexAuth::from_api_key("catalog-routing-test-key"), "Bearer catalog-routing-test-key"; "api_key")]
-#[test_case(CodexAuth::create_dummy_chatgpt_auth_for_testing(), "Bearer Access Token"; "chatgpt")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builtin_openai_catalog_override_preserves_inference(
     auth: CodexAuth,

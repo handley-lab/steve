@@ -1322,11 +1322,6 @@ impl CodexThread {
         .await
     }
 
-    /// Revokes enterprise MCP authority from the current owner after a failed reload.
-    pub async fn disable_mcp_enterprise_auth(&self) {
-        self.session.disable_mcp_enterprise_auth().await;
-    }
-
     /// Refresh MCP configuration, managed requirements, and explicit session plugin overrides.
     /// Omitted session plugins preserve current overrides; an empty map restores inheritance.
     /// Other session overrides and user settings remain unchanged.

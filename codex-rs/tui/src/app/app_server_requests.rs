@@ -78,7 +78,6 @@ pub(super) struct PendingAppServerRequests {
     permissions_approvals: HashMap<(String, String), PendingServerRequest>,
     user_inputs: HashMap<(String, String), VecDeque<PendingUserInputRequest>>,
     mcp_requests: HashMap<McpRequestKey, PendingServerRequest>,
-    pub(super) user_verification: super::user_verification_requests::UserVerificationRequests,
 }
 
 impl PendingAppServerRequests {
@@ -94,17 +93,6 @@ impl PendingAppServerRequests {
         self.permissions_approvals.clear();
         self.user_inputs.clear();
         self.mcp_requests.clear();
-        self.user_verification.clear();
-    }
-
-    pub(super) fn cancel_thread_verification(&mut self, thread_id: &str) {
-        for (server_name, request_id) in self.user_verification.cancel_thread(thread_id) {
-            self.mcp_requests.remove(&McpRequestKey {
-                thread_id: Self::canonical_thread_id(thread_id),
-                server_name,
-                request_id,
-            });
-        }
     }
 
     #[cfg(test)]
@@ -183,8 +171,6 @@ impl PendingAppServerRequests {
             }
             ServerRequest::McpServerElicitationRequest { request_id, params } => {
                 let thread_id = Self::canonical_thread_id(&params.thread_id);
-                self.user_verification
-                    .note_request(&thread_id, request_id, params);
                 self.mcp_requests.insert(
                     McpRequestKey {
                         thread_id,
@@ -196,7 +182,6 @@ impl PendingAppServerRequests {
                 None
             }
             ServerRequest::DynamicToolCall { .. } => None,
-            ServerRequest::ChatgptAuthTokensRefresh { .. } => None,
             ServerRequest::AttestationGenerate { request_id, .. } => {
                 Some(UnsupportedAppServerRequest {
                     request_id: request_id.clone(),
@@ -259,58 +244,7 @@ impl PendingAppServerRequests {
         T: Into<AppCommand>,
     {
         let thread_id = Self::canonical_thread_id(thread_id);
-        let op: AppCommand = match op.into() {
-            AppCommand::ResolveUserVerification {
-                server_name,
-                request_id,
-                response,
-            } => {
-                let (decision, content, meta) = match response {
-                    crate::app_command::UserVerificationResponse::Accept { proof } => (
-                        codex_app_server_protocol::McpServerElicitationAction::Accept,
-                        Some(
-                            serde_json::to_value(proof)
-                                .map_err(|_| "Invalid verification proof".to_string())?,
-                        ),
-                        None,
-                    ),
-                    crate::app_command::UserVerificationResponse::Cancel => (
-                        codex_app_server_protocol::McpServerElicitationAction::Cancel,
-                        None,
-                        Some(serde_json::json!({"openai/userVerificationReason": "userCancelled"})),
-                    ),
-                    crate::app_command::UserVerificationResponse::Failed { error } => {
-                        // Serialize only the closed protocol reason, never the display message.
-                        let error = serde_json::to_value(error)
-                            .map_err(|_| "Invalid verification error".to_string())?;
-                        (
-                            codex_app_server_protocol::McpServerElicitationAction::Cancel,
-                            None,
-                            Some(
-                                serde_json::json!({"openai/userVerificationReason": error["reason"]}),
-                            ),
-                        )
-                    }
-                };
-                AppCommand::ResolveElicitation {
-                    server_name,
-                    request_id,
-                    decision,
-                    content,
-                    meta,
-                }
-            }
-            op => op,
-        };
-        if let AppCommand::ResolveElicitation {
-            server_name,
-            request_id,
-            ..
-        } = &op
-        {
-            self.user_verification
-                .remove(&thread_id, server_name, request_id);
-        }
+        let op: AppCommand = op.into();
         let resolution = match &op {
             AppCommand::ExecApproval { id, decision, .. } => self
                 .exec_approvals
@@ -464,8 +398,6 @@ impl PendingAppServerRequests {
             (key.thread_id == thread_id && &value.request_id == request_id).then(|| key.clone())
         }) {
             self.mcp_requests.remove(&key);
-            self.user_verification
-                .remove(&key.thread_id, &key.server_name, &key.request_id);
             return Some(ResolvedThreadAppServerRequest {
                 thread_id: key.thread_id,
                 request: ResolvedAppServerRequest::McpElicitation {
@@ -479,8 +411,7 @@ impl PendingAppServerRequests {
     }
 
     pub(super) fn contains_server_request(&self, request: &ServerRequest) -> bool {
-        matches!(request, ServerRequest::ChatgptAuthTokensRefresh { .. })
-            || self.pending_request(request).is_some()
+        self.pending_request(request).is_some()
     }
 
     fn pending_request(&self, request: &ServerRequest) -> Option<&PendingServerRequest> {
@@ -527,7 +458,6 @@ impl PendingAppServerRequests {
                     request_id: request_id.clone(),
                 })
             }
-            ServerRequest::ChatgptAuthTokensRefresh { .. } => None,
             ServerRequest::DynamicToolCall { .. }
             | ServerRequest::AttestationGenerate { .. }
             | ServerRequest::CurrentTimeRead { .. }
@@ -997,22 +927,6 @@ mod tests {
                 "content": { "answer": "yes" },
                 "_meta": { "source": "tui" }
             })
-        );
-    }
-
-    #[test]
-    fn does_not_mark_chatgpt_auth_refresh_as_unsupported() {
-        let mut pending = PendingAppServerRequests::default();
-
-        assert_eq!(
-            pending.note_server_request(&ServerRequest::ChatgptAuthTokensRefresh {
-                request_id: AppServerRequestId::Integer(100),
-                params: codex_app_server_protocol::ChatgptAuthTokensRefreshParams {
-                    reason: codex_app_server_protocol::ChatgptAuthTokensRefreshReason::Unauthorized,
-                    previous_account_id: Some("workspace-1".to_string()),
-                },
-            }),
-            None
         );
     }
 

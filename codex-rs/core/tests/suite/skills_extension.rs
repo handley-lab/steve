@@ -94,7 +94,6 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path_uri::PathUri;
 use codex_utils_string::approx_token_count;
 use core_test_support::apps_test_server::AppsTestServer;
-use core_test_support::apps_test_server::apps_enabled_builder;
 use core_test_support::context_snapshot;
 use core_test_support::context_snapshot::ContextSnapshotOptions;
 use core_test_support::responses;
@@ -113,7 +112,6 @@ use core_test_support::test_codex::test_codex;
 use core_test_support::test_codex::test_env;
 use core_test_support::test_codex::turn_permission_fields;
 use core_test_support::wait_for_event;
-use core_test_support::wait_for_mcp_server;
 use opentelemetry_sdk::metrics::data::AggregatedMetrics;
 use opentelemetry_sdk::metrics::data::MetricData;
 use pretty_assertions::assert_eq;
@@ -132,9 +130,6 @@ use wiremock::MockServer;
 
 #[path = "skills_extension/cloud_skill_tests.rs"]
 mod cloud_skill_tests;
-
-#[path = "skills_extension/cloud_lifecycle_tests.rs"]
-mod cloud_lifecycle_tests;
 
 struct StaticSkillProvider {
     catalog: SkillCatalog,
@@ -669,7 +664,7 @@ async fn capability_sections_render_in_order_with_host_repo_and_plugin_skills(
     let mut builder = test_codex()
         .with_home(Arc::clone(&codex_home))
         .with_extensions(Arc::new(extensions.build()))
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_workspace_setup(|cwd, fs| async move {
             fs.create_directory(
                 &PathUri::from_abs_path(&cwd),
@@ -2542,7 +2537,7 @@ async fn executor_skill_invocation_is_environment_scoped_and_deduplicated() -> R
     let chatgpt_base_url = server.uri();
     let mut builder = test_codex()
         .with_home(codex_home)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_extensions(extensions)
         .with_config(move |config| {
             configure_catalog_test(config);
@@ -3169,102 +3164,6 @@ async fn production_turn_preserves_host_alias_root_order_across_turns() -> Resul
             (expected_alias_lines.clone(), expected_skill_lines.clone()),
             (expected_alias_lines, expected_skill_lines),
         ]
-    );
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn production_turn_uses_provider_host_catalog_and_core_snapshot_injection() -> Result<()> {
-    let server = responses::start_mock_server().await;
-    let apps_server = AppsTestServer::mount(&server).await?;
-    let response = mount_sse_once(
-        &server,
-        sse(vec![ev_response_created("resp-1"), ev_completed("resp-1")]),
-    )
-    .await;
-    let codex_home = Arc::new(TempDir::new()?);
-    let skill_name = "snapshot-backed";
-    let snapshot_description = "This description comes from Core's host skills snapshot.";
-    write_host_skills(codex_home.path(), &[(skill_name, snapshot_description)])?;
-    let skill_path = codex_home
-        .path()
-        .join("skills")
-        .join(skill_name)
-        .join("SKILL.md");
-    let snapshot_contents = format!(
-        "---\nname: {skill_name}\ndescription: {snapshot_description}\n---\n\nUse $calendar.\n"
-    );
-    std::fs::write(&skill_path, &snapshot_contents)?;
-    let skill_resource = skill_path.to_string_lossy().into_owned();
-    let provider_description = "This skill comes from the extension host provider.";
-    let provider_contents = "# Provider instructions that Core must not inject.";
-    let provider_catalog = SkillCatalog {
-        is_partial: false,
-        entries: vec![
-            SkillCatalogEntry::new(
-                SkillPackageId(skill_resource.clone()),
-                SkillAuthority::new(SkillSourceKind::Host, "host"),
-                skill_name,
-                provider_description,
-                SkillResourceId::new(skill_resource.clone()),
-            )
-            .with_display_path(skill_resource.replace('\\', "/")),
-        ],
-        warnings: Vec::new(),
-    };
-    let mut extensions = ExtensionRegistryBuilder::<Config>::new();
-    install_with_providers(
-        &mut extensions,
-        SkillProviders::new().with_host_provider(Arc::new(StaticSkillProvider {
-            catalog: provider_catalog,
-            main_prompt_contents: Some(provider_contents.to_string()),
-        })),
-        |config: &Config| SkillsExtensionConfig {
-            include_instructions: config.include_skill_instructions,
-            catalog_deltas_enabled: config.features.enabled(Feature::SkillCatalogDeltas),
-            omit_descriptions: false,
-            max_context_tokens: config.skill_max_context_tokens,
-            bundled_skills_enabled: false,
-            cloud_skill_enabled: false,
-            shadow_selection_enabled: false,
-        },
-    );
-    let mut builder = apps_enabled_builder(apps_server.chatgpt_base_url)
-        .with_home(Arc::clone(&codex_home))
-        .with_extensions(Arc::new(extensions.build()))
-        .with_config(configure_catalog_test);
-    let test = builder.build_with_auto_env(&server).await?;
-    wait_for_mcp_server(&test.codex, CODEX_APPS_MCP_SERVER_NAME).await?;
-
-    test.submit_turn(&format!("Use ${skill_name}.")).await?;
-    let request = response.single_request();
-    let developer_texts = request.message_input_texts("developer");
-    let cutover_skill_lines = developer_texts
-        .iter()
-        .flat_map(|text| text.lines())
-        .filter(|line| line.contains(skill_name))
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        cutover_skill_lines,
-        vec![format!(
-            "- {skill_name}: {provider_description} (file: {})",
-            skill_resource.replace('\\', "/")
-        )]
-    );
-    let user_text = request.message_input_texts("user").join("\n");
-    assert!(user_text.contains(&snapshot_contents));
-    assert!(!user_text.contains(provider_contents));
-    let app_mentioned_events =
-        wait_for_analytics_events(&server, "codex_app_mentioned", /*expected_count*/ 1).await;
-    let app_mentioned_event = &app_mentioned_events[0];
-    assert_eq!(
-        app_mentioned_event["event_params"]["connector_id"],
-        "calendar"
-    );
-    assert_eq!(
-        app_mentioned_event["event_params"]["invoke_type"],
-        "explicit"
     );
     Ok(())
 }

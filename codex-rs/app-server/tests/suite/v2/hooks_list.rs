@@ -368,8 +368,6 @@ async fn plugin_upgrade_refreshes_hook_runtime_for_loaded_session() -> Result<()
     let install_id = mcp
         .send_plugin_install_request(PluginInstallParams {
             marketplace_path: Some(marketplace_path.clone()),
-            remote_marketplace_name: None,
-            install_attempt_id: None,
             plugin_name: "demo".to_string(),
         })
         .await?;
@@ -472,8 +470,6 @@ async fn plugin_upgrade_refreshes_hook_runtime_for_loaded_session() -> Result<()
     let install_id = mcp
         .send_plugin_install_request(PluginInstallParams {
             marketplace_path: Some(marketplace_path.clone()),
-            remote_marketplace_name: None,
-            install_attempt_id: None,
             plugin_name: "demo".to_string(),
         })
         .await?;
@@ -535,8 +531,6 @@ async fn plugin_upgrade_refreshes_hook_runtime_for_loaded_session() -> Result<()
     let install_id = mcp
         .send_plugin_install_request(PluginInstallParams {
             marketplace_path: Some(marketplace_path),
-            remote_marketplace_name: None,
-            install_attempt_id: None,
             plugin_name: "demo".to_string(),
         })
         .await?;

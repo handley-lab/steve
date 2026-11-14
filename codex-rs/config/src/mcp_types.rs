@@ -17,8 +17,6 @@ use serde::Deserializer;
 use serde::Serialize;
 use serde::de::Error as SerdeError;
 
-use crate::McpEmaRegistration;
-use crate::McpEmaTokenEndpointAuthMethod;
 use crate::RequirementSource;
 
 /// Effective MCP environment id when config omits `environment_id`.
@@ -168,11 +166,6 @@ pub struct McpServerOAuthConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<RedactedString>,
 
-    /// Registered EMA client authentication method. Defaults to client_secret_basic
-    /// when a secret is configured; requires a client secret.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token_endpoint_auth_method: Option<McpEmaTokenEndpointAuthMethod>,
-
     /// Registered callback URL associated with this OAuth client.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub callback_url: Option<String>,
@@ -180,15 +173,6 @@ pub struct McpServerOAuthConfig {
     /// Fixed callback port that takes precedence over Codex's global OAuth callback port.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub callback_port: Option<u16>,
-
-    /// Expected resource authorization server issuer for EMA token exchange.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub authorization_server_issuer: Option<String>,
-
-    /// Host-resolved authorization; never accepted from a server or plugin declaration.
-    #[serde(skip)]
-    #[schemars(skip)]
-    pub ema_registration: Option<McpEmaRegistration>,
 }
 
 /// Authentication flow for an HTTP MCP server. Explicit credentials take
@@ -201,15 +185,6 @@ pub enum McpServerAuth {
     #[default]
     #[serde(rename = "oauth")]
     OAuth,
-    /// Use the current ChatGPT session for servers on the trusted first-party
-    /// ChatGPT origin. If no ChatGPT session provider is available, startup can
-    /// still fall back to stored OAuth credentials.
-    #[serde(rename = "chatgpt")]
-    ChatGpt,
-    /// Exchange an enterprise IdP refresh token for resource-specific authorization.
-    /// Alternate credentials and ordinary OAuth fallback are not permitted.
-    #[serde(rename = "ema_auth")]
-    EmaAuth,
 }
 
 /// Readiness needed before startup can expose this server's tools to the model.
@@ -590,30 +565,6 @@ impl TryFrom<RawMcpServerConfig> for McpServerConfig {
                 return Err("oauth.client_secret requires oauth.client_id".to_string());
             }
         }
-        if let Some(oauth) = &oauth
-            && oauth.token_endpoint_auth_method.is_some()
-        {
-            if !matches!(auth, McpServerAuth::EmaAuth) {
-                return Err(
-                    "oauth.token_endpoint_auth_method requires auth = \"ema_auth\"".to_string(),
-                );
-            }
-            if oauth.client_secret.is_none() {
-                return Err(
-                    "oauth.token_endpoint_auth_method requires oauth.client_secret".to_string(),
-                );
-            }
-        }
-        if !matches!(auth, McpServerAuth::EmaAuth)
-            && oauth
-                .as_ref()
-                .is_some_and(|oauth| oauth.authorization_server_issuer.is_some())
-        {
-            return Err(
-                "oauth.authorization_server_issuer requires auth = \"ema_auth\"".to_string(),
-            );
-        }
-
         Ok(Self {
             transport,
             auth,

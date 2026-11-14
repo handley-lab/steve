@@ -238,7 +238,6 @@ impl App {
                 pane.opening = None;
             }
             self.reconnect.offline = true;
-            self.account_email_request_id = None;
             // Cached blank sessions are usable only while this connection owns a subscription.
             self.agents_overview.blank_sessions.clear();
             self.reconnect.failed = false;
@@ -262,8 +261,6 @@ impl App {
             self.agents_overview.refresh_pending = false;
             self.agents_overview.refresh_notifications.clear();
             self.agents_overview.pending_pin_change = None;
-            self.agents_overview.pending_usage = None;
-            self.agents_overview.usage_disabled = false;
             self.agents_overview.usage.clear();
             self.agents_overview.activity.clear();
             self.agents_overview.last_messages.clear();
@@ -390,7 +387,6 @@ impl App {
         }
         self.agent_navigation.picker_refresh = None;
         self.last_subagent_backfill_attempt = None;
-        self.rate_limit_refresh_state.invalidate_recovery();
         session.worktree_source_config_builder = app_server.worktree_source_config_builder.clone();
         session.inherit_task_tool_capabilities(app_server);
         *app_server = session;
@@ -593,20 +589,8 @@ impl App {
             server.reconnect(app_server.request_handle(), self.app_event_tx.clone());
         }
         self.reconnect.offline = false;
-        self.chat_widget.update_account_state(
-            bootstrap.status_account_display,
-            bootstrap.plan_type,
-            bootstrap.has_chatgpt_account,
-            matches!(bootstrap.auth_mode, Some(TelemetryAuthMode::Chatgpt)),
-        );
-        if self.chat_widget.has_chatgpt_account() {
-            crate::security_setup::prefetch(
-                &self.config,
-                app_server,
-                self.app_event_tx.clone(),
-                self.chat_widget.security_setup_request_id,
-            );
-        }
+        self.chat_widget
+            .update_account_state(bootstrap.status_account_display);
         if displayed.is_some_and(|id| !self.thread_unavailable(id)) {
             self.chat_widget.maybe_send_next_queued_input();
         }

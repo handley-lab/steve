@@ -249,15 +249,7 @@ impl App {
                 self.history_line_wrap_policy(),
             );
         }
-        if let Some(Overlay::Analytics(mut view)) = self.overlay.take() {
-            view.cancel_loads();
-            self.retained_analytics = Some(view);
-        }
-        if self.pending_thread_usage_history_refresh
-            && let Err(err) = self.refresh_thread_usage_history_tail(tui)
-        {
-            tracing::warn!(error = %err, "failed to refresh thread usage after closing overlay");
-        }
+        self.overlay = None;
         self.backtrack.overlay_preview_active = false;
         tui.frame_requester().schedule_frame();
         if was_backtrack {

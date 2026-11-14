@@ -10,8 +10,6 @@ mod mcp_login_tests;
 
 #[path = "tests/math_interruption_tests.rs"]
 mod math_interruption_tests;
-#[path = "tests/security_setup_tests.rs"]
-mod security_setup_tests;
 
 #[path = "tests/advanced_reasoning_tests.rs"]
 mod advanced_reasoning_tests;
@@ -19,12 +17,6 @@ mod advanced_reasoning_tests;
 mod agents_navigation_tests;
 #[path = "tests/approvals_reviewer_error_tests.rs"]
 mod approvals_reviewer_error_tests;
-#[path = "tests/backend_banner_fallback_tests.rs"]
-mod backend_banner_fallback_tests;
-#[path = "tests/backend_banner_recovery_tests.rs"]
-mod backend_banner_recovery_tests;
-#[path = "tests/backend_banner_startup_tests.rs"]
-mod backend_banner_startup_tests;
 #[path = "tests/background_exit_tests.rs"]
 mod background_exit_tests;
 #[path = "tests/background_task_defaults_tests.rs"]
@@ -33,8 +25,6 @@ mod background_task_defaults_tests;
 mod browsing_pagination_tests;
 #[path = "tests/buffered_replay.rs"]
 mod buffered_replay;
-#[path = "tests/connector_policy.rs"]
-mod connector_policy;
 #[path = "tests/disconnect_tests.rs"]
 mod disconnect;
 #[path = "tests/external_writer_fork_tests.rs"]
@@ -49,14 +39,10 @@ mod home_cleanup_tests;
 mod key_chords;
 #[path = "tests/local_command_scroll_tests.rs"]
 mod local_command_scroll_tests;
-#[path = "tests/luna_reserve_recovery_tests.rs"]
-mod luna_reserve_recovery_tests;
 #[path = "tests/marketplace_upgrade_tests.rs"]
 mod marketplace_upgrade_tests;
 #[path = "tests/mcp_startup.rs"]
 mod mcp_startup;
-#[path = "tests/misalignment_policy_tests.rs"]
-mod misalignment_policy;
 mod model_catalog;
 #[path = "tests/model_defaults_tests.rs"]
 mod model_defaults;
@@ -80,7 +66,6 @@ mod history_hydration_tests;
 #[path = "tests/permission_shortcuts_tests.rs"]
 mod permission_shortcuts_tests;
 mod plugin_catalog;
-mod rate_limits;
 #[path = "tests/realtime_handoff_e2e.rs"]
 mod realtime_handoff_e2e;
 #[path = "tests/realtime_requests.rs"]
@@ -109,16 +94,12 @@ mod startup_warnings_tests;
 mod stream_animation_tests;
 #[path = "tests/streaming_interleave_e2e.rs"]
 mod streaming_interleave_e2e;
-#[path = "tests/thread_usage.rs"]
-mod thread_usage;
 #[path = "tests/transcript_composer.rs"]
 mod transcript_composer;
 #[path = "tests/transcript_selection.rs"]
 mod transcript_selection;
 #[path = "tests/turn_submission.rs"]
 mod turn_submission;
-#[path = "tests/user_verification_routes_tests.rs"]
-mod user_verification_routes;
 #[path = "tests/worktree_background_terminals_tests.rs"]
 mod worktree_background_terminals_tests;
 
@@ -152,7 +133,6 @@ use crate::chatwidget::tests::helpers::normalize_snapshot_paths;
 use crate::chatwidget::tests::helpers::render_bottom_popup;
 use crate::chatwidget::tests::helpers::set_active_cell;
 use crate::chatwidget::tests::make_chatwidget_manual_with_sender;
-use crate::chatwidget::tests::set_chatgpt_auth;
 use crate::chatwidget::tests::set_fast_mode_test_catalog;
 use crate::file_search::FileSearchManager;
 use crate::goal_files;
@@ -931,13 +911,10 @@ fn set_test_initial_prompt(app: &mut App, initial_prompt: String) {
             Vec::new(),
         ),
         enhanced_keys_supported: false,
-        has_chatgpt_account: false,
-        has_codex_backend_auth: false,
         model_catalog: app.model_catalog.clone(),
         feedback: codex_feedback::CodexFeedback::new(),
         is_first_run: false,
         status_account_display: None,
-        initial_plan_type: None,
         model: Some(model),
         startup_tooltip_override: None,
         status_line_invalid_items_warned: app.status_line_invalid_items_warned.clone(),
@@ -9048,11 +9025,7 @@ async fn make_test_app() -> Box<App> {
         turn_tips: Default::default(),
         transcript_view: Default::default(),
         conversation_frame: Default::default(),
-        last_rendered_history_tail: None,
-        last_thread_usage_status_cell: None,
-        pending_thread_usage_history_refresh: false,
         overlay: None,
-        retained_analytics: None,
         deferred_history_lines: Vec::new(),
         has_emitted_history_lines: false,
         transcript_reflow: TranscriptReflowState::default(),
@@ -9128,9 +9101,6 @@ async fn make_test_app() -> Box<App> {
         pending_managed_worktree_attach: None,
         startup_protected_input_boundary: false,
         startup_pending_protected_request: false,
-        account_email_request_id: None,
-        rate_limit_hard_stop_generation: 0,
-        rate_limit_refresh_state: Default::default(),
         pending_mcp_login_start: None,
         active_mcp_login_ids: HashMap::new(),
         pending_plugin_enabled_writes: HashMap::new(),
@@ -9188,11 +9158,7 @@ pub(super) async fn make_test_app_with_channels() -> (
             turn_tips: Default::default(),
             transcript_view: Default::default(),
             conversation_frame: Default::default(),
-            last_rendered_history_tail: None,
-            last_thread_usage_status_cell: None,
-            pending_thread_usage_history_refresh: false,
             overlay: None,
-            retained_analytics: None,
             deferred_history_lines: Vec::new(),
             has_emitted_history_lines: false,
             transcript_reflow: TranscriptReflowState::default(),
@@ -9268,9 +9234,6 @@ pub(super) async fn make_test_app_with_channels() -> (
             pending_managed_worktree_attach: None,
             startup_protected_input_boundary: false,
             startup_pending_protected_request: false,
-            account_email_request_id: None,
-            rate_limit_hard_stop_generation: 0,
-            rate_limit_refresh_state: Default::default(),
             pending_mcp_login_start: None,
             active_mcp_login_ids: HashMap::new(),
             pending_plugin_enabled_writes: HashMap::new(),
@@ -9855,49 +9818,6 @@ async fn resize_reflow_wraps_transcript_early_when_pet_is_enabled() {
         with_pet.lines.len() > without_pet.lines.len(),
         "expected pet-enabled transcript reflow to wrap earlier"
     );
-}
-
-#[tokio::test]
-async fn closing_fullscreen_inline_overlay_restores_history_once() -> Result<()> {
-    let (mut app, _rx, _op_rx) = make_test_app_with_channels().await;
-    app.transcript_cells = vec![plain_line_cell("Previous conversation")];
-    let mut tui = crate::tui::test_support::make_test_tui()?;
-    tui.set_alt_screen_enabled(/*enabled*/ false);
-    let screen_size = tui.terminal.last_known_screen_size;
-    tui.insert_history_lines(vec![Line::from("Previous conversation")]);
-    app.render_chat_widget_frame(&mut tui, screen_size)?;
-
-    // Content-height popups keep the existing history without rebuilding scrollback.
-    let popup_height = screen_size.height - 1;
-    tui.draw(popup_height, |_| {})?;
-    app.render_chat_widget_frame(&mut tui, screen_size)?;
-    assert!(app.last_rendered_history_tail.is_none());
-
-    tui.enter_alt_screen()?;
-    tui.draw(screen_size.height, |_| {})?;
-    tui.leave_alt_screen()?;
-    app.render_chat_widget_frame(&mut tui, screen_size)?;
-
-    assert!(tui.terminal.viewport_area.height < screen_size.height);
-    assert!(tui.terminal.viewport_area.y > 0);
-    let tail = app
-        .last_rendered_history_tail
-        .as_ref()
-        .expect("fullscreen exit rebuilt history");
-    assert_snapshot!(
-        tail.lines
-            .iter()
-            .map(rendered_line_text)
-            .collect::<Vec<_>>()
-            .join("\n"),
-        @"Previous conversation"
-    );
-
-    let deferred = vec![Line::from("Pending history").into()];
-    app.deferred_history_lines = deferred.clone();
-    app.render_chat_widget_frame(&mut tui, screen_size)?;
-    assert_eq!(app.deferred_history_lines, deferred);
-    Ok(())
 }
 
 #[tokio::test]
@@ -12132,88 +12052,6 @@ async fn replay_thread_snapshot_replays_turn_history_in_order() {
     assert_eq!(
         user_messages,
         vec!["first prompt".to_string(), "third prompt".to_string()]
-    );
-}
-
-#[tokio::test]
-async fn replace_chat_widget_reseeds_collab_agent_metadata_for_replay() {
-    let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
-    let receiver_thread_id =
-        ThreadId::from_string("019cff70-2599-75e2-af72-b958ce5dc1cc").expect("valid thread");
-    app.agent_navigation.upsert(
-        receiver_thread_id,
-        Some("Robie".to_string()),
-        Some("explorer".to_string()),
-        /*is_closed*/ false,
-    );
-
-    let replacement = ChatWidget::new_with_app_event(ChatWidgetInit {
-        requires_openai_auth: true,
-        local_settings: crate::local_settings::LocalSettings::from(&app.config),
-        config: app.config.clone(),
-        frame_requester: crate::tui::FrameRequester::test_dummy(),
-        app_event_tx: app.app_event_tx.clone(),
-        workspace_command_runner: None,
-        initial_user_message: None,
-        enhanced_keys_supported: app.enhanced_keys_supported,
-        has_chatgpt_account: app.chat_widget.has_chatgpt_account(),
-        has_codex_backend_auth: app.chat_widget.has_codex_backend_auth(),
-        model_catalog: app.model_catalog.clone(),
-        feedback: app.feedback.clone(),
-        is_first_run: false,
-        status_account_display: app.chat_widget.status_account_display().cloned(),
-        initial_plan_type: app.chat_widget.current_plan_type(),
-        model: Some(app.chat_widget.current_model().to_string()),
-        startup_tooltip_override: None,
-        status_line_invalid_items_warned: app.status_line_invalid_items_warned.clone(),
-        terminal_title_invalid_items_warned: app.terminal_title_invalid_items_warned.clone(),
-        session_telemetry: app.session_telemetry.clone(),
-    });
-    app.replace_chat_widget(replacement);
-
-    app.replay_thread_snapshot(
-        ThreadEventSnapshot {
-            delegated_turns: Vec::new(),
-            session: None,
-            turns: Vec::new(),
-            events: vec![ThreadBufferedEvent::Notification(Box::new(
-                ServerNotification::ItemStarted(
-                    codex_app_server_protocol::ItemStartedNotification::new(
-                        "thread-1".to_string(),
-                        "turn-1".to_string(),
-                        ThreadItemPayload::CollabAgentToolCall {
-                            id: "wait-1".to_string(),
-                            tool: codex_app_server_protocol::CollabAgentTool::Wait,
-                            status:
-                                codex_app_server_protocol::CollabAgentToolCallStatus::InProgress,
-                            sender_thread_id: ThreadId::new().to_string(),
-                            receiver_thread_ids: vec![receiver_thread_id.to_string()],
-                            prompt: None,
-                            model: None,
-                            reasoning_effort: None,
-                            agents_states: HashMap::new(),
-                        },
-                        /*started_at_ms*/ 0,
-                    ),
-                ),
-            ))],
-            active_reasoning_item: None,
-            input_state: None,
-        },
-        /*resume_restored_queue*/ false,
-    );
-
-    let mut saw_named_wait = false;
-    while let Ok(event) = app_event_rx.try_recv() {
-        if let AppEvent::InsertHistoryCell(cell) = event {
-            let transcript = lines_to_single_string(&cell.transcript_lines(/*width*/ 80));
-            saw_named_wait |= transcript.contains("Robie [explorer]");
-        }
-    }
-
-    assert!(
-        saw_named_wait,
-        "expected replayed wait item to keep agent name"
     );
 }
 

@@ -46,7 +46,7 @@ async fn yielded_skill_read_keeps_originating_turn_metadata() -> Result<()> {
     );
     let chatgpt_base_url = server.uri();
     let mut builder = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_exec_server_url("none")
         .with_extensions(Arc::new(extensions.build()))
         .with_model_info_override("gpt-5.5", |model| {

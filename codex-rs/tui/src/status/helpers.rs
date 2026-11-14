@@ -6,7 +6,6 @@ use crate::text_formatting;
 use crate::width::display_width;
 use chrono::DateTime;
 use chrono::Local;
-use codex_protocol::account::PlanType;
 use codex_utils_path_uri::PathConvention;
 use codex_utils_path_uri::PathUri;
 use std::path::Path;
@@ -95,12 +94,6 @@ pub(crate) fn compose_account_display(
     account_display: Option<&StatusAccountDisplay>,
 ) -> Option<StatusAccountDisplay> {
     account_display.cloned()
-}
-
-pub(crate) fn plan_type_display_name(plan_type: PlanType) -> String {
-    crate::subscription::SubscriptionDisplay::Status
-        .label(plan_type)
-        .to_string()
 }
 
 pub(crate) fn format_tokens_compact(value: i64) -> String {
@@ -196,46 +189,6 @@ mod tests {
             .build()
             .await
             .expect("load config")
-    }
-
-    #[test]
-    fn plan_type_display_name_remaps_display_labels() {
-        let cases = [
-            (PlanType::Free, "Free"),
-            (PlanType::Go, "Go"),
-            (PlanType::Plus, "Plus"),
-            (PlanType::Pro, "Pro 200"),
-            (PlanType::ProLite, "Pro 100"),
-            (PlanType::ProMax, "Pro 500"),
-            (PlanType::Team, "Business"),
-            (PlanType::SelfServeBusinessUsageBased, "Business"),
-            (PlanType::Business, "Enterprise"),
-            (PlanType::EnterpriseCbpAutomation, "Enterprise (Automation)"),
-            (PlanType::EnterpriseCbpUsageBased, "Enterprise"),
-            (PlanType::Enterprise, "Enterprise"),
-            (PlanType::Edu, "Edu"),
-            (PlanType::Unknown, "Unknown"),
-        ];
-
-        for (plan_type, expected) in cases {
-            assert_eq!(plan_type_display_name(plan_type), expected);
-        }
-        insta::assert_snapshot!(
-            plan_type_display_name(PlanType::SelfServeBusinessProLite),
-            @"Business Premium"
-        );
-        insta::assert_snapshot!(
-            "education_plan_display_names",
-            [PlanType::Edu, PlanType::EduPlus, PlanType::EduPro]
-                .map(plan_type_display_name)
-                .join("\n")
-        );
-        insta::assert_snapshot!(
-            [PlanType::Sci, PlanType::SciPlus]
-                .map(plan_type_display_name)
-                .join("\n"),
-            @"Academic Researchers\nAcademic Researchers Plus"
-        );
     }
 
     #[test]

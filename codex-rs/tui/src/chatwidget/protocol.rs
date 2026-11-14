@@ -20,7 +20,7 @@ impl ChatWidget {
         {
             return;
         }
-        let was_replaying_turn_completion = self.thread_usage.replaying_turn_completion;
+        let was_replaying_turn_completion = self.replaying_turn_completion;
         if replay_kind.is_some()
             || matches!(
                 &notification,
@@ -29,7 +29,7 @@ impl ChatWidget {
         {
             self.empty_state_animation.borrow_mut().dismiss();
         }
-        self.thread_usage.replaying_turn_completion = replay_kind.is_some();
+        self.replaying_turn_completion = replay_kind.is_some();
         let from_replay = replay_kind.is_some();
         let is_resume_initial_replay =
             matches!(replay_kind, Some(ReplayKind::ResumeInitialMessages));
@@ -412,10 +412,8 @@ impl ChatWidget {
             | ServerNotification::McpServerEventStream(_)
             | ServerNotification::FileChangePatchUpdated(_)
             | ServerNotification::McpToolCallProgress(_)
-            | ServerNotification::AppListUpdated(_)
             | ServerNotification::EnvironmentConnected(_)
             | ServerNotification::EnvironmentDisconnected(_)
-            | ServerNotification::RemoteControlStatusChanged(_)
             | ServerNotification::ExternalAgentConfigImportProgress(_)
             | ServerNotification::ExternalAgentConfigImportCompleted(_)
             | ServerNotification::FsChanged(_)
@@ -447,7 +445,7 @@ impl ChatWidget {
                 self.status_state.current_status.details_max_lines,
             );
         }
-        self.thread_usage.replaying_turn_completion = was_replaying_turn_completion;
+        self.replaying_turn_completion = was_replaying_turn_completion;
     }
 
     pub(super) fn handle_turn_completed_notification(
@@ -470,8 +468,8 @@ impl ChatWidget {
         let live_turn =
             replay_kind.is_none() && self.last_turn_id() == Some(notification.turn.id.as_str());
         let mut recourse = self.safety_recourse.take_if(|_| live_turn);
-        let was_replaying_turn_completion = self.thread_usage.replaying_turn_completion;
-        self.thread_usage.replaying_turn_completion = replay_kind.is_some();
+        let was_replaying_turn_completion = self.replaying_turn_completion;
+        self.replaying_turn_completion = replay_kind.is_some();
         match notification.turn.status {
             TurnStatus::Completed => {
                 let last_agent_message = final_agent_message(
@@ -576,7 +574,7 @@ impl ChatWidget {
         if replay_kind.is_none() {
             self.finish_realtime_turn(&notification.turn.id);
         }
-        self.thread_usage.replaying_turn_completion = was_replaying_turn_completion;
+        self.replaying_turn_completion = was_replaying_turn_completion;
     }
 
     fn handle_item_started_notification(

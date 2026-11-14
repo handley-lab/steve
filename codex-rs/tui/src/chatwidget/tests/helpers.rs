@@ -196,25 +196,6 @@ pub(super) fn invalid_value(
     }
 }
 
-pub(super) fn snapshot(percent: f64) -> RateLimitSnapshot {
-    RateLimitSnapshot {
-        limit_id: None,
-        limit_name: None,
-        normal_model_slug: None,
-        primary: Some(RateLimitWindow {
-            used_percent: percent.round() as i32,
-            window_duration_mins: Some(60),
-            resets_at: None,
-        }),
-        secondary: None,
-        credits: None,
-        individual_limit: None,
-        spend_control_reached: None,
-        plan_type: None,
-        rate_limit_reached_type: None,
-    }
-}
-
 pub(super) fn test_session_telemetry(config: &Config, model: &str) -> SessionTelemetry {
     let model_info =
         construct_model_info_offline_for_tests(model, &config.to_models_manager_config());
@@ -249,19 +230,11 @@ pub(super) async fn make_chatwidget_manual(
     tokio::sync::mpsc::UnboundedReceiver<AppEvent>,
     tokio::sync::mpsc::UnboundedReceiver<Op>,
 ) {
-    make_chatwidget_manual_with_auth(
-        model_override,
-        /*has_chatgpt_account*/ false,
-        /*has_codex_backend_auth*/ false,
-        FrameRequester::test_dummy(),
-    )
-    .await
+    make_chatwidget_manual_with_auth(model_override, FrameRequester::test_dummy()).await
 }
 
 pub(super) async fn make_chatwidget_manual_with_auth(
     model_override: Option<&str>,
-    has_chatgpt_account: bool,
-    has_codex_backend_auth: bool,
     frame_requester: FrameRequester,
 ) -> (
     ChatWidget,
@@ -289,13 +262,10 @@ pub(super) async fn make_chatwidget_manual_with_auth(
         workspace_command_runner: None,
         initial_user_message: None,
         enhanced_keys_supported: false,
-        has_chatgpt_account,
-        has_codex_backend_auth,
         model_catalog,
         feedback: codex_feedback::CodexFeedback::new(),
         is_first_run: true,
         status_account_display: None,
-        initial_plan_type: None,
         model: Some(resolved_model.clone()),
         startup_tooltip_override: None,
         status_line_invalid_items_warned: Arc::new(AtomicBool::new(false)),
@@ -348,12 +318,6 @@ pub(super) fn assert_no_submit_op(op_rx: &mut tokio::sync::mpsc::UnboundedReceiv
             "unexpected submit op: {op:?}"
         );
     }
-}
-
-pub(crate) fn set_chatgpt_auth(chat: &mut ChatWidget) {
-    chat.has_chatgpt_account = true;
-    chat.has_codex_backend_auth = true;
-    chat.model_catalog = test_model_catalog(&chat.config);
 }
 
 fn test_model_info(slug: &str, priority: i32, supports_fast_mode: bool) -> ModelInfo {
@@ -1469,13 +1433,6 @@ pub(super) fn plugins_test_absolute_path(path: &str) -> AbsolutePathBuf {
         .abs()
 }
 
-pub(super) fn plugins_test_personal_marketplace_path() -> AbsolutePathBuf {
-    dirs::home_dir()
-        .expect("home directory should be available")
-        .join(".agents/plugins/marketplace.json")
-        .abs()
-}
-
 pub(super) fn plugins_test_interface(
     display_name: Option<&str>,
     short_description: Option<&str>,
@@ -1519,7 +1476,6 @@ pub(super) fn plugins_test_summary(
         version: None,
         local_version: None,
         name: name.to_string(),
-        share_context: None,
         source: PluginSource::Local {
             path: plugins_test_absolute_path(&format!("plugins/{name}")),
         },
@@ -1539,55 +1495,6 @@ pub(super) fn plugins_test_summary(
             /*long_description*/ None,
         )),
         keywords: Vec::new(),
-    }
-}
-
-pub(super) fn plugins_test_remote_summary(
-    remote_plugin_id: &str,
-    name: &str,
-    display_name: Option<&str>,
-    description: Option<&str>,
-    installed: bool,
-) -> PluginSummary {
-    PluginSummary {
-        id: remote_plugin_id.to_string(),
-        remote_plugin_id: Some(remote_plugin_id.to_string()),
-        version: None,
-        local_version: None,
-        name: name.to_string(),
-        share_context: None,
-        source: PluginSource::Remote,
-        installed,
-        installed_at: None,
-        enabled: true,
-        install_policy: PluginInstallPolicy::Available,
-        install_policy_source: None,
-        must_show_installation_interstitial: None,
-        auth_policy: PluginAuthPolicy::OnInstall,
-        availability: PluginAvailability::Available,
-        disabled_reason: None,
-        eligible_plan_types: None,
-        interface: Some(plugins_test_interface(
-            display_name,
-            description,
-            /*long_description*/ None,
-        )),
-        keywords: Vec::new(),
-    }
-}
-
-pub(super) fn plugins_test_remote_marketplace(
-    name: &str,
-    display_name: &str,
-    plugins: Vec<PluginSummary>,
-) -> PluginMarketplaceEntry {
-    PluginMarketplaceEntry {
-        name: name.to_string(),
-        path: None,
-        interface: Some(MarketplaceInterface {
-            display_name: Some(display_name.to_string()),
-        }),
-        plugins,
     }
 }
 
@@ -1621,29 +1528,18 @@ pub(super) fn plugins_test_response(
     PluginListResponse {
         marketplaces,
         marketplace_load_errors: Vec::new(),
-        featured_plugin_ids: Vec::new(),
     }
 }
 
 pub(super) fn render_loaded_plugins_popup(
     chat: &mut ChatWidget,
-    mut response: PluginListResponse,
+    response: PluginListResponse,
 ) -> String {
     let cwd = chat.config.cwd.clone();
-    let remote_marketplaces = response
-        .marketplaces
-        .iter()
-        .filter(|marketplace| marketplace.path.is_none())
-        .cloned()
-        .collect();
-    response
-        .marketplaces
-        .retain(|marketplace| marketplace.path.is_some());
     let response_for_refresh = response.clone();
     chat.on_plugins_loaded(cwd.to_path_buf(), Ok(response));
     chat.add_plugins_output();
     chat.on_plugins_loaded(cwd.to_path_buf(), Ok(response_for_refresh));
-    chat.on_plugin_remote_sections_loaded(cwd.to_path_buf(), remote_marketplaces, Vec::new());
     render_bottom_popup(chat, /*width*/ 100)
 }
 
@@ -1697,27 +1593,6 @@ pub(super) fn plugins_test_detail(
             .collect(),
         app_templates: Vec::new(),
         mcp_servers: mcp_servers.iter().map(|name| (*name).to_string()).collect(),
-        scheduled_tasks: None,
-    }
-}
-
-pub(super) fn plugins_test_remote_detail(
-    marketplace_name: &str,
-    summary: PluginSummary,
-    description: Option<&str>,
-) -> PluginDetail {
-    PluginDetail {
-        onboarding_skill: None,
-        marketplace_name: marketplace_name.to_string(),
-        marketplace_path: None,
-        summary,
-        share_url: None,
-        description: description.map(str::to_string),
-        skills: Vec::new(),
-        hooks: Vec::new(),
-        apps: Vec::new(),
-        app_templates: Vec::new(),
-        mcp_servers: Vec::new(),
         scheduled_tasks: None,
     }
 }

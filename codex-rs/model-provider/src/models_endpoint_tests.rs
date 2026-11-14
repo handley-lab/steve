@@ -163,10 +163,7 @@ async fn api_key_discovery_uses_the_configured_models_route() {
 
 #[tokio::test]
 async fn provider_api_key_without_endpoint_overrides_does_not_dispatch() {
-    for auth in [
-        None,
-        Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
-    ] {
+    for auth in [None, Some(CodexAuth::from_api_key("dummy"))] {
         let capture = Arc::new(CaptureModelsUrl(Mutex::new(/*t*/ None)));
         let auth_manager = auth.map(AuthManager::from_auth_for_testing);
         let endpoint = Arc::new(OpenAiModelsEndpoint {
@@ -179,10 +176,6 @@ async fn provider_api_key_without_endpoint_overrides_does_not_dispatch() {
             runtime_auth: None,
             transport_builder: capture.clone(),
         });
-        let provider = crate::provider::create_model_provider(
-            endpoint.provider_info.clone(),
-            auth_manager.clone(),
-        );
         let manager = OpenAiModelsManager::new_without_cache(endpoint, auth_manager);
         manager.set_api_key_model_discovery_enabled(/*enabled*/ true);
         manager
@@ -457,7 +450,7 @@ async fn explicit_catalog_reuses_auth_headers_and_query_parameters() {
         .into_iter()
         .flat_map(|base_url| {
             [
-                CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+                CodexAuth::from_api_key("dummy"),
                 CodexAuth::from_api_key("test-key"),
             ]
             .map(|auth| (base_url, auth))

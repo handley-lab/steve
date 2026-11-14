@@ -55,7 +55,7 @@ impl HistoryNotesBackend {
 
         let setup = codex_model_provider::resolve_request(
             self.provider.as_ref(),
-            /*routing*/ None,
+            codex_login::default_client::ClientRedirectPolicy::Default,
             self.http_client_factory.clone(),
         )
         .await
@@ -107,7 +107,3 @@ impl HistoryNotesBackend {
             .map_err(|_| format!("{OPERATION_ERROR_PREFIX} The backend returned invalid JSON."))
     }
 }
-
-#[cfg(test)]
-#[path = "backend_tests.rs"]
-mod tests;

@@ -77,10 +77,6 @@ impl ChatWidget {
     }
 
     pub(crate) fn open_model_popup_with_presets(&mut self, presets: Vec<ModelPreset>) {
-        if self.restrict_model_picker_to_luna_reserve() {
-            self.open_luna_reserve_model_popup(presets, MODEL_SELECTION_VIEW_ID);
-            return;
-        }
         let presets: Vec<ModelPreset> = presets
             .into_iter()
             .filter(|preset| preset.show_in_picker)
@@ -163,20 +159,10 @@ impl ChatWidget {
         let warning = effort_for_action
             .as_ref()
             .and_then(|effort| self.ultra_reasoning_concurrency_warning(effort));
-        let thread_id = self.thread_id();
         let sparkle_thread = self.sparkle_thread_for_picker_action(&model_for_action);
         let scoped = self.scope_model_picker_event();
-        let reserve_model = format!("{}/{LUNA_RESERVE_MODEL}", self.config.model_provider_id);
         vec![Box::new(move |tx| {
-            if model_for_action == reserve_model {
-                // Reserve is temporary: update the active task without persisting a model default.
-                if let Some(thread_id) = thread_id {
-                    tx.send(scoped(AppEvent::UpdateLunaReserveReasoning {
-                        thread_id,
-                        effort: effort_for_action.clone(),
-                    }));
-                }
-            } else if effort_for_action == Some(ReasoningEffortConfig::Ultra) {
+            if effort_for_action == Some(ReasoningEffortConfig::Ultra) {
                 tx.send(scoped(
                     AstraModelPickerAction::ApplyAdvancedReasoning {
                         effort: ReasoningEffortConfig::Ultra,

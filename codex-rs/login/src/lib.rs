@@ -1,11 +1,6 @@
 pub mod auth;
 pub mod auth_env_telemetry;
 pub mod test_support;
-pub mod token_data;
-pub use auth::WorkspaceRouting;
-pub use auth::WorkspaceRoutingRequest;
-pub use auth::WorkspaceRoutingResolver;
-pub use auth::WorkspaceRoutingSession;
 
 mod credential_export;
 mod oauth;
@@ -16,20 +11,15 @@ mod outbound_proxy;
 pub use codex_config::types::AuthCredentialsStoreMode;
 pub use codex_http_client::BuildCustomCaTransportError as BuildLoginHttpClientError;
 
-pub use auth::AccountOAuthGrant;
-pub use auth::AccountOAuthGrantLease;
-pub use auth::AccountOAuthGrantRevision;
 pub use auth::AuthChangeState;
 pub use auth::AuthConfig;
 pub use auth::AuthDotJson;
-pub use auth::AuthHeaders;
 pub use auth::AuthKeyringBackendKind;
 pub use auth::AuthManager;
 pub use auth::AuthManagerConfig;
 pub use auth::AuthManagerInitializationError;
 pub use auth::AuthOwner;
 pub use auth::AuthRuntimeConfig;
-pub use auth::CODEX_ACCESS_TOKEN_ENV_VAR;
 pub use auth::CODEX_API_KEY_ENV_VAR;
 pub use auth::CodexAuth;
 pub use auth::ExternalAuth;
@@ -43,20 +33,17 @@ pub use auth::UnauthorizedRecovery;
 pub use auth::default_client;
 pub use auth::enforce_login_restrictions;
 pub use auth::load_auth_dot_json;
-pub use auth::login_with_access_token;
 pub use auth::login_with_api_key;
 pub use auth::login_with_bedrock_access_keys;
 pub use auth::login_with_bedrock_api_key;
 pub use auth::logout;
 pub use auth::logout_all_stores;
-pub use auth::read_codex_access_token_from_env;
 pub use auth::read_openai_api_key_from_env;
 pub use auth::save_auth;
 pub use auth_env_telemetry::AuthEnvTelemetry;
 pub use auth_env_telemetry::collect_auth_env_telemetry;
 pub use oauth::OAuthDeviceCodePrompt;
 pub use outbound_proxy::AuthRouteConfig;
-pub use token_data::TokenData;
 
 // Existing inference-gateway names continue to refer to the same grant manager.
 pub use oauth_session::OAuthLoginControl as GatewayLoginControl;

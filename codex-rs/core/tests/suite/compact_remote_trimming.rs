@@ -21,7 +21,7 @@ async fn remote_compact_v2_token_estimate_ignores_message_bookkeeping_and_json_e
     skip_if_no_network!(Ok(()));
 
     let harness = TestCodexHarness::with_auto_env_builder(
-        test_codex().with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
+        test_codex().with_auth(CodexAuth::from_api_key("dummy")),
     )
     .await?;
     let escaped_text = "a \"quoted\" line\nand\\path";
@@ -101,7 +101,7 @@ async fn remote_compact_v2_trims_tool_search_output_to_empty_tools_array() -> Re
     for (context_window, expected_tools) in [(200_000, &tools), (2_000, &json!([]))] {
         let harness = TestCodexHarness::with_builder(
             test_codex()
-                .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+                .with_auth(CodexAuth::from_api_key("dummy"))
                 .with_config(move |config| {
                     configure_search_capable_model(config);
                     config.model_context_window = Some(context_window);
@@ -162,7 +162,7 @@ async fn remote_compact_v2_trim_estimate_uses_session_base_instructions(
     ] {
         let harness = TestCodexHarness::with_builder(
             test_codex()
-                .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+                .with_auth(CodexAuth::from_api_key("dummy"))
                 .with_model_info_override("gpt-5.4", move |model| {
                     model.use_responses_lite = incremental_tools;
                 })

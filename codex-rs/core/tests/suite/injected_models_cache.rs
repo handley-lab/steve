@@ -8,7 +8,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use anyhow::Result;
-use base64::Engine;
 use chrono::Utc;
 use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
@@ -44,7 +43,6 @@ use core_test_support::submit_thread_settings;
 use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
 use pretty_assertions::assert_eq;
-use tempfile::TempDir;
 use test_case::test_case;
 use tokio::sync::oneshot;
 use tokio::time::Duration;
@@ -177,9 +175,9 @@ fn models_manager(
     Arc::new(OpenAiModelsManager::new_with_cache(
         cache,
         endpoint,
-        Some(AuthManager::from_auth_for_testing(
-            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
-        )),
+        Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
+            "dummy",
+        ))),
     ))
 }
 
@@ -195,7 +193,7 @@ async fn run_agent_with_model(models_manager: SharedModelsManager, model_slug: &
     )
     .await;
     let mut builder = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_models_manager(models_manager)
         .with_config(|config| {
             // Model inference uses a third-party fixture; a custom ChatGPT base must not block startup.
@@ -453,136 +451,5 @@ async fn initialization_preserves_a_concurrent_refresh() -> Result<()> {
         manager.refreshed_model_catalog().as_deref(),
         Some(std::slice::from_ref(&model))
     );
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn account_switch_during_cache_store_preserves_new_catalog_for_next_turn() -> Result<()> {
-    let server = wiremock::MockServer::start().await;
-    let home = Arc::new(TempDir::new()?);
-    let initial_auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
-    let auth = AuthManager::from_auth_for_testing_with_home(
-        initial_auth.clone(),
-        home.path().to_path_buf(),
-    );
-    let mut provider_info = built_in_model_providers(/*openai_base_url*/ None)["openai"].clone();
-    provider_info.base_url = Some(format!("{}/v1", server.uri()));
-    provider_info.supports_websockets = false;
-    let cache = Arc::new(TestModelsCache {
-        entry: None,
-        load_error: false,
-        stored_entries: Mutex::new(Vec::new()),
-        store_gate: Mutex::new(None),
-    });
-    let mut old_model = remote_model("gpt-5.4");
-    old_model.default_reasoning_summary = ReasoningSummary::Concise;
-    let initial = responses::mount_models_once(
-        &server,
-        ModelsResponse {
-            models: vec![old_model.clone()],
-        },
-    )
-    .await;
-    let test = test_codex()
-        .with_home(home.clone())
-        .with_auth_manager(Arc::clone(&auth))
-        .with_model("gpt-5.4")
-        .with_model_catalog_settings(ModelCatalogSettings::with_cache(cache.clone()))
-        .with_config(move |config| {
-            config.model_provider = provider_info;
-            config.model_reasoning_summary = None;
-        })
-        .build_with_auto_env(&server)
-        .await?;
-    let manager = test.thread_manager.get_models_manager();
-    assert_eq!(initial.requests().len(), 1);
-
-    // Pause after the old catalog has been stored, before its refresh can publish it.
-    let (store_entered, entered) = oneshot::channel();
-    let (release_store, release) = oneshot::channel();
-    *cache.store_gate.lock().unwrap() = Some(StoreGate {
-        entered: store_entered,
-        release,
-    });
-    let old_request = responses::mount_models_once(
-        &server,
-        ModelsResponse {
-            models: vec![old_model],
-        },
-    )
-    .await;
-    let old_refresh = tokio::spawn({
-        let manager = manager.clone();
-        async move {
-            manager
-                .list_models(
-                    RefreshStrategy::Online,
-                    codex_core::test_support::default_http_client_factory(),
-                )
-                .await
-        }
-    });
-    timeout(Duration::from_secs(10), entered).await??;
-
-    let mut tokens = initial_auth.get_token_data()?;
-    tokens.id_token.raw_jwt = format!(
-        "e30.{}.signature",
-        base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(br#"{"email":"second@example.com"}"#)
-    );
-    tokens.account_id = Some("second-account".into());
-    tokens.access_token = "second-account-token".into();
-    std::fs::write(
-        home.path().join("auth.json"),
-        serde_json::to_vec(&serde_json::json!({
-            "auth_mode": "chatgpt", "tokens": tokens, "last_refresh": Utc::now(),
-        }))?,
-    )?;
-    auth.reload().await;
-
-    let mut new_model = remote_model("gpt-5.4");
-    new_model.default_reasoning_summary = ReasoningSummary::Detailed;
-    let new_request = responses::mount_models_once(
-        &server,
-        ModelsResponse {
-            models: vec![new_model.clone()],
-        },
-    )
-    .await;
-    timeout(
-        Duration::from_secs(/*secs*/ 10),
-        manager.list_models(
-            RefreshStrategy::Online,
-            codex_core::test_support::default_http_client_factory(),
-        ),
-    )
-    .await
-    .expect("new account catalog must load while the old account's cache write is paused");
-    assert_eq!(manager.get_remote_models().await, vec![new_model.clone()]);
-    release_store.send(()).unwrap();
-    timeout(Duration::from_secs(10), old_refresh).await??;
-    assert_eq!(manager.get_remote_models().await, vec![new_model]);
-    for (mock, account) in [(old_request, "account_id"), (new_request, "second-account")] {
-        let requests = mock.requests();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].headers["chatgpt-account-id"], account);
-    }
-
-    let response = mount_sse_once(
-        &server,
-        sse(vec![
-            ev_response_created("next-turn"),
-            ev_completed("next-turn"),
-        ]),
-    )
-    .await;
-    test.submit_turn("use the new account's model defaults")
-        .await?;
-    let request = response.single_request();
-    assert_eq!(
-        request.header("chatgpt-account-id").as_deref(),
-        Some("second-account")
-    );
-    assert_eq!(request.body_json()["reasoning"]["summary"], "detailed");
     Ok(())
 }
