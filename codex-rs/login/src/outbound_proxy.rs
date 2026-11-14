@@ -36,13 +36,6 @@ impl AuthRouteConfig {
         self
     }
 
-    pub(crate) fn authentication_factory(&self, endpoint: &str) -> HttpClientFactory {
-        if self.local_bootstrap_factory.is_none() {
-            return self.http_client_factory.clone();
-        }
-        self.http_client_factory_for_bootstrap(endpoint.parse::<url::Url>())
-    }
-
     /// Uses local administrator network rules when available, limited to the supplied endpoints.
     /// Fetched policy must not block the sign-in and configuration requests needed to refresh it.
     pub fn http_client_factory_for_bootstrap(

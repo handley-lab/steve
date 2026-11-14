@@ -17,7 +17,7 @@ async fn provider_reachability_rejects_proxy_authentication_challenges() {
         .mount(&proxy)
         .await;
     let plan = provider_reachability_plan_from_parts(
-        ProviderAuthReachabilityMode::Chatgpt,
+        ProviderAuthReachabilityMode::ApiKey,
         "openai",
         Some(&proxy.uri()),
         /*provider_query_params*/ None,

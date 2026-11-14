@@ -219,7 +219,7 @@ async fn http_contract_and_untrusted_response_validation() {
     let sampler = sampler_for_test(format!("{}/v1", server.uri()))
         .await
         .unwrap();
-    let mut sampler = Arc::new(sampler);
+    let sampler = Arc::new(sampler);
     // The conversation adapter omits reasoning and compaction, preserving message order.
     let (mut retained, _) = LunaSampler::prepare_input(
         &request,

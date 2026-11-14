@@ -29,8 +29,6 @@ use crate::turn_metadata::ExecutionMetadata;
 use codex_analytics::ThreadProductUpdate;
 use codex_attachment_store::AttachmentStore;
 use codex_extension_api::ExtensionDataInit;
-use codex_http_client::ClientRouteClass;
-use codex_http_client::RouteAwareClientPool;
 use codex_model_provider::SharedModelProvider;
 use codex_prompts::render_model_instructions;
 use codex_protocol::ContextWindowId;
@@ -1201,11 +1199,10 @@ impl Session {
                 let guard = managed_guard.as_deref_mut().unwrap_or(&mut local_guard);
                 let live_thread = match &initial_history {
                     InitialHistory::New | InitialHistory::Cleared | InitialHistory::Forked(_) => {
-                        let auth = persistence_auth.await;
                         let params = CreateThreadParams {
                             attached_thread,
-                            creator_user_id: auth.as_ref().and_then(CodexAuth::get_chatgpt_user_id),
-                            creator_account_id: auth.as_ref().and_then(CodexAuth::get_account_id),
+                            creator_user_id: None,
+                            creator_account_id: None,
                             session_id,
                             thread_id,
                             extra_config: config.extra_config.clone(),
@@ -1325,7 +1322,6 @@ impl Session {
         ));
 
         let mut mcp_auth_changes = auth_manager.auth_change_receiver();
-        let plugins_manager_for_prewarm = Arc::clone(&plugins_manager);
         let config_for_mcp = Arc::clone(&config);
         let mcp_manager_for_mcp = Arc::clone(&mcp_manager);
         let mcp_thread_init_for_startup = &mcp_thread_init;
@@ -1335,20 +1331,6 @@ impl Session {
         let mcp_disabled_plugin_ids = session_configuration.disabled_plugin_ids.clone();
         let auth_and_mcp_fut = async move {
             let auth = mcp_auth.await;
-            if config_for_mcp.features.plugin_recommendations_enabled() {
-                let plugins_config = config_for_mcp.plugins_config_input();
-                let auth_for_prewarm = auth.clone();
-                // Fetch the catalog while MCP and plugin/skill initialization continue.
-                // Context construction still handles filtering and prompt insertion.
-                tokio::spawn(async move {
-                    plugins_manager_for_prewarm
-                        .recommended_plugins_mode_for_config(
-                            &plugins_config,
-                            auth_for_prewarm.as_ref(),
-                        )
-                        .await;
-                });
-            }
             let mcp_projection = mcp_manager_for_mcp
                 .runtime_config_for_step(
                     &config_for_mcp,
@@ -1460,8 +1442,8 @@ impl Session {
             let auth_mode = telemetry_auth
                 .map(CodexAuth::auth_mode)
                 .map(TelemetryAuthMode::from);
-            let account_id = telemetry_auth.and_then(CodexAuth::get_account_id);
-            let account_email = telemetry_auth.and_then(CodexAuth::get_account_email);
+            let account_id = None;
+            let account_email = None;
             let originator = session_configuration.originator.clone();
             let terminal_type = user_agent();
             let session_model = session_configuration
@@ -1487,7 +1469,6 @@ impl Session {
             )
             .with_auth_env(auth_env_telemetry.to_otel_metadata())
             .with_product_sku(config.apps_mcp_product_sku.as_deref())
-            .with_user_id(telemetry_auth.and_then(CodexAuth::get_chatgpt_user_id))
             .with_tool_result_log_config(config.otel.tool_result);
             if !config.otel.log_sse_deltas {
                 session_telemetry = session_telemetry.without_sse_delta_logs();
@@ -1536,7 +1517,7 @@ impl Session {
             );
 
             let mcp_server_names =
-                codex_mcp::effective_mcp_servers(&mcp_projection.config, auth.as_ref())
+                codex_mcp::effective_mcp_servers(&mcp_projection.config)
                     .into_iter()
                     .filter_map(|(name, server)| server.enabled().then_some(name))
                     .collect::<Vec<_>>();
@@ -1862,8 +1843,6 @@ impl Session {
             let mcp_resource_client = Arc::new(McpResourceClient::new(Arc::clone(&mcp_runtime)));
             let extension_metrics =
                 extension_metrics::from_session_telemetry(session_telemetry.clone());
-            let workspace_routing =
-                thread_extension_data.get_or_init(|| config.workspace_routing_context());
             for contributor in extensions.thread_lifecycle_contributors() {
                 contributor
                     .on_thread_start(codex_extension_api::ThreadStartInput {
@@ -1930,7 +1909,6 @@ impl Session {
                 config.features.enabled(Feature::OutputTokenReplay),
                 attestation_provider.clone(),
                 config.http_client_factory(),
-                workspace_routing.as_ref().clone(),
                 extensions.model_request_contributors().to_vec(),
             )
             .with_executed_tool_calls(executed_tool_calls.clone())
@@ -1989,12 +1967,6 @@ impl Session {
                 exec_policy,
                 auth_manager: Arc::clone(&auth_manager),
                 runtime_auth,
-                openai_file_upload_client_pool:
-                    RouteAwareClientPool::new_without_redirects_or_request_logging(
-                        config.http_client_factory(),
-                        ClientRouteClass::Api,
-                    )
-                    .with_legacy_custom_ca_fallback(),
                 session_telemetry,
                 models_manager: Arc::clone(&models_manager),
                 git_root_discovery,

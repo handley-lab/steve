@@ -1533,7 +1533,6 @@ async fn shared_overview_shows_only_root_sessions() {
     app.render_chat_widget_frame(&mut tui, screen_size)
         .expect("restore conversation after closing dashboard");
     assert!(tui.terminal.viewport_area.height < screen_size.height);
-    assert!(app.last_rendered_history_tail.is_some());
 }
 
 #[tokio::test]
@@ -3072,9 +3071,6 @@ fn trust_fixture_folders(app: &mut App) {
         toml::Value::try_from(projects).expect("trust fixture"),
     ));
 }
-
-#[path = "agents_overview_usage_tests.rs"]
-mod usage;
 
 #[tokio::test]
 async fn overview_grouping_persists_across_config_reloads() -> Result<()> {

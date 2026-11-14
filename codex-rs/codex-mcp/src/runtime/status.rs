@@ -34,30 +34,16 @@ impl McpRuntime {
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("MCP runtime is not configured"))?,
         );
-        let mut servers = effective_mcp_servers(&config, current.auth.as_ref());
+        let mut servers = effective_mcp_servers(&config);
         servers.retain(|name, _| {
             name == server
                 && expected_registration
                     .is_none_or(|expected| config.mcp_server_catalog.server(name) == Some(expected))
         });
-        if config.xaa_enabled
-            && servers
-                .values()
-                .any(|server| matches!(server.config().auth, codex_config::McpServerAuth::EmaAuth))
-        {
-            // Finish selected startup and any rejected-grant cleanup before reading auth.
-            current
-                .connections
-                .list_available_server_infos(|name| name == server)
-                .await;
-        }
         let auth_statuses = compute_auth_statuses(
             servers.iter(),
             config.mcp_oauth_credentials_store_mode,
             config.auth_keyring_backend_kind,
-            current.auth.as_ref(),
-            current.auth_manager.as_ref(),
-            &config.ema_state,
             &runtime_context,
         )
         .await;

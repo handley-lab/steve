@@ -67,8 +67,7 @@ impl SideParentStatus {
             | ServerRequest::ExecCommandApproval { .. } => Some(SideParentStatus::NeedsApproval),
             ServerRequest::DynamicToolCall { .. }
             | ServerRequest::AttestationGenerate { .. }
-            | ServerRequest::CurrentTimeRead { .. }
-            | ServerRequest::ChatgptAuthTokensRefresh { .. } => None,
+            | ServerRequest::CurrentTimeRead { .. } => None,
         }
     }
 }
@@ -535,8 +534,6 @@ impl App {
         thread_id: ThreadId,
     ) {
         self.abandoned_side_threads.insert(thread_id);
-        self.pending_app_server_requests
-            .cancel_thread_verification(&thread_id.to_string());
         let turn_id = self.active_turn_id_for_thread(thread_id).await;
         let attachment = self
             .thread_event_channels
@@ -574,8 +571,6 @@ impl App {
     }
 
     pub(super) async fn discard_thread_local_state(&mut self, thread_id: ThreadId) {
-        self.pending_app_server_requests
-            .cancel_thread_verification(&thread_id.to_string());
         let app_event_tx = self.app_event_tx.clone();
         self.dynamic_tool_tasks
             .retain(|request_id, (source, task)| {

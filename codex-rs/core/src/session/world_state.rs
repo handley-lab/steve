@@ -5,7 +5,6 @@ use super::step_context::StepContext;
 use super::turn_context::TurnContext;
 use crate::agent::host::AgentRuntimeServices;
 use crate::agent::host::AgentSessionReader;
-use crate::connectors;
 use crate::context::TokenBudgetContext;
 use crate::context::world_state::AgentsMdState;
 use crate::context::world_state::AppsInstructionsState;
@@ -28,7 +27,6 @@ use crate::context::world_state::TopLevelToolsState;
 use crate::context::world_state::WorldState;
 use crate::context::world_state::format_agent_paths;
 use crate::tools::handlers::multi_agents_spec::MULTI_AGENT_V1_NAMESPACE;
-use codex_connectors::AppToolPolicyEvaluator;
 use codex_extension_api::WorldStateContributionInput;
 use codex_features::Feature;
 use codex_file_system::FileSystemSandboxContext;
@@ -359,22 +357,8 @@ impl Session {
                     .features
                     .enabled(Feature::DeferredExecutor),
         ));
-        let apps_available =
-            if turn_context.config.include_apps_instructions && turn_context.apps_enabled() {
-                AppToolPolicyEvaluator::new(&turn_context.config.config_layer_stack)
-                    .apply_app_enabled_state(connectors::accessible_connectors_from_mcp_tools(
-                        &turn_context.config.chatgpt_base_url,
-                        step_context.mcp.tools(),
-                    ))
-                    .into_iter()
-                    .any(|connector| connector.is_accessible && connector.is_enabled)
-            } else {
-                false
-            };
-        let apps_usage_instructions_available =
-            apps_available && model_info.include_apps_usage_instructions;
         world_state.add_section(AppsInstructionsState::new(
-            apps_usage_instructions_available,
+            /*apps_usage_instructions_available*/ false,
         ));
         let plugins_usage_instructions_available =
             step_context.mcp.plugins_available() && model_info.include_plugin_usage_instructions;

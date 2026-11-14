@@ -22,7 +22,8 @@ async fn quota_warnings_are_emitted_once_and_survive_native_replay() -> Result<(
                 "primary": {"usedPercent": 80, "windowDurationMins": 300},
             }))?;
         for _ in 0..2 {
-            app.chat_widget.on_rate_limit_snapshot(Some(quota.clone()));
+            app.chat_widget
+                .on_rolling_rate_limit_snapshot(quota.clone());
             while let Ok(event) = events.try_recv() {
                 if let AppEvent::InsertHistoryCell(cell) = event {
                     app.insert_history_cell(&mut tui, cell);

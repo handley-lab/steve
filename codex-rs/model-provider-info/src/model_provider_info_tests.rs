@@ -235,38 +235,9 @@ supports_websockets = true
 #[test]
 fn api_provider_requires_an_explicit_base_url() {
     for base_url in [None, Some(""), Some(" \t")] {
-        for auth_mode in [
-            None,
-            Some(AuthMode::ApiKey),
-            Some(AuthMode::Chatgpt),
-            Some(AuthMode::ChatgptAuthTokens),
-            Some(AuthMode::AgentIdentity),
-            Some(AuthMode::Headers),
-            Some(AuthMode::PersonalAccessToken),
-        ] {
+        for auth_mode in [None, Some(AuthMode::ApiKey)] {
             let provider = ModelProviderInfo::create_openai_provider(base_url.map(str::to_owned));
             assert!(provider.to_api_provider(auth_mode).is_err());
-        }
-    }
-}
-
-#[test]
-fn api_provider_preserves_explicit_endpoints_for_every_auth_mode() {
-    for base_url in ["http://localhost:30000/v1", "https://api.openai.com/v1"] {
-        for auth_mode in [
-            None,
-            Some(AuthMode::ApiKey),
-            Some(AuthMode::Chatgpt),
-            Some(AuthMode::ChatgptAuthTokens),
-            Some(AuthMode::Headers),
-            Some(AuthMode::AgentIdentity),
-            Some(AuthMode::PersonalAccessToken),
-        ] {
-            let provider = ModelProviderInfo::create_openai_provider(Some(base_url.to_string()));
-            assert_eq!(
-                provider.to_api_provider(auth_mode).unwrap().base_url,
-                base_url
-            );
         }
     }
 }

@@ -87,7 +87,7 @@ async fn guardian_reused_reviewer_avoids_stale_catalog_lookup(with_cache: bool) 
         responses::mount_models_once_with_etag(&server, catalog.clone(), ETAG).await;
 
     let mut builder = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_model("gpt-5.5");
     builder = builder.with_config(|config| {
         config.guardian_model = Some("codex-auto-review".to_string());
@@ -226,7 +226,7 @@ async fn renews_cache_ttl_on_matching_models_etag() -> Result<()> {
     )
     .await;
 
-    let mut builder = test_codex().with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let mut builder = test_codex().with_auth(CodexAuth::from_api_key("dummy"));
     builder = builder.with_config(|config| {
         config.model = Some("gpt-5.2".to_string());
         config.model_provider.request_max_retries = Some(0);
@@ -331,7 +331,7 @@ async fn matching_models_etag_does_not_rewrite_recent_cache() -> Result<()> {
     )
     .await;
 
-    let mut builder = test_codex().with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let mut builder = test_codex().with_auth(CodexAuth::from_api_key("dummy"));
     builder = builder.with_config(|config| {
         config.model = Some("gpt-5.2".to_string());
         config.model_provider.request_max_retries = Some(0);
@@ -391,7 +391,7 @@ async fn matching_models_etag_renews_cache_after_half_its_lifetime() -> Result<(
     )
     .await;
 
-    let mut builder = test_codex().with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let mut builder = test_codex().with_auth(CodexAuth::from_api_key("dummy"));
     builder = builder.with_config(|config| {
         config.model = Some("gpt-5.2".to_string());
         config.model_provider.request_max_retries = Some(0);
@@ -451,13 +451,13 @@ async fn uses_cache_when_version_matches() -> Result<()> {
     )
     .await;
 
-    let mut builder = test_codex().with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let mut builder = test_codex().with_auth(CodexAuth::from_api_key("dummy"));
     let identity = codex_model_provider::test_support::models_cache_entry(
         &codex_model_provider_info::ModelProviderInfo::create_openai_provider(Some(format!(
             "{}/v1",
             server.uri()
         ))),
-        Some(&CodexAuth::create_dummy_chatgpt_auth_for_testing()),
+        Some(&CodexAuth::from_api_key("dummy")),
         Vec::new(),
     )
     .identity;
@@ -526,13 +526,13 @@ async fn refreshes_when_cache_version_missing() -> Result<()> {
     )
     .await;
 
-    let mut builder = test_codex().with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let mut builder = test_codex().with_auth(CodexAuth::from_api_key("dummy"));
     let identity = codex_model_provider::test_support::models_cache_entry(
         &codex_model_provider_info::ModelProviderInfo::create_openai_provider(Some(format!(
             "{}/v1",
             server.uri()
         ))),
-        Some(&CodexAuth::create_dummy_chatgpt_auth_for_testing()),
+        Some(&CodexAuth::from_api_key("dummy")),
         Vec::new(),
     )
     .identity;
@@ -586,13 +586,13 @@ async fn refreshes_when_cache_version_differs() -> Result<()> {
         models_mocks.push(responses::mount_models_once(&server, models_response.clone()).await);
     }
 
-    let mut builder = test_codex().with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let mut builder = test_codex().with_auth(CodexAuth::from_api_key("dummy"));
     let identity = codex_model_provider::test_support::models_cache_entry(
         &codex_model_provider_info::ModelProviderInfo::create_openai_provider(Some(format!(
             "{}/v1",
             server.uri()
         ))),
-        Some(&CodexAuth::create_dummy_chatgpt_auth_for_testing()),
+        Some(&CodexAuth::from_api_key("dummy")),
         Vec::new(),
     )
     .identity;

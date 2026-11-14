@@ -120,7 +120,6 @@ pub use mcp::McpServersDisabled;
 mod original_image_detail;
 pub use codex_mcp::CodexAppsToolsCache;
 pub use codex_mcp::SandboxState;
-mod mcp_openai_file;
 mod mcp_tool_call;
 pub(crate) mod mention_syntax;
 pub(crate) mod utils;
@@ -129,7 +128,6 @@ pub use mention_syntax::TOOL_MENTION_SIGIL;
 pub use utils::path_utils;
 pub(crate) mod plugins;
 pub use plugins::plugins_manager_for_config;
-pub use plugins::plugins_manager_for_config_with_runtime;
 #[doc(hidden)]
 pub(crate) mod prompt_debug;
 #[doc(hidden)]

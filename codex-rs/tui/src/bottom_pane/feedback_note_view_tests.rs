@@ -272,7 +272,7 @@ fn remote_save_shortcut_keeps_the_note_for_explicit_upload() {
         Some("turn-123".to_string()),
         tx,
         /*include_logs*/ true,
-        Some(FeedbackAudience::OpenAiEmployee),
+        Some(FeedbackAudience::External),
         /*can_save*/ false,
     );
     view.textarea.insert_str("  something broke  ");
@@ -366,7 +366,7 @@ fn feedback_note_cancel_does_not_submit() {
         /*turn_id*/ None,
         AppEventSender::new(tx_raw),
         /*include_logs*/ false,
-        Some(FeedbackAudience::OpenAiEmployee),
+        Some(FeedbackAudience::External),
         /*can_save*/ true,
     );
     view.textarea.insert_str("unfinished feedback");

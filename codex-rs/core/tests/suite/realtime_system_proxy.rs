@@ -112,7 +112,7 @@ async fn webrtc_sideband_honors_configured_system_proxy() -> Result<()> {
 
     let backend_base_url = format!("{}/backend-api/codex", server.uri());
     let mut builder = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
             config.model_catalog = Some(codex_protocol::openai_models::ModelsResponse {
                 models: vec![codex_models_manager::test_support::model_info("gpt-5.5")],

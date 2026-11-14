@@ -17,7 +17,6 @@ pub(crate) use authorization::build_authorization_url;
 pub(crate) use authorization::generate_state;
 pub(crate) use client::AuthorizationCodeGrant;
 pub(crate) use client::OAuthClient;
-pub(crate) use client::RefreshReason;
 pub(crate) use client::RefreshTokenGrant;
 pub(crate) use client::TokenEncoding;
 pub(crate) use client::TokenEndpoint;

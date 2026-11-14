@@ -2100,7 +2100,6 @@ dependencies = [
  "codex-arg0",
  "codex-aws-auth",
  "codex-backend-client",
- "codex-chatgpt",
  "codex-cloud-config",
  "codex-code-mode",
  "codex-config",
@@ -2115,7 +2114,6 @@ dependencies = [
  "codex-feedback",
  "codex-file-search",
  "codex-file-watcher",
- "codex-git-attribution",
  "codex-git-utils",
  "codex-goal-extension",
  "codex-guardian-v2",
@@ -2152,7 +2150,6 @@ dependencies = [
  "codex-thread-store",
  "codex-tools",
  "codex-uds",
- "codex-user-verification",
  "codex-utils-absolute-path",
  "codex-utils-cargo-bin",
  "codex-utils-cli",
@@ -2525,34 +2522,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "codex-chatgpt"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "clap",
- "codex-connectors",
- "codex-core",
- "codex-features",
- "codex-git-utils",
- "codex-http-client",
- "codex-login",
- "codex-model-provider",
- "codex-plugin",
- "codex-protocol",
- "codex-runtime-agent-instance",
- "codex-utils-cargo-bin",
- "codex-utils-cli",
- "pretty_assertions",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "uuid",
- "wiremock",
-]
-
-[[package]]
 name = "codex-cli"
 version = "0.0.0"
 dependencies = [
@@ -2571,7 +2540,6 @@ dependencies = [
  "codex-app-server-test-client",
  "codex-arg0",
  "codex-build-info",
- "codex-chatgpt",
  "codex-cloud-config",
  "codex-cloud-tasks",
  "codex-config",
@@ -2583,7 +2551,6 @@ dependencies = [
  "codex-execpolicy",
  "codex-extension-api",
  "codex-features",
- "codex-git-attribution",
  "codex-git-utils",
  "codex-history",
  "codex-home",
@@ -3648,23 +3615,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "codex-git-attribution"
-version = "0.0.0"
-dependencies = [
- "codex-backend-client",
- "codex-config",
- "codex-extension-api",
- "codex-features",
- "codex-http-client",
- "codex-login",
- "codex-model-provider",
- "codex-runtime-agent-instance",
- "serde_json",
- "tokio",
- "wiremock",
 ]
 
 [[package]]
@@ -5329,27 +5279,6 @@ dependencies = [
  "tokio-util",
  "uds_windows",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codex-user-verification"
-version = "0.0.0"
-dependencies = [
- "base64 0.22.1",
- "block2",
- "core-foundation 0.10.1",
- "dirs",
- "objc2",
- "objc2-foundation",
- "objc2-local-authentication",
- "p256",
- "pretty_assertions",
- "security-framework 3.5.1",
- "security-framework-sys",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
@@ -11238,18 +11167,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "objc2-local-authentication"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e48e0b8b339e0d9d2ed4416b7f93f9d4daadff7d4dd797f89867cde11aeac607"
-dependencies = [
- "block2",
- "objc2",
- "objc2-foundation",
- "objc2-security",
-]
-
-[[package]]
 name = "objc2-quartz-core"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11259,17 +11176,6 @@ dependencies = [
  "objc2",
  "objc2-core-foundation",
  "objc2-foundation",
-]
-
-[[package]]
-name = "objc2-security"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "709fe137109bd1e8b5a99390f77a7d8b2961dafc1a1c5db8f2e60329ad6d895a"
-dependencies = [
- "bitflags 2.13.1",
- "objc2",
- "objc2-core-foundation",
 ]
 
 [[package]]

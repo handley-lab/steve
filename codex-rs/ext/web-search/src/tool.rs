@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use codex_api::ReqwestTransport;
 use codex_api::SearchClient;
 use codex_api::SearchCommands;
@@ -26,9 +24,7 @@ use codex_login::default_client::ClientRedirectPolicy;
 use codex_login::default_client::add_originator_header;
 use codex_login::default_client::create_client_for_route_async;
 use codex_login::default_client::create_transport_for_routes_async;
-use codex_model_provider::ACCOUNT_ROUTING_HEADER;
 use codex_model_provider::SharedModelProvider;
-use codex_model_provider::WorkspaceRoutingContext;
 use codex_protocol::models::WebSearchAction as CoreWebSearchAction;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::WebSearchBeginEvent;
@@ -55,7 +51,6 @@ pub(crate) struct WebSearchTool {
     pub(crate) session_id: String,
     pub(crate) http_client_factory: HttpClientFactory,
     pub(crate) provider: SharedModelProvider,
-    pub(crate) workspace_routing: Arc<WorkspaceRoutingContext>,
     pub(crate) settings: SearchSettings,
     pub(crate) supports_literature_search: bool,
     pub(crate) originator: Option<String>,
@@ -113,17 +108,12 @@ impl WebSearchTool {
         let command_action = command_action(&commands);
         let setup = codex_model_provider::resolve_request(
             self.provider.as_ref(),
-            Some(&self.workspace_routing),
+            ClientRedirectPolicy::Reject,
             self.http_client_factory.clone(),
         )
         .await
         .map_err(|err| FunctionCallError::RespondToModel(search_error_message(err)))?;
-        let transport = if setup.redirect_policy == ClientRedirectPolicy::Reject
-            || setup
-                .api_provider
-                .headers
-                .contains_key(ACCOUNT_ROUTING_HEADER)
-        {
+        let transport = if setup.redirect_policy == ClientRedirectPolicy::Reject {
             create_client_for_route_async(
                 setup.http_client_factory,
                 setup.api_provider.url_for_path("alpha/search"),

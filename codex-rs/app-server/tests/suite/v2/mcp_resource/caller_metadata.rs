@@ -14,7 +14,9 @@ async fn mcp_resource_read_forwards_rpc_trace_context() -> Result<()> {
     let (_home, mut mcp) = start_resource_test_app_server_with_extra_config(
         &url,
         &responses.uri(),
-        "[otel]\ntrace_exporter = \"none\"",
+        &format!(
+            "[otel]\ntrace_exporter = \"none\"\n\n[mcp_servers.traced]\nurl = \"{url}/api/codex/ps/mcp\""
+        ),
         ResourceTestEnvironment::Auto,
     )
     .await?;
@@ -24,7 +26,7 @@ async fn mcp_resource_read_forwards_rpc_trace_context() -> Result<()> {
     mcp.send_jsonrpc_message(JSONRPCMessage::Request(JSONRPCRequest {
         id: id.clone(),
         method: "mcpServer/resource/read".to_string(),
-        params: Some(json!({"server": "codex_apps", "uri": TEST_RESOURCE_URI})),
+        params: Some(json!({"server": "traced", "uri": TEST_RESOURCE_URI})),
         trace: Some(W3cTraceContext {
             traceparent: Some(traceparent.to_string()),
             tracestate: Some(tracestate.to_string()),

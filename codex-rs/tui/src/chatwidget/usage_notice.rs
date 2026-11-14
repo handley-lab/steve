@@ -3,7 +3,6 @@
 //! Details target half the composer gap; the shortest notice may use its full width.
 
 use super::ChatWidget;
-use super::rate_limits::RateLimitSnapshotSource;
 use super::rate_limits::is_approximate_window;
 use super::rate_limits::limit_label_for_window;
 use crate::clock_format::ClockFormat;
@@ -22,9 +21,6 @@ pub(super) struct UsageNoticeState {
     secondary: Option<RateLimitWindow>,
     plan_type: Option<PlanType>,
     credits: Option<CreditsSnapshot>,
-    latest_read_id: u64,
-    stale_through: Option<u64>,
-    pub(super) applying_stale_read: bool,
 }
 
 impl UsageNoticeState {
@@ -87,26 +83,14 @@ impl UsageNoticeState {
     pub(super) fn update(
         &mut self,
         snapshot: &RateLimitSnapshot,
-        source: RateLimitSnapshotSource,
         plan_type: Option<PlanType>,
     ) -> bool {
-        if matches!(source, RateLimitSnapshotSource::AccountUsage) && self.applying_stale_read {
-            return false;
-        }
         let previous = self.current();
-        let rolling = matches!(source, RateLimitSnapshotSource::RollingUpdate);
-        if rolling {
-            self.stale_through = Some(self.latest_read_id);
-        }
         self.plan_type = snapshot.plan_type.or(self.plan_type).or(plan_type);
         for (current, incoming) in [
             (&mut self.primary, &snapshot.primary),
             (&mut self.secondary, &snapshot.secondary),
         ] {
-            if !rolling {
-                *current = incoming.clone();
-                continue;
-            }
             let Some(incoming) = incoming else {
                 continue;
             };
@@ -123,7 +107,7 @@ impl UsageNoticeState {
             }
             *current = Some(window);
         }
-        if !rolling || snapshot.credits.is_some() {
+        if snapshot.credits.is_some() {
             self.credits = snapshot.credits.clone();
         }
         self.current() != previous
@@ -165,27 +149,13 @@ pub(super) fn warning_threshold(plan_type: Option<PlanType>, window_minutes: Opt
 
 impl ChatWidget {
     pub(crate) fn usage_notice(&self, width: u16) -> Option<Line<'static>> {
-        if self.has_applicable_backend_banner()
-            || self.codex_rate_limit_reached_type.is_some()
+        if self.codex_rate_limit_reached_type.is_some()
             || self.codex_spend_control_reached == Some(true)
         {
             return None;
         }
         self.usage_notice_state
             .line(width, Local::now(), self.clock_format)
-    }
-
-    pub(crate) fn start_usage_notice_read(&mut self, request_id: u64) {
-        self.usage_notice_state.latest_read_id = request_id;
-    }
-
-    pub(crate) fn apply_usage_notice_read(&mut self, request_id: u64) {
-        // A newer failed read does not invalidate an older successful one. Only rolling
-        // updates received since that read began make it too old to confirm recovery.
-        self.usage_notice_state.applying_stale_read = self
-            .usage_notice_state
-            .stale_through
-            .is_some_and(|id| request_id <= id);
     }
 }
 

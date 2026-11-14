@@ -125,7 +125,7 @@ fn assert_request_trace_matches(body: &serde_json::Value, expected_trace: &W3cTr
 }
 
 struct WebsocketTestHarness {
-    codex_home: TempDir,
+    _codex_home: TempDir,
     auth_manager: Arc<AuthManager>,
     client: ModelClient,
     outbound_proxy_policy: OutboundProxyPolicy,
@@ -350,7 +350,7 @@ async fn responses_websocket_omits_routing_hint_for_provider_with_own_credential
         /*runtime_metrics_enabled*/ false,
         /*concurrent_reasoning_summaries_enabled*/ false,
         /*enabled_features*/ &[],
-        Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
+        Some(CodexAuth::from_api_key("dummy")),
     )
     .await;
     let mut client_session = harness.client.new_session();
@@ -1041,168 +1041,6 @@ async fn responses_websocket_reuses_connection_after_session_drop() {
     assert_eq!(server.single_connection().len(), 2);
 
     server.shutdown().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn responses_websocket_reconnects_after_account_switch() {
-    skip_if_no_network!();
-
-    for new_turn_on_switch in [false, true] {
-        // Keep the first socket open so only the account switch forces a reconnect.
-        let server = start_websocket_server(
-            [
-                (1..=5, "first-account-state"),
-                (3..=5, "second-account-state"),
-            ]
-            .into_iter()
-            .map(|(responses, turn_state)| {
-                responses
-                    .map(|index| {
-                        let id = format!("resp-{index}");
-                        vec![
-                            ev_response_created(&id),
-                            json!({
-                                "type": "response.metadata",
-                                "headers": {"x-codex-turn-state": turn_state},
-                            }),
-                            ev_completed(&id),
-                        ]
-                    })
-                    .collect()
-            })
-            .collect(),
-        )
-        .await;
-        let harness = websocket_harness_for_codex_backend(&server).await;
-        let mut client_session = harness.client.new_session();
-        let mut input = Vec::new();
-
-        for index in 1..=5 {
-            if index == 3 {
-                let mut tokens = harness
-                    .auth_manager
-                    .auth_cached()
-                    .unwrap()
-                    .get_token_data()
-                    .unwrap();
-                tokens.id_token.raw_jwt = "e30.e30.signature".into();
-                tokens.account_id = Some("second-account".into());
-                tokens.access_token = "second-account-token".into();
-                std::fs::write(
-                    harness.codex_home.path().join("auth.json"),
-                    serde_json::to_vec(&json!({
-                        "auth_mode": "chatgpt",
-                        "tokens": tokens,
-                        "last_refresh": chrono::Utc::now(),
-                    }))
-                    .unwrap(),
-                )
-                .unwrap();
-                harness.auth_manager.reload().await;
-            }
-            if index == 5 || (index == 3 && new_turn_on_switch) {
-                drop(client_session);
-                client_session = harness.client.new_session();
-                if index == 3 {
-                    client_session
-                        .preconnect_websocket(
-                            &harness.model_info,
-                            /*service_tier*/ None,
-                            &harness.session_telemetry,
-                            &websocket_connection_metadata(&harness),
-                        )
-                        .await
-                        .expect("new account should establish its own socket during preconnect");
-                }
-            }
-            input.push(message_item(&format!("request {index}")));
-            stream_until_complete_with_model_info(
-                &mut client_session,
-                &harness,
-                &prompt_with_input(input.clone()),
-                &harness.model_info,
-                &format!("resp-{index}"),
-            )
-            .await;
-        }
-
-        assert_eq!(
-            server
-                .handshakes()
-                .iter()
-                .map(|handshake| (
-                    handshake.header("chatgpt-account-id"),
-                    handshake.header("authorization"),
-                ))
-                .collect::<Vec<_>>(),
-            vec![
-                (
-                    Some("account_id".into()),
-                    Some("Bearer Access Token".into())
-                ),
-                (
-                    Some("second-account".into()),
-                    Some("Bearer second-account-token".into())
-                ),
-            ],
-        );
-        assert_eq!(
-            server
-                .connections()
-                .iter()
-                .map(|requests| requests
-                    .iter()
-                    .map(|request| {
-                        let body = request.body_json();
-                        (
-                            body["previous_response_id"].clone(),
-                            body["input"].as_array().unwrap().len(),
-                            body["client_metadata"]["x-codex-turn-state"].clone(),
-                        )
-                    })
-                    .collect::<Vec<_>>())
-                .collect::<Vec<_>>(),
-            vec![
-                vec![
-                    (json!(null), 1, json!(null)),
-                    (json!("resp-1"), 1, json!("first-account-state")),
-                ],
-                vec![
-                    (json!(null), 3, json!(null)),
-                    (json!("resp-3"), 1, json!("second-account-state")),
-                    (json!("resp-4"), 1, json!(null)),
-                ],
-            ],
-            "new_turn_on_switch={new_turn_on_switch}",
-        );
-        let snapshot = harness
-            .session_telemetry
-            .snapshot_metrics()
-            .expect("metrics snapshot");
-        assert_counter(
-            &snapshot,
-            codex_otel::WEBSOCKET_CONNECT_COUNT_METRIC,
-            ["reauth", "success"],
-            &[(["false", "true"], 1), (["true", "true"], 1)],
-        );
-        assert_counter(
-            &snapshot,
-            codex_otel::WEBSOCKET_CONTINUATION_COUNT_METRIC,
-            CONTINUATION_TAGS,
-            &[
-                (["full", "other", "generation", "none", "none"], 1),
-                (
-                    ["full", "no_previous_request", "generation", "none", "none"],
-                    1,
-                ),
-                (
-                    ["incremental", "incremental", "generation", "none", "none"],
-                    3,
-                ),
-            ],
-        );
-        server.shutdown().await;
-    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2895,7 +2733,7 @@ async fn websocket_harness_for_codex_backend(server: &WebSocketTestServer) -> We
         /*runtime_metrics_enabled*/ false,
         /*concurrent_reasoning_summaries_enabled*/ false,
         /*enabled_features*/ &[],
-        Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
+        Some(CodexAuth::from_api_key("dummy")),
     )
     .await
 }
@@ -3066,12 +2904,11 @@ async fn websocket_harness_with_provider_factory(
         config.features.enabled(Feature::OutputTokenReplay),
         /*attestation_provider*/ None,
         http_client_factory,
-        config.workspace_routing_context(),
         request_contributors,
     );
 
     WebsocketTestHarness {
-        codex_home,
+        _codex_home: codex_home,
         auth_manager,
         client,
         outbound_proxy_policy,

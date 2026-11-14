@@ -21,7 +21,6 @@ pub(super) enum NewBackendSession {
 /// belong to the executor and must never determine where this preference is saved.
 pub(crate) struct BackendPreferenceContext {
     pub(crate) local_cwd: Option<PathBuf>,
-    auth: codex_login::AuthConfig,
     project_root_markers: Vec<String>,
 }
 
@@ -39,7 +38,6 @@ impl BackendPreferenceContext {
             .unwrap_or_else(codex_config::default_project_root_markers);
         Self {
             local_cwd,
-            auth: config.auth_config(),
             project_root_markers,
         }
     }
@@ -53,25 +51,8 @@ impl BackendPreferenceContext {
         )
         .await
         .ok()?;
-        let auth = self
-            .auth
-            .load_auth(/*enable_codex_api_key_env*/ false)
-            .await
-            .ok()?;
-        let user = if let Some(id) = auth
-            .as_ref()
-            .and_then(codex_login::CodexAuth::get_chatgpt_user_id)
-        {
-            format!("chatgpt:{id}")
-        } else if auth
-            .as_ref()
-            .is_some_and(codex_login::CodexAuth::is_chatgpt_auth)
-        {
-            return None;
-        } else {
-            // A local profile without an account is already private to its CODEX_HOME.
-            "local".to_string()
-        };
+        // A local profile is already private to its CODEX_HOME.
+        let user = "local".to_string();
         Some((
             codex_config::loader::project_trust_key(project.as_path()),
             user,
@@ -388,8 +369,6 @@ impl App {
         self.store_active_thread_receiver().await;
         self.clear_active_thread().await;
         self.agents_overview.search_matches.clear();
-        self.agents_overview.pending_usage = None;
-        self.agents_overview.usage_disabled = false;
         self.app_event_tx = AppEventSender::new(self.app_event_tx.app_event_tx.clone());
         self.app_server_target = target;
         self.reconnect = Default::default();
@@ -397,9 +376,6 @@ impl App {
             state.connection_notice = None;
             state.restart_history_search();
         }
-        self.rate_limit_hard_stop_generation = self.rate_limit_hard_stop_generation.wrapping_add(1);
-        self.rate_limit_refresh_state.invalidate_recovery();
-        self.account_email_request_id = None;
         self.file_search.on_user_query(String::new());
         self.bind_backend_workspace(destination, cwd);
         self.model_catalog = Arc::new(
@@ -407,15 +383,9 @@ impl App {
                 .for_backend(destination.backend_id(), &mut self.provider_writes)
                 .with_collaboration_modes(bootstrap.collaboration_modes),
         );
-        self.feedback_audience = bootstrap.feedback_audience;
         self.chat_widget.requires_openai_auth = bootstrap.requires_openai_auth;
-        self.chat_widget.invalidate_security_setup();
-        self.chat_widget.update_account_state(
-            bootstrap.status_account_display,
-            bootstrap.plan_type,
-            bootstrap.has_chatgpt_account,
-            matches!(bootstrap.auth_mode, Some(TelemetryAuthMode::Chatgpt)),
-        );
+        self.chat_widget
+            .update_account_state(bootstrap.status_account_display);
     }
 
     pub(super) fn resume_backend_session<'a>(

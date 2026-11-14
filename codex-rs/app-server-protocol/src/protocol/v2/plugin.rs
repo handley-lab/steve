@@ -134,10 +134,6 @@ pub struct PluginListParams {
     /// only home-scoped marketplaces and the official curated marketplace are considered.
     #[ts(optional = nullable)]
     pub cwds: Option<Vec<AbsolutePathBuf>>,
-    /// Optional marketplace kind filter. When omitted, only local marketplaces are queried, plus
-    /// the default remote catalog when enabled by feature flag.
-    #[ts(optional = nullable)]
-    pub marketplace_kinds: Option<Vec<PluginListMarketplaceKind>>,
     /// Whether the client requests a fresh remote plugin catalog fetch.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub force_refetch: bool,
@@ -156,26 +152,6 @@ pub struct PluginInstalledParams {
     pub install_suggestion_plugin_names: Option<Vec<String>>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
-#[ts(export_to = "v2/")]
-pub enum PluginListMarketplaceKind {
-    #[serde(rename = "local")]
-    #[ts(rename = "local")]
-    Local,
-    #[serde(rename = "vertical")]
-    #[ts(rename = "vertical")]
-    Vertical,
-    #[serde(rename = "workspace-directory")]
-    #[ts(rename = "workspace-directory")]
-    WorkspaceDirectory,
-    #[serde(rename = "shared-with-me")]
-    #[ts(rename = "shared-with-me")]
-    SharedWithMe,
-    #[serde(rename = "created-by-me-remote")]
-    #[ts(rename = "created-by-me-remote")]
-    CreatedByMeRemote,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
@@ -183,8 +159,6 @@ pub struct PluginListResponse {
     pub marketplaces: Vec<PluginMarketplaceEntry>,
     #[serde(default)]
     pub marketplace_load_errors: Vec<MarketplaceLoadErrorInfo>,
-    #[serde(default)]
-    pub featured_plugin_ids: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -194,50 +168,6 @@ pub struct PluginInstalledResponse {
     pub marketplaces: Vec<PluginMarketplaceEntry>,
     #[serde(default)]
     pub marketplace_load_errors: Vec<MarketplaceLoadErrorInfo>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginReconcileParams {
-    /// Optional client-provided reason recorded with the reconciliation attempt.
-    #[ts(optional = nullable)]
-    pub reason: Option<String>,
-}
-
-/// Bundle and installed-state changes observed by this pass, not a runtime-readiness
-/// acknowledgement or a cumulative diff since the client's last request. Other metadata-only
-/// changes are not listed.
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginReconcileResponse {
-    /// Plugins affected by bundle changes, enablement changes, or removals.
-    /// Installed-state changes compare against the previous cached snapshot, including
-    /// cached reinstalls. Removal hints survive cache cleanup failures; unchanged plugins are omitted.
-    pub changed_plugins: Vec<PluginReconcileChangedPlugin>,
-    /// Backend remote plugin IDs whose bundle or identity update failed.
-    pub failed_remote_plugin_ids: Vec<String>,
-    /// Subset of failures for which the requested bundle could not be materialized.
-    /// A previously cached version may still be available.
-    pub failed_materialization_remote_plugin_ids: Vec<String>,
-}
-
-/// Runtime categories affected by this change, not just capabilities currently present.
-/// Flags describe declarations before runtime policy filtering. Updates OR the old and new
-/// bundle flags; enablement changes and cached reinstalls use the cached bundle; removals retain
-/// the old bundle's flags.
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginReconcileChangedPlugin {
-    /// Local plugin ID (`name@marketplace`), matching `PluginSummary.id`.
-    pub id: String,
-    pub has_mcps: bool,
-    pub has_apps: bool,
-    pub has_hooks: bool,
-    /// Whether either bundle declares skill roots; not a validated inventory of enabled skills.
-    pub has_skills: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -254,8 +184,6 @@ pub struct MarketplaceLoadErrorInfo {
 pub struct PluginReadParams {
     #[ts(optional = nullable)]
     pub marketplace_path: Option<AbsolutePathBuf>,
-    #[ts(optional = nullable)]
-    pub remote_marketplace_name: Option<String>,
     pub plugin_name: String,
 }
 
@@ -264,194 +192,6 @@ pub struct PluginReadParams {
 #[ts(export_to = "v2/")]
 pub struct PluginReadResponse {
     pub plugin: PluginDetail,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginSkillReadParams {
-    pub remote_marketplace_name: String,
-    pub remote_plugin_id: String,
-    pub skill_name: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginSkillReadResponse {
-    pub contents: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginShareSaveParams {
-    pub plugin_path: AbsolutePathBuf,
-    #[ts(optional = nullable)]
-    pub remote_plugin_id: Option<String>,
-    #[ts(optional = nullable)]
-    pub discoverability: Option<PluginShareDiscoverability>,
-    #[ts(optional = nullable)]
-    pub share_targets: Option<Vec<PluginShareTarget>>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginShareSaveResponse {
-    pub remote_plugin_id: String,
-    pub share_url: String,
-    #[serde(default)]
-    pub can_publish_to_workspace: Option<bool>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginShareUpdateTargetsParams {
-    pub remote_plugin_id: String,
-    pub discoverability: PluginShareUpdateDiscoverability,
-    pub share_targets: Vec<PluginShareTarget>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginShareUpdateTargetsResponse {
-    pub principals: Vec<PluginSharePrincipal>,
-    pub discoverability: PluginShareDiscoverability,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginShareListParams {}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginShareListResponse {
-    pub data: Vec<PluginShareListItem>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginShareCheckoutParams {
-    pub remote_plugin_id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginShareCheckoutResponse {
-    pub remote_plugin_id: String,
-    pub plugin_id: String,
-    pub plugin_name: String,
-    pub plugin_path: AbsolutePathBuf,
-    pub marketplace_name: String,
-    pub marketplace_path: AbsolutePathBuf,
-    pub remote_version: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginShareDeleteParams {
-    pub remote_plugin_id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginShareDeleteResponse {}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginShareListItem {
-    pub plugin: PluginSummary,
-    pub local_plugin_path: Option<AbsolutePathBuf>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
-#[ts(export_to = "v2/")]
-pub enum PluginShareDiscoverability {
-    #[serde(rename = "LISTED")]
-    #[ts(rename = "LISTED")]
-    Listed,
-    #[serde(rename = "UNLISTED")]
-    #[ts(rename = "UNLISTED")]
-    Unlisted,
-    #[serde(rename = "PRIVATE")]
-    #[ts(rename = "PRIVATE")]
-    Private,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
-#[ts(export_to = "v2/")]
-pub enum PluginShareUpdateDiscoverability {
-    #[serde(rename = "UNLISTED")]
-    #[ts(rename = "UNLISTED")]
-    Unlisted,
-    #[serde(rename = "PRIVATE")]
-    #[ts(rename = "PRIVATE")]
-    Private,
-    #[serde(rename = "LISTED")]
-    #[ts(rename = "LISTED")]
-    Listed,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
-#[ts(export_to = "v2/")]
-pub enum PluginSharePrincipalType {
-    #[serde(rename = "user")]
-    #[ts(rename = "user")]
-    User,
-    #[serde(rename = "group")]
-    #[ts(rename = "group")]
-    Group,
-    #[serde(rename = "workspace")]
-    #[ts(rename = "workspace")]
-    Workspace,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginShareTarget {
-    pub principal_type: PluginSharePrincipalType,
-    pub principal_id: String,
-    pub role: PluginShareTargetRole,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginSharePrincipal {
-    pub principal_type: PluginSharePrincipalType,
-    pub principal_id: String,
-    pub role: PluginSharePrincipalRole,
-    pub name: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(rename_all = "lowercase")]
-#[ts(export_to = "v2/")]
-pub enum PluginShareTargetRole {
-    Reader,
-    Editor,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(rename_all = "lowercase")]
-#[ts(export_to = "v2/")]
-pub enum PluginSharePrincipalRole {
-    Reader,
-    Editor,
-    Owner,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
@@ -712,8 +452,6 @@ pub struct PluginSummary {
     #[serde(default)]
     pub local_version: Option<String>,
     pub name: String,
-    /// Remote sharing context associated with this plugin when available.
-    pub share_context: Option<PluginShareContext>,
     pub source: PluginSource,
     pub installed: bool,
     /// Unix timestamp in seconds when the remote plugin was installed, when available.
@@ -738,23 +476,6 @@ pub struct PluginSummary {
     pub interface: Option<PluginInterface>,
     #[serde(default)]
     pub keywords: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct PluginShareContext {
-    pub remote_plugin_id: String,
-    /// Version of the remote shared plugin release when available.
-    #[serde(default)]
-    pub remote_version: Option<String>,
-    pub discoverability: Option<PluginShareDiscoverability>,
-    pub share_url: Option<String>,
-    pub creator_account_user_id: Option<String>,
-    pub creator_name: Option<String>,
-    pub share_principals: Option<Vec<PluginSharePrincipal>>,
-    #[serde(default)]
-    pub can_publish_to_workspace: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -928,9 +649,6 @@ pub enum PluginSource {
         /// Optional HTTPS registry URL. Authentication stays in the user's npm config.
         registry: Option<String>,
     },
-    /// The plugin is available in the remote catalog. Download metadata is
-    /// kept server-side and is not exposed through the app-server API.
-    Remote,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -959,11 +677,6 @@ pub struct SkillsConfigWriteResponse {
 pub struct PluginInstallParams {
     #[ts(optional = nullable)]
     pub marketplace_path: Option<AbsolutePathBuf>,
-    #[ts(optional = nullable)]
-    pub remote_marketplace_name: Option<String>,
-    /// Client-generated identifier used to correlate one installation attempt.
-    #[ts(optional = nullable)]
-    pub install_attempt_id: Option<String>,
     pub plugin_name: String,
 }
 

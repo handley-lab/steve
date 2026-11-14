@@ -46,7 +46,6 @@ async fn reload_mcp_config_with_policy(
     config_manager: &ConfigManager,
     policy: ReloadPolicy,
 ) -> io::Result<()> {
-    config_manager.revoke_mcp_ema_startups();
     let mut rejected = false;
     let mut load_error = None;
     let mut completed: Vec<Arc<CodexThread>> = Vec::new();
@@ -102,7 +101,6 @@ async fn reload_mcp_config_with_policy(
                     ConfigRefreshOutcome::Rejected => rejected = true,
                     ConfigRefreshOutcome::Stale => {
                         if attempt == 2 {
-                            target.disable_mcp_enterprise_auth().await;
                             rejected = true;
                         }
                         continue;
@@ -122,7 +120,6 @@ async fn reload_mcp_config_with_policy(
                 if let Ok(thread) = thread_manager.get_thread(thread_id).await
                     && !completed.iter().any(|done| Arc::ptr_eq(done, &thread))
                 {
-                    thread.disable_mcp_enterprise_auth().await;
                     rejected = true;
                 }
             }
@@ -136,7 +133,7 @@ async fn reload_mcp_config_with_policy(
     }
     if rejected && matches!(policy, ReloadPolicy::Strict) {
         return Err(io::Error::other(
-            "enterprise MCP configuration was rejected; affected sessions retained their previous configuration with enterprise MCP disabled",
+            "MCP configuration was rejected; affected sessions retained their previous configuration",
         ));
     }
     Ok(())
@@ -144,7 +141,6 @@ async fn reload_mcp_config_with_policy(
 
 fn disabled_enterprise_config(current_config: &Config) -> Config {
     let mut config = current_config.clone();
-    config.disable_mcp_enterprise_auth();
     config.config_layer_stack = config
         .config_layer_stack
         .with_cloud_config_binding(/*binding*/ None);
@@ -389,103 +385,6 @@ enabled = false
         Ok(())
     }
 
-    #[tokio::test]
-    async fn strict_refresh_installs_refreshed_thread_mcp_config() -> anyhow::Result<()> {
-        let (temp_dir, thread_manager, config_manager, _loader) = refresh_test_state().await?;
-        let mut good_thread = None;
-        for thread_id in thread_manager.list_thread_ids().await {
-            let thread = thread_manager.get_thread(thread_id).await?;
-            let thread_config = thread.config().await;
-            if thread_config.cwd.ends_with("good") {
-                good_thread = Some(thread);
-            } else {
-                thread_manager.remove_thread(&thread_id).await;
-            }
-        }
-        let thread = good_thread.expect("good test thread should exist");
-        // Config loading can finish before a startup is visible to ThreadManager.
-        let pending_startup = config_manager
-            .load_for_cwd(
-                /*request_overrides*/ None,
-                ConfigOverrides::default(),
-                Some(temp_dir.path().join("good")),
-            )
-            .await?;
-        assert!(
-            !pending_startup
-                .config_layer_stack
-                .mcp_ema_cancellation()
-                .is_cancelled()
-        );
-        // Prediction forks inherit a published config and may outlive their parent.
-        let parent = thread_manager
-            .start_thread(codex_core::StartThreadOptions::new(pending_startup.clone()))
-            .await?;
-        let (inherited_fork, _) = thread_manager
-            .fork_options_from_parent(parent.thread_id)
-            .await?;
-        thread_manager.remove_thread(&parent.thread_id).await;
-        std::fs::write(
-            temp_dir.path().join(codex_config::CONFIG_TOML_FILE),
-            r#"
-[mcp_servers.refreshed]
-command = "refreshed-mcp"
-enabled = false
-"#,
-        )?;
-
-        reload_mcp_config(&thread_manager, &config_manager).await?;
-
-        let fork = thread_manager.start_thread(inherited_fork).await?;
-        assert!(
-            fork.thread
-                .config()
-                .await
-                .config_layer_stack
-                .mcp_ema_cancellation()
-                .is_cancelled()
-        );
-        fork.thread.shutdown_and_wait().await?;
-        parent.thread.shutdown_and_wait().await?;
-        assert!(
-            pending_startup
-                .config_layer_stack
-                .mcp_ema_cancellation()
-                .is_cancelled()
-        );
-        assert!(
-            thread
-                .config()
-                .await
-                .config_layer_stack
-                .mcp_ema_cancellation()
-                .is_cancelled()
-        );
-        let fresh_startup = config_manager
-            .load_for_cwd(
-                /*request_overrides*/ None,
-                ConfigOverrides::default(),
-                Some(temp_dir.path().join("good")),
-            )
-            .await?;
-        assert!(
-            !fresh_startup
-                .config_layer_stack
-                .mcp_ema_cancellation()
-                .is_cancelled()
-        );
-
-        assert!(
-            thread
-                .config()
-                .await
-                .mcp_servers
-                .get()
-                .contains_key("refreshed")
-        );
-        Ok(())
-    }
-
     async fn refresh_test_state() -> anyhow::Result<(
         TempDir,
         Arc<ThreadManager>,
@@ -560,9 +459,6 @@ enabled = false
                         goal_service: Arc::new(codex_goal_extension::GoalService::new()),
                         environment_manager: Arc::clone(&environment_manager),
                         executor_skill_provider: Arc::clone(&executor_skill_provider),
-                        git_attribution_base_url: good_config.chatgpt_base_url.clone(),
-                        git_attribution_path_style: good_config.chatgpt_path_style,
-                        http_client_factory: good_config.http_client_factory(),
                         queue_service: None,
                         turn_start_admission: None,
                     },

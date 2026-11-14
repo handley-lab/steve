@@ -1325,7 +1325,7 @@ async fn reasoning_effort_override_unavailable_recovers_saved_history(
     let chatgpt_base_url = format!("{}/backend-api", server.uri());
     let mut builder = unavailable
         .builder()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
             config.model_reasoning_effort = Some(ReasoningEffort::High);
             config.chatgpt_base_url = chatgpt_base_url;
@@ -1691,7 +1691,7 @@ async fn reasoning_effort_override_compaction_fallback_uses_each_models_effort()
     .await;
     let chatgpt_base_url = format!("{}/backend-api", server.uri());
     let test = override_builder()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_model_info_override("gpt-5.4", |model| {
             model.comp_hash = Some("original".to_string());
         })

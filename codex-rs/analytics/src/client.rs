@@ -1079,7 +1079,7 @@ async fn send_track_events(
     };
     if auth.is_api_key_auth() {
         events.retain(TrackEventRequest::can_send_with_api_key_auth);
-    } else if !auth.uses_codex_backend() {
+    } else {
         return;
     }
     if events.is_empty() {

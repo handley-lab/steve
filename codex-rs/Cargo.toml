@@ -69,7 +69,6 @@ members = [
     "ext/extension-api",
     "ext/multi-env-copy-file",
     "ext/goal",
-    "ext/git-attribution",
     "ext/guardian-reviewer",
     "ext/guardian-v2",
     "ext/guardian-v3",
@@ -117,7 +116,6 @@ members = [
     "otel-trace-websocket",
     "tcp-tunnel",
     "tui",
-    "user-verification",
     "tools",
     "v8-poc",
     "websocket-auth",
@@ -203,7 +201,6 @@ codex-arg0 = { path = "arg0" }
 codex-async-utils = { path = "async-utils" }
 codex-backend-client = { path = "backend-client" }
 codex-build-info = { path = "build-info" }
-codex-chatgpt = { path = "chatgpt" }
 codex-client = { path = "codex-client" }
 codex-collaboration-mode-templates = { path = "collaboration-mode-templates" }
 codex-cloud-config = { path = "cloud-config" }
@@ -243,7 +240,6 @@ codex-extension-api = { path = "ext/extension-api" }
 codex-extension-items = { path = "ext/items" }
 codex-multi-env-copy-file = { path = "ext/multi-env-copy-file" }
 codex-goal-extension = { path = "ext/goal" }
-codex-git-attribution = { path = "ext/git-attribution" }
 codex-guardian-reviewer = { path = "ext/guardian-reviewer" }
 codex-guardian-v2 = { path = "ext/guardian-v2" }
 codex-guardian-v3 = { path = "ext/guardian-v3" }
@@ -335,7 +331,6 @@ codex-utils-sleep-inhibitor = { path = "utils/sleep-inhibitor" }
 codex-utils-stream-parser = { path = "utils/stream-parser" }
 codex-utils-string = { path = "utils/string" }
 codex-utils-template = { path = "utils/template" }
-codex-user-verification = { path = "user-verification" }
 codex-v8-poc = { path = "v8-poc" }
 codex-windows-sandbox = { path = "windows-sandbox-rs" }
 codex-windows-sandbox-test-support = { path = "windows-sandbox-rs/tests/support" }

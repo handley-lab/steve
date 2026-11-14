@@ -104,19 +104,16 @@ pub(crate) use worktree_startup::ManagedTuiWorktree;
 
 mod activation_key_guard;
 mod additional_dirs;
-mod analytics;
 mod app;
 mod app_backtrack;
 mod app_command;
 mod app_event;
 mod app_event_sender;
-mod app_info;
 mod app_server_approval_conversions;
 mod app_server_connection;
 mod app_server_session;
 mod approval_events;
 mod async_question_reply;
-mod backend_banners;
 mod backend_id;
 mod bottom_pane;
 mod branch_summary;
@@ -139,7 +136,6 @@ mod image_decode;
 mod markdown_copy;
 mod permission_discovery;
 mod pets;
-mod security_setup;
 mod worktree_browser;
 pub use custom_terminal::Terminal;
 mod assistant_directives;
@@ -226,7 +222,6 @@ mod status;
 mod status_indicator_widget;
 mod streaming;
 mod style;
-mod subscription;
 mod system_motion;
 mod task_mentions;
 mod temporary_structured_request;
@@ -270,7 +265,6 @@ mod vim_search;
 mod width;
 mod windows_sandbox;
 mod workspace_command;
-mod workspace_messages;
 
 mod wrapping;
 
@@ -1119,24 +1113,21 @@ fn app_server_target_for_launch(
     })
 }
 
-async fn cloud_config_bundle_for_app_server_target(
+fn cloud_config_bundle_for_app_server_target(
     app_server_target: &AppServerTarget,
     bootstrap_config: &ConfigTomlLoadResult,
     codex_home: &Path,
     embedded_network_policy: &codex_app_server_client::EmbeddedNetworkPolicy,
 ) -> std::io::Result<CloudConfigBundleLoader> {
     let path_style = bootstrap_account_path_style(bootstrap_config);
-    managed_config_bundle_loader_for_storage(
+    Ok(managed_config_bundle_loader_for_storage(
         embedded_network_policy.bind_bootstrap_auth(
             app_server_target
                 .auth_config_for_cloud_loader(bootstrap_auth_config(codex_home, bootstrap_config)?),
             path_style,
         ),
-        path_style,
         bootstrap_config.config_layer_stack.requirements_toml(),
-        /*enable_codex_api_key_env*/ false,
-    )
-    .await
+    ))
 }
 
 fn loader_overrides_are_default(loader_overrides: &LoaderOverrides) -> bool {
@@ -1548,11 +1539,8 @@ async fn run_ratatui_app(
                             initial_config.auth_config(),
                             initial_config.chatgpt_path_style,
                         ),
-                        initial_config.chatgpt_path_style,
                         initial_config.config_layer_stack.requirements_toml(),
-                        /*enable_codex_api_key_env*/ false,
-                    )
-                    .await?;
+                    );
                 }
 
                 // Reload config when persisted trust or auth changes alter the current process.
@@ -2438,7 +2426,6 @@ async fn get_login_status(
     let account = app_server.read_account().await?;
     let login_status = match &account.account {
         Some(AppServerAccount::ApiKey {}) => LoginStatus::AuthMode(AuthMode::ApiKey),
-        Some(AppServerAccount::Chatgpt { .. }) => LoginStatus::AuthMode(AuthMode::Chatgpt),
         Some(AppServerAccount::AmazonBedrock { .. } | AppServerAccount::Gcp {}) | None => {
             LoginStatus::NotAuthenticated
         }

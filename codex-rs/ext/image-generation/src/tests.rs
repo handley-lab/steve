@@ -95,7 +95,6 @@ fn test_usage_limit_failure_without_an_exhausted_window_reset() {
         (None, None),
     ] {
         let error = CodexErr::UsageLimitReached(UsageLimitReachedError {
-            plan_type: None,
             resets_at: None,
             limit_window_minutes: None,
             rate_limits: Some(Box::new(

@@ -64,9 +64,7 @@ pub fn guardian_elicitation_review_request(
                 "guardian MCP elicitation review does not support this elicitation mode",
             );
         }
-        Elicitation::OpenAiForm { .. }
-        | Elicitation::OpenAiElicitationForm { .. }
-        | Elicitation::UserVerification { .. } => {
+        Elicitation::OpenAiForm { .. } | Elicitation::OpenAiElicitationForm { .. } => {
             return GuardianElicitationReview::NotRequested;
         }
     };

@@ -83,19 +83,6 @@ impl CloudStreamLosses {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    pub(super) fn record(&self, thread_id: &str) {
-        self.pending()
-            .entry(thread_id.to_owned())
-            .or_default()
-            .remaining += 1;
-    }
-
-    pub(super) fn supersede(&self, thread_id: &str) {
-        if let Some(losses) = self.pending().get_mut(thread_id) {
-            losses.superseded = losses.remaining;
-        }
-    }
-
     fn should_deliver(&self, thread_id: &str) -> bool {
         let mut pending = self.pending();
         let Some(losses) = pending.get_mut(thread_id) else {

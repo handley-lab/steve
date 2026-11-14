@@ -5,9 +5,6 @@ use std::process::Stdio;
 
 use anyhow::Context as _;
 use anyhow::Result;
-use app_test_support::ChatGptAuthFixture;
-use app_test_support::write_chatgpt_auth;
-use codex_config::types::AuthCredentialsStoreMode;
 use codex_state::SqliteConfig;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use pretty_assertions::assert_eq;
@@ -244,124 +241,6 @@ async fn network_only_config_failure_human_output() -> Result<()> {
     assert!(file_row.is_match(&stdout), "{stdout}");
     let stdout = file_row.replace_all(&stdout, "${1}<CODEX_HOME>/config.toml");
     insta::assert_snapshot!("network_only_config_failure_human_output", stdout);
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn doctor_reports_cloud_filesystem_policy_and_rejects_invalid_requirements() -> Result<()> {
-    for valid_requirements in [true, false] {
-        let server = MockServer::start().await;
-        let codex_home = TempDir::new()?;
-        let workspace = TempDir::new()?;
-        let workspace_key = serde_json::to_string(workspace.path())?;
-        let private_path = workspace.path().join("private-doctor-control");
-        let glob = format!("{}/**/*.doctor-secret", workspace.path().display());
-        let requirements = if valid_requirements {
-            format!("[permissions.filesystem]\ndeny_read = [{private_path:?}, {glob:?}]\n")
-        } else {
-            "[permissions.filesystem]\ndeny_read = false\n".to_string()
-        };
-        std::fs::write(
-            codex_home.path().join("config.toml"),
-            format!(
-                r#"
-cli_auth_credentials_store = "ephemeral"
-chatgpt_base_url = "{}/backend-api"
-model_provider = "local"
-[model_providers.local]
-name = "local"
-base_url = "{}/v1"
-wire_api = "responses"
-[windows]
-sandbox = "elevated"
-[projects.{workspace_key}]
-trust_level = "trusted"
-"#,
-                server.uri(),
-                server.uri(),
-            ),
-        )?;
-        // Cloud authentication must use the project selected by --cd.
-        std::fs::create_dir(workspace.path().join(".steve"))?;
-        std::fs::write(
-            workspace.path().join(".steve/config.toml"),
-            "cli_auth_credentials_store = \"file\"\n",
-        )?;
-        write_chatgpt_auth(
-            codex_home.path(),
-            ChatGptAuthFixture::new("doctor-test-token")
-                .account_id("doctor-workspace")
-                .chatgpt_account_id("doctor-workspace")
-                .chatgpt_user_id("doctor-user")
-                .plan_type("enterprise"),
-            AuthCredentialsStoreMode::File,
-        )?;
-        Mock::given(method("GET"))
-            .and(path("/backend-api/wham/config/bundle"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "requirements_toml": {
-                    "enterprise_managed": [{
-                        "id": "doctor-policy",
-                        "name": "Doctor policy fixture",
-                        "contents": requirements,
-                    }],
-                },
-            })))
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        let output = Command::new(codex_utils_cargo_bin::cargo_bin("steve")?)
-            .current_dir(codex_home.path())
-            .env("STEVE_HOME", codex_home.path())
-            .env("NO_PROXY", "127.0.0.1,localhost")
-            .env("no_proxy", "127.0.0.1,localhost")
-            .env_remove("STEVE_ACCESS_TOKEN")
-            .env_remove("STEVE_API_KEY")
-            .env_remove("OPENAI_API_KEY")
-            .arg("--cd")
-            .arg(workspace.path())
-            .args(["doctor", "--json"])
-            .stdin(Stdio::null())
-            .output()?;
-        let report: Value = serde_json::from_slice(&output.stdout)?;
-        if valid_requirements {
-            let config = &report["checks"]["config.load"];
-            let sandbox = &report["checks"]["sandbox.helpers"]["details"];
-            assert_eq!(config["status"], "ok", "{config:#}");
-            assert_eq!(
-                config["details"]["cwd"],
-                workspace.path().display().to_string()
-            );
-            insta::assert_snapshot!(
-                serde_json::to_string_pretty(&json!({
-                    "scope": config["details"]["configuration scope"],
-                    "activeThreadOverrides": config["details"]["active thread overrides"],
-                    "denyRules": sandbox["denied-read rules"],
-                    "denyGlobs": sandbox["denied-read glob rules"],
-                    "scanDepth": sandbox["glob scan max depth"],
-                    "managedFilesystemSource": sandbox["managed filesystem source"],
-                }))?,
-                @r#"
-                {
-                  "scope": "invocation config, including cloud-managed policy",
-                  "activeThreadOverrides": "not inspected",
-                  "denyRules": "2",
-                  "denyGlobs": "1",
-                  "scanDepth": "unbounded",
-                  "managedFilesystemSource": "cloud"
-                }
-                "#
-            );
-            let stdout = String::from_utf8(output.stdout)?;
-            assert!(!stdout.contains("doctor-secret"));
-            assert!(!stdout.contains("private-doctor-control"));
-        } else {
-            assert_eq!(report["checks"]["config.load"]["status"], "fail");
-            assert!(report["checks"].get("sandbox.helpers").is_none());
-        }
-        server.verify().await;
-    }
     Ok(())
 }
 

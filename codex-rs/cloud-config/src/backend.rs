@@ -1,15 +1,11 @@
 use codex_backend_client::Client as BackendClient;
 use codex_backend_client::ConfigBundleResponse;
 use codex_backend_client::DeliveredTomlFragment;
-use codex_config::AccountPathStyle;
 use codex_config::CloudConfigBundle;
 use codex_config::CloudConfigFragment;
 use codex_config::CloudConfigTomlBundle;
 use codex_config::CloudRequirementsFragment;
 use codex_config::CloudRequirementsTomlBundle;
-use codex_http_client::HttpClientFactory;
-use codex_login::CodexAuth;
-use std::future::Future;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RetryableFailureKind {
@@ -37,67 +33,6 @@ pub(crate) enum BundleRequestError {
         status_code: Option<u16>,
         message: String,
     },
-}
-
-impl BundleRequestError {
-    pub(crate) fn auth_failure(
-        status_code: Option<u16>,
-        message: impl Into<String>,
-        metric_reason: Option<&'static str>,
-    ) -> Self {
-        Self::Fatal {
-            error: codex_config::CloudConfigBundleLoadError::new(
-                codex_config::CloudConfigBundleLoadErrorCode::Auth,
-                status_code,
-                message,
-            ),
-            metric_reason,
-        }
-    }
-}
-
-/// Retrieves one cloud config bundle from the backend.
-///
-/// Implementations should return the backend-selected bundle exactly as delivered and leave
-/// validation, caching, and config/requirements parsing decisions to the service layer.
-pub(crate) trait BundleClient: Send + Sync {
-    fn get_bundle(
-        &self,
-        auth: &CodexAuth,
-    ) -> impl Future<Output = Result<CloudConfigBundle, BundleRequestError>> + Send;
-}
-
-pub(crate) struct BackendBundleClient {
-    base_url: String,
-    path_style: AccountPathStyle,
-    http_client_factory: HttpClientFactory,
-}
-
-impl BackendBundleClient {
-    pub(crate) fn new(
-        base_url: String,
-        path_style: AccountPathStyle,
-        http_client_factory: HttpClientFactory,
-    ) -> Self {
-        Self {
-            base_url,
-            path_style,
-            http_client_factory,
-        }
-    }
-}
-
-impl BundleClient for BackendBundleClient {
-    async fn get_bundle(&self, auth: &CodexAuth) -> Result<CloudConfigBundle, BundleRequestError> {
-        let client = BackendClient::from_auth(
-            self.base_url.clone(),
-            auth,
-            self.http_client_factory.clone(),
-        )
-        .with_account_path_style(self.path_style);
-
-        fetch_bundle(&client).await
-    }
 }
 
 pub(crate) async fn fetch_bundle(

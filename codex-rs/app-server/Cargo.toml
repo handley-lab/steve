@@ -54,7 +54,6 @@ codex-external-agent-migration = { workspace = true }
 codex-features = { workspace = true }
 codex-multi-env-copy-file = { workspace = true }
 codex-goal-extension = { workspace = true }
-codex-git-attribution = { workspace = true }
 codex-guardian-v2 = { workspace = true }
 codex-guardian-v3 = { workspace = true }
 codex-git-utils = { workspace = true }
@@ -68,11 +67,9 @@ codex-shell-command = { workspace = true }
 codex-skills = { workspace = true }
 codex-skills-extension = { workspace = true }
 codex-utils-cli = { workspace = true }
-codex-user-verification = { workspace = true }
 codex-utils-pty = { workspace = true }
 codex-backend-client = { workspace = true }
 codex-file-search = { workspace = true }
-codex-chatgpt = { workspace = true }
 codex-login = { workspace = true }
 codex-runtime-agent-instance = { workspace = true }
 codex-image-generation-extension = { workspace = true }

@@ -11,7 +11,6 @@ from .v2_all import AccountLoginCompletedNotification
 from .v2_all import AccountRateLimitsUpdatedNotification
 from .v2_all import AccountUpdatedNotification
 from .v2_all import AgentMessageDeltaNotification
-from .v2_all import AppListUpdatedNotification
 from .v2_all import AuthRecoveryNotification
 from .v2_all import CommandExecOutputDeltaNotification
 from .v2_all import CommandExecutionOutputDeltaNotification
@@ -49,7 +48,6 @@ from .v2_all import ProjectChangedNotification
 from .v2_all import ReasoningSummaryPartAddedNotification
 from .v2_all import ReasoningSummaryTextDeltaNotification
 from .v2_all import ReasoningTextDeltaNotification
-from .v2_all import RemoteControlStatusChangedNotification
 from .v2_all import ServerRequestResolvedNotification
 from .v2_all import SkillsChangedNotification
 from .v2_all import StrictReviewRequiredNotification
@@ -97,7 +95,6 @@ KnownNotificationPayload: TypeAlias = (
     | AccountRateLimitsUpdatedNotification
     | AccountUpdatedNotification
     | AgentMessageDeltaNotification
-    | AppListUpdatedNotification
     | AuthRecoveryNotification
     | CommandExecOutputDeltaNotification
     | CommandExecutionOutputDeltaNotification
@@ -135,7 +132,6 @@ KnownNotificationPayload: TypeAlias = (
     | ReasoningSummaryPartAddedNotification
     | ReasoningSummaryTextDeltaNotification
     | ReasoningTextDeltaNotification
-    | RemoteControlStatusChangedNotification
     | ServerRequestResolvedNotification
     | SkillsChangedNotification
     | StrictReviewRequiredNotification
@@ -184,7 +180,6 @@ NOTIFICATION_MODELS: dict[str, type[KnownNotificationPayload]] = {
     "account/login/completed": AccountLoginCompletedNotification,
     "account/rateLimits/updated": AccountRateLimitsUpdatedNotification,
     "account/updated": AccountUpdatedNotification,
-    "app/list/updated": AppListUpdatedNotification,
     "autoApprovalReview/strictReviewRequired": StrictReviewRequiredNotification,
     "command/exec/outputDelta": CommandExecOutputDeltaNotification,
     "configWarning": ConfigWarningNotification,
@@ -223,7 +218,6 @@ NOTIFICATION_MODELS: dict[str, type[KnownNotificationPayload]] = {
     "process/exited": ProcessExitedNotification,
     "process/outputDelta": ProcessOutputDeltaNotification,
     "project/changed": ProjectChangedNotification,
-    "remoteControl/status/changed": RemoteControlStatusChangedNotification,
     "serverRequest/resolved": ServerRequestResolvedNotification,
     "skills/changed": SkillsChangedNotification,
     "thread/archived": ThreadArchivedNotification,

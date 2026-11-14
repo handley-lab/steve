@@ -66,10 +66,8 @@ use core_test_support::test_codex::TurnInputRequest as ExternalTurnInputRequest;
 
 use codex_features::Feature;
 use codex_file_system::FileSystemSandboxContext;
-use codex_http_client::ClientRouteClass;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
-use codex_http_client::RouteAwareClientPool;
 use codex_login::CodexAuth;
 use codex_model_provider::create_model_provider;
 use codex_model_provider_info::ModelProviderInfo;
@@ -871,9 +869,6 @@ fn test_model_client_session() -> crate::client::ModelClientSession {
         /*output_token_replay_enabled*/ false,
         /*attestation_provider*/ None,
         HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-        codex_model_provider::WorkspaceRoutingContext::new(
-            "https://chatgpt.com/backend-api".into(),
-        ),
         Vec::new(),
     )
     .new_session()
@@ -1031,7 +1026,6 @@ pub(crate) async fn tool_registry_for_test_step(
         step_context.turn.model_info(),
         &step_context.environments,
         step_context.mcp.as_ref(),
-        /*tool_suggest_candidates*/ None,
         /*wait_for_environment_tool_config*/ None,
     );
     let hosted_specs = crate::tools::spec_plan::append_source_tools(
@@ -5257,143 +5251,6 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
     }
 }
 
-#[tokio::test]
-async fn emit_subagent_session_started_includes_fork_lineage_and_originator() {
-    use codex_app_server_protocol::ServerNotification;
-    use codex_app_server_protocol::ThreadArchivedNotification;
-    use wiremock::Mock;
-    use wiremock::MockServer;
-    use wiremock::ResponseTemplate;
-    use wiremock::matchers::method;
-    use wiremock::matchers::path;
-
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/codex/analytics-events/events"))
-        .respond_with(ResponseTemplate::new(200))
-        .mount(&server)
-        .await;
-
-    let auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
-    let analytics_events_client = AnalyticsEventsClient::new(
-        auth_manager,
-        server.uri(),
-        /*analytics_enabled*/ Some(true),
-    );
-
-    let parent_thread_id = ThreadId::new();
-    let forked_from_thread_id = ThreadId::new();
-    let child_thread_id = ThreadId::new();
-    let mut session_configuration = make_session_configuration_for_tests().await;
-    session_configuration.forked_from_thread_id = Some(forked_from_thread_id);
-    session_configuration.thread_source = Some(ThreadSource::GuardianReview);
-
-    emit_subagent_session_started(
-        &analytics_events_client,
-        AppServerClientMetadata {
-            client_name: Some("steve-tui".to_string()),
-            client_version: Some("1.0.0".to_string()),
-        },
-        SessionId::from(child_thread_id),
-        child_thread_id,
-        Some(parent_thread_id),
-        session_configuration.thread_config_snapshot(Vec::new()),
-        SubAgentSource::Other(crate::guardian::GUARDIAN_REVIEWER_NAME.to_string()),
-        /*resumed_created_at*/ None,
-    );
-
-    let event = timeout(Duration::from_secs(1), async {
-        'wait_for_event: loop {
-            if let Some(requests) = server.received_requests().await {
-                for request in requests {
-                    let payload: serde_json::Value =
-                        serde_json::from_slice(&request.body).expect("valid analytics payload");
-                    if let Some(event) = payload["events"].as_array().and_then(|events| {
-                        events
-                            .iter()
-                            .find(|event| event["event_type"] == "codex_thread_initialized")
-                    }) {
-                        break 'wait_for_event event.clone();
-                    }
-                }
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("subagent initialization analytics should be emitted");
-
-    assert_eq!(event["event_params"]["initialization_mode"], "new");
-    assert_eq!(event["event_params"]["thread_source"], "guardian_review");
-    assert_eq!(
-        event["event_params"]["parent_thread_id"],
-        parent_thread_id.to_string()
-    );
-    assert_eq!(
-        event["event_params"]["forked_from_thread_id"],
-        forked_from_thread_id.to_string()
-    );
-    assert_eq!(
-        event["event_params"]["app_server_client"]["product_client_id"],
-        "test_originator"
-    );
-
-    let prewarmed_thread_id = ThreadId::new();
-    emit_subagent_session_started(
-        &analytics_events_client,
-        AppServerClientMetadata {
-            client_name: None,
-            client_version: None,
-        },
-        SessionId::from(parent_thread_id),
-        prewarmed_thread_id,
-        Some(parent_thread_id),
-        session_configuration.thread_config_snapshot(Vec::new()),
-        SubAgentSource::Other(crate::guardian::GUARDIAN_REVIEWER_NAME.to_string()),
-        /*resumed_created_at*/ None,
-    );
-    // Archive analytics exposes retained lineage even before a parent connection exists.
-    analytics_events_client.track_notification(&ServerNotification::ThreadArchived(
-        ThreadArchivedNotification {
-            thread_id: prewarmed_thread_id.to_string(),
-        },
-    ));
-    analytics_events_client.flush().await;
-    let events = server
-        .received_requests()
-        .await
-        .expect("analytics requests")
-        .into_iter()
-        .flat_map(|request| {
-            let payload: serde_json::Value =
-                serde_json::from_slice(&request.body).expect("valid analytics payload");
-            payload["events"]
-                .as_array()
-                .expect("analytics events")
-                .clone()
-        })
-        .collect::<Vec<_>>();
-    let [initialization, archive] = events.as_slice() else {
-        panic!("expected one complete initialization and one archive: {events:?}");
-    };
-    assert_eq!(initialization, &event);
-    assert_eq!(
-        json!([
-            archive["event_type"],
-            archive["event_params"]["thread_id"],
-            archive["event_params"]["thread_source"],
-            archive["event_params"]["parent_thread_id"],
-        ]),
-        json!([
-            "codex_thread_archive_event",
-            prewarmed_thread_id.to_string(),
-            "guardian_review",
-            parent_thread_id.to_string(),
-        ])
-    );
-}
-
 async fn resolved_environments_for_configuration(
     session_configuration: &SessionConfiguration,
     environment_selections: &[TurnEnvironmentSelection],
@@ -6921,12 +6778,6 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         exec_policy,
         auth_manager: auth_manager.clone(),
         runtime_auth: Default::default(),
-        openai_file_upload_client_pool:
-            RouteAwareClientPool::new_without_redirects_or_request_logging(
-                config.http_client_factory(),
-                ClientRouteClass::Api,
-            )
-            .with_legacy_custom_ca_fallback(),
         session_telemetry: session_telemetry.clone(),
         models_manager: Arc::clone(&models_manager),
         git_root_discovery: Arc::default(),
@@ -6982,7 +6833,6 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
             /*output_token_replay_enabled*/ false,
             /*attestation_provider*/ None,
             config.http_client_factory(),
-            config.workspace_routing_context(),
             Vec::new(),
         )),
         executed_tool_calls: executed_tool_calls.clone(),
@@ -9275,12 +9125,6 @@ where
         exec_policy,
         auth_manager: Arc::clone(&auth_manager),
         runtime_auth: Default::default(),
-        openai_file_upload_client_pool:
-            RouteAwareClientPool::new_without_redirects_or_request_logging(
-                config.http_client_factory(),
-                ClientRouteClass::Api,
-            )
-            .with_legacy_custom_ca_fallback(),
         session_telemetry: session_telemetry.clone(),
         models_manager: Arc::clone(&models_manager),
         git_root_discovery: Arc::default(),
@@ -9336,7 +9180,6 @@ where
             /*output_token_replay_enabled*/ false,
             /*attestation_provider*/ None,
             config.http_client_factory(),
-            config.workspace_routing_context(),
             Vec::new(),
         )),
         executed_tool_calls: executed_tool_calls.clone(),
@@ -10760,92 +10603,6 @@ async fn record_context_updates_emits_realtime_end_when_session_stops_being_live
 }
 
 #[tokio::test]
-async fn build_initial_context_reuses_in_flight_recommendation_prewarm() {
-    use wiremock::Mock;
-    use wiremock::ResponseTemplate;
-    use wiremock::matchers::method;
-    use wiremock::matchers::path;
-    use wiremock::matchers::query_param;
-
-    core_test_support::skip_if_no_network!();
-
-    let server = start_mock_server().await;
-    Mock::given(method("GET"))
-        .and(path("/ps/plugins/suggested/codex"))
-        .and(query_param("scope", "GLOBAL"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "enabled": true,
-            "plugins": [{
-                "id": "plugin_github",
-                "name": "github",
-                "display_name": "GitHub"
-            }]
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-    let (session, turn_context, _rx_event) = make_session_and_context_with_auth_and_config_and_rx(
-        CodexAuth::create_dummy_chatgpt_auth_for_testing(),
-        /*dynamic_tools*/ Vec::new(),
-        |config| {
-            config.chatgpt_base_url = server.uri();
-            config
-                .features
-                .disable(Feature::ToolSuggest)
-                .expect("test config should allow feature update");
-            for enabled_feature in [
-                Feature::Apps,
-                Feature::Plugins,
-                Feature::RemotePlugin,
-                Feature::RecommendedPlugins,
-            ] {
-                config
-                    .features
-                    .enable(enabled_feature)
-                    .expect("test config should allow feature update");
-            }
-        },
-    )
-    .await;
-    let plugins_manager = &session.services.plugins_manager;
-    let plugins_config = turn_context.config.plugins_config_input();
-    let auth = session.services.auth_manager.auth().await;
-    // Cached plugin loading and auth let initial context reach the shared recommendation lookup
-    // without awaiting unrelated I/O.
-    plugins_manager.plugins_for_config(&plugins_config).await;
-    let prewarm =
-        plugins_manager.recommended_plugins_mode_for_config(&plugins_config, auth.as_ref());
-    tokio::pin!(prewarm);
-    assert!(futures::poll!(prewarm.as_mut()).is_pending());
-
-    // Keep the OnceCell initializer unpolled while first-thread context joins its in-flight fetch.
-    // This does not depend on how quickly the HTTP server returns its response.
-    let world_state = WorldState::default();
-    let step_context = StepContext::for_test(Arc::clone(&turn_context));
-    let initial_context =
-        session.build_initial_context_with_world_state(&step_context, &world_state);
-    tokio::pin!(initial_context);
-    assert!(futures::poll!(initial_context.as_mut()).is_pending());
-
-    let (_, (initial_context, _)) = tokio::join!(prewarm, initial_context);
-    let initial_context =
-        crate::context_manager::updates::merge_world_state_updates(initial_context);
-    assert_eq!(
-        developer_input_texts(&initial_context)
-            .into_iter()
-            .filter(|text| text.starts_with("<recommended_plugins>"))
-            .collect::<Vec<_>>(),
-        vec![concat!(
-            "<recommended_plugins>\n",
-            "Here is a list of plugins that are available but not installed.\n\n",
-            "- GitHub (github@openai-curated-remote)\n",
-            "</recommended_plugins>",
-        )]
-    );
-    server.verify().await;
-}
-
-#[tokio::test]
 async fn build_initial_context_describes_active_realtime_state() {
     let (session, mut turn_context) = make_session_and_context().await;
     turn_context.realtime_active = true;
@@ -12122,7 +11879,7 @@ async fn make_remote_compaction_session(
     provider.base_url = Some(format!("{server_uri}/v1"));
     provider.supports_websockets = false;
     make_session_and_context_with_auth_and_config_and_rx(
-        CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+        CodexAuth::from_api_key("dummy"),
         Vec::new(),
         move |config| {
             config.model = Some("gpt-5.2".to_string());
@@ -13645,66 +13402,4 @@ async fn session_start_hooks_require_project_trust_without_config_toml() -> std:
     }
 
     Ok(())
-}
-
-#[tokio::test]
-async fn rejected_mcp_refresh_then_corrected_user_config_blocks_ordinary_replacement() {
-    let (session, _turn_context) = make_session_and_context().await;
-    let base = session.get_config().await;
-    let enterprise: McpServerConfig = serde_json::from_value(json!({
-        "url": "https://enterprise.example/mcp", "auth": "ema_auth", "enabled": true
-    }))
-    .unwrap();
-    let ordinary: McpServerConfig = serde_json::from_value(json!({
-        "url": "https://ordinary.example/mcp", "enabled": true
-    }))
-    .unwrap();
-    let mut initial = base.as_ref().clone();
-    initial.mcp_servers = crate::config::Constrained::allow_any(HashMap::from([(
-        "enterprise".to_string(),
-        enterprise,
-    )]));
-    initial.config_layer_stack = ConfigLayerStack::new(
-        vec![codex_config::ConfigLayerEntry::new(
-            codex_config::ConfigLayerSource::User {
-                file: initial.codex_home.join(CONFIG_TOML_FILE),
-                profile: None,
-            },
-            toml::from_str("features = 'invalid retained features'").unwrap(),
-        )],
-        base.config_layer_stack.requirements().clone(),
-        base.config_layer_stack.requirements_toml().clone(),
-    )
-    .unwrap();
-    session
-        .state
-        .lock()
-        .await
-        .session_configuration
-        .original_config_do_not_use = Arc::new(initial);
-    let current = session.get_config().await;
-    let mut corrected = base.as_ref().clone();
-    corrected.mcp_servers = crate::config::Constrained::allow_any(HashMap::from([(
-        "enterprise".to_string(),
-        ordinary,
-    )]));
-    assert_eq!(
-        session.refresh_mcp_config(current, corrected.clone()).await,
-        crate::ConfigRefreshOutcome::Rejected
-    );
-    let rejected = session.get_config().await;
-    assert!(rejected.mcp_enterprise_managed_auth.is_none());
-    assert_eq!(
-        session.refresh_runtime_config(rejected, corrected).await,
-        crate::ConfigRefreshOutcome::Published
-    );
-    let final_config = session.get_config().await;
-    assert!(
-        !final_config
-            .mcp_servers
-            .get()
-            .get("enterprise")
-            .is_some_and(|server| server.enabled),
-        "rejection must not permit same-name ordinary-auth replacement in this session"
-    );
 }

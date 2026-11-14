@@ -6,8 +6,5 @@ export type GetAccountParams = {
 /**
  * When `true`, reloads credentials and asks the configured external credential
  * owner to refresh them before returning. Built-in account renewal is unavailable.
- *
- * For client-supplied `chatgptAuthTokens`, this flag is ignored. Clients should
- * supply replacement tokens through `account/login/start` instead.
  */
 refreshToken?: boolean, };

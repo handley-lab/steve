@@ -39,8 +39,6 @@ pub static CODEX_ALIASES_TEMP_DIR: Option<TestBinaryDispatchGuard> = {
 mod abort_lifecycle;
 #[cfg(not(target_os = "windows"))]
 mod abort_tasks;
-#[path = "actor_access_program_tests.rs"]
-mod actor_access_program;
 mod additional_context;
 #[path = "agent_control_tests.rs"]
 mod agent_control;
@@ -48,8 +46,6 @@ mod agent_execution;
 mod agent_message_wake;
 mod agent_websocket;
 mod agents_md;
-mod analytics_runtime_auth;
-mod app_tool_exposure;
 mod apply_patch_cli;
 mod apply_patch_serialization;
 #[cfg(target_os = "macos")]
@@ -83,7 +79,6 @@ mod context_annotations;
 mod current_time_reminder;
 mod cyber_access_program;
 mod cyber_exec_policy;
-mod daybreak_access;
 mod deprecation_notice;
 mod direct_tool_metadata;
 mod dynamic_tool_cancellation;
@@ -103,10 +98,8 @@ mod guardian_cached_score;
 mod guardian_checkpoint_migration;
 // Uses the same command-approval harness as guardian_review below.
 mod builtin_model_catalog;
-mod canonical_plugin_connectors;
 mod critical_path_runtime;
 mod gateway_auth;
-mod guardian_connector_trust;
 #[cfg(not(target_os = "windows"))]
 mod guardian_context_budget;
 #[path = "guardian_cyber_access_program_tests.rs"]
@@ -140,9 +133,6 @@ mod json_result;
 mod live_cli;
 #[path = "managed_threads_tests.rs"]
 mod managed_threads;
-mod mcp_auth_elicitation;
-mod mcp_auth_refresh;
-mod mcp_ema_config;
 #[path = "mcp_executor_context_tests.rs"]
 mod mcp_executor_context;
 mod mcp_extension_protocol;
@@ -152,8 +142,6 @@ mod mcp_startup_refresh_http_proxy;
 mod mcp_subagent_elicitation;
 mod mcp_tool_cache;
 mod mcp_tool_exposure;
-mod mcp_turn_metadata;
-mod mcp_user_verification;
 mod model_overrides;
 #[path = "model_provider_requirements_tests.rs"]
 mod model_provider_requirements;
@@ -170,7 +158,6 @@ mod multi_agent_tool_descriptions;
 #[cfg(unix)]
 mod multi_exec_server_sandbox;
 mod network_approval;
-mod openai_file_mcp;
 mod otel;
 mod output_token_replay;
 mod override_updates;
@@ -187,7 +174,6 @@ mod realtime_attachment;
 mod realtime_conversation;
 mod realtime_initial_items;
 mod realtime_misalignment;
-mod realtime_sideband_endpoint;
 mod realtime_system_proxy;
 mod reasoning_effort_override;
 mod remote_env;
@@ -197,11 +183,8 @@ mod request_compression;
 mod request_permissions;
 #[cfg(not(target_os = "windows"))]
 mod request_permissions_tool;
-mod request_plugin_install;
 mod request_user_input;
 mod request_user_input_async;
-#[path = "required_access_program_tests.rs"]
-mod required_access_program;
 mod responses_api_proxy_headers;
 mod responses_lite;
 #[cfg(target_os = "linux")]

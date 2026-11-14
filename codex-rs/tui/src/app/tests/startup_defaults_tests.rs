@@ -1051,7 +1051,6 @@ async fn fresh_startup_falls_back_only_for_unsupported_config_read() -> Result<(
         )
         .await?;
         let bootstrap = server.bootstrap(&config).await?;
-        let backend_id = server.backend_id();
         run_until_thread_start(server, config, bootstrap, &requests).await?;
         let starts = recorded_params(&requests, "thread/start");
         assert_eq!(starts.len(), 1);
@@ -1165,63 +1164,5 @@ async fn startup_read_failure_exits_before_thread_creation() -> Result<()> {
     assert_eq!(recorded_params(&requests, "config/read").len(), 1);
     assert!(recorded_params(&requests, "thread/start").is_empty());
     proxy.await??;
-    Ok(())
-}
-
-#[tokio::test]
-async fn startup_failure_shuts_down_every_initial_backend() -> Result<()> {
-    use codex_app_server_client::AppServerClient;
-    use codex_app_server_client::CloudClient;
-    use codex_app_server_client::CloudOperation;
-
-    let app = make_test_app().await;
-    let (first, mut first_commands, _first_events) = CloudClient::channel(/*capacity*/ 1);
-    let (second, mut second_commands, _second_events) = CloudClient::channel(/*capacity*/ 1);
-    let [first, second] = [first, second].map(|client| {
-        AppServerSession::new(
-            crate::backend_id::BackendId::new(),
-            AppServerClient::Cloud(client),
-            crate::app_server_session::ThreadParamsMode::Embedded,
-        )
-    });
-    let mut initial_backends = InitialBackendSessions::singleton(first);
-    initial_backends.register(
-        second,
-        AppServerTarget::Embedded,
-        app.config.clone(),
-        app.local_settings.clone(),
-    );
-    let mut tui = crate::tui::test_support::make_test_tui()?;
-    let (result, ()) = tokio::join!(
-        run_startup_for_test(
-            &mut tui,
-            initial_backends,
-            app.config.clone(),
-            /*bootstrap*/ None,
-            SessionSelection::StartFresh,
-            AppServerTarget::Embedded,
-        ),
-        async {
-            let request = first_commands.recv().await.expect("initial config read");
-            assert!(matches!(
-                request.operation,
-                CloudOperation::Request(request)
-                    if matches!(*request, codex_app_server_protocol::ClientRequest::ConfigRead { .. })
-            ));
-            request
-                .response
-                .send(Err(std::io::Error::other("bootstrap unavailable")))
-                .unwrap();
-            for commands in [&mut first_commands, &mut second_commands] {
-                let command = commands.recv().await.expect("startup shutdown");
-                assert!(matches!(command.operation, CloudOperation::Shutdown));
-                command
-                    .response
-                    .send(Ok(Ok(serde_json::Value::Null)))
-                    .unwrap();
-            }
-        }
-    );
-    assert!(result.unwrap_err().to_string().contains("config/read"));
     Ok(())
 }

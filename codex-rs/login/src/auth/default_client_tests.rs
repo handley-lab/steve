@@ -2,41 +2,6 @@ use super::sanitize_user_agent;
 use super::*;
 use core_test_support::skip_if_no_network;
 use pretty_assertions::assert_eq;
-use std::io;
-use std::io::Write;
-use std::sync::Arc;
-use std::sync::Mutex;
-use tracing_subscriber::layer::SubscriberExt;
-
-#[derive(Clone)]
-struct TestLogWriter {
-    buffer: Arc<Mutex<Vec<u8>>>,
-}
-
-struct TestLogSink {
-    buffer: Arc<Mutex<Vec<u8>>>,
-}
-
-impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for TestLogWriter {
-    type Writer = TestLogSink;
-
-    fn make_writer(&'a self) -> Self::Writer {
-        TestLogSink {
-            buffer: Arc::clone(&self.buffer),
-        }
-    }
-}
-
-impl Write for TestLogSink {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.buffer.lock().expect("log buffer lock").extend(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
 
 #[test]
 fn test_get_codex_user_agent() {
@@ -233,92 +198,6 @@ async fn test_create_client_sets_default_headers() {
     set_default_client_residency_requirement(/*enforce_residency*/ None);
 }
 
-#[tokio::test]
-async fn raw_auth_client_does_not_log_sensitive_request_or_response_data() {
-    use wiremock::Mock;
-    use wiremock::MockServer;
-    use wiremock::ResponseTemplate;
-    use wiremock::matchers::method;
-    use wiremock::matchers::path;
-
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/token"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("x-sensitive-response", "response-secret-value"),
-        )
-        .expect(1)
-        .mount(&server)
-        .await;
-    let authority = server
-        .uri()
-        .strip_prefix("http://")
-        .expect("wiremock URI should use HTTP")
-        .to_string();
-    let endpoint = format!(
-        "http://auth-user:password-secret-value@{authority}/token?client_secret=query-secret-value"
-    );
-    let client = crate::test_support::transport_default_auth_route_config()
-        .authentication_factory(&endpoint)
-        .build_client_without_request_logging(&endpoint, ClientRouteClass::Auth)
-        .expect("auth client should build");
-    let buffer = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = tracing_subscriber::registry().with(
-        tracing_subscriber::fmt::layer()
-            .with_ansi(false)
-            .with_writer(TestLogWriter {
-                buffer: Arc::clone(&buffer),
-            }),
-    );
-    let _guard = tracing::subscriber::set_default(subscriber);
-    tracing::debug!("log capture sentinel");
-
-    let response = client
-        .post(&endpoint)
-        .header("x-sensitive-request", "request-header-secret-value")
-        .body("request-body-secret-value")
-        .send()
-        .await
-        .expect("raw auth request should succeed");
-    assert!(response.status().is_success());
-
-    let unresponsive_listener = std::net::TcpListener::bind("127.0.0.1:0")
-        .expect("unresponsive local listener should bind");
-    let unresponsive_addr = unresponsive_listener
-        .local_addr()
-        .expect("unresponsive local address should be available");
-    let unresponsive_endpoint = format!(
-        "http://auth-user:failure-password-secret-value@{unresponsive_addr}/token?client_secret=failure-query-secret-value"
-    );
-    let unresponsive_client = crate::test_support::transport_default_auth_route_config()
-        .authentication_factory(&unresponsive_endpoint)
-        .build_client_without_request_logging(&unresponsive_endpoint, ClientRouteClass::Auth)
-        .expect("auth client should build");
-    let error = unresponsive_client
-        .post(&unresponsive_endpoint)
-        .header("x-sensitive-request", "failure-request-header-secret-value")
-        .body("failure-request-body-secret-value")
-        .timeout(std::time::Duration::from_secs(1))
-        .send()
-        .await
-        .expect_err("request to an unresponsive local listener should time out");
-    assert!(error.is_timeout());
-
-    let logs = String::from_utf8(buffer.lock().expect("log buffer lock").clone())
-        .expect("logs should be UTF-8");
-    assert!(logs.contains("log capture sentinel"));
-    assert!(!logs.contains("password-secret-value"));
-    assert!(!logs.contains("query-secret-value"));
-    assert!(!logs.contains("request-header-secret-value"));
-    assert!(!logs.contains("request-body-secret-value"));
-    assert!(!logs.contains("response-secret-value"));
-    assert!(!logs.contains("failure-password-secret-value"));
-    assert!(!logs.contains("failure-query-secret-value"));
-    assert!(!logs.contains("failure-request-header-secret-value"));
-    assert!(!logs.contains("failure-request-body-secret-value"));
-}
-
 #[test]
 fn test_invalid_suffix_is_sanitized() {
     let prefix = "steve_cli_rs/0.0.0";
@@ -431,47 +310,6 @@ async fn private_backend_clients_do_not_delegate_requests() -> anyhow::Result<()
         }),
         "routed, managed, GET status, POST status, target requests: {observations:?}"
     );
-    Ok(())
-}
-
-#[tokio::test]
-async fn auth_endpoint_client_does_not_follow_redirects() -> anyhow::Result<()> {
-    use wiremock::Mock;
-    use wiremock::MockServer;
-    use wiremock::ResponseTemplate;
-    use wiremock::matchers::method;
-    use wiremock::matchers::path;
-
-    let origin = MockServer::start().await;
-    let target = MockServer::start().await;
-    let endpoint = format!("{}/metadata", origin.uri());
-    Mock::given(method("GET"))
-        .and(path("/metadata"))
-        .respond_with(
-            ResponseTemplate::new(302)
-                .insert_header("location", format!("{}/metadata", target.uri())),
-        )
-        .expect(1)
-        .mount(&origin)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/metadata"))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(0)
-        .mount(&target)
-        .await;
-    let client = create_default_auth_client(
-        &endpoint,
-        &crate::test_support::transport_default_auth_route_config(),
-    )?;
-    let response = client
-        .get(&endpoint)
-        .bearer_auth("synthetic-token")
-        .send()
-        .await?;
-    assert_eq!(response.status(), http::StatusCode::FOUND);
-    origin.verify().await;
-    target.verify().await;
     Ok(())
 }
 

@@ -35,7 +35,7 @@ async fn request_compression_follows_explicit_feature_for_each_auth() -> anyhow:
                             .expect("explicit test provider");
                     })
                     .with_auth(if backend_auth {
-                        CodexAuth::create_dummy_chatgpt_auth_for_testing()
+                        CodexAuth::from_api_key("dummy")
                     } else {
                         CodexAuth::from_api_key("dummy")
                     })

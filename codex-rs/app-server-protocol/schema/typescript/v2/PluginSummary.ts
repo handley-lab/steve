@@ -7,7 +7,6 @@ import type { PluginDisabledReason } from "./PluginDisabledReason";
 import type { PluginInstallPolicy } from "./PluginInstallPolicy";
 import type { PluginInstallPolicySource } from "./PluginInstallPolicySource";
 import type { PluginInterface } from "./PluginInterface";
-import type { PluginShareContext } from "./PluginShareContext";
 import type { PluginSource } from "./PluginSource";
 
 export type PluginSummary = { id: string,
@@ -22,11 +21,7 @@ version: string | null,
 /**
  * Version of the locally materialized plugin package when available.
  */
-localVersion: string | null, name: string,
-/**
- * Remote sharing context associated with this plugin when available.
- */
-shareContext: PluginShareContext | null, source: PluginSource, installed: boolean,
+localVersion: string | null, name: string, source: PluginSource, installed: boolean,
 /**
  * Unix timestamp in seconds when the remote plugin was installed, when available.
  */

@@ -849,7 +849,6 @@ async fn turn_lifecycle_emits_failed_turn_event() {
 async fn turn_event_reports_decisive_usage_limit_window() {
     let usage_limit = |limit_window_minutes| {
         CodexErr::UsageLimitReached(UsageLimitReachedError {
-            plan_type: None,
             resets_at: None,
             rate_limits: None,
             promo_message: None,

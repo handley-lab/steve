@@ -81,9 +81,6 @@ mod sync_sessions;
 #[path = "guardian_goal_tests.rs"]
 mod goals;
 
-#[path = "guardian_v2_history_tests.rs"]
-mod history;
-
 #[path = "guardian_v2_model_tests.rs"]
 mod model_tests;
 

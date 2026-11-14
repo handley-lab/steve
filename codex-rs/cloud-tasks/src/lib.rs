@@ -1,6 +1,4 @@
 mod app;
-#[cfg(test)]
-mod backend_auth_tests;
 mod cli;
 pub(crate) mod env_detect;
 mod new_task;
@@ -20,7 +18,6 @@ use codex_http_client::RouteAwareClientPool;
 use codex_login::CodexAuth;
 use codex_login::default_client::get_codex_user_agent;
 use codex_model_provider::ClientAuth;
-use codex_model_provider::auth_provider_from_auth_manager;
 use codex_utils_cli::CliConfigOverrides;
 use owo_colors::OwoColorize;
 use owo_colors::Stream;
@@ -85,22 +82,16 @@ async fn init_backend(
     };
     let (environment_auth, http_client_factory) = match auth
         .as_ref()
-        .filter(|auth| auth.uses_codex_backend() || matches!(auth, CodexAuth::ApiKey(_)))
+        .filter(|auth| matches!(auth, CodexAuth::ApiKey(_)))
     {
         Some(auth) => {
-            let (mut client_auth, factory) = ClientAuth::for_auth(
+            let (client_auth, factory) = ClientAuth::for_auth(
                 auth,
                 None,
                 http_client_factory,
                 /*headers*/ &Default::default(),
             )
             .await?;
-            if let Some(auth_manager) = auth_manager.as_ref() {
-                client_auth.set_provider(auth_provider_from_auth_manager(
-                    Arc::clone(auth_manager),
-                    auth,
-                ))?;
-            }
             (Some(client_auth), factory)
         }
         None => (None, http_client_factory),
@@ -136,12 +127,8 @@ async fn init_backend(
         }
     };
 
-    if let Some(acc) = auth.get_account_id() {
-        append_error_log(format!("auth: mode=ChatGPT account_id={acc}"));
-    }
-
-    if !auth.uses_codex_backend() && !matches!(&auth, codex_login::CodexAuth::ApiKey(_)) {
-        eprintln!("Cloud tasks require API-key or backend-token authentication.");
+    if !matches!(&auth, codex_login::CodexAuth::ApiKey(_)) {
+        eprintln!("Cloud tasks require API-key authentication.");
         std::process::exit(1);
     }
 
@@ -159,10 +146,6 @@ async fn init_backend(
             .with_user_agent(ua)
             .with_account_path_style(config.chatgpt_path_style),
     );
-    if let Some(acc) = auth.get_account_id() {
-        append_error_log(format!("auth: set ChatGPT-Account-Id header: {acc}"));
-    }
-
     Ok(BackendContext {
         backend: Arc::new(http),
         base_url,

@@ -124,7 +124,7 @@ async fn host_budget_context_refreshes_after_remote_compaction() -> Result<()> {
     }));
     let test = test_codex()
         .with_model("gpt-6-astra")
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_extensions(Arc::new(extensions.build()))
         .with_config(|config| {
             configure_scenario_catalog(config);

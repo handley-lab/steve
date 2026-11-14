@@ -1,6 +1,4 @@
 use crate::ThreadId;
-use crate::auth::KnownPlan;
-use crate::auth::PlanType;
 pub use crate::auth::RefreshTokenFailedError;
 pub use crate::auth::RefreshTokenFailedReason;
 use crate::exec_output::ExecToolCallOutput;
@@ -212,9 +210,7 @@ pub enum CodexErrorDetails {
     ConnectionFailed(ConnectionFailedError),
     #[error("Quota exceeded. Check your plan and billing details.")]
     QuotaExceeded,
-    #[error(
-        "To use Codex with your ChatGPT plan, upgrade to Plus: https://chatgpt.com/explore/plus."
-    )]
+    #[error("Usage is not included in your plan.")]
     UsageNotIncluded,
     #[error("We’re currently experiencing high demand, which may cause temporary errors.")]
     InternalServerError,
@@ -810,7 +806,6 @@ impl std::fmt::Display for RetryLimitReachedError {
 
 #[derive(Debug)]
 pub struct UsageLimitReachedError {
-    pub plan_type: Option<PlanType>,
     pub resets_at: Option<DateTime<Utc>>,
     /// Server-selected window responsible for the limit, in minutes.
     pub limit_window_minutes: Option<u16>,
@@ -879,52 +874,11 @@ impl std::fmt::Display for UsageLimitReachedError {
             );
         }
 
-        let message = match self.plan_type.as_ref() {
-            Some(PlanType::Known(KnownPlan::Plus)) => format!(
-                "You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits{}",
-                retry_suffix_after_or(self.resets_at.as_ref())
-            ),
-            Some(PlanType::Known(
-                KnownPlan::Team
-                | KnownPlan::SelfServeBusinessProLite
-                | KnownPlan::SelfServeBusinessUsageBased
-                | KnownPlan::Business
-                | KnownPlan::Ent26
-                | KnownPlan::EnterpriseCbpAutomation
-                | KnownPlan::EnterpriseCbpUsageBased
-                | KnownPlan::Sci
-                | KnownPlan::SciPlus,
-            )) => {
-                format!(
-                    "You’ve hit your usage limit. To get more access now, send a request to your admin{}",
-                    retry_suffix_after_or(self.resets_at.as_ref())
-                )
-            }
-            Some(PlanType::Known(KnownPlan::Free)) | Some(PlanType::Known(KnownPlan::Go)) => {
-                format!(
-                    "You’ve hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus),{}",
-                    retry_suffix_after_or(self.resets_at.as_ref())
-                )
-            }
-            Some(PlanType::Known(KnownPlan::Pro | KnownPlan::ProLite | KnownPlan::ProMax)) => {
-                format!(
-                    "You’ve hit your usage limit. Visit https://chatgpt.com/settings/usage to purchase more credits{}",
-                    retry_suffix_after_or(self.resets_at.as_ref())
-                )
-            }
-            Some(PlanType::Known(
-                KnownPlan::Enterprise | KnownPlan::Edu | KnownPlan::EduPlus | KnownPlan::EduPro,
-            )) => format!(
-                "You’ve hit your usage limit.{}",
-                retry_suffix(self.resets_at.as_ref())
-            ),
-            Some(PlanType::Unknown(_)) | None => format!(
-                "You’ve hit your usage limit.{}",
-                retry_suffix(self.resets_at.as_ref())
-            ),
-        };
-
-        write!(f, "{message}")
+        write!(
+            f,
+            "You’ve hit your usage limit.{}",
+            retry_suffix(self.resets_at.as_ref())
+        )
     }
 }
 

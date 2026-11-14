@@ -2171,53 +2171,6 @@ sandbox = "elevated"
     Ok(())
 }
 
-#[tokio::test]
-async fn respect_system_proxy_feature_resolves_enabled() -> std::io::Result<()> {
-    let codex_home = TempDir::new()?;
-    let config = Config::load_from_base_config_with_overrides(
-        ConfigToml {
-            features: Some(
-                toml::from_str(
-                    r#"
-respect_system_proxy = true
-"#,
-                )
-                .expect("valid features"),
-            ),
-            ..Default::default()
-        },
-        ConfigOverrides::default(),
-        codex_home.abs(),
-    )
-    .await?;
-
-    assert!(config.respect_system_proxy);
-    assert_eq!(
-        config.http_client_factory().outbound_proxy_policy(),
-        codex_http_client::OutboundProxyPolicy::RespectSystemProxy
-    );
-    assert_eq!(
-        config
-            .auth_route_config()
-            .http_client_factory()
-            .outbound_proxy_policy(),
-        codex_http_client::OutboundProxyPolicy::RespectSystemProxy
-    );
-    assert_eq!(
-        config
-            .plugins_config_input()
-            .remote_plugin_service_config(/*runtime_auth*/ None),
-        codex_core_plugins::remote::RemotePluginServiceConfig::new(
-            config.chatgpt_base_url,
-            codex_http_client::HttpClientFactory::new(
-                codex_http_client::OutboundProxyPolicy::RespectSystemProxy,
-            ),
-            /*product_sku*/ None,
-        )
-    );
-    Ok(())
-}
-
 #[test]
 fn bootstrap_respect_system_proxy_honors_feature_requirements() -> std::io::Result<()> {
     let configured = ConfigToml {
@@ -6673,31 +6626,6 @@ async fn config_resolves_explicit_keyring_auth_store_mode() -> std::io::Result<(
 }
 
 #[tokio::test]
-async fn file_upload_origins_follow_user_configuration() -> std::io::Result<()> {
-    for (source, expected) in [
-        ("", Vec::new()),
-        ("file_upload_origins = []", Vec::new()),
-        (
-            "file_upload_origins = ['http://127.0.0.1:43123', 'https://storage.example']",
-            vec![
-                "http://127.0.0.1:43123".to_string(),
-                "https://storage.example".to_string(),
-            ],
-        ),
-    ] {
-        let codex_home = TempDir::new()?;
-        let config = Config::load_from_base_config_with_overrides(
-            toml::from_str(source).expect("parse upload configuration"),
-            ConfigOverrides::default(),
-            codex_home.abs(),
-        )
-        .await?;
-        assert_eq!(config.file_upload_origins, expected);
-    }
-    Ok(())
-}
-
-#[tokio::test]
 async fn chatgpt_path_style_loads_from_config_and_ignores_the_base_url() -> std::io::Result<()> {
     let cases = [
         (
@@ -6861,50 +6789,6 @@ async fn chatgpt_backend_url_requires_explicit_destination_for_any_auth() -> std
             assert_eq!(config.chatgpt_backend_url().resolve(&marked), custom_url);
         }
     }
-    Ok(())
-}
-
-#[tokio::test]
-async fn project_cannot_be_the_only_xaa_opt_in_source() -> std::io::Result<()> {
-    let codex_home = TempDir::new()?;
-    let config_layer_stack = ConfigLayerStack::new(
-        vec![ConfigLayerEntry::new(
-            ConfigLayerSource::Project {
-                dot_codex_folder: codex_home.path().join("project/.steve").abs(),
-            },
-            toml::toml! {
-                [features]
-                use_xaa = true
-            }
-            .into(),
-        )],
-        Default::default(),
-        Default::default(),
-    )?;
-    let cfg = config_layer_stack
-        .effective_config()
-        .try_into()
-        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
-
-    let error = Config::load_config_with_layer_stack(
-        LOCAL_FS.as_ref(),
-        cfg,
-        ConfigOverrides {
-            cwd: Some(codex_home.path().to_path_buf()),
-            ..Default::default()
-        },
-        codex_home.abs(),
-        config_layer_stack,
-    )
-    .await
-    .expect_err("project-only XAA opt-in must fail");
-
-    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
-    assert!(
-        error
-            .to_string()
-            .contains("must be selected in a non-project config layer")
-    );
     Ok(())
 }
 

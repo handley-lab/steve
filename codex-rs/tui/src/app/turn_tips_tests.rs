@@ -535,9 +535,9 @@ async fn working_tip_stays_put_through_mouse_selection() -> Result<()> {
     );
     app.transcript_view.jump_to_latest();
     app.chat_widget
-        .on_rate_limit_snapshot(Some(serde_json::from_value(serde_json::json!({
+        .on_rolling_rate_limit_snapshot(serde_json::from_value(serde_json::json!({
             "primary": {"usedPercent": 92, "windowDurationMins": 300},
-        }))?));
+        }))?);
     assert!(app.composer_hint(size.width).is_some());
     app.render_owned_transcript(&mut tui, size)?;
     app.handle_owned_transcript_event(

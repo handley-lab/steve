@@ -52,43 +52,12 @@ pub(crate) fn identity(
     field(&[u8::from(provider_info.has_command_auth())]);
     field(format!("{:?}", auth.map(CodexAuth::api_auth_mode)).as_bytes());
     if let Some(auth) = auth {
-        field(format!("{:?}", auth.get_account_id()).as_bytes());
-        field(format!("{:?}", auth.get_chatgpt_user_id()).as_bytes());
-        field(format!("{:?}", auth.get_account_email()).as_bytes());
-        field(format!("{:?}", auth.account_plan_type()).as_bytes());
-        field(
-            format!(
-                "{:?}",
-                auth.get_token_data()
-                    .ok()
-                    .and_then(|tokens| tokens.id_token.get_chatgpt_plan_type_raw())
-            )
-            .as_bytes(),
-        );
         field(&[u8::from(auth.is_fedramp_account())]);
     }
-    let has_stable_account = auth.is_some_and(|auth| {
-        auth.get_account_id().is_some()
-            && if matches!(auth, CodexAuth::Headers(_)) {
-                !provider_info.has_command_auth()
-            } else {
-                matches!(
-                    auth,
-                    CodexAuth::Chatgpt(_)
-                        | CodexAuth::ChatgptAuthTokens(_)
-                        | CodexAuth::AgentIdentity(_)
-                ) && (auth.get_chatgpt_user_id().is_some() || auth.get_account_email().is_some())
-            }
-    });
-    // Command auth also returns opaque API keys. A changed key may belong to a
-    // different account, so reuse requires stable owner metadata. Explicit provider
-    // keys take precedence over the header auth's account identity.
-    if !has_stable_account || explicit_bearer {
-        let headers = resolve_provider_auth(auth, provider_info)?
-            .to_auth_headers()
-            .map_err(|error| codex_api::map_api_error(error.into()))?;
-        api_provider.headers.extend(headers);
-    }
+    let headers = resolve_provider_auth(auth, provider_info)?
+        .to_auth_headers()
+        .map_err(|error| codex_api::map_api_error(error.into()))?;
+    api_provider.headers.extend(headers);
     let mut headers: Vec<_> = api_provider.headers.iter().collect();
     headers.sort_by(|(a, av), (b, bv)| {
         a.as_str()

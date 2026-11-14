@@ -10,8 +10,6 @@ use codex_config::LoaderOverrides;
 use codex_config::NoopThreadConfigLoader;
 use codex_config::loader::load_config_layers_state;
 use codex_exec_server::LOCAL_FS;
-use codex_http_client::HttpClientFactory;
-use codex_http_client::OutboundProxyPolicy;
 use codex_login::CodexAuth;
 use codex_login::test_support::auth_manager_from_optional_auth;
 use codex_protocol::protocol::Product;
@@ -90,14 +88,9 @@ async fn curated_git_requirements_control_plugin_skills() -> Result<()> {
                 .plugins,
             "openai".to_string(),
             /*plugins_enabled*/ true,
-            /*remote_plugin_enabled*/ false,
-            "https://chatgpt.com/backend-api/".to_string(),
-            HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
-            /*product_sku*/ None,
-            /*file_upload_origins*/ Vec::new(),
         );
         let auth = if name == "openai-curated" {
-            CodexAuth::create_dummy_chatgpt_auth_for_testing()
+            CodexAuth::from_api_key("dummy")
         } else {
             CodexAuth::from_api_key("test-api-key")
         };

@@ -120,13 +120,7 @@ pub(super) async fn configure(
         ..caller_auth.clone()
     };
     bootstrap_auth.validate()?;
-    let bootstrap_auth_manager = AuthManager::shared_from_auth_config(
-        bootstrap_auth,
-        /*enable_codex_api_key_env*/ false,
-    )
-    .await
-    .map_err(IoError::other)?;
-    config_manager.update_managed_config_loader(bootstrap_auth_manager, &bootstrap_config);
+    config_manager.update_managed_config_loader(&bootstrap_config);
     let policy_config = config_manager
         .load_startup_config(Some(config.cwd.to_path_buf()))
         .await?
@@ -166,7 +160,7 @@ pub(super) async fn configure(
     config.application_auth_route_config = policy_config.application_auth_route_config;
     config.forced_login_method = policy_config.forced_login_method;
     config.forced_chatgpt_workspace_id = policy_config.forced_chatgpt_workspace_id;
-    config_manager.update_managed_config_loader(policy_auth_manager, config);
+    config_manager.update_managed_config_loader(config);
     codex_login::default_client::set_default_client_residency_requirement(
         config.enforce_residency.value(),
     );

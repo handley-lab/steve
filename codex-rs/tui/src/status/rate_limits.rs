@@ -101,8 +101,6 @@ impl RateLimitWindowDisplay {
 pub(crate) struct RateLimitSnapshotDisplay {
     /// Canonical limit identifier (for example: `steve` or `codex_other`).
     pub limit_name: String,
-    /// Optional normal model associated with this account-read quota alias.
-    pub normal_model_slug: Option<String>,
     /// Local timestamp representing when this display snapshot was captured.
     pub captured_at: DateTime<Local>,
     /// Primary usage window.
@@ -161,7 +159,6 @@ pub(crate) fn rate_limit_snapshot_display_for_limit(
     clock_format: ClockFormat,
 ) -> RateLimitSnapshotDisplay {
     RateLimitSnapshotDisplay {
-        normal_model_slug: snapshot.normal_model_slug.clone(),
         limit_name,
         captured_at,
         primary: snapshot
@@ -469,7 +466,6 @@ mod tests {
         let now = Local::now();
         let codex = RateLimitSnapshotDisplay {
             limit_name: "steve".to_string(),
-            normal_model_slug: None,
             captured_at: now,
             primary: Some(window(/*used_percent*/ 10.0)),
             secondary: None,
@@ -482,7 +478,6 @@ mod tests {
         };
         let other = RateLimitSnapshotDisplay {
             limit_name: "codex-other".to_string(),
-            normal_model_slug: None,
             captured_at: now,
             primary: Some(window(/*used_percent*/ 20.0)),
             secondary: None,
@@ -517,7 +512,6 @@ mod tests {
         let now = Local::now();
         let other = RateLimitSnapshotDisplay {
             limit_name: "codex-other".to_string(),
-            normal_model_slug: None,
             captured_at: now,
             primary: Some(RateLimitWindowDisplay {
                 used_percent: 20.0,

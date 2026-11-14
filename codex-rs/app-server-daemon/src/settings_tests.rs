@@ -5,51 +5,6 @@ use super::DaemonSettings;
 use super::MAX_SHUTDOWN_GRACE_SECONDS;
 
 #[tokio::test]
-async fn remote_control_save_preserves_updater_settings() {
-    let temp = TempDir::new().expect("temp dir");
-    let path = temp.path().join("settings.json");
-    tokio::fs::write(&path, r#"{"remoteControlEnabled":true}"#)
-        .await
-        .expect("write legacy settings");
-
-    let settings = DaemonSettings::load(&path).await.expect("load settings");
-    assert_eq!(
-        settings,
-        DaemonSettings {
-            remote_control_enabled: true,
-            ..DaemonSettings::default()
-        }
-    );
-
-    tokio::fs::write(
-        &path,
-        r#"{"remoteControlEnabled":true,"shutdownGraceSeconds":25,"updater":{"autoUpdateEnabled":false,"updateIntervalMinutes":17},"featureOverrides":{"api_key_model_discovery":true,"code_mode_host":false},"futureSetting":42}"#,
-    )
-    .await
-    .expect("write settings");
-    let updated = DaemonSettings {
-        remote_control_enabled: false,
-        ..DaemonSettings::load(&path)
-            .await
-            .expect("load updater settings")
-    };
-    updated.save(&path).await.expect("save remote control");
-    assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(
-            &tokio::fs::read(&path).await.expect("read settings")
-        )
-        .expect("parse settings"),
-        serde_json::json!({
-            "remoteControlEnabled": false,
-            "shutdownGraceSeconds": 25,
-            "updater": {"autoUpdateEnabled": false, "updateIntervalMinutes": 17},
-            "featureOverrides": {"api_key_model_discovery": true, "code_mode_host": false},
-            "futureSetting": 42,
-        })
-    );
-}
-
-#[tokio::test]
 async fn shutdown_grace_accepts_zero_through_five_minutes() {
     let temp = TempDir::new().expect("temp dir");
     let path = temp.path().join("settings.json");

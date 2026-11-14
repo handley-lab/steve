@@ -26,7 +26,6 @@ use codex_protocol::models::SearchToolCallParams;
 #[cfg(test)]
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ToolMode;
-use codex_tools::DiscoverableTool;
 use codex_tools::ResponsesApiNamespaceTool;
 use codex_tools::ToolName;
 use codex_tools::ToolSpec;
@@ -104,18 +103,6 @@ pub struct ToolRouter {
     exec_definitions: Option<Arc<Vec<codex_code_mode::ExecDefinition>>>,
     tool_namespaces_info: Option<TurnToolNamespacesInfo>,
     can_manage_children: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ToolSuggestPresentation {
-    ListTool,
-    RecommendationContext,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct ToolSuggestCandidates {
-    pub(crate) tools: Vec<DiscoverableTool>,
-    pub(crate) presentation: ToolSuggestPresentation,
 }
 
 impl ToolRouter {

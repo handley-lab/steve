@@ -233,12 +233,7 @@ impl App {
             lines,
             usage_lines: root_id
                 .and_then(|id| self.agents_overview.usage.get(&id))
-                .map(|usage| {
-                    super::agents_overview_usage::usage_lines(
-                        usage,
-                        self.chat_widget.current_plan_type(),
-                    )
-                })
+                .map(super::agents_overview_usage::usage_lines)
                 .unwrap_or_default(),
             last_message,
         }
@@ -286,7 +281,6 @@ fn request_preview(request: &ServerRequest) -> Option<String> {
             | McpServerElicitationRequest::OpenAiForm { message, .. }
             | McpServerElicitationRequest::OpenAiElicitationForm { message, .. }
             | McpServerElicitationRequest::Url { message, .. } => Some(message.as_str()),
-            McpServerElicitationRequest::UserVerification { .. } => None,
         },
         ServerRequest::ToolRequestUserInput { params, .. } => params
             .questions

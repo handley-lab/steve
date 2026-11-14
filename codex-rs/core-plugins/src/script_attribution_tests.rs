@@ -2,35 +2,24 @@ use super::*;
 use crate::LoadedPlugin;
 use crate::PluginMeasurementDefinition;
 use crate::loader::curated_plugin_cache_version;
-use crate::remote::REMOTE_GLOBAL_MARKETPLACE_NAME;
 use crate::startup_sync::curated_plugins_repo_path;
-use crate::store::DEFAULT_PLUGIN_VERSION;
 use crate::store::PluginStore;
 use crate::test_support::TEST_CURATED_PLUGIN_SHA;
 use crate::test_support::write_curated_plugin_sha_with;
 use crate::test_support::write_openai_api_curated_marketplace;
 use crate::test_support::write_openai_curated_marketplace;
-use codex_exec_server::ExecServerError;
 use codex_exec_server::LOCAL_FS;
-use codex_exec_server::NoiseChannelPublicKey;
-use codex_exec_server::NoiseRendezvousConnectBundle;
-use codex_exec_server::NoiseRendezvousConnectProvider;
-use codex_exec_server_test_support::environment_manager_without_environments;
 use codex_plugin::PluginLoadOutcome;
 use codex_utils_path_uri::PathUri;
 use codex_utils_plugins::SkillDiscoveryMode;
-use futures::FutureExt;
-use futures::future::BoxFuture;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
-use std::sync::Arc;
 use tempfile::TempDir;
 const ENABLED: bool = true;
-const DISABLED: bool = false;
 fn path(path: &Path) -> AbsolutePathBuf {
     AbsolutePathBuf::from_absolute_path_checked(path).expect("absolute path")
 }
@@ -72,28 +61,6 @@ fn synced_plugin_root(codex_home: &Path, marketplace: &str, plugin_name: &str) -
         &curated_plugin_cache_version(TEST_CURATED_PLUGIN_SHA),
     );
     fs::create_dir_all(root.as_path()).expect("create cached plugin root");
-    root
-}
-fn cached_remote_plugin_root(codex_home: &Path, plugin_name: &str) -> AbsolutePathBuf {
-    let plugin_id = PluginId::new(
-        plugin_name.to_string(),
-        REMOTE_GLOBAL_MARKETPLACE_NAME.to_string(),
-    )
-    .expect("plugin id");
-    let root = PluginStore::new(codex_home.to_path_buf()).plugin_root(&plugin_id, "1.2.3");
-    fs::create_dir_all(root.as_path()).expect("create cached remote plugin root");
-    root
-}
-fn installed_remote_plugin_root(codex_home: &Path, plugin_name: &str) -> AbsolutePathBuf {
-    let root = cached_remote_plugin_root(codex_home, plugin_name);
-    let plugin_id = PluginId::new(
-        plugin_name.to_string(),
-        REMOTE_GLOBAL_MARKETPLACE_NAME.to_string(),
-    )
-    .expect("plugin id");
-    PluginStore::new(codex_home.to_path_buf())
-        .write_remote_plugin_id(&plugin_id, "plugins~Plugin_sample")
-        .expect("write remote plugin id");
     root
 }
 fn script_fixture() -> (TempDir, AbsolutePathBuf, AbsolutePathBuf) {
@@ -288,123 +255,8 @@ fn assert_invalid_metrics_manifest(codex_home: &Path, root: &AbsolutePathBuf, ma
         None
     );
 }
-fn assert_untrusted(codex_home: &Path, config_name: &str, root: &Path) {
-    assert!(
-        roots_for(codex_home, vec![loaded_plugin(config_name, root, ENABLED)])
-            .roots
-            .is_empty()
-    );
-}
 fn command(parts: &[&str]) -> Vec<String> {
     parts.iter().map(ToString::to_string).collect()
-}
-
-#[test]
-fn trusted_roots_require_verified_curated_or_remote_cache() {
-    let temp = TempDir::new().expect("temp dir");
-    write_curated_plugin_sha_with(temp.path(), TEST_CURATED_PLUGIN_SHA);
-    let root = synced_plugin_root(temp.path(), OPENAI_CURATED_MARKETPLACE_NAME, "sample");
-    let api_root = synced_plugin_root(
-        temp.path(),
-        OPENAI_API_CURATED_MARKETPLACE_NAME,
-        "api-sample",
-    );
-    let remote_root = installed_remote_plugin_root(temp.path(), "remote-sample");
-    let unverified_remote_root = cached_remote_plugin_root(temp.path(), "unverified-remote");
-    let _ = installed_remote_plugin_root(temp.path(), "overridden-remote");
-    let overridden_remote_plugin_id =
-        PluginId::parse("overridden-remote@openai-curated-remote").expect("plugin id");
-    let remote_local_override = PluginStore::new(temp.path().to_path_buf())
-        .plugin_root(&overridden_remote_plugin_id, DEFAULT_PLUGIN_VERSION);
-    let local_root = temp
-        .path()
-        .join("plugins/cache/openai-curated/sample/local");
-    let spoofed_root = temp.path().join("spoofed/openai-curated/sample");
-    let spoofed_remote_root = temp
-        .path()
-        .join("spoofed/openai-curated-remote/remote-sample");
-    fs::create_dir_all(&local_root).expect("create local root");
-    fs::create_dir_all(&spoofed_root).expect("create spoofed root");
-    fs::create_dir_all(&spoofed_remote_root).expect("create spoofed remote root");
-    fs::create_dir_all(remote_local_override.as_path()).expect("create remote local override");
-    let roots = roots_for(
-        temp.path(),
-        vec![
-            loaded_plugin("sample@openai-curated", root.as_path(), ENABLED),
-            loaded_plugin("api-sample@openai-api-curated", api_root.as_path(), ENABLED),
-            loaded_plugin(
-                "remote-sample@openai-curated-remote",
-                remote_root.as_path(),
-                ENABLED,
-            ),
-            loaded_plugin("sample@openai-curated", &local_root, ENABLED),
-            loaded_plugin("sample@openai-curated", &spoofed_root, ENABLED),
-            loaded_plugin("disabled@openai-curated", root.as_path(), DISABLED),
-        ],
-    );
-    assert_eq!(
-        roots.roots,
-        vec![
-            TrustedPluginRoot {
-                plugin_id: PluginId::parse("sample@openai-curated").expect("plugin id"),
-                version: curated_plugin_cache_version(TEST_CURATED_PLUGIN_SHA),
-                metrics_operations_by_path: BTreeMap::new(),
-                root: root.canonicalize().expect("canonical root"),
-            },
-            TrustedPluginRoot {
-                plugin_id: PluginId::parse("api-sample@openai-api-curated").expect("plugin id"),
-                version: curated_plugin_cache_version(TEST_CURATED_PLUGIN_SHA),
-                metrics_operations_by_path: BTreeMap::new(),
-                root: api_root.canonicalize().expect("canonical root"),
-            },
-            TrustedPluginRoot {
-                plugin_id: PluginId::parse("remote-sample@openai-curated-remote")
-                    .expect("plugin id"),
-                version: "1.2.3".to_string(),
-                metrics_operations_by_path: BTreeMap::new(),
-                root: remote_root.canonicalize().expect("canonical root"),
-            },
-        ]
-    );
-    assert_untrusted(
-        temp.path(),
-        "unverified-remote@openai-curated-remote",
-        unverified_remote_root.as_path(),
-    );
-    assert_untrusted(
-        temp.path(),
-        "remote-sample@openai-curated-remote",
-        &spoofed_remote_root,
-    );
-    assert_untrusted(
-        temp.path(),
-        "overridden-remote@openai-curated-remote",
-        remote_local_override.as_path(),
-    );
-    #[cfg(unix)]
-    {
-        let alias = temp.path().join("sample-alias");
-        std::os::unix::fs::symlink(root.as_path(), &alias).expect("symlink root");
-        assert_untrusted(temp.path(), "sample@openai-curated", &alias);
-    }
-    let _ = synced_plugin_root(temp.path(), OPENAI_CURATED_MARKETPLACE_NAME, "listed");
-    let unlisted_root = PluginStore::new(temp.path().to_path_buf()).plugin_root(
-        &PluginId::parse("missing@openai-curated").expect("plugin id"),
-        &curated_plugin_cache_version(TEST_CURATED_PLUGIN_SHA),
-    );
-    fs::create_dir_all(unlisted_root.as_path()).expect("create unlisted root");
-    assert_untrusted(
-        temp.path(),
-        "missing@openai-curated",
-        unlisted_root.as_path(),
-    );
-    let no_sha = TempDir::new().expect("temp dir");
-    let no_sha_root = synced_plugin_root(no_sha.path(), OPENAI_CURATED_MARKETPLACE_NAME, "sample");
-    assert_untrusted(
-        no_sha.path(),
-        "sample@openai-curated",
-        no_sha_root.as_path(),
-    );
 }
 
 #[test]
@@ -817,102 +669,6 @@ async fn assert_executor_resolution(
 }
 
 #[test]
-fn executor_cache_identity_obeys_windows_and_posix_case_conventions() {
-    let (_reference, roots) =
-        reference_fixture(&[("sites", "2.0.0-RC1", "selected", "printf shared\\n\n")]);
-    let plugin_id = PluginId::parse("sites@openai-curated-remote").expect("plugin id");
-    for prefix in ["file:///C:/Users/user/.steve", "file://server/share/.steve"] {
-        let script = PathUri::parse(&format!(
-            "{prefix}/PLUGINS/CACHE/OPENAI-CURATED-REMOTE/SITES/2.0.0-rc1/{REFERENCE_HELPER}"
-        ))
-        .expect("Windows script");
-        let target = PluginMeasurementTarget::from_script_path(&script)
-            .expect("Windows cache preselection follows the resolver's path identity");
-        assert_eq!(
-            target,
-            PluginMeasurementTarget {
-                plugin_id: plugin_id.clone(),
-                version: "2.0.0-rc1".to_string(),
-                path_convention: PathConvention::Windows,
-            }
-        );
-        let equivalent = PathUri::parse(&format!(
-            "{prefix}/plugins/cache/openai-curated-remote/sites/2.0.0-RC1/{REFERENCE_HELPER}"
-        ))
-        .expect("equivalent Windows script");
-        assert_eq!(
-            PluginMeasurementTarget::from_script_path(&equivalent),
-            Some(target)
-        );
-        let candidates =
-            roots.local_candidates_for_executor_script(&script, PluginVersionMatch::Exact);
-        let candidate = candidates
-            .first()
-            .expect("Windows identity casing must not prevent canonicalization");
-        assert_eq!(
-            candidate.matched.metrics_operation(),
-            Some(ResolvedPluginMetricsOperation {
-                plugin_id: plugin_id.clone(),
-                operation: reference_metrics_operation("selected"),
-            })
-        );
-    }
-    for script in [
-        format!(
-            "file:///home/user/.steve/PLUGINS/CACHE/OPENAI-CURATED-REMOTE/SITES/2.0.0-rc1/{REFERENCE_HELPER}"
-        ),
-        format!(
-            "file:///home/user/.steve/plugins/cache/openai-curated-remote/SITES/2.0.0-RC1/{REFERENCE_HELPER}"
-        ),
-        format!(
-            "file:///C:/Users/user/.steve/PLUGINS/CACHE/OPENAI-CURATED-REMOTE/SITES/2.0.0-rc2/{REFERENCE_HELPER}"
-        ),
-        format!(
-            "file:///C:/Users/user/.steve/PLUGINS/CACHE/OPENAI-CURATED-REMOTE/OTHER/2.0.0-rc1/{REFERENCE_HELPER}"
-        ),
-    ] {
-        let script = PathUri::parse(&script).expect("script");
-        let path_convention = script.infer_path_convention().expect("path convention");
-        let expected = PluginMeasurementTarget {
-            plugin_id: plugin_id.clone(),
-            version: match path_convention {
-                PathConvention::Windows => "2.0.0-rc1",
-                PathConvention::Posix => "2.0.0-RC1",
-            }
-            .to_string(),
-            path_convention,
-        };
-        assert_ne!(
-            PluginMeasurementTarget::from_script_path(&script),
-            Some(expected),
-            "preselection must not match a differently cased POSIX identity or another version"
-        );
-        assert!(
-            roots
-                .local_candidates_for_executor_script(&script, PluginVersionMatch::Exact)
-                .is_empty(),
-            "POSIX casing and different Windows versions must remain distinct"
-        );
-    }
-    for version in ["2.0.0-RC1", "2.0.0-rc1"] {
-        let script = PathUri::parse(&format!(
-            "file:///home/user/.steve/plugins/cache/openai-curated-remote/sites/{version}/{REFERENCE_HELPER}"
-        ))
-        .expect("POSIX script");
-        let target =
-            PluginMeasurementTarget::from_script_path(&script).expect("POSIX cache preselection");
-        assert_eq!(
-            target,
-            PluginMeasurementTarget {
-                plugin_id: plugin_id.clone(),
-                version: version.to_string(),
-                path_convention: PathConvention::Posix,
-            }
-        );
-    }
-}
-
-#[test]
 fn extending_trusted_roots_preserves_existing_plugins_and_deduplicates_snapshots() {
     let contents = "printf shared\\n\n";
     let (_frontend, mut roots) = reference_fixture(&[("sites", "1.2.3", "primary", contents)]);
@@ -929,46 +685,6 @@ fn extending_trusted_roots_preserves_existing_plugins_and_deduplicates_snapshots
     assert_eq!(roots, expected);
     roots.extend(&additional);
     assert_eq!(roots, expected, "repeated snapshots must remain idempotent");
-}
-
-#[tokio::test]
-async fn authenticated_v2_reference_coexists_with_loaded_frontend_v1() {
-    let frontend = TempDir::new().expect("frontend");
-    let v1 = installed_remote_plugin_root(frontend.path(), "sites");
-    reference_identity_fixture(v1.as_path(), "install_v1", "printf v1\\n\n");
-    let plugin_id = PluginId::parse("sites@openai-curated-remote").expect("plugin id");
-    let mut roots = roots_for(
-        frontend.path(),
-        vec![loaded_plugin(&plugin_id.as_key(), v1.as_path(), ENABLED)],
-    );
-    let (_reference, references) =
-        reference_fixture(&[("sites", "2.0.0", "install_v2", "printf v2\\n\n")]);
-    roots.extend(&references);
-    // The operation must stay bound to the selected root when two versions share
-    // a plugin ID and helper path, for both local and executor resolution.
-    for (root, variant) in [
-        (&v1, "install_v1"),
-        (&references.roots[0].root, "install_v2"),
-    ] {
-        assert_eq!(
-            roots.resolve_metrics_operation(&command(&["sh", REFERENCE_HELPER]), root),
-            Some(ResolvedPluginMetricsOperation {
-                plugin_id: plugin_id.clone(),
-                operation: reference_metrics_operation(variant),
-            })
-        );
-    }
-    let executor = TempDir::new().expect("executor");
-    let root = executor_plugin(executor.path(), "sites", "2.0.0", "printf v2\\n\n");
-    let cwd = PathUri::from_host_native_path(root.as_path()).expect("executor URI");
-    assert_executor_resolution(
-        &roots,
-        &command(&["sh", REFERENCE_HELPER]),
-        &cwd,
-        &plugin_id,
-        Some("install_v2"),
-    )
-    .await;
 }
 
 #[tokio::test]
@@ -991,36 +707,6 @@ async fn same_helper_path_in_two_plugins_resolves_by_executor_identity() {
             &cwd,
             &plugin_id,
             Some(variant),
-        )
-        .await;
-    }
-}
-
-#[tokio::test]
-async fn identical_script_bytes_do_not_authorize_another_executor_version() {
-    let contents = "printf shared\\n\n";
-    let (_reference, roots) =
-        reference_fixture(&[("sites", "2.0.0", "v2_only_operation", contents)]);
-    let plugin_id = PluginId::parse("sites@openai-curated-remote").expect("plugin id");
-    let executor = TempDir::new().expect("executor");
-    for version in ["1.2.3", "2.0.0"] {
-        let root = executor_plugin(executor.path(), "sites", version, contents);
-        let cwd = PathUri::from_host_native_path(root.as_path()).expect("executor URI");
-        let candidate = command(&["bash", "-lc", &format!("sh {REFERENCE_HELPER}")]);
-        assert_eq!(
-            PluginMeasurementTarget::from_command(&candidate, &cwd, LOCAL_FS.as_ref()).await,
-            Some(PluginMeasurementTarget {
-                plugin_id: plugin_id.clone(),
-                version: version.to_string(),
-                path_convention: PathConvention::native(),
-            })
-        );
-        assert_executor_resolution(
-            &roots,
-            &command(&["sh", REFERENCE_HELPER]),
-            &cwd,
-            &plugin_id,
-            (version == "2.0.0").then_some("v2_only_operation"),
         )
         .await;
     }
@@ -1067,113 +753,4 @@ async fn executor_symlink_cannot_change_authenticated_plugin_or_version() {
         );
         fs::remove_file(original.join(REFERENCE_HELPER)).expect("remove helper symlink");
     }
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn executor_aliases_use_canonical_plugin_paths() {
-    let contents = "printf shared\\n\n";
-    let (_reference, roots) = reference_fixture(&[
-        ("sites", "1.2.3", "older", contents),
-        ("sites", "2.0.0", "selected", contents),
-    ]);
-    let older_roots = TrustedPluginRoots {
-        roots: vec![roots.roots[0].clone()],
-    };
-    let plugin_id = PluginId::parse("sites@openai-curated-remote").expect("plugin id");
-    let executor = TempDir::new().expect("executor");
-    let target = executor_plugin(executor.path(), "sites", "2.0.0", contents);
-    let alias = executor.path().join("plugin-link");
-    std::os::unix::fs::symlink(target.as_path(), &alias).expect("directory alias");
-    let version_alias = executor
-        .path()
-        .join("plugins/cache/openai-curated-remote/sites/1.2.3/scripts/renamed-entry.sh");
-    fs::create_dir_all(version_alias.parent().expect("alias parent")).expect("V1 alias directory");
-    std::os::unix::fs::symlink(target.join(REFERENCE_HELPER), &version_alias).expect("V1 alias");
-    let cwd = PathUri::from_host_native_path(executor.path()).expect("executor URI");
-    // An already loaded reference still supports directory aliases. Preparation
-    // only probes cache paths, so ordinary workspace scripts need no executor I/O.
-    assert_executor_resolution(
-        &roots,
-        &command(&["sh", &alias.join(REFERENCE_HELPER).to_string_lossy()]),
-        &cwd,
-        &plugin_id,
-        Some("selected"),
-    )
-    .await;
-    let command = command(&["sh", &version_alias.to_string_lossy()]);
-    assert_eq!(
-        PluginMeasurementTarget::from_command(&command, &cwd, LOCAL_FS.as_ref()).await,
-        Some(PluginMeasurementTarget {
-            plugin_id: plugin_id.clone(),
-            version: "2.0.0".to_string(),
-            path_convention: PathConvention::Posix,
-        })
-    );
-    assert_executor_resolution(&roots, &command, &cwd, &plugin_id, Some("selected")).await;
-    assert_eq!(
-        older_roots
-            .resolve_metrics_operation_in_filesystem(&command, &cwd, LOCAL_FS.as_ref())
-            .await,
-        None,
-        "a V1-shaped alias and identical bytes cannot authorize V2 metrics"
-    );
-}
-
-#[tokio::test]
-async fn measurement_target_rejects_inline_commands_and_local_versions() -> anyhow::Result<()> {
-    let executor = TempDir::new()?;
-    let root = reference_identity_fixture(
-        &executor
-            .path()
-            .join("plugins/cache/openai-curated-remote/sites/local"),
-        "ignored",
-        "printf fixture\n",
-    );
-    let cwd = PathUri::from_host_native_path(root.as_path())?;
-    for args in [&["node", "-e", "42"][..], &["sh", REFERENCE_HELPER][..]] {
-        let command = command(args);
-        let fs = codex_exec_server::LOCAL_FS.as_ref();
-        assert_eq!(
-            PluginMeasurementTarget::from_command(&command, &cwd, fs).await,
-            None
-        );
-    }
-    Ok(())
-}
-
-struct UnusedConnectProvider;
-
-impl NoiseRendezvousConnectProvider for UnusedConnectProvider {
-    fn connect_bundle(
-        &self,
-        _: NoiseChannelPublicKey,
-    ) -> BoxFuture<'_, Result<NoiseRendezvousConnectBundle, ExecServerError>> {
-        panic!("unrelated script must not connect to the executor")
-    }
-}
-
-#[tokio::test]
-async fn unrelated_scripts_skip_executor_lookup() -> anyhow::Result<()> {
-    let (_reference, roots) =
-        reference_fixture(&[("sites", "2.0.0", "selected", "printf shared\\n\n")]);
-    let manager = environment_manager_without_environments();
-    let pending = manager.materialize_pending_noise_environment(
-        "tools".to_string(),
-        Arc::new(UnusedConnectProvider),
-    )?;
-    let fs = pending.get_filesystem();
-    let cwd = PathUri::parse("file:///workspace")?;
-    let command = command(&["node", "build.js"]);
-    // An executor lookup waits for provisioning; unrelated scripts must finish immediately.
-    assert_eq!(
-        futures::future::join3(
-            roots.resolve_executor_attribution(&command, &cwd, fs.as_ref()),
-            roots.resolve_metrics_operation_in_filesystem(&command, &cwd, fs.as_ref()),
-            PluginMeasurementTarget::from_command(&command, &cwd, fs.as_ref()),
-        )
-        .now_or_never(),
-        Some((None, None, None)),
-    );
-    Ok(())
 }

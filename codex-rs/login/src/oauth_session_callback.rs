@@ -61,7 +61,7 @@ impl CallbackListener {
                         );
                         continue;
                     }
-                    Err(CallbackError::Provider { .. }) => Err(io::Error::new(
+                    Err(CallbackError::Provider) => Err(io::Error::new(
                         io::ErrorKind::PermissionDenied,
                         "provider OAuth authorization was denied",
                     )),

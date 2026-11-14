@@ -1,6 +1,5 @@
 use anyhow::Context;
 use anyhow::Result;
-use app_test_support::ChatGptAuthFixture;
 use app_test_support::MockResponsesConfig;
 use app_test_support::TestAppServer;
 use app_test_support::create_apply_patch_sse_response;
@@ -13,7 +12,6 @@ use app_test_support::create_mock_responses_server_sequence;
 use app_test_support::create_mock_responses_server_sequence_unchecked;
 use app_test_support::create_request_user_input_sse_response;
 use app_test_support::format_with_current_shell_display;
-use app_test_support::write_chatgpt_auth;
 use app_test_support::write_mock_responses_config_toml_with_chatgpt_base_url;
 use app_test_support::write_models_cache;
 use app_test_support::write_models_cache_with_models;
@@ -30,7 +28,6 @@ use codex_app_server_protocol::CollabAgentToolCallStatus;
 use codex_app_server_protocol::CommandExecutionApprovalDecision;
 use codex_app_server_protocol::CommandExecutionRequestApprovalResponse;
 use codex_app_server_protocol::CommandExecutionStatus;
-use codex_app_server_protocol::CyberAccessProgram;
 use codex_app_server_protocol::FileChangeApprovalDecision;
 use codex_app_server_protocol::FileChangePatchUpdatedNotification;
 use codex_app_server_protocol::FileChangeRequestApprovalResponse;
@@ -55,8 +52,6 @@ use codex_app_server_protocol::ThreadInjectItemsParams;
 use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::ThreadLoadedListParams;
 use codex_app_server_protocol::ThreadLoadedListResponse;
-use codex_app_server_protocol::ThreadMetadataUpdateParams;
-use codex_app_server_protocol::ThreadMetadataUpdateResponse;
 use codex_app_server_protocol::ThreadSettingsUpdateParams;
 use codex_app_server_protocol::ThreadSettingsUpdatedNotification;
 use codex_app_server_protocol::ThreadShellCommandParams;
@@ -76,7 +71,6 @@ use codex_app_server_protocol::UserInput as V2UserInput;
 use codex_app_server_protocol::WarningNotification;
 use codex_exec_server::LOCAL_ENVIRONMENT_ID;
 use codex_features::Feature;
-use codex_login::AuthCredentialsStoreMode;
 use codex_models_manager::model_info::model_info_from_slug;
 use codex_protocol::config_types::CollaborationMode;
 use codex_protocol::config_types::ModeKind;
@@ -90,15 +84,10 @@ use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::MULTI_AGENT_MODE_OPEN_TAG;
 use codex_protocol::user_input::MAX_USER_INPUT_TEXT_CHARS;
 use codex_utils_absolute_path::test_support::PathExt;
-use core_test_support::apps_test_server::AppsTestServer;
-use core_test_support::apps_test_server::SEARCH_CALENDAR_LIST_TOOL;
-use core_test_support::apps_test_server::SEARCH_CALENDAR_NAMESPACE;
 use core_test_support::responses;
 use core_test_support::skip_if_no_network;
 use core_test_support::skip_if_remote;
 use core_test_support::skip_if_wine_exec;
-use core_test_support::streaming_sse::StreamingSseChunk;
-use core_test_support::streaming_sse::start_streaming_sse_server;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use serde_json::json;
@@ -106,14 +95,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use tempfile::TempDir;
 use test_case::test_case;
-use tokio::sync::oneshot;
 use tokio::time::timeout;
-use wiremock::Mock;
-use wiremock::Request;
 use wiremock::ResponseTemplate;
-use wiremock::matchers::body_partial_json;
-use wiremock::matchers::method;
-use wiremock::matchers::path;
 
 use super::analytics::mount_analytics_capture;
 use super::analytics::wait_for_analytics_event;
@@ -356,195 +339,6 @@ async fn turn_start_omits_notification_media_without_changing_model_input() -> R
     Ok(())
 }
 
-#[test_case(None; "analytics_unset")]
-#[test_case(Some(true); "analytics_enabled")]
-#[test_case(Some(false); "analytics_disabled")]
-#[tokio::test]
-async fn tool_call_metadata_stays_out_of_raw_response_item_notifications(
-    analytics_enabled: Option<bool>,
-) -> Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let arguments = json!({"query": "redaction"});
-    let result_metadata = json!({"provider/private": {"sentinel": "raw-result-metadata"}});
-    let responses = vec![
-        responses::sse(vec![
-            responses::ev_response_created("resp-1"),
-            responses::ev_function_call_with_namespace(
-                "mcp-call",
-                SEARCH_CALENDAR_NAMESPACE,
-                SEARCH_CALENDAR_LIST_TOOL,
-                &arguments.to_string(),
-            ),
-            responses::ev_completed("resp-1"),
-        ]),
-        create_final_assistant_message_sse_response("Done")?,
-    ];
-    let server = responses::start_mock_server().await;
-    let model = responses::mount_sse_sequence(&server, responses).await;
-    let apps = AppsTestServer::mount(&server).await?;
-    let tool_result = json!({
-        "content": [{"type": "text", "text": "Calendar result"}],
-        "_meta": result_metadata,
-        "isError": false,
-    });
-    Mock::given(method("POST"))
-        .and(path("/api/codex/ps/mcp"))
-        .and(body_partial_json(json!({
-            "method": "tools/call",
-            "params": {"name": "calendar_list_events", "arguments": arguments},
-        })))
-        .respond_with(move |request: &Request| {
-            let request: Value =
-                serde_json::from_slice(&request.body).expect("valid MCP tool call JSON");
-            ResponseTemplate::new(200).set_body_json(json!({
-                "jsonrpc": "2.0",
-                "id": request["id"],
-                "result": tool_result,
-            }))
-        })
-        .with_priority(/*p*/ 1)
-        .expect(1)
-        .mount(&server)
-        .await;
-    let codex_home = TempDir::new()?;
-    let mut config = MockResponsesConfig::new(&server.uri())
-        .with_provider_name("OpenAI")
-        .with_provider_config("supports_websockets = false")
-        .with_root_config(&format!(
-            "chatgpt_base_url = \"{}\"\ncli_auth_credentials_store = \"file\"",
-            apps.chatgpt_base_url
-        ))
-        .enable_feature(Feature::Apps)
-        .enable_feature(Feature::ExecutedToolCallMetadata);
-    if let Some(enabled) = analytics_enabled {
-        config = config.with_extra_config(&format!("[analytics]\nenabled = {enabled}"));
-    }
-    config.write(codex_home.path())?;
-    write_chatgpt_auth(
-        codex_home.path(),
-        ChatGptAuthFixture::new("chatgpt-test-token")
-            .account_id("account-123")
-            .chatgpt_account_id("account-123")
-            .chatgpt_user_id("user-123")
-            .email("employee@openai.com"),
-        AuthCredentialsStoreMode::File,
-    )?;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .build_initialized()
-        .await?;
-    let ThreadStartResponse { thread, .. } = mcp
-        .start_thread(ThreadStartParams {
-            model: Some("mock-model".to_string()),
-            experimental_raw_events: true,
-            history_mode: Some(ThreadHistoryMode::Legacy),
-            ..Default::default()
-        })
-        .await?;
-    let rollout_path = thread.path.context("thread rollout path")?;
-    let _: TurnStartResponse = mcp
-        .request(|request_id| ClientRequest::TurnStart {
-            request_id,
-            params: TurnStartParams {
-                thread_id: thread.id,
-                input: vec![V2UserInput::Text {
-                    text: "list calendar events".to_string(),
-                    text_elements: Vec::new(),
-                }],
-                ..Default::default()
-            },
-        })
-        .await?;
-
-    let raw_params = timeout(DEFAULT_READ_TIMEOUT, async {
-        loop {
-            let notification = mcp
-                .read_stream_until_matching_notification("raw output or turn completion", |n| {
-                    matches!(
-                        n.method.as_str(),
-                        "rawResponseItem/completed" | "turn/completed"
-                    )
-                })
-                .await?;
-            if notification.method == "turn/completed" {
-                anyhow::bail!("missing raw tool output notification");
-            }
-            let params = notification.params.context("raw notification params")?;
-            let item = &params["item"];
-            if item["type"] == "function_call_output" && item["call_id"] == "mcp-call" {
-                return Ok::<Value, anyhow::Error>(params);
-            }
-        }
-    })
-    .await??;
-    timeout(
-        DEFAULT_READ_TIMEOUT,
-        mcp.read_stream_until_notification_message("turn/completed"),
-    )
-    .await??;
-
-    let requests = model.requests();
-    assert_eq!(requests.len(), 2);
-    let follow_up = requests[1].body_json();
-    let output = follow_up["input"]
-        .as_array()
-        .context("follow-up model input")?
-        .iter()
-        .find(|item| item["type"] == "function_call_output" && item["call_id"] == "mcp-call")
-        .context("follow-up tool output")?;
-    assert!(serde_json::to_string(&output["output"])?.contains("Calendar result"));
-    assert_eq!(
-        output["internal_chat_message_metadata_passthrough"]["executed_tool_calls"],
-        json!([{"name": "mcp__codex_apps__calendar_list_events", "arguments": arguments}]),
-    );
-    assert_eq!(
-        output["internal_chat_message_metadata_passthrough"]["tool_calls_complete"],
-        true,
-    );
-
-    let raw_output = &raw_params["item"];
-    assert_eq!(raw_output["output"], output["output"]);
-    assert!(!serde_json::to_string(&raw_params)?.contains("raw-result-metadata"));
-    let public_metadata = raw_output["internal_chat_message_metadata_passthrough"]
-        .as_object()
-        .context("public passthrough metadata")?;
-    assert_eq!(
-        public_metadata.get("turn_id").context("public turn id")?,
-        &output["internal_chat_message_metadata_passthrough"]["turn_id"],
-    );
-    for field in ["executed_tool_calls", "tool_calls_complete", "cell_id"] {
-        assert!(
-            public_metadata.get(field).is_none(),
-            "notification leaked {field}"
-        );
-    }
-
-    let status = timeout(DEFAULT_READ_TIMEOUT, mcp.shutdown_gracefully()).await??;
-    assert!(status.success());
-    // Read raw JSON: ResponseItem deserialization intentionally discards host-owned metadata.
-    let rollout = std::fs::read_to_string(rollout_path)?;
-    let entries = rollout
-        .lines()
-        .map(serde_json::from_str::<Value>)
-        .collect::<serde_json::Result<Vec<_>>>()?;
-    let captured = entries
-        .iter()
-        .filter(|entry| entry["type"] == "response_item")
-        .map(|entry| &entry["payload"])
-        .find(|item| item["type"] == "function_call_output" && item["call_id"] == "mcp-call")
-        .context("persisted MCP output")?;
-    assert_eq!(captured["output"], raw_output["output"]);
-    // The custom inference endpoint omits raw metadata, so verify capture in the rollout.
-    assert_eq!(
-        captured["internal_chat_message_metadata_passthrough"]["executed_tool_calls"][0]
-            .get("tool_result_metadata"),
-        (analytics_enabled != Some(false)).then_some(&result_metadata),
-    );
-    Ok(())
-}
-
 #[tokio::test]
 async fn turn_start_with_empty_input_runs_model_request() -> Result<()> {
     let responses = vec![create_final_assistant_message_sse_response("Done")?];
@@ -646,146 +440,6 @@ async fn turn_start_with_empty_input_runs_model_request() -> Result<()> {
         "empty turn/start should not synthesize an empty user message: {input:?}"
     );
 
-    Ok(())
-}
-
-#[tokio::test]
-async fn turn_start_steers_active_turn_and_returns_active_turn_id() -> Result<()> {
-    let (release_response, response_gate) = oneshot::channel();
-    let (server, _completions) = start_streaming_sse_server(vec![
-        vec![
-            StreamingSseChunk {
-                gate: None,
-                body: responses::sse(vec![responses::ev_response_created("resp-1")]),
-            },
-            StreamingSseChunk {
-                gate: Some(response_gate),
-                body: responses::sse(vec![responses::ev_completed("resp-1")]),
-            },
-        ],
-        vec![StreamingSseChunk {
-            gate: None,
-            body: responses::sse(vec![
-                responses::ev_response_created("resp-2"),
-                responses::ev_completed("resp-2"),
-            ]),
-        }],
-    ])
-    .await;
-    let codex_home = TempDir::new()?;
-    std::fs::write(
-        codex_home.path().join("config.toml"),
-        format!(
-            "model = \"gpt-5.5\"\napproval_policy = \"never\"\nopenai_base_url = \"{}/v1\"\ncli_auth_credentials_store = \"file\"\n[features]\nenable_request_compression = false\n",
-            server.uri()
-        ),
-    )?;
-    write_chatgpt_auth(
-        codex_home.path(),
-        ChatGptAuthFixture::new("chatgpt-test-token").plan_type("pro"),
-        AuthCredentialsStoreMode::File,
-    )?;
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .without_managed_config()
-        .build_initialized()
-        .await?;
-
-    let ThreadStartResponse { thread, .. } = mcp
-        .start_thread(ThreadStartParams {
-            model: Some("mock-model".to_string()),
-            ..Default::default()
-        })
-        .await?;
-    let TurnStartResponse { turn: active_turn } = mcp
-        .request(|request_id| ClientRequest::TurnStart {
-            request_id,
-            params: TurnStartParams {
-                thread_id: thread.id.clone(),
-                client_user_message_id: None,
-                input: vec![V2UserInput::Text {
-                    text: "start".to_string(),
-                    text_elements: Vec::new(),
-                }],
-                turn_trigger: Some("goal".to_string()),
-                parent_turn_id: Some("initiating-turn".to_string()),
-                root_turn_id: Some("causal-root".to_string()),
-                cyber_access_program: Some(CyberAccessProgram::DaybreakBlue),
-                ..Default::default()
-            },
-        })
-        .await?;
-    let started: TurnStartedNotification =
-        timeout(DEFAULT_READ_TIMEOUT, mcp.read_notification("turn/started")).await??;
-    assert_eq!(active_turn.root_turn_id.as_deref(), Some("causal-root"));
-    assert_eq!(started.turn.root_turn_id.as_deref(), Some("causal-root"));
-    timeout(
-        DEFAULT_READ_TIMEOUT,
-        server.wait_for_request_count(/*count*/ 1),
-    )
-    .await?;
-
-    let updated: ThreadMetadataUpdateResponse = mcp
-        .request(|request_id| ClientRequest::ThreadMetadataUpdate {
-            request_id,
-            params: ThreadMetadataUpdateParams {
-                thread_id: thread.id.clone(),
-                project_id: None,
-                git_info: None,
-                daybreak_enabled: Some(false),
-            },
-        })
-        .await?;
-    assert_eq!(
-        (updated.thread.id, updated.thread.daybreak_enabled),
-        (thread.id.clone(), Some(false))
-    );
-
-    let TurnStartResponse { turn: steered_turn } = mcp
-        .request(|request_id| ClientRequest::TurnStart {
-            request_id,
-            params: TurnStartParams {
-                thread_id: thread.id.clone(),
-                client_user_message_id: None,
-                input: vec![V2UserInput::Text {
-                    text: "steer".to_string(),
-                    text_elements: Vec::new(),
-                }],
-                turn_trigger: Some("user".to_string()),
-                parent_turn_id: Some("steering-turn".to_string()),
-                root_turn_id: Some("steering-root".to_string()),
-                cyber_access_program: Some(CyberAccessProgram::Standard),
-                ..Default::default()
-            },
-        })
-        .await?;
-    assert_eq!(steered_turn.id, active_turn.id);
-    assert_eq!(steered_turn.root_turn_id, active_turn.root_turn_id);
-
-    release_response
-        .send(())
-        .expect("active response gate should remain open");
-    let completed: TurnCompletedNotification = timeout(
-        DEFAULT_READ_TIMEOUT,
-        mcp.read_notification("turn/completed"),
-    )
-    .await??;
-    assert_eq!(completed.turn.root_turn_id.as_deref(), Some("causal-root"));
-
-    let requests = server.requests().await;
-    assert_eq!(requests.len(), 2);
-    for request in requests {
-        let body: Value = serde_json::from_slice(&request)?;
-        assert_eq!(body["access_programs"], json!({"cyber": "daybreak_blue"}));
-        let turn_metadata: Value = serde_json::from_str(
-            body["client_metadata"]["x-codex-turn-metadata"]
-                .as_str()
-                .context("expected x-codex-turn-metadata")?,
-        )?;
-        assert_eq!(turn_metadata["turn_trigger"].as_str(), Some("goal"));
-        assert_eq!(turn_metadata["parent_turn_id"], "initiating-turn");
-        assert_eq!(turn_metadata["root_turn_id"], "causal-root");
-    }
     Ok(())
 }
 

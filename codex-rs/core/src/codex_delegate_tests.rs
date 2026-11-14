@@ -251,7 +251,7 @@ async fn delegate_start_analytics_honors_child_opt_out_with_enabled_parent() {
         .mount(&server)
         .await;
     let client = AnalyticsEventsClient::new(
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
+        AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy")),
         server.uri(),
         /*analytics_enabled*/ Some(true),
     );

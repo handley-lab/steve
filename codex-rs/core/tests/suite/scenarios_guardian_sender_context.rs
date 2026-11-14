@@ -39,7 +39,7 @@ async fn cross_host_sender_context(history_mode: ThreadHistoryMode) -> Result<()
     let sender = test_codex()
         .with_thread_store(store.clone())
         .with_history_mode(history_mode)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(super::configure_scenario_catalog)
         .build_with_auto_env(&server)
         .await?;

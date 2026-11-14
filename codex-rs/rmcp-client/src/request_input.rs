@@ -1,6 +1,5 @@
-//! Drives modern request continuations, including the native verification extension.
-//! Inputs use the caller's client service; proofs never bypass its validation.
-//! Session recovery cannot replay a submitted proof; connection closure drops pending inputs.
+//! Drives modern request continuations.
+//! Inputs use the caller's client service; connection closure drops pending inputs.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::AtomicU64;
@@ -27,12 +26,10 @@ use rmcp::service::RequestContext;
 use rmcp::service::RunningService;
 use rmcp::service::Service;
 use rmcp::service::ServiceError;
-use rmcp::transport::streamable_http_client::StreamableHttpError;
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::elicitation_client_service::ElicitationClientService;
-use crate::http_client_adapter::StreamableHttpClientAdapterError;
 use crate::request_cancellation::RequestCancellation;
 
 static NEXT_INPUT_ID: AtomicU64 = AtomicU64::new(0);
@@ -88,33 +85,14 @@ async fn request(
     cancellation: RequestCancellation,
 ) -> Result<ServerResult, ServiceError> {
     let mut state_only_rounds = 0;
-    let mut submitted_verification_proof = false;
     for round in 0..DEFAULT_MRTR_MAX_ROUNDS {
-        let response = cancellation
+        let result = cancellation
             .send(
                 service.peer(),
                 request.clone(),
                 PeerRequestOptions::no_options(),
             )
-            .await;
-        let result = response.map_err(|error| {
-            if submitted_verification_proof
-                && let ServiceError::TransportSend(transport) = &error
-                && !matches!(
-                    transport
-                        .error
-                        .downcast_ref::<StreamableHttpError<StreamableHttpClientAdapterError>>(),
-                    Some(StreamableHttpError::AuthRequired(_))
-                )
-            {
-                // Session recovery must not replay the original operation after a
-                // continuation (which may already have consumed a signed proof).
-                // Auth challenges already return without replaying the operation.
-                invalid("MCP continuation failed; the operation was not restarted")
-            } else {
-                error
-            }
-        })?;
+            .await?;
         let input = match result {
             result @ (ServerResult::CallToolResult(_) | ServerResult::ReadResourceResult(_)) => {
                 return Ok(result);
@@ -156,9 +134,6 @@ async fn request(
             futures::future::try_join_all(requests.into_iter().map(|(key, mut request)| {
                 // Prompts outlive individual transport requests, including across
                 // session recovery, so their IDs must not reuse a peer's counter.
-                let native_verification = matches!(&request, ServerRequest::CustomRequest(request)
-                    if request.params.as_ref().and_then(|params| params.get("mode"))
-                        .and_then(Value::as_str) == Some(crate::user_verification::MODE));
                 let id = NEXT_INPUT_ID.fetch_add(1, Ordering::Relaxed);
                 let request_id = RequestId::String(format!("mcp-input/{id}").into());
                 let mut context = RequestContext::new(request_id, service.peer().clone());
@@ -171,9 +146,7 @@ async fn request(
                         .map_err(ServiceError::McpError)?;
                     let result = serde_json::to_value(result)
                         .map_err(|_| invalid("invalid MCP input response"))?;
-                    let contains_proof = native_verification
-                        && result.get("action").and_then(Value::as_str) == Some("accept");
-                    Ok::<_, ServiceError>((key, result, contains_proof))
+                    Ok::<_, ServiceError>((key, result))
                 }
             }));
         let responses = tokio::select! {
@@ -188,15 +161,7 @@ async fn request(
             } => return Err(ServiceError::TransportClosed),
             responses = responses => responses?,
         };
-        let input_responses = (!responses.is_empty()).then(|| {
-            responses
-                .into_iter()
-                .map(|(key, result, contains_proof)| {
-                    submitted_verification_proof |= contains_proof;
-                    (key, result)
-                })
-                .collect()
-        });
+        let input_responses = (!responses.is_empty()).then(|| responses.into_iter().collect());
         match &mut request {
             ClientRequest::CallToolRequest(request) => {
                 request.params.input_responses = input_responses;
@@ -238,10 +203,6 @@ fn parse_input(value: Value) -> Result<ServerRequest, ServiceError> {
         {
             Some("form") => {
                 crate::elicitation_client_service::openai_elicitation_form(request.clone())
-                    .map_err(ServiceError::McpError)?;
-            }
-            Some(crate::user_verification::MODE) => {
-                crate::user_verification::parse_request(request.clone())
                     .map_err(ServiceError::McpError)?;
             }
             _ => return Err(invalid("unsupported OpenAI elicitation mode")),

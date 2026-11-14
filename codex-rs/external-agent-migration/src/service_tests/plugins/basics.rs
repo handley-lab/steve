@@ -47,8 +47,7 @@ async fn authenticated_plugin_migration_uses_chatgpt_curated_marketplace() {
     .expect("write curated plugin manifest");
 
     let mut service = service_for_paths(external_agent_home.clone(), codex_home);
-    service.auth_manager =
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    service.auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
     let items = service
         .detect(ExternalAgentConfigDetectOptions {
             include_home: true,

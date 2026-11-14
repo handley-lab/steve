@@ -1,5 +1,3 @@
-use chrono::DateTime;
-use chrono::Utc;
 use codex_otel::auth_storage::Operation;
 use codex_otel::auth_storage::Store;
 use serde::Deserialize;
@@ -32,14 +30,10 @@ mod storage_telemetry;
 
 use super::BedrockAccessKeysAuth;
 use super::BedrockApiKeyAuth;
-use crate::token_data::TokenData;
-use codex_agent_identity::AgentIdentityJwtClaims;
-use codex_agent_identity::decode_agent_identity_jwt;
 use codex_config::types::AuthCredentialsStoreMode;
 pub use codex_config::types::AuthKeyringBackendKind;
 use codex_keyring_store::DefaultKeyringStore;
 use codex_keyring_store::KeyringStore;
-use codex_protocol::account::PlanType as AccountPlanType;
 use codex_protocol::auth::AuthMode;
 use codex_secrets::LocalSecretsNamespace;
 use codex_secrets::SecretName;
@@ -58,104 +52,10 @@ pub struct AuthDotJson {
     pub openai_api_key: Option<String>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tokens: Option<TokenData>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_refresh: Option<DateTime<Utc>>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_identity: Option<AgentIdentityStorage>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub personal_access_token: Option<String>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bedrock_api_key: Option<BedrockApiKeyAuth>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bedrock_access_keys: Option<BedrockAccessKeysAuth>,
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
-#[serde(untagged)]
-pub enum AgentIdentityStorage {
-    Jwt(String),
-    Record(AgentIdentityAuthRecord),
-}
-
-impl AgentIdentityStorage {
-    pub fn has_auth_material(&self) -> bool {
-        match self {
-            Self::Jwt(jwt) => !jwt.trim().is_empty(),
-            Self::Record(record) => {
-                !record.agent_runtime_id.trim().is_empty()
-                    && !record.agent_private_key.trim().is_empty()
-            }
-        }
-    }
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
-pub struct AgentIdentityAuthRecord {
-    pub agent_runtime_id: String,
-    pub agent_private_key: String,
-    pub account_id: String,
-    pub chatgpt_user_id: String,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_optional_non_empty_string",
-        serialize_with = "serialize_optional_string_as_empty"
-    )]
-    pub email: Option<String>,
-    pub plan_type: AccountPlanType,
-    pub chatgpt_account_is_fedramp: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub task_id: Option<String>,
-}
-
-fn deserialize_optional_non_empty_string<'de, D>(
-    deserializer: D,
-) -> Result<Option<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Option::<String>::deserialize(deserializer).map(|value| value.filter(|value| !value.is_empty()))
-}
-
-fn serialize_optional_string_as_empty<S>(
-    value: &Option<String>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    value.as_deref().unwrap_or_default().serialize(serializer)
-}
-
-impl AgentIdentityAuthRecord {
-    pub(crate) fn from_agent_identity_jwt(jwt: &str) -> std::io::Result<Self> {
-        let claims =
-            decode_agent_identity_jwt(jwt, /*jwks*/ None, /*issuer*/ None).map_err(|error| {
-                storage_error::with_context("failed to decode agent identity JWT", error)
-            })?;
-
-        Ok(claims.into())
-    }
-}
-
-impl From<AgentIdentityJwtClaims> for AgentIdentityAuthRecord {
-    fn from(claims: AgentIdentityJwtClaims) -> Self {
-        Self {
-            agent_runtime_id: claims.agent_runtime_id,
-            agent_private_key: claims.agent_private_key,
-            account_id: claims.account_id,
-            chatgpt_user_id: claims.chatgpt_user_id,
-            email: claims.email,
-            plan_type: claims.plan_type.into(),
-            chatgpt_account_is_fedramp: claims.chatgpt_account_is_fedramp,
-            task_id: None,
-        }
-    }
 }
 
 pub(super) fn get_auth_file(codex_home: &Path) -> PathBuf {
@@ -207,22 +107,7 @@ pub(super) trait AuthStorageBackend: Debug + Send + Sync {
     }
 
     fn load(&self) -> std::io::Result<Option<AuthDotJson>>;
-    /// An unavailable keyring cannot authorize using an older fallback record.
-    fn load_account_grant(&self) -> std::io::Result<Option<AuthDotJson>> {
-        self.load()
-    }
     fn save(&self, auth: &AuthDotJson) -> std::io::Result<()>;
-    /// Commits only while the selected credential document remains unchanged.
-    fn compare_and_save(&self, expected: &AuthDotJson, auth: &AuthDotJson) -> std::io::Result<()> {
-        // An unavailable keyring cannot prove that a fallback is still current.
-        // Do not overwrite a recovered secure-store generation we could not read.
-        if self.load_account_grant()?.as_ref() != Some(expected) {
-            return Err(std::io::Error::other(
-                "Credentials changed before refresh commit.",
-            ));
-        }
-        self.save(auth)
-    }
     fn delete(&self) -> std::io::Result<bool>;
 }
 
@@ -544,44 +429,6 @@ impl AutoAuthStorage {
 impl AuthStorageBackend for AutoAuthStorage {
     fn persistent_home(&self) -> Option<&Path> {
         Some(&self.file_storage.codex_home)
-    }
-
-    fn load_account_grant(&self) -> std::io::Result<Option<AuthDotJson>> {
-        match self.keyring_storage.load()? {
-            Some(auth) => Ok(Some(auth)),
-            None => self.file_storage.load(),
-        }
-    }
-
-    fn compare_and_save(&self, expected: &AuthDotJson, auth: &AuthDotJson) -> std::io::Result<()> {
-        let keyring_auth = self.keyring_storage.load();
-        let current = match keyring_auth {
-            Ok(Some(current)) => Some(current),
-            Ok(None) => self.file_storage.load()?,
-            Err(ref error) => {
-                // Preserve refreshed fallback tokens without writing to a keyring
-                // whose current generation we could not read, even if it recovers.
-                let mut telemetry = storage_telemetry::telemetry(
-                    AuthCredentialsStoreMode::Auto,
-                    self.keyring_backend_kind,
-                    Operation::Save,
-                );
-                telemetry.record_load_attempt(
-                    storage_telemetry::keyring_store(self.keyring_backend_kind),
-                    &keyring_auth,
-                );
-                telemetry.record_secure_error(error);
-                let result = self.file_storage.compare_and_save(expected, auth);
-                telemetry.record_save_attempt(Store::File, &result);
-                return result;
-            }
-        };
-        if current.as_ref() != Some(expected) {
-            return Err(std::io::Error::other(
-                "Credentials changed before refresh commit.",
-            ));
-        }
-        self.save(auth)
     }
 
     fn load(&self) -> std::io::Result<Option<AuthDotJson>> {

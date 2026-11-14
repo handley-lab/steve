@@ -80,7 +80,7 @@ impl CodexImagesBackend {
     async fn client(&self) -> Result<ImagesClient<ReqwestTransport>, ImageBackendError> {
         let setup = codex_model_provider::resolve_request(
             self.provider.as_ref(),
-            /*routing*/ None,
+            codex_login::default_client::ClientRedirectPolicy::Default,
             self.http_client_factory.clone(),
         )
         .await

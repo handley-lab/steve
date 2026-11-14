@@ -1,12 +1,10 @@
 use anyhow::Result;
-use app_test_support::ChatGptAuthFixture;
 use app_test_support::DEFAULT_CLIENT_NAME;
 use app_test_support::MockResponsesConfig;
 use app_test_support::TestAppServer;
 use app_test_support::create_final_assistant_message_sse_response;
 use app_test_support::create_mock_responses_server_sequence;
 use app_test_support::to_response;
-use app_test_support::write_chatgpt_auth;
 use app_test_support::write_mock_responses_config_toml_with_chatgpt_base_url;
 use codex_app_server_protocol::ApprovalsReviewer;
 use codex_app_server_protocol::AskForApproval;
@@ -28,7 +26,6 @@ use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::UserInput;
-use codex_config::types::AuthCredentialsStoreMode;
 use codex_config::types::OtelExporterKind;
 use codex_config::types::OtelHttpProtocol;
 use codex_core::config::ConfigBuilder;
@@ -722,23 +719,13 @@ async fn metrics_exporters_respect_analytics_preferences() -> Result<()> {
     Ok(())
 }
 
-pub(crate) async fn mount_analytics_capture(server: &MockServer, codex_home: &Path) -> Result<()> {
+pub(crate) async fn mount_analytics_capture(server: &MockServer, _codex_home: &Path) -> Result<()> {
     Mock::given(method("POST"))
         .and(path("/codex/analytics-events/events"))
         .respond_with(ResponseTemplate::new(200))
         .mount(server)
         .await;
 
-    write_chatgpt_auth(
-        codex_home,
-        ChatGptAuthFixture::new("chatgpt-token")
-            .account_id("account-123")
-            .chatgpt_user_id("user-123")
-            .chatgpt_account_id("account-123"),
-        AuthCredentialsStoreMode::File,
-    )?;
-
-    app_test_support::mount_workspace_routing(server).await;
     Ok(())
 }
 

@@ -1055,20 +1055,6 @@ fn blocking_replace_mcp_servers_round_trips() {
 
     let mut servers = BTreeMap::new();
     servers.insert(
-        "ema".to_string(),
-        serde_json::from_value(serde_json::json!({
-            "url": "https://ema.example/mcp", "auth": "ema_auth", "scopes": ["tools"],
-            "oauth_resource": "https://ema.example",
-            "oauth": {
-                "client_id": "resource-client",
-                "client_secret": "test-ema-secret",
-                "token_endpoint_auth_method": "client_secret_post",
-                "authorization_server_issuer": "https://as.example"
-            }
-        }))
-        .expect("EMA server"),
-    );
-    servers.insert(
         "stdio".to_string(),
         McpServerConfig {
             auth: Default::default(),
@@ -1155,18 +1141,6 @@ fn blocking_replace_mcp_servers_round_trips() {
 
     let raw = std::fs::read_to_string(codex_home.join(CONFIG_TOML_FILE)).expect("read config");
     let expected = "\
-[mcp_servers.ema]
-url = \"https://ema.example/mcp\"
-auth = \"ema_auth\"
-scopes = [\"tools\"]
-oauth_resource = \"https://ema.example\"
-
-[mcp_servers.ema.oauth]
-client_id = \"resource-client\"
-client_secret = \"test-ema-secret\"
-token_endpoint_auth_method = \"client_secret_post\"
-authorization_server_issuer = \"https://as.example\"
-
 [mcp_servers.http]
 url = \"https://example.com\"
 bearer_token_env_var = \"TOKEN\"

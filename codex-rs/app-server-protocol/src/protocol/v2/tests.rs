@@ -2399,41 +2399,6 @@ fn mcp_server_elicitation_request_from_core_url_request() {
 }
 
 #[test]
-fn mcp_server_user_verification_metadata_round_trips_from_core() {
-    for meta in [
-        None,
-        Some(json!({"example/display": {"label": "Operation"}})),
-    ] {
-        let mut wire = json!({
-            "mode": "openai/userVerification",
-            "title": "Approve",
-            "description": "Review operation",
-            "challenge": "AQID",
-        });
-        if let Some(meta) = &meta {
-            wire["_meta"] = meta.clone();
-        }
-        let core: CoreElicitationRequest = serde_json::from_value(wire.clone()).unwrap();
-        let request = McpServerElicitationRequest::try_from(core).unwrap();
-        assert_eq!(
-            request,
-            McpServerElicitationRequest::UserVerification {
-                meta: meta.clone(),
-                title: "Approve".into(),
-                description: "Review operation".into(),
-                challenge: "AQID".into(),
-            }
-        );
-        assert_eq!(
-            serde_json::from_value::<McpServerElicitationRequest>(wire.clone()).unwrap(),
-            request
-        );
-        wire["_meta"] = json!(meta);
-        assert_eq!(serde_json::to_value(request).unwrap(), wire);
-    }
-}
-
-#[test]
 fn mcp_server_elicitation_request_from_core_form_request() {
     let request = McpServerElicitationRequest::try_from(CoreElicitationRequest::Form {
         meta: None,
@@ -4053,7 +4018,7 @@ fn skills_extra_roots_set_params_rejects_relative_roots() {
 }
 
 #[test]
-fn plugin_source_serializes_local_git_npm_and_remote_variants() {
+fn plugin_source_serializes_local_git_and_npm_variants() {
     let local_path = if cfg!(windows) {
         r"C:\plugins\linear"
     } else {
@@ -4099,13 +4064,6 @@ fn plugin_source_serializes_local_git_npm_and_remote_variants() {
             "package": "@acme/plugin",
             "version": "^1.2.0",
             "registry": "https://npm.example.com",
-        }),
-    );
-
-    assert_eq!(
-        serde_json::to_value(PluginSource::Remote).unwrap(),
-        json!({
-            "type": "remote",
         }),
     );
 }
@@ -4265,7 +4223,6 @@ fn plugin_list_params_ignore_removed_force_remote_sync_field() {
         .unwrap(),
         PluginListParams {
             cwds: None,
-            marketplace_kinds: None,
             force_refetch: false,
         },
     );
@@ -4280,37 +4237,8 @@ fn plugin_list_params_deserializes_force_refetch() {
         .unwrap(),
         PluginListParams {
             cwds: None,
-            marketplace_kinds: None,
             force_refetch: true,
         },
-    );
-}
-
-#[test]
-fn plugin_list_params_serializes_marketplace_kind_filter() {
-    assert_eq!(
-        serde_json::to_value(PluginListParams {
-            cwds: None,
-            marketplace_kinds: Some(vec![
-                PluginListMarketplaceKind::Local,
-                PluginListMarketplaceKind::Vertical,
-                PluginListMarketplaceKind::WorkspaceDirectory,
-                PluginListMarketplaceKind::SharedWithMe,
-                PluginListMarketplaceKind::CreatedByMeRemote,
-            ]),
-            force_refetch: false,
-        })
-        .unwrap(),
-        json!({
-            "cwds": null,
-            "marketplaceKinds": [
-                "local",
-                "vertical",
-                "workspace-directory",
-                "shared-with-me",
-                "created-by-me-remote",
-            ],
-        }),
     );
 }
 
@@ -4347,13 +4275,11 @@ fn plugin_read_params_serialization_uses_install_source_fields() {
     assert_eq!(
         serde_json::to_value(PluginReadParams {
             marketplace_path: Some(marketplace_path.clone()),
-            remote_marketplace_name: None,
             plugin_name: "gmail".to_string(),
         })
         .unwrap(),
         json!({
             "marketplacePath": marketplace_path_json,
-            "remoteMarketplaceName": null,
             "pluginName": "gmail",
         }),
     );
@@ -4367,20 +4293,6 @@ fn plugin_read_params_serialization_uses_install_source_fields() {
         .unwrap(),
         PluginReadParams {
             marketplace_path: Some(marketplace_path),
-            remote_marketplace_name: None,
-            plugin_name: "gmail".to_string(),
-        },
-    );
-
-    assert_eq!(
-        serde_json::from_value::<PluginReadParams>(json!({
-            "remoteMarketplaceName": "openai-curated-remote",
-            "pluginName": "gmail",
-        }))
-        .unwrap(),
-        PluginReadParams {
-            marketplace_path: None,
-            remote_marketplace_name: Some("openai-curated-remote".to_string()),
             plugin_name: "gmail".to_string(),
         },
     );
@@ -4398,15 +4310,11 @@ fn plugin_install_params_serialization_omits_force_remote_sync() {
     assert_eq!(
         serde_json::to_value(PluginInstallParams {
             marketplace_path: Some(marketplace_path.clone()),
-            remote_marketplace_name: None,
-            install_attempt_id: Some("94c79f7b-cceb-4415-9a3e-b51b2f718d43".to_string()),
             plugin_name: "gmail".to_string(),
         })
         .unwrap(),
         json!({
             "marketplacePath": marketplace_path_json,
-            "remoteMarketplaceName": null,
-            "installAttemptId": "94c79f7b-cceb-4415-9a3e-b51b2f718d43",
             "pluginName": "gmail",
         }),
     );
@@ -4420,296 +4328,22 @@ fn plugin_install_params_serialization_omits_force_remote_sync() {
         .unwrap(),
         PluginInstallParams {
             marketplace_path: Some(marketplace_path),
-            remote_marketplace_name: None,
-            install_attempt_id: None,
             plugin_name: "gmail".to_string(),
         },
-    );
-
-    assert_eq!(
-        serde_json::from_value::<PluginInstallParams>(json!({
-            "remoteMarketplaceName": "openai-curated-remote",
-            "pluginName": "gmail",
-            "forceRemoteSync": true,
-        }))
-        .unwrap(),
-        PluginInstallParams {
-            marketplace_path: None,
-            remote_marketplace_name: Some("openai-curated-remote".to_string()),
-            install_attempt_id: None,
-            plugin_name: "gmail".to_string(),
-        },
-    );
-}
-
-#[test]
-fn plugin_skill_read_params_serialization_uses_remote_plugin_id() {
-    assert_eq!(
-        serde_json::to_value(PluginSkillReadParams {
-            remote_marketplace_name: "openai-curated-remote".to_string(),
-            remote_plugin_id: "plugins~Plugin_00000000000000000000000000000000".to_string(),
-            skill_name: "plan-work".to_string(),
-        })
-        .unwrap(),
-        json!({
-            "remoteMarketplaceName": "openai-curated-remote",
-            "remotePluginId": "plugins~Plugin_00000000000000000000000000000000",
-            "skillName": "plan-work",
-        }),
-    );
-}
-
-#[test]
-fn plugin_share_params_and_response_serialization_use_camel_case_fields() {
-    let plugin_path = if cfg!(windows) {
-        r"C:\plugins\gmail"
-    } else {
-        "/plugins/gmail"
-    };
-    let plugin_path = AbsolutePathBuf::try_from(PathBuf::from(plugin_path)).unwrap();
-    let plugin_path_json = plugin_path.as_path().display().to_string();
-
-    assert_eq!(
-        serde_json::to_value(PluginShareSaveParams {
-            plugin_path: plugin_path.clone(),
-            remote_plugin_id: None,
-            discoverability: None,
-            share_targets: None,
-        })
-        .unwrap(),
-        json!({
-            "pluginPath": plugin_path_json,
-            "remotePluginId": null,
-            "discoverability": null,
-            "shareTargets": null,
-        }),
-    );
-
-    assert_eq!(
-        serde_json::to_value(PluginShareSaveParams {
-            plugin_path,
-            remote_plugin_id: Some("plugins~Plugin_00000000000000000000000000000000".to_string(),),
-            discoverability: Some(PluginShareDiscoverability::Private),
-            share_targets: Some(vec![
-                PluginShareTarget {
-                    principal_type: PluginSharePrincipalType::User,
-                    principal_id: "user-1".to_string(),
-                    role: PluginShareTargetRole::Reader,
-                },
-                PluginShareTarget {
-                    principal_type: PluginSharePrincipalType::Group,
-                    principal_id: "group-1".to_string(),
-                    role: PluginShareTargetRole::Reader,
-                },
-            ]),
-        })
-        .unwrap(),
-        json!({
-            "pluginPath": plugin_path_json,
-            "remotePluginId": "plugins~Plugin_00000000000000000000000000000000",
-            "discoverability": "PRIVATE",
-            "shareTargets": [
-                {
-                    "principalType": "user",
-                    "principalId": "user-1",
-                    "role": "reader",
-                },
-                {
-                    "principalType": "group",
-                    "principalId": "group-1",
-                    "role": "reader",
-                },
-            ],
-        }),
-    );
-
-    assert_eq!(
-        serde_json::to_value(PluginShareSaveResponse {
-            remote_plugin_id: "plugins~Plugin_00000000000000000000000000000000".to_string(),
-            share_url: String::new(),
-            can_publish_to_workspace: Some(true),
-        })
-        .unwrap(),
-        json!({
-            "remotePluginId": "plugins~Plugin_00000000000000000000000000000000",
-            "shareUrl": "",
-            "canPublishToWorkspace": true,
-        }),
-    );
-
-    assert_eq!(
-        serde_json::to_value(PluginShareUpdateTargetsParams {
-            remote_plugin_id: "plugins~Plugin_00000000000000000000000000000000".to_string(),
-            discoverability: PluginShareUpdateDiscoverability::Unlisted,
-            share_targets: vec![PluginShareTarget {
-                principal_type: PluginSharePrincipalType::Group,
-                principal_id: "group-1".to_string(),
-                role: PluginShareTargetRole::Editor,
-            }],
-        })
-        .unwrap(),
-        json!({
-            "remotePluginId": "plugins~Plugin_00000000000000000000000000000000",
-            "discoverability": "UNLISTED",
-            "shareTargets": [{
-                "principalType": "group",
-                "principalId": "group-1",
-                "role": "editor",
-            }],
-        }),
-    );
-
-    assert_eq!(
-        serde_json::to_value(PluginShareUpdateTargetsResponse {
-            principals: vec![PluginSharePrincipal {
-                principal_type: PluginSharePrincipalType::User,
-                principal_id: "user-1".to_string(),
-                role: PluginSharePrincipalRole::Owner,
-                name: "Gavin".to_string(),
-            }],
-            discoverability: PluginShareDiscoverability::Unlisted,
-        })
-        .unwrap(),
-        json!({
-            "principals": [{
-                "principalType": "user",
-                "principalId": "user-1",
-                "role": "owner",
-                "name": "Gavin",
-            }],
-            "discoverability": "UNLISTED",
-        }),
-    );
-
-    assert_eq!(
-        serde_json::from_value::<PluginShareListParams>(json!({})).unwrap(),
-        PluginShareListParams {},
-    );
-
-    assert_eq!(
-        serde_json::to_value(PluginShareCheckoutParams {
-            remote_plugin_id: "plugins~Plugin_00000000000000000000000000000000".to_string(),
-        })
-        .unwrap(),
-        json!({
-            "remotePluginId": "plugins~Plugin_00000000000000000000000000000000",
-        }),
-    );
-
-    let plugin_path = if cfg!(windows) {
-        r"C:\Users\me\plugins\gmail"
-    } else {
-        "/Users/me/plugins/gmail"
-    };
-    let plugin_path = AbsolutePathBuf::try_from(PathBuf::from(plugin_path)).unwrap();
-    let plugin_path_json = plugin_path.as_path().display().to_string();
-    let marketplace_path = if cfg!(windows) {
-        r"C:\Users\me\.agents\plugins\marketplace.json"
-    } else {
-        "/Users/me/.agents/plugins/marketplace.json"
-    };
-    let marketplace_path = AbsolutePathBuf::try_from(PathBuf::from(marketplace_path)).unwrap();
-    let marketplace_path_json = marketplace_path.as_path().display().to_string();
-    assert_eq!(
-        serde_json::to_value(PluginShareCheckoutResponse {
-            remote_plugin_id: "plugins~Plugin_00000000000000000000000000000000".to_string(),
-            plugin_id: "gmail@codex-curated".to_string(),
-            plugin_name: "gmail".to_string(),
-            plugin_path,
-            marketplace_name: "codex-curated".to_string(),
-            marketplace_path,
-            remote_version: Some("1.2.3".to_string()),
-        })
-        .unwrap(),
-        json!({
-            "remotePluginId": "plugins~Plugin_00000000000000000000000000000000",
-            "pluginId": "gmail@codex-curated",
-            "pluginName": "gmail",
-            "pluginPath": plugin_path_json,
-            "marketplaceName": "codex-curated",
-            "marketplacePath": marketplace_path_json,
-            "remoteVersion": "1.2.3",
-        }),
-    );
-
-    assert_eq!(
-        serde_json::to_value(PluginShareDeleteParams {
-            remote_plugin_id: "plugins~Plugin_00000000000000000000000000000000".to_string(),
-        })
-        .unwrap(),
-        json!({
-            "remotePluginId": "plugins~Plugin_00000000000000000000000000000000",
-        }),
-    );
-}
-
-#[test]
-fn plugin_share_list_response_serializes_share_items() {
-    assert_eq!(
-        serde_json::to_value(PluginShareListResponse {
-            data: vec![PluginShareListItem {
-                plugin: PluginSummary {
-                    id: "gmail@openai-curated-remote".to_string(),
-                    remote_plugin_id: Some(
-                        "plugins~Plugin_00000000000000000000000000000000".to_string(),
-                    ),
-                    version: None,
-                    local_version: None,
-                    name: "gmail".to_string(),
-                    share_context: None,
-                    source: PluginSource::Remote,
-                    installed: false,
-                    installed_at: None,
-                    enabled: false,
-                    install_policy: PluginInstallPolicy::Available,
-                    install_policy_source: Some(PluginInstallPolicySource::WorkspaceSetting),
-                    must_show_installation_interstitial: None,
-                    auth_policy: PluginAuthPolicy::OnUse,
-                    availability: PluginAvailability::Available,
-                    disabled_reason: None,
-                    eligible_plan_types: None,
-                    interface: None,
-                    keywords: Vec::new(),
-                },
-                local_plugin_path: None,
-            }],
-        })
-        .unwrap(),
-        json!({
-            "data": [{
-                "plugin": {
-                    "id": "gmail@openai-curated-remote",
-                    "remotePluginId": "plugins~Plugin_00000000000000000000000000000000",
-                    "version": null,
-                    "localVersion": null,
-                    "name": "gmail",
-                    "shareContext": null,
-                    "source": { "type": "remote" },
-                    "installed": false,
-                    "installedAt": null,
-                    "enabled": false,
-                    "installPolicy": "AVAILABLE",
-                    "installPolicySource": "WORKSPACE_SETTING",
-                    "mustShowInstallationInterstitial": null,
-                    "authPolicy": "ON_USE",
-                    "availability": "AVAILABLE",
-                    "disabledReason": null,
-                    "eligiblePlanTypes": null,
-                    "interface": null,
-                    "keywords": [],
-                },
-                "localPluginPath": null,
-            }],
-        }),
     );
 }
 
 #[test]
 fn plugin_summary_defaults_missing_availability_to_available() {
+    let plugin_path = if cfg!(windows) {
+        r"C:\plugins\gmail"
+    } else {
+        "/plugins/gmail"
+    };
     let summary: PluginSummary = serde_json::from_value(json!({
-        "id": "plugins~Plugin_00000000000000000000000000000000",
+        "id": "gmail@local",
         "name": "gmail",
-        "source": { "type": "remote" },
+        "source": { "type": "local", "path": plugin_path },
         "installed": false,
         "enabled": false,
         "installPolicy": "AVAILABLE",
@@ -4721,7 +4355,6 @@ fn plugin_summary_defaults_missing_availability_to_available() {
     assert_eq!(summary.availability, PluginAvailability::Available);
     assert_eq!(summary.installed_at, None);
     assert_eq!(summary.local_version, None);
-    assert_eq!(summary.share_context, None);
     assert_eq!(summary.must_show_installation_interstitial, None);
     assert_eq!(summary.disabled_reason, None);
     assert_eq!(summary.eligible_plan_types, None);
@@ -4729,14 +4362,18 @@ fn plugin_summary_defaults_missing_availability_to_available() {
 
 #[test]
 fn plugin_summary_round_trips_plan_eligibility_metadata() {
+    let plugin_path = if cfg!(windows) {
+        r"C:\plugins\gmail"
+    } else {
+        "/plugins/gmail"
+    };
     let value = json!({
         "id": "gmail@openai-curated-remote",
         "remotePluginId": "plugins~Plugin_00000000000000000000000000000000",
         "version": null,
         "localVersion": null,
         "name": "gmail",
-        "shareContext": null,
-        "source": { "type": "remote" },
+        "source": { "type": "local", "path": plugin_path },
         "installed": false,
         "installedAt": null,
         "enabled": false,

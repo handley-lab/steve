@@ -367,15 +367,6 @@ impl AppLinkView {
     }
 
     fn complete_external_flow_and_close(&mut self) {
-        let should_refresh_connectors = self
-            .elicitation_target
-            .as_ref()
-            .is_none_or(|target| target.server_name == MCP_CODEX_APPS_SERVER_NAME);
-        if should_refresh_connectors {
-            self.app_event_tx.send(AppEvent::RefreshConnectors {
-                force_refetch: true,
-            });
-        }
         if self.is_tool_suggestion() {
             self.resolve_elicitation(McpServerElicitationAction::Accept);
         }
@@ -1422,64 +1413,6 @@ mod tests {
             rendered_blob.contains("tail42"),
             "expected wrapped setup URL tail to remain visible in narrow pane, got:\n{rendered_blob}"
         );
-    }
-
-    #[test]
-    fn install_tool_suggestion_resolves_elicitation_after_confirmation() {
-        let (tx_raw, mut rx) = unbounded_channel::<AppEvent>();
-        let tx = AppEventSender::new(tx_raw);
-        let mut view = AppLinkView::new(
-            AppLinkViewParams {
-                app_id: "connector_google_calendar".to_string(),
-                title: "Google Calendar".to_string(),
-                description: Some("Plan events and schedules.".to_string()),
-                instructions: "Install this app in your browser, then return here.".to_string(),
-                url: "https://example.test/google-calendar".to_string(),
-                is_installed: false,
-                is_enabled: false,
-                suggest_reason: Some("Plan and reference events from your calendar".to_string()),
-                suggestion_type: Some(AppLinkSuggestionType::Install),
-                elicitation_target: Some(suggestion_target()),
-            },
-            tx,
-        );
-
-        view.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        match rx.try_recv() {
-            Ok(AppEvent::OpenUrlInBrowser { url }) => {
-                assert_eq!(url, "https://example.test/google-calendar".to_string());
-            }
-            Ok(other) => panic!("unexpected app event: {other:?}"),
-            Err(err) => panic!("missing app event: {err}"),
-        }
-        assert_eq!(view.screen, AppLinkScreen::InstallConfirmation);
-
-        view.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        match rx.try_recv() {
-            Ok(AppEvent::RefreshConnectors { force_refetch }) => {
-                assert!(force_refetch);
-            }
-            Ok(other) => panic!("unexpected app event: {other:?}"),
-            Err(err) => panic!("missing app event: {err}"),
-        }
-        match rx.try_recv() {
-            Ok(AppEvent::SubmitThreadOp { thread_id, op }) => {
-                assert_eq!(thread_id, suggestion_target().thread_id);
-                assert_eq!(
-                    op,
-                    Op::ResolveElicitation {
-                        server_name: "codex_apps".to_string(),
-                        request_id: AppServerRequestId::String("request-1".to_string()),
-                        decision: McpServerElicitationAction::Accept,
-                        content: None,
-                        meta: None,
-                    }
-                );
-            }
-            Ok(other) => panic!("unexpected app event: {other:?}"),
-            Err(err) => panic!("missing app event: {err}"),
-        }
-        assert!(view.is_complete());
     }
 
     #[test]

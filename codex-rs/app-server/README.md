@@ -178,30 +178,6 @@ it constructs. The embedding TUI and exec runtime install the same policy before
 creating their telemetry providers, background HTTP clients, and executor
 connections. TUI worktree cloud loaders retain that shared policy on reload.
 
-# User verification cancellation (experimental)
-
-Local UI clients can cancel a native user-verification RPC by sending
-`userVerification/cancel` with `{requestId}` and the `experimentalApi` opt-in.
-The result is an empty acknowledgment (`{}`). This API does not enable desktop
-verification capability advertisement.
-
-`requestId` is the original status, enroll, delete, or verify RPC's string or
-integer ID on the same connection, not the server elicitation ID. Use fresh IDs
-for each operation and a distinct ID for the cancel RPC. Unknown, finished,
-unrelated, and other-connection requests are no-ops.
-
-The acknowledgment confirms the cancellation signal without waiting for the OS
-prompt to close. The original RPC completes independently, with
-`cancelled/interrupted` when cancellation prevents completion. Cancellation
-cannot roll back completed effects. It remains effective while a proof waits for
-outbound queue capacity, but cannot retract a response already enqueued.
-
-Canceling or resolving an elicitation does not itself stop a separate
-`userVerification/verify` RPC. Clients must cancel that RPC separately and discard
-late proofs after the approval is canceled or resolved. Only one native worker
-runs per app-server; if an OS call remains active after cancellation or timeout,
-subsequent local operations return `failed/providerError` until that worker exits.
-
 # Hosted Codex Apps MCP protocol
 
 The host-owned HTTP `codex_apps` server uses Legacy by default in app-server and
@@ -253,81 +229,6 @@ environment-native `file:` URI. Connection failures are returned as request
 errors. After connecting, the live metadata request has a 30-second timeout. A
 timeout closes the probed connection and starts normal session recovery without
 retrying the failed request.
-
-## User verification (experimental)
-
-Codex app-server advertises `openai/elicitation.userVerification` to the
-host-owned plugin service for bundled, in-process TUI sessions (`codex-tui`) and
-local stdio desktop sessions (`Codex Desktop`) on devices with supported biometric
-hardware and the `experimentalApi` opt-in. This is an app-server decision,
-independent of whether a key exists; TUI/Desktop/mobile do not advertise this MCP
-capability. Mobile integration requires a separate rollout. Other clients and
-network connections do not receive this mode, even with a recognized client name.
-Before sending verification requests to desktop sessions, deploy a GUI that
-handles the typed verification request, cancellation, and late proofs. The general
-`experimentalApi` opt-in does not identify a compatible GUI version.
-
-Native `openai/userVerification` elicitation requests preserve optional `_meta`
-JSON through MCP transport and `mcpServer/elicitation/request`. Clients may use
-this metadata for extension-specific presentation and must continue to accept
-requests without it. Metadata does not change the challenge bytes or the proof
-returned in the acceptance response.
-
-Local UI clients use five methods. They require the existing
-`experimentalApi` opt-in. The local provider reports
-`unavailable/providerUnavailable` on unsupported platforms or without the required
-ChatGPT account identity.
-
-| Method                    | Params                            | Result                                                  |
-| ------------------------- | --------------------------------- | ------------------------------------------------------- |
-| `userVerification/status` | `{}`                              | `{credentialId, unavailableReason, unavailableMessage}` |
-| `userVerification/enroll` | `{}`                              | `{credentialId, algorithm?, publicKey?}`                |
-| `userVerification/delete` | `{}`                              | `{}`                                                    |
-| `userVerification/verify` | `{challenge, title, description}` | `{proof: {credentialId, signature}}`                    |
-| `userVerification/cancel` | `{requestId}`                     | `{}`                                                    |
-
-Status reads local readiness without prompting or contacting a backend. A null
-`unavailableReason` means local checks passed, not that registration is valid.
-Unsupported platforms and missing account identity are reported in the status
-response's `unavailableReason` field.
-Enrollment creates or reuses the local key and returns its public metadata. The
-`publicKey` is unpadded base64url SPKI-DER; `algorithm` is `ecdsaP256Sha256X962`.
-During the experimental rollout, `algorithm` and `publicKey` are optional for
-compatibility with older app-servers. Current servers populate both fields;
-callers must check that both are present and non-null before backend registration.
-The trusted UI host owns backend registration: obtain an enrollment challenge,
-sign it with `userVerification/verify`, check that the proof's `credentialId`
-matches this response, and submit the public metadata and proof to the backend.
-Local success is not server enrollment. The caller must preserve the authenticated
-account across this flow and reconcile uncertain registration before retrying.
-Deletion removes the local key; the caller owns backend revocation.
-Enrollment and deletion coordinate credential lifecycle; callers do not issue
-separate generate or rotate commands. Identity comes from the authenticated
-account; this API exposes no caller-selected scope.
-
-Verify signs 1–4096 decoded challenge bytes using P-256 ECDSA with SHA-256. The
-challenge and DER signature use unpadded base64url. Title is 1–256 UTF-8 bytes;
-description is at most 4096 bytes. The UI obtains approval for that display
-context before calling. Verify does not require a pending elicitation; a UI with
-its own authenticator can return proof directly in elicitation response content.
-The calling flow owns pending-request checks and discards late proofs.
-Native enroll, delete, and verify accept local stdio and in-process connections.
-WebSocket and remote-control peers must use their own device authenticator;
-status remains available for local readiness. Dropping an embedded RPC, disconnecting,
-or changing authentication cancels its native operation. Responses recheck the
-captured identity after waiting for outbound queue capacity.
-Canceling or resolving an elicitation does not itself stop a separate
-`userVerification/verify` RPC. The GUI must use `userVerification/cancel` to
-cancel that RPC and discard late proofs when an approval is canceled or resolved.
-See [User verification cancellation](#user-verification-cancellation-experimental)
-for request ID and acknowledgment semantics.
-Only one native worker runs per app-server. If an OS call remains active after
-cancellation or timeout, subsequent local operations return `failed/providerError`
-until that worker exits.
-
-Failures use the normal JSON-RPC error envelope with closed `{type, reason}` data:
-`invalidRequest`, `unavailable`, `cancelled`, or `failed`. UI clients branch on
-these values rather than message text. Native diagnostic payloads stay private.
 
 ## Local rollout compression
 

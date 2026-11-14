@@ -7,64 +7,26 @@ use codex_app_server_protocol::ConfigReadParams;
 #[derive(Default)]
 pub(crate) struct SessionAccount {
     pub(crate) display: Option<StatusAccountDisplay>,
-    pub(crate) plan: Option<codex_protocol::account::PlanType>,
     pub(crate) requires_openai_auth: bool,
 }
 
 impl From<GetAccountResponse> for SessionAccount {
     fn from(response: GetAccountResponse) -> Self {
-        let mut account = Self {
+        Self {
             requires_openai_auth: response.requires_openai_auth,
-            ..Self::default()
-        };
-        account.display = match response.account {
-            Some(Account::Chatgpt {
-                email,
-                plan_type,
-                workspace_name,
-            }) => {
-                account.plan = Some(plan_type);
-                Some(StatusAccountDisplay::ChatGpt {
-                    email,
-                    plan: Some(plan_type_display_name(plan_type)),
-                    workspace: workspace_display(workspace_name, response.workspace_routing),
-                })
-            }
-            Some(Account::ApiKey {}) => Some(StatusAccountDisplay::ApiKey),
-            Some(Account::AmazonBedrock { .. } | Account::Gcp {}) | None => None,
-        };
-        account
+            display: match response.account {
+                Some(Account::ApiKey {}) => Some(StatusAccountDisplay::ApiKey),
+                Some(Account::AmazonBedrock { .. } | Account::Gcp {}) | None => None,
+            },
+        }
     }
 }
 
 impl SessionAccount {
-    pub(crate) fn has_chatgpt_account(&self) -> bool {
-        matches!(self.display, Some(StatusAccountDisplay::ChatGpt { .. }))
-    }
-
     pub(super) fn auth_mode(&self) -> Option<TelemetryAuthMode> {
         match self.display {
-            Some(StatusAccountDisplay::ChatGpt { .. }) => Some(TelemetryAuthMode::Chatgpt),
             Some(StatusAccountDisplay::ApiKey) => Some(TelemetryAuthMode::ApiKey),
             None => None,
-        }
-    }
-
-    pub(super) fn email(&self) -> Option<&str> {
-        match &self.display {
-            Some(StatusAccountDisplay::ChatGpt { email, .. }) => email.as_deref(),
-            Some(StatusAccountDisplay::ApiKey) | None => None,
-        }
-    }
-
-    pub(crate) fn feedback_audience(&self) -> FeedbackAudience {
-        if self
-            .email()
-            .is_some_and(|email| email.ends_with("@openai.com"))
-        {
-            FeedbackAudience::OpenAiEmployee
-        } else {
-            FeedbackAudience::External
         }
     }
 }

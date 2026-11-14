@@ -18,10 +18,7 @@ mod runtime_auth;
 mod shared_state;
 pub mod test_support;
 mod workspace_routing;
-pub use workspace_routing::ACCOUNT_ROUTING_HEADER;
-pub use workspace_routing::ResolvedResponsesProvider;
 pub use workspace_routing::ResponsesConnectionKey;
-pub use workspace_routing::WorkspaceRoutingContext;
 
 pub use amazon_bedrock::is_amazon_bedrock_gov_cloud_region;
 pub use amazon_bedrock::is_supported_amazon_bedrock_region;
@@ -30,7 +27,6 @@ pub use auth::ProviderAuthContext;
 pub use auth::ResolvedProviderAuth;
 pub use auth::auth_provider_for_request;
 pub use auth::auth_provider_from_auth;
-pub use auth::auth_provider_from_auth_manager;
 pub use auth::unauthenticated_auth_provider;
 pub use bearer_auth_provider::BearerAuthProvider;
 pub use bearer_auth_provider::BearerAuthProvider as CoreAuthProvider;
