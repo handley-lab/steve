@@ -21,7 +21,6 @@
 //! unread notifications cannot prevent request responses from being delivered.
 
 mod cloud;
-pub mod cloud_backend;
 pub use codex_cloud_client::ProjectEnvironment;
 mod path;
 mod remote;

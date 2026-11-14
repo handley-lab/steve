@@ -392,7 +392,6 @@ impl AnalyticsEventsClient {
     ) -> Self {
         let base_url = base_url.into();
         let runtime_auth = runtime_auth.filter(|_| match &base_url {
-            ChatgptBaseUrl::Default => true,
             ChatgptBaseUrl::Configured(url) => {
                 codex_http_client::classify_openai_api_url(url)
                     != codex_http_client::OpenAiDestination::Other

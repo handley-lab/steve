@@ -23,7 +23,6 @@ use codex_login::CodexAuth;
 use codex_login::ExternalAuth;
 use codex_login::ExternalAuthFuture;
 use codex_login::ExternalAuthRefreshContext;
-use codex_model_provider::DEFAULT_CHATGPT_BASE_URL;
 use codex_protocol::config_types::TrustLevel;
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
@@ -201,8 +200,11 @@ async fn startup_reloads_the_callers_selected_project() -> anyhow::Result<()> {
 
     let marked = CodexAuth::from_api_key("sk-proj-fedramp-test-key");
     for (configured_url, expected_url) in [
-        (None, "https://gov.chatgpt.com/backend-api/"),
-        (Some(DEFAULT_CHATGPT_BASE_URL), DEFAULT_CHATGPT_BASE_URL),
+        (None, ""),
+        (
+            Some("https://chatgpt.com/backend-api/"),
+            "https://chatgpt.com/backend-api/",
+        ),
     ] {
         let setting = configured_url
             .map(|url| format!("chatgpt_base_url = '{url}'\n"))

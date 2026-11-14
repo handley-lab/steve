@@ -92,7 +92,6 @@ use codex_mcp::McpProtocolMode;
 use codex_mcp::McpServerRegistration;
 use codex_mcp::ResolvedMcpCatalog;
 use codex_model_provider::ChatgptBaseUrl;
-use codex_model_provider::DEFAULT_CHATGPT_BASE_URL;
 use codex_model_provider::ProviderCapabilities;
 use codex_model_provider_info::GCP_PROVIDER_ID;
 use codex_model_provider_info::GatewayOAuthConfig;
@@ -1896,13 +1895,9 @@ impl Config {
         }
     }
 
-    /// Returns backend routing that can resolve defaults against the request's auth snapshot.
+    /// Returns the configured backend endpoint.
     pub fn chatgpt_backend_url(&self) -> ChatgptBaseUrl {
-        if !self.chatgpt_base_url_is_explicit && self.chatgpt_base_url == DEFAULT_CHATGPT_BASE_URL {
-            ChatgptBaseUrl::Default
-        } else {
-            ChatgptBaseUrl::Configured(self.chatgpt_base_url.clone())
-        }
+        ChatgptBaseUrl::Configured(self.chatgpt_base_url.clone())
     }
 
     /// Returns auth routing resolved from the effective feature configuration.

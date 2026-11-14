@@ -39,7 +39,6 @@ use codex_app_server_client::InProcessClientStartArgs;
 use codex_app_server_client::RemoteAppServerClient;
 use codex_app_server_client::RemoteAppServerConnectArgs;
 pub use codex_app_server_client::RemoteAppServerEndpoint;
-use codex_app_server_client::cloud_backend;
 use codex_app_server_protocol::Account as AppServerAccount;
 use codex_app_server_protocol::AskForApproval;
 use codex_app_server_protocol::ConfigWarningNotification;
@@ -1239,7 +1238,6 @@ async fn run_ratatui_app(
     mut state_db: Option<StateDbHandle>,
     environment_manager: Arc<EnvironmentManager>,
     embedded_network_policy: codex_app_server_client::EmbeddedNetworkPolicy,
-    cloud_preview_available: bool,
     managed_worktree: Option<ManagedTuiWorktree>,
     daemon_startup_warning: Option<String>,
     managed_daemon: bool,
@@ -2319,36 +2317,7 @@ async fn run_ratatui_app(
         Ok(StartupHooksReviewOutcome::OpenHooksBrowser(data)) => Some(data),
     };
 
-    let mut initial_backends = app::backend_sessions::InitialBackendSessions::singleton(app_server);
-    if cfg!(any(target_os = "macos", target_os = "linux"))
-        && config.features.enabled(Feature::TuiMultiBackend)
-        && cloud_preview_available
-        && config
-            .config_layer_stack
-            .requirements_toml()
-            .config_server
-            .is_none()
-    {
-        // A daemon-backed resume can rebuild Config without the local transport handle.
-        let mut cloud_config = config.clone();
-        embedded_network_policy.bind_config(&mut cloud_config);
-        match Box::pin(cloud_backend::connect(&cloud_config)).await {
-            Ok(client) => initial_backends.register(
-                AppServerSession::new(
-                    backend_id::BackendId::new(),
-                    client,
-                    ThreadParamsMode::Cloud,
-                ),
-                AppServerTarget::Cloud,
-                cloud_config,
-                local_settings.clone(),
-            ),
-            Err(error) => tui.insert_history_lines(vec![ratatui::text::Line::from(format!(
-                "Could not add the Cloud connection. {error}"
-            ))]),
-        }
-    }
-
+    let initial_backends = app::backend_sessions::InitialBackendSessions::singleton(app_server);
     // Keep the large event-loop future out of the enclosing startup futures so session
     // transitions have enough stack headroom to rebuild configuration and the chat widget.
     let app_result = boxed_future!(App::run(

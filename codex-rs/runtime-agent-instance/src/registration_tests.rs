@@ -43,10 +43,9 @@ fn pending() -> RuntimeRegistration {
 }
 
 fn client(server: &MockServer) -> RuntimeRegistrationClient {
-    let registration_url = Url::parse(DEFAULT_REGISTRATION_URL).unwrap();
     let endpoint = Url::parse(&server.uri())
         .unwrap()
-        .join(registration_url.path())
+        .join("/agent/register")
         .unwrap();
     RuntimeRegistrationClient::new(
         HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
