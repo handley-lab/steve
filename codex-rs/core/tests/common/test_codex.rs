@@ -1564,6 +1564,10 @@ pub fn test_codex() -> TestCodexBuilder {
                 .features
                 .disable(Feature::ShellSnapshot)
                 .expect("test config should allow ShellSnapshot override");
+            // Steve requires an explicit reviewer; the inherited tests expect upstream's.
+            config
+                .guardian_model
+                .get_or_insert_with(|| "codex-auto-review".to_string());
         })],
         auth: TestAuth::Cached(CodexAuth::from_api_key("dummy")),
         analytics_events_client: None,

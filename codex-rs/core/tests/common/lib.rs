@@ -239,13 +239,17 @@ fn default_test_overrides() -> ConfigOverrides {
         codex_linux_sandbox_exe: Some(
             find_codex_linux_sandbox_exe().expect("should find binary for steve-linux-sandbox"),
         ),
+        model_provider: Some("openai".to_string()),
         ..ConfigOverrides::default()
     }
 }
 
 #[cfg(not(target_os = "linux"))]
 fn default_test_overrides() -> ConfigOverrides {
-    ConfigOverrides::default()
+    ConfigOverrides {
+        model_provider: Some("openai".to_string()),
+        ..ConfigOverrides::default()
+    }
 }
 
 #[cfg(target_os = "linux")]

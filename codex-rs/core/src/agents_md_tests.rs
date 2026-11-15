@@ -510,6 +510,10 @@ async fn make_config(root: &TempDir, limit: usize, instructions: Option<&str>) -
     let codex_home = TempDir::new().unwrap();
     let mut config = ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())
+        .harness_overrides(crate::config::ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .build()
         .await
         .expect("defaults for test should always succeed");
@@ -559,6 +563,10 @@ async fn make_config_with_project_root_markers(
     )];
     let mut config = ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())
+        .harness_overrides(crate::config::ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .cli_overrides(cli_overrides)
         .build()
         .await
