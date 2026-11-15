@@ -126,7 +126,6 @@ impl AppServerSession {
         let query = ThreadListParams {
             attached_to_thread_id: Some(parent.to_string()),
             include_attached_threads: false,
-            current_account_only: true,
             archived: Some(false),
             model_providers: Some(Vec::new()),
             sort_direction: Some(SortDirection::Asc),

@@ -74,7 +74,6 @@ pub(crate) fn spawn_search(
                     request_id: RequestId::String(format!("task-search-{request_generation}")),
                     params: ThreadSearchParams {
                         include_attached_threads: false,
-                        current_account_only: true,
                         cursor: None,
                         limit: Some(MAX_SEARCH_RESULTS),
                         sort_key: Some(ThreadSearchSortKey::RecencyAt),
@@ -93,7 +92,6 @@ pub(crate) fn spawn_search(
                     )),
                     params: ThreadListParams {
                         include_attached_threads: false,
-                        current_account_only: true,
                         excluded_thread_ids: None,
                         attached_to_thread_id: None,
                         originators: None,
