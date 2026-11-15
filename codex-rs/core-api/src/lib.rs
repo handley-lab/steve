@@ -32,7 +32,6 @@ pub use codex_core::AgentTreeShutdown;
 pub use codex_core::AgentTreeShutdownFailure;
 pub use codex_core::AgentTreeShutdownFailureReason;
 pub use codex_core::AgentTreeShutdownReport;
-pub use codex_core::CodexAppsToolsCache;
 pub use codex_core::CodexThread;
 pub use codex_core::CodexThreadSettingsOverrides;
 pub use codex_core::EnvironmentConfig;

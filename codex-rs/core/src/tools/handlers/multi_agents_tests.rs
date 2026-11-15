@@ -4337,7 +4337,6 @@ async fn tool_handlers_cascade_close_and_resume_and_keep_explicitly_closed_subtr
             "11111111-1111-4111-8111-111111111111".to_string(),
             Arc::new(ModelCatalogSettings::disk(config.codex_home.to_path_buf())),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),

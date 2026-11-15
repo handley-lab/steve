@@ -760,14 +760,6 @@ pub struct Config {
     /// Frozen section policy for sync Guardian; absence keeps fixed budgeting.
     pub guardian_sync_elastic_budget: Option<codex_guardian_context::ElasticBudgetConfig>,
 
-    /// Optional replacement for the gated history-retrieval instructions.
-    /// Blank config values are treated as unset, like other Guardian policy overrides.
-    pub guardian_conversation_history_prompt: Option<String>,
-
-    /// Optional per-response history-tool budget. Guardian defaults to 4,000 tokens and
-    /// preserves stricter parent tool limits.
-    pub guardian_conversation_history_max_output_tokens: Option<NonZeroUsize>,
-
     /// Include a structured error when Guardian's circuit breaker interrupts a turn.
     pub guardian_circuit_break_action: CircuitBreakAction,
 
@@ -4474,15 +4466,6 @@ impl Config {
                 policy.validate().map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
                 Ok::<_, std::io::Error>(policy)
             }).transpose()?;
-        let guardian_conversation_history_prompt = cfg.auto_review.as_ref().and_then(|auto_review| {
-            normalize_guardian_policy_config(
-                auto_review.experimental_conversation_history_prompt.as_deref(),
-            )
-        });
-        let guardian_conversation_history_max_output_tokens = cfg
-            .auto_review
-            .as_ref()
-            .and_then(|auto_review| auto_review.conversation_history_max_output_tokens);
         let personality = personality.or(cfg.personality);
 
         let experimental_compact_prompt_path = cfg.experimental_compact_prompt_file.as_ref();
@@ -4856,8 +4839,6 @@ impl Config {
             guardian_policy_template: None,
             guardian_transcript_mode,
             guardian_sync_elastic_budget,
-            guardian_conversation_history_prompt,
-            guardian_conversation_history_max_output_tokens,
             guardian_review_timeout: cfg
                 .auto_review
                 .as_ref()

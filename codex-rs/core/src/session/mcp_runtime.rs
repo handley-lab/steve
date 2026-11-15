@@ -10,7 +10,6 @@ use crate::mcp::McpRuntimeProjection;
 use codex_config::McpServerDisabledReason;
 use codex_config::McpServerTransportConfig;
 use codex_file_system::WindowsSandboxSelection;
-use codex_mcp::CODEX_APPS_MCP_SERVER_NAME;
 use codex_mcp::ElicitationReviewerHandle;
 use codex_mcp::McpServerRegistration;
 use codex_mcp::McpServerSource;
@@ -62,11 +61,6 @@ impl Session {
         advertised_tool: &ToolInfo,
     ) -> anyhow::Result<PreparedMcpCall> {
         self.refresh_mcp_if_dirty().await;
-        // Apps refreshes fetch tools outside the MCP runtime lock. Wait for any
-        // in-flight refresh before capturing the catalog for this call.
-        if advertised_tool.server_name == CODEX_APPS_MCP_SERVER_NAME {
-            self.wait_for_apps_tool_refresh().await;
-        }
         self.services
             .mcp_runtime
             .prepare_call(advertised_tool)
@@ -202,8 +196,7 @@ impl Session {
                         /*inc*/ 1,
                         &[("server_name", name.as_str()), ("outcome", outcome)],
                     );
-                    if name == CODEX_APPS_MCP_SERVER_NAME
-                        || !server.is_local_environment()
+                    if !server.is_local_environment()
                         || projection
                             .config
                             .mcp_server_catalog
@@ -392,7 +385,6 @@ impl Session {
             tx_event: Some(self.get_tx_event()),
             startup_cancellation_token: CancellationToken::new(),
             runtime_context,
-            codex_apps_tools_cache: self.services.mcp_manager.codex_apps_tools_cache(),
             tool_catalog_cache: self.services.mcp_manager.tool_catalog_cache(),
             codex_apps_tools_cache_key: connector_runtime_context_key(auth.as_ref()),
             client_mcp_extensions: self.services.client_mcp_extensions.for_mcp_servers(),

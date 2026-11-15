@@ -355,17 +355,6 @@ impl CodexThread {
         &self.session.item_id_generator
     }
 
-    /// Returns tools from this thread’s ready, unshared Apps MCP client.
-    /// Returns an empty list if the client is absent, still starting, or uses
-    /// a shared catalog. Does not start or wait for discovery.
-    pub async fn apps_tools_from_mcp_client(&self) -> Vec<codex_mcp::ToolInfo> {
-        self.session
-            .services
-            .mcp_runtime
-            .apps_tools_from_mcp_client()
-            .await
-    }
-
     /// Returns data captured by the named running turn, not newer thread settings.
     pub async fn current_turn_extension_data<T>(&self, expected_turn_id: &str) -> Option<Arc<T>>
     where
@@ -1338,13 +1327,6 @@ impl CodexThread {
         .await
     }
 
-    /// Refreshes this thread's Apps tools before returning their runtime state.
-    pub async fn refresh_codex_apps_tools(
-        &self,
-    ) -> anyhow::Result<codex_mcp::CodexAppsToolSnapshot> {
-        self.session.refresh_codex_apps_tools().await
-    }
-
     /// Returns the environments configured for future turns.
     pub async fn environment_selections(&self) -> Vec<TurnEnvironmentSelection> {
         self.session.configured_environment_selections().await
@@ -1405,43 +1387,6 @@ impl CodexThread {
             .services
             .mcp_runtime
             .server_status_snapshot(server, detail, expected_registration, &runtime_context)
-            .await
-    }
-
-    /// Reads an app resource using the current authority of its originating tool call.
-    pub async fn read_mcp_resource_for_call(
-        &self,
-        call_id: &str,
-        params: ReadResourceRequestParams,
-    ) -> anyhow::Result<serde_json::Value> {
-        self.session.refresh_mcp_if_dirty().await;
-        let result = self
-            .session
-            .services
-            .mcp_runtime
-            .read_resource_for_call(self.session.thread_id, call_id, params)
-            .await?;
-
-        Ok(serde_json::to_value(result)?)
-    }
-
-    pub async fn start_mcp_event_stream(
-        &self,
-        name: &str,
-        arguments: serde_json::Value,
-        meta: Option<serde_json::Value>,
-    ) -> anyhow::Result<codex_mcp::McpEventStream> {
-        let meta = match meta.as_ref() {
-            Some(serde_json::Value::Object(meta)) => Some(meta),
-            Some(other) => {
-                anyhow::bail!("MCP event request _meta must be a JSON object, got {other}")
-            }
-            None => None,
-        };
-        let _ = self.session.services.auth_manager.auth().await;
-        self.session.refresh_mcp_if_dirty().await;
-        codex_mcp::McpResourceClient::new(Arc::clone(&self.session.services.mcp_runtime))
-            .open_event_stream(name, &arguments, meta)
             .await
     }
 

@@ -1127,20 +1127,6 @@ client_request_definitions! {
         response: v2::McpResourceReadResponse,
     },
 
-    #[experimental("mcpServer/event/stream/start")]
-    McpServerEventStreamStart => "mcpServer/event/stream/start" {
-        params: v2::McpServerEventStreamStartParams,
-        serialization: None,
-        response: v2::McpServerEventStreamStartResponse,
-    },
-
-    #[experimental("mcpServer/event/stream/stop")]
-    McpServerEventStreamStop => "mcpServer/event/stream/stop" {
-        params: v2::McpServerEventStreamStopParams,
-        serialization: None,
-        response: v2::McpServerEventStreamStopResponse,
-    },
-
     McpServerToolCall => "mcpServer/tool/call" {
         params: v2::McpServerToolCallParams,
         serialization: thread_id(params.thread_id),
@@ -1852,8 +1838,6 @@ server_notification_definitions! {
     McpToolCallProgress => "item/mcpToolCall/progress" (v2::McpToolCallProgressNotification),
     McpServerOauthLoginCompleted => "mcpServer/oauthLogin/completed" (v2::McpServerOauthLoginCompletedNotification),
     McpServerStatusUpdated => "mcpServer/startupStatus/updated" (v2::McpServerStatusUpdatedNotification),
-    #[experimental("mcpServer/event/stream/notification")]
-    McpServerEventStream => "mcpServer/event/stream/notification" (v2::McpServerEventStreamNotification),
     AccountUpdated => "account/updated" (v2::AccountUpdatedNotification),
     GatewayOAuthChanged => "account/gatewayOAuth/changed" (v2::GatewayOAuthChangedNotification),
     AccountRateLimitsUpdated => "account/rateLimits/updated" (v2::AccountRateLimitsUpdatedNotification),
@@ -2334,11 +2318,8 @@ mod tests {
             params: v2::McpResourceReadParams {
                 meta: None,
                 thread_id: Some("thread-1".to_string()),
-                origin_call_id: None,
                 server: "server-a".to_string(),
                 uri: "file:///tmp/resource".to_string(),
-                connector_id: None,
-                target: None,
             },
         };
         assert_eq!(
@@ -2519,11 +2500,8 @@ mod tests {
             params: v2::McpResourceReadParams {
                 meta: None,
                 thread_id: None,
-                origin_call_id: None,
                 server: "server-a".to_string(),
                 uri: "file:///tmp/resource".to_string(),
-                connector_id: None,
-                target: None,
             },
         };
         assert_eq!(mcp_resource_read.serialization_scope(), None);

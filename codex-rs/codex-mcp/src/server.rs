@@ -4,7 +4,6 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::mcp::CODEX_APPS_MCP_SERVER_NAME;
 use crate::runtime::McpRuntimeContext;
 use codex_config::AppToolApproval;
 use codex_config::McpServerAuth;
@@ -85,11 +84,9 @@ impl EffectiveMcpServer {
 
     /// Checks whether Core can discover the protocol of a local stdio server.
     ///
-    /// The reserved `codex_apps` server has a per-chat catalog. Servers with runtime or
-    /// enterprise-managed credentials need that chat's authentication state.
-    pub(crate) fn can_discover_local_stdio(&self, server_name: &str) -> bool {
-        server_name != CODEX_APPS_MCP_SERVER_NAME
-            && self.config.is_local_environment()
+    /// Servers with runtime or enterprise-managed credentials need that chat's authentication state.
+    pub(crate) fn can_discover_local_stdio(&self) -> bool {
+        self.config.is_local_environment()
             && self
                 .stdio_protocol_mode(McpProtocolMode::DiscoverLocalStdio)
                 .is_some()

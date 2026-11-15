@@ -233,13 +233,6 @@ impl McpHandler {
             .prepare_mcp_call(&self.definition.tool_info)
             .await;
         let prepared = prepared_mcp_call.as_ref().ok();
-        // Use the executed call's binding; a later catalog refresh must not change eligibility.
-        let result_metadata_capture_allowed = invocation
-            .session
-            .services
-            .analytics_events_client
-            .is_enabled()
-            && prepared.is_some_and(codex_mcp::PreparedMcpCall::is_host_owned_apps);
         let mcp_tool = prepared.map(|call| {
             McpToolContext::from_prepared_call(
                 call,
@@ -299,7 +292,6 @@ impl McpHandler {
         Ok(boxed_tool_output(McpToolOutput {
             result: result.result,
             tool_input: result.tool_input,
-            result_metadata_capture_allowed,
             wall_time: started.elapsed(),
             original_image_detail_supported: can_request_original_image_detail(
                 &step_context.settings.model_info,
@@ -796,7 +788,6 @@ mod tests {
                     "file_id": "file_123"
                 }
             }),
-            result_metadata_capture_allowed: false,
             wall_time: Duration::from_millis(42),
             original_image_detail_supported: true,
             truncation_policy: codex_utils_output_truncation::TruncationPolicy::Bytes(1024),
@@ -859,8 +850,6 @@ mod tests {
             runtime_tool_call_id: "mcp-runtime-call".to_string(),
         };
         let mut output = output;
-        output.result.meta = Some(json!({ "provider/custom": { "items": [1, null] } }));
-        output.result_metadata_capture_allowed = true;
         recorder.record_tool_call(
             &crate::tools::router::ToolCall {
                 tool_name: invocation.tool_name.clone(),
@@ -883,7 +872,6 @@ mod tests {
             json!([{
                 "name": codex_tools::code_mode_name_for_tool_name(&invocation.tool_name),
                 "arguments": { "path": "/tmp/notes.txt" },
-                "tool_result_metadata": { "provider/custom": { "items": [1, null] } },
             }]),
         );
     }

@@ -7,9 +7,7 @@ use crate::mcp_tool_exposure::SharedMcpDefinitions;
 use codex_config::DEFAULT_MCP_SERVER_ENVIRONMENT_ID;
 use codex_config::McpServerConfig;
 use codex_config::types::PluginsConfigToml;
-use codex_connectors::ConnectorRuntimeManager;
 use codex_connectors::PluginConnectorSource;
-use codex_core_plugins::PluginIdentity as CatalogPluginIdentity;
 use codex_core_plugins::PluginsManager;
 use codex_exec_server::ExecutorCapabilityDiscoverySnapshot;
 use codex_exec_server::ExecutorCapabilityDiscoveryV2Snapshot;
@@ -28,7 +26,6 @@ use codex_mcp::McpEnvironmentAuthority;
 use codex_mcp::McpPluginAttribution;
 use codex_mcp::McpServerRegistration;
 use codex_mcp::McpToolCatalogCache;
-use codex_mcp::ToolInfo;
 use codex_mcp::configured_mcp_servers;
 use codex_mcp::effective_mcp_servers;
 use codex_plugin::AppConnectorId;
@@ -108,7 +105,6 @@ pub struct McpManager {
     connection_pool: codex_mcp::McpConnectionPool,
     plugins_manager: Arc<PluginsManager>,
     extensions: Arc<ExtensionRegistry<Config>>,
-    codex_apps_tools_cache: ConnectorRuntimeManager<ToolInfo>,
     tool_catalog_cache: McpToolCatalogCache,
     shared_definitions: Arc<SharedMcpDefinitions>,
 }
@@ -118,7 +114,6 @@ impl McpManager {
         Self::new_with_extensions(
             plugins_manager,
             codex_extension_api::empty_extension_registry(),
-            ConnectorRuntimeManager::default(),
         )
     }
 
@@ -126,24 +121,18 @@ impl McpManager {
     pub fn new_with_extensions(
         plugins_manager: Arc<PluginsManager>,
         extensions: Arc<ExtensionRegistry<Config>>,
-        codex_apps_tools_cache: ConnectorRuntimeManager<ToolInfo>,
     ) -> Self {
         Self {
             connection_pool: codex_mcp::McpConnectionPool::default(),
             plugins_manager,
             extensions,
-            codex_apps_tools_cache,
             tool_catalog_cache: McpToolCatalogCache::default(),
             shared_definitions: Arc::new(SharedMcpDefinitions::default()),
         }
     }
 
     pub(crate) fn for_plugins_manager(&self, plugins_manager: Arc<PluginsManager>) -> Self {
-        let mut manager = Self::new_with_extensions(
-            plugins_manager,
-            Arc::clone(&self.extensions),
-            ConnectorRuntimeManager::default(),
-        );
+        let mut manager = Self::new_with_extensions(plugins_manager, Arc::clone(&self.extensions));
         manager.connection_pool = self.connection_pool.clone();
         manager
     }
@@ -165,10 +154,6 @@ impl McpManager {
     )> {
         let _ = config;
         None
-    }
-
-    pub fn codex_apps_tools_cache(&self) -> ConnectorRuntimeManager<ToolInfo> {
-        self.codex_apps_tools_cache.clone()
     }
 
     pub fn tool_catalog_cache(&self) -> McpToolCatalogCache {
@@ -267,18 +252,6 @@ impl McpManager {
                         selected_root_id: Some(selected_root_id),
                         plugin_id: identity,
                     });
-                }
-            }
-            if context.config().features.enabled(Feature::Plugins) {
-                for plugin_id in contributor.hosted_plugin_ids(context) {
-                    if !disabled_plugin_ids.contains(&plugin_id) {
-                        selected.plugins.push(SelectedPluginIdentity {
-                            selected_root_id: None,
-                            plugin_id: CatalogPluginIdentity::Remote {
-                                remote_plugin_id: plugin_id,
-                            },
-                        });
-                    }
                 }
             }
         }
@@ -402,45 +375,6 @@ impl McpManager {
                             )
                             .with_protocol_mode(protocol_mode),
                         )));
-                    }
-                    McpServerContribution::HostedApps {
-                        config,
-                        protocol_mode,
-                    } => {
-                        let mut registration = McpServerRegistration::from_hosted_apps(
-                            contributor.id(),
-                            contribution_order,
-                            *config,
-                        );
-                        if let Some(protocol_mode) = protocol_mode {
-                            registration = registration.with_protocol_mode(protocol_mode);
-                        }
-                        overlays.push(OrderedMcpOverlay::Set(Box::new(registration)));
-                    }
-                    McpServerContribution::HostedPluginConnectors {
-                        plugin_id,
-                        plugin_display_name,
-                        connector_ids,
-                    } => {
-                        if config.features.enabled(Feature::Plugins) {
-                            if !disabled_plugin_ids.contains(&plugin_id) {
-                                selected_plugins.push(SelectedPluginIdentity {
-                                    selected_root_id: None,
-                                    plugin_id: CatalogPluginIdentity::Remote {
-                                        remote_plugin_id: plugin_id.clone(),
-                                    },
-                                });
-                            }
-                            if !connector_ids.is_empty() {
-                                selected_plugin_connector_sources.push(
-                                    PluginConnectorSource::from_connector_ids(
-                                        plugin_id,
-                                        plugin_display_name,
-                                        connector_ids.into_iter().map(AppConnectorId),
-                                    ),
-                                );
-                            }
-                        }
                     }
                     McpServerContribution::Remove { name } => {
                         overlays.push(OrderedMcpOverlay::Remove {

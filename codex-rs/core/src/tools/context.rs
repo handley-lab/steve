@@ -170,8 +170,6 @@ impl ToolInvocation {
 pub struct McpToolOutput {
     pub result: CallToolResult,
     pub tool_input: JsonValue,
-    // Keep the original metadata for hooks; this flag only controls analytics capture.
-    pub(crate) result_metadata_capture_allowed: bool,
     pub wall_time: Duration,
     pub original_image_detail_supported: bool,
     pub truncation_policy: TruncationPolicy,
@@ -207,13 +205,6 @@ impl ToolOutput for McpToolOutput {
 
     fn code_mode_result(&self, payload: &ToolPayload) -> JsonValue {
         self.result.code_mode_result(payload)
-    }
-
-    fn tool_result_metadata(&self) -> Option<&JsonValue> {
-        if !self.result_metadata_capture_allowed {
-            return None;
-        }
-        self.result.meta.as_ref()
     }
 
     fn post_tool_use_input(&self, _payload: &ToolPayload) -> Option<JsonValue> {

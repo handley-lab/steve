@@ -4,16 +4,12 @@
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
-use std::time::Instant;
 
-use super::MCP_TOOLS_LIST_DURATION_METRIC;
 use crate::client_tool_catalog::ClientToolCatalog;
 use crate::connection_pool::ConnectionSharing;
-use crate::runtime::emit_duration;
 use crate::tools::ToolInfo;
 use anyhow::Result;
 use anyhow::anyhow;
-use codex_connectors::ConnectorRuntimeContext;
 use codex_protocol::mcp::McpServerInfo;
 use codex_rmcp_client::RmcpClient;
 use codex_rmcp_client::SendElicitation;
@@ -37,7 +33,6 @@ pub(crate) struct ManagedClient {
     pub(crate) server_instructions: Option<String>,
     pub(crate) server_supports_sandbox_state_meta_capability: bool,
     pub(crate) client_supports_network_policy_meta_capability: bool,
-    pub(crate) codex_apps_tools_cache_context: Option<ConnectorRuntimeContext<ToolInfo>>,
 }
 
 impl ManagedClient {
@@ -159,26 +154,8 @@ impl ManagedClient {
     }
 
     pub(crate) async fn listed_catalog(&self) -> (Vec<ToolInfo>, Option<Arc<serde_json::Value>>) {
-        let total_start = Instant::now();
         self.tool_catalog
-            .read(|catalog| {
-                // Discovery may use the shared cache until this client is refreshed.
-                // Executable bindings always capture this client's own catalog.
-                if catalog.revision == 0
-                    && let Some(cache_context) = &self.codex_apps_tools_cache_context
-                {
-                    let tools = cache_context.current_catalog_snapshot();
-                    emit_duration(
-                        MCP_TOOLS_LIST_DURATION_METRIC,
-                        total_start.elapsed(),
-                        &[("cache", if tools.is_some() { "hit" } else { "miss" })],
-                    );
-                    if let Some(tools) = tools {
-                        return (tools.tools().to_vec(), tools.shared_tool_list_meta());
-                    }
-                }
-                (catalog.tools.to_vec(), catalog.meta)
-            })
+            .read(|catalog| (catalog.tools.to_vec(), catalog.meta))
             .await
     }
 }

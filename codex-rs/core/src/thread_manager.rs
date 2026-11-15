@@ -9,7 +9,6 @@ pub use shutdown::AgentTreeShutdownFailureReason;
 pub use shutdown::AgentTreeShutdownReport;
 pub(crate) use shutdown::thread_store_error_kind;
 
-use crate::CodexAppsToolsCache;
 use crate::CodexThreadSettingsOverrides;
 use crate::agent::AgentStatus;
 use crate::agent::LocalAgentControl;
@@ -275,7 +274,6 @@ pub enum McpRefreshReason {
     AccountPluginCacheChanged,
     AccountWorkspaceSwitched,
     AuthChangeNotification,
-    CodexAppsToolRefresh,
     CurrentEnvironmentsChanged,
     DisabledPluginSelectionChanged,
     EffectivePluginsChanged,
@@ -737,7 +735,6 @@ impl ThreadManager {
     pub fn new(
         config: &Config,
         startup: StartupModels,
-        codex_apps_tools_cache: CodexAppsToolsCache,
         session_source: SessionSource,
         environment_manager: Arc<EnvironmentManager>,
         extensions: Arc<ExtensionRegistry<Config>>,
@@ -772,7 +769,6 @@ impl ThreadManager {
         let mcp_manager = Arc::new(McpManager::new_with_extensions(
             Arc::clone(&plugins_manager),
             Arc::clone(&extensions),
-            codex_apps_tools_cache,
         ));
         let code_mode_session_provider: Arc<dyn CodeModeSessionProvider> =
             if config.features.enabled(Feature::CodeModeHost)
@@ -2840,7 +2836,6 @@ impl ThreadManagerState {
             let mcp_manager = McpManager::new_with_extensions(
                 Arc::clone(&self.plugins_manager),
                 Arc::clone(&extensions),
-                CodexAppsToolsCache::default(),
             );
             (extensions, Arc::new(mcp_manager))
         } else {

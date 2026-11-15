@@ -1,5 +1,5 @@
-use crate::cloud_plugin::MAX_CONNECTOR_IDS_PER_PLUGIN;
-use crate::cloud_plugin::MAX_PLUGIN_DISPLAY_NAME_CHARS;
+pub(crate) const MAX_PLUGIN_DISPLAY_NAME_CHARS: usize = 64;
+pub(crate) const MAX_CONNECTOR_IDS_PER_PLUGIN: usize = 64;
 use crate::plugin_contributor_state::SelectedPluginMetadata;
 use codex_connectors::parse_plugin_app_config;
 use codex_core_plugins::PluginCatalogEntry;

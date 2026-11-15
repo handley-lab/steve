@@ -4,9 +4,8 @@ use super::*;
 use pretty_assertions::assert_eq;
 
 fn app_tool(description: &str) -> ToolInfo {
-    tool_info_from_listed_tool(
-        CODEX_APPS_MCP_SERVER_NAME,
-        /*is_codex_apps_mcp_server*/ true,
+    regular_mcp_tool_info_from_listed_tool(
+        "docs",
         /*server_instructions*/ None,
         ToolWithConnectorId {
             tool: RmcpTool::new("search", description.to_string(), Arc::default()),

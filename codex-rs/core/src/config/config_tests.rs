@@ -9084,40 +9084,6 @@ async fn requirements_guardian_policy_beats_auto_review() -> std::io::Result<()>
 }
 
 #[tokio::test]
-async fn load_config_ignores_empty_auto_review_guardian_policy_config() -> std::io::Result<()> {
-    let codex_home = TempDir::new()?;
-    let cfg = ConfigToml {
-        auto_review: Some(AutoReviewToml {
-            policy: Some("   ".to_string()),
-            experimental_conversation_history_prompt: Some(String::new()),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-
-    let config = Config::load_from_base_config_with_overrides(
-        cfg,
-        ConfigOverrides {
-            cwd: Some(codex_home.path().to_path_buf()),
-            ..Default::default()
-        },
-        codex_home.abs(),
-    )
-    .await?;
-
-    assert_eq!(
-        (
-            config.guardian_policy_config,
-            config.guardian_extra_policy,
-            config.guardian_conversation_history_prompt,
-        ),
-        (None, None, None)
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn load_config_ignores_empty_requirements_guardian_policy_config() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     let config_layer_stack = ConfigLayerStack::new(
@@ -14381,6 +14347,35 @@ fn sqlite_home_env_conflict_reports_an_override() -> std::io::Result<()> {
         &mut warnings,
     );
     assert!(warnings.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn load_config_ignores_empty_auto_review_guardian_policy_config() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    let cfg = ConfigToml {
+        auto_review: Some(AutoReviewToml {
+            policy: Some("   ".to_string()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let config = Config::load_from_base_config_with_overrides(
+        cfg,
+        ConfigOverrides {
+            cwd: Some(codex_home.path().to_path_buf()),
+            ..Default::default()
+        },
+        codex_home.abs(),
+    )
+    .await?;
+
+    assert_eq!(
+        (config.guardian_policy_config, config.guardian_extra_policy),
+        (None, None)
+    );
 
     Ok(())
 }

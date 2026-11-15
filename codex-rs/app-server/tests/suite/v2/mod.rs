@@ -82,7 +82,6 @@ mod marketplace_remove;
 mod marketplace_upgrade;
 mod mcp_connection_sharing;
 mod mcp_resource;
-mod mcp_resource_origin;
 mod mcp_server_elicitation;
 mod mcp_server_status;
 mod mcp_tool;

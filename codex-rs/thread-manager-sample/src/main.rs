@@ -16,7 +16,6 @@ use codex_core_api::AskForApproval;
 use codex_core_api::AuthKeyringBackendKind;
 use codex_core_api::AuthManager;
 use codex_core_api::AutoCompactTokenLimitScope;
-use codex_core_api::CodexAppsToolsCache;
 use codex_core_api::CodexHomeUserInstructionsProvider;
 use codex_core_api::CodexThread;
 use codex_core_api::Config;
@@ -154,7 +153,6 @@ async fn run_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
     let thread_manager = ThreadManager::new(
         &config,
         startup,
-        CodexAppsToolsCache::default(),
         SessionSource::Exec,
         environment_manager,
         Arc::new(extensions.build()),
@@ -289,8 +287,6 @@ async fn new_config(
         guardian_policy_template: None,
         guardian_transcript_mode: Default::default(),
         guardian_sync_elastic_budget: None,
-        guardian_conversation_history_prompt: None,
-        guardian_conversation_history_max_output_tokens: None,
         guardian_circuit_break_action: Default::default(),
         guardian_review_timeout: Some(std::time::Duration::from_secs(90)),
         include_permissions_instructions: false,

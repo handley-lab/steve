@@ -62,16 +62,8 @@ impl McpServerContributor<Config> for DiscoveryRecorder {
             if let Some(snapshots) = context.executor_capability_discovery_v2() {
                 self.snapshots.lock().await.extend_from_slice(snapshots);
             }
-            vec![McpServerContribution::HostedPluginConnectors {
-                plugin_id: "plugin_sentinel".to_string(),
-                plugin_display_name: "Inert sentinel".to_string(),
-                connector_ids: Vec::new(),
-            }]
+            Vec::new()
         })
-    }
-
-    fn hosted_plugin_ids(&self, _context: McpServerContributionContext<'_, Config>) -> Vec<String> {
-        vec!["plugin_sentinel".to_string()]
     }
 
     fn selected_plugins<'a>(
@@ -438,17 +430,6 @@ async fn v2_changed_inventory_refreshes_mcp_without_selection_changes() -> Resul
             );
         }
     }
-    let projections = recorder.projections.load(Ordering::SeqCst);
-    // Refresh before another step can discover the new inventory. This fixture has no Apps
-    // server, but the refresh must still publish exactly once before reporting that absence.
-    let error = test
-        .codex
-        .refresh_codex_apps_tools()
-        .await
-        .err()
-        .expect("no Apps server");
-    assert!(error.to_string().contains("unknown MCP server"));
-    assert_eq!(recorder.projections.load(Ordering::SeqCst), projections + 1);
     Ok(())
 }
 
@@ -702,16 +683,8 @@ async fn check_acquisition(enabled: bool, version: &'static str) -> Result<()> {
         let local_identity = PluginIdentity::Local {
             plugin_id: "inert-sentinel@market".to_string(),
         };
-        // Both paths publish accepted Cloud packages and available installations only.
-        let expected_plugins = vec![
-            (Some(executor_root), local_identity),
-            (
-                None,
-                PluginIdentity::Remote {
-                    remote_plugin_id: "plugin_sentinel".to_string(),
-                },
-            ),
-        ];
+        // Both paths publish available installations only.
+        let expected_plugins = vec![(Some(executor_root), local_identity)];
         {
             let selected_plugins = selected_plugins.lock().await;
             let snapshot = selected_plugins.as_ref().context("step plugin snapshot")?;

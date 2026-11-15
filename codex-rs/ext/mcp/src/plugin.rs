@@ -23,7 +23,6 @@ use std::collections::HashMap;
 
 use self::provider::PluginMcpProvider;
 use crate::PluginsThreadState;
-use crate::cloud_plugin::hosted_plugin_connectors;
 use crate::plugin_contributor::PluginContributor;
 use crate::plugin_contributor_state::CachedPluginMetadata;
 use crate::plugin_contributor_state::CachedSelectedRoot;
@@ -194,54 +193,8 @@ impl McpServerContributor<Config> for PluginContributor {
         &'a self,
         context: McpServerContributionContext<'a, Config>,
     ) -> ExtensionFuture<'a, Vec<McpServerContribution>> {
-        Box::pin(async move {
-            let Some(thread_store) = context.thread_store() else {
-                return Vec::new();
-            };
-            let cloud_plugins_enabled = self.providers.cloud.is_some()
-                && context.config().features.enabled(Feature::Plugins);
-            let state = thread_store.get_or_init(PluginsThreadState::default);
-            if !cloud_plugins_enabled {
-                state.contributor_state().cloud_generation = None;
-                return Vec::new();
-            }
-            // Core reads hosted connectors after finishing the executor registrations.
-            state
-                .cloud_catalog()
-                .as_ref()
-                .map(hosted_plugin_connectors)
-                .unwrap_or_default()
-        })
-    }
-
-    fn hosted_plugin_ids(&self, context: McpServerContributionContext<'_, Config>) -> Vec<String> {
-        if self.providers.cloud.is_none() || !context.config().features.enabled(Feature::Plugins) {
-            return Vec::new();
-        }
-        let Some(state) = context
-            .thread_store()
-            .and_then(codex_extension_api::ExtensionData::get::<PluginsThreadState>)
-        else {
-            return Vec::new();
-        };
-        state
-            .contributor_state()
-            .cloud_catalog()
-            .map(|catalog| {
-                hosted_plugin_connectors(catalog)
-                    .into_iter()
-                    .filter_map(|contribution| {
-                        if let McpServerContribution::HostedPluginConnectors { plugin_id, .. } =
-                            contribution
-                        {
-                            Some(plugin_id)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
+        let _ = context;
+        Box::pin(async { Vec::new() })
     }
 
     fn selected_plugins<'a>(
@@ -254,10 +207,6 @@ impl McpServerContributor<Config> for PluginContributor {
                 return Vec::new();
             };
             let state = thread_store.get_or_init(PluginsThreadState::default);
-            if context.auth_changed() {
-                // Clear the old account before executor loading can yield to other work.
-                state.contributor_state().cloud_generation = None;
-            }
             let selected_roots = context
                 .ready_selected_capability_roots()
                 .unwrap_or_default();
@@ -266,11 +215,7 @@ impl McpServerContributor<Config> for PluginContributor {
                 let merged = {
                     let mut cache = state.contributor_state();
                     cache.update_executor_catalog(snapshots);
-                    let cloud = (self.providers.cloud.is_some()
-                        && context.config().features.enabled(Feature::Plugins))
-                    .then(|| cache.cloud_catalog())
-                    .flatten();
-                    merge_catalogs(cache.executor_catalog.as_ref(), cloud)
+                    merge_catalogs(cache.executor_catalog.as_ref(), None)
                 };
                 for warning in &merged.warnings {
                     tracing::warn!(%warning, "plugin catalog merge reported a warning");

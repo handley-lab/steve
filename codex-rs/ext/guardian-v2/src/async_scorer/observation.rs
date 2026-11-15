@@ -213,7 +213,7 @@ impl GuardianV2Extension {
             Ok((manager, thread))
         }
         .await;
-        let (manager, thread) = match thread_context {
+        let (_manager, thread) = match thread_context {
             Ok(context) => context,
             Err(error) => {
                 score_progress.invalidate(tool_call_index);
@@ -423,7 +423,6 @@ impl GuardianV2Extension {
             root_turn_id,
             cyber_access_program,
             parent_response_id,
-            manager,
             thread,
             config,
             context_mode,

@@ -33,9 +33,6 @@ use std::time::Duration;
 use std::time::Instant;
 
 use crate::client_tool_catalog::ClientToolCatalog;
-use crate::codex_apps::normalize_codex_apps_callable_name;
-use crate::codex_apps::normalize_codex_apps_callable_namespace;
-use crate::codex_apps::normalize_codex_apps_tool_title;
 use crate::connection_pool::ConnectionKey;
 use crate::connection_pool::ConnectionSharing;
 use crate::connection_pool::ConnectionSlot;
@@ -43,7 +40,6 @@ use crate::connection_pool::LEASE_CAPABILITY;
 use crate::connection_pool::SharingNegotiation;
 use crate::elicitation::ElicitationRequestManager;
 use crate::executor_environment_http_client::ExecutorEnvironmentHttpClient;
-use crate::mcp::CODEX_APPS_MCP_SERVER_NAME;
 use crate::mcp::ToolPluginContext;
 use crate::pagination::collect_paginated_with_limit;
 use crate::runtime::McpRuntimeContext;
@@ -62,17 +58,12 @@ use codex_config::McpServerConfig;
 use codex_config::McpServerTransportConfig;
 use codex_config::types::AuthKeyringBackendKind;
 use codex_config::types::OAuthCredentialsStoreMode;
-use codex_connectors::ConnectorRuntimeContext;
-use codex_connectors::ConnectorRuntimeFetchSource;
 use codex_exec_server::Environment;
 use codex_login::AuthChangeState;
 use codex_otel::auth_storage::AuthStorageOriginator;
 use codex_protocol::mcp::ClientMcpExtensions;
 use codex_protocol::mcp::McpServerInfo;
 use codex_protocol::protocol::Event;
-use codex_protocol::protocol::EventMsg;
-use codex_protocol::protocol::McpStartupStatus;
-use codex_protocol::protocol::McpStartupUpdateEvent;
 use codex_rmcp_client::ExecutorStdioServerLauncher;
 use codex_rmcp_client::LocalStdioServerLauncher;
 use codex_rmcp_client::McpOAuthRefreshMode;
@@ -94,7 +85,6 @@ use rmcp::model::ProtocolVersion;
 use rmcp::model::ServerPeerInfo;
 use rmcp::model::Tool as RmcpTool;
 use tokio::sync::watch;
-use tokio::time::Instant as TokioInstant;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 use tracing::warn;
@@ -110,12 +100,8 @@ const MAX_PLUGIN_PROVENANCE_BYTES: usize = 1_024;
 pub(crate) const MCP_TOOLS_LIST_DURATION_METRIC: &str = "codex.mcp.tools.list.duration_ms";
 pub(crate) const MCP_TOOLS_FETCH_UNCACHED_DURATION_METRIC: &str =
     "codex.mcp.tools.fetch_uncached.duration_ms";
-pub(crate) const CODEX_APPS_REFRESH_DURATION_METRIC: &str = "codex.apps.refresh.duration_ms";
 pub(crate) const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const DEFAULT_TOOL_TIMEOUT: Duration = Duration::from_secs(300);
-
-pub(crate) const CODEX_APPS_RECONNECT_INITIAL_BACKOFF: Duration = Duration::from_secs(1);
-const CODEX_APPS_RECONNECT_MAX_BACKOFF: Duration = Duration::from_secs(30);
 
 const UNTRUSTED_CONNECTOR_META_KEYS: &[&str] = &[
     "connector_id",
@@ -129,139 +115,6 @@ pub(crate) type ManagedClientFuture =
     Shared<BoxFuture<'static, Result<ManagedClient, StartupOutcomeError>>>;
 type StartupShutdown = Shared<BoxFuture<'static, Result<(), String>>>;
 
-#[derive(Default)]
-struct CodexAppsStartupReconnectState {
-    current_client: Option<ManagedClient>,
-    last_error: Option<StartupOutcomeError>,
-    reconnect_in_flight: Option<ManagedClientFuture>,
-    consecutive_failures: u32,
-    retry_not_before: Option<TokioInstant>,
-}
-
-#[derive(Clone)]
-struct CodexAppsStartupStatusContext {
-    submit_id: String,
-    server_name: String,
-    tx_event: Sender<Event>,
-}
-
-pub(crate) struct CodexAppsStartupReconnect {
-    factory: Arc<dyn Fn() -> ManagedClientFuture + Send + Sync>,
-    state: StdMutex<CodexAppsStartupReconnectState>,
-    startup_status_context: Option<CodexAppsStartupStatusContext>,
-}
-
-impl CodexAppsStartupReconnect {
-    pub(crate) fn new(factory: Arc<dyn Fn() -> ManagedClientFuture + Send + Sync>) -> Self {
-        Self {
-            factory,
-            state: StdMutex::new(CodexAppsStartupReconnectState::default()),
-            startup_status_context: None,
-        }
-    }
-
-    fn with_startup_status_context(
-        mut self,
-        submit_id: String,
-        server_name: String,
-        tx_event: Option<Sender<Event>>,
-    ) -> Self {
-        self.startup_status_context = tx_event.map(|tx_event| CodexAppsStartupStatusContext {
-            submit_id,
-            server_name,
-            tx_event,
-        });
-        self
-    }
-
-    fn current_client(&self) -> Option<ManagedClient> {
-        self.state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .current_client
-            .clone()
-    }
-
-    pub(crate) fn reconnect_in_background(self: &Arc<Self>) -> Option<ManagedClientFuture> {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(attempt) = &state.reconnect_in_flight {
-            return Some(attempt.clone());
-        }
-        if state.current_client.is_some()
-            || state
-                .retry_not_before
-                .is_some_and(|retry_not_before| TokioInstant::now() < retry_not_before)
-        {
-            return None;
-        }
-
-        let reconnect = Arc::clone(self);
-        let attempt = async move {
-            let result = (reconnect.factory)().await;
-            let startup_status_context = reconnect.startup_status_context.clone();
-            let recovered = {
-                let mut state = reconnect
-                    .state
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                state.reconnect_in_flight = None;
-                match &result {
-                    Ok(client) => {
-                        state.current_client = Some(client.clone());
-                        state.last_error = None;
-                        state.consecutive_failures = 0;
-                        state.retry_not_before = None;
-                        true
-                    }
-                    Err(error) => {
-                        state.last_error = Some(error.clone());
-                        state.consecutive_failures = state.consecutive_failures.saturating_add(1);
-                        let retry_after = codex_apps_reconnect_backoff(state.consecutive_failures);
-                        state.retry_not_before = Some(TokioInstant::now() + retry_after);
-                        warn!(
-                            error = %error,
-                            retry_after_ms = retry_after.as_millis(),
-                            "Apps MCP startup reconnect failed; continuing with cached tools"
-                        );
-                        false
-                    }
-                }
-            };
-
-            if recovered && let Some(context) = startup_status_context {
-                let _ = context
-                    .tx_event
-                    .send(Event {
-                        id: context.submit_id,
-                        msg: EventMsg::McpStartupUpdate(McpStartupUpdateEvent {
-                            server: context.server_name,
-                            status: McpStartupStatus::Ready,
-                        }),
-                    })
-                    .await;
-            }
-            result
-        }
-        .boxed()
-        .shared();
-        state.reconnect_in_flight = Some(attempt.clone());
-        drop(state);
-        // Keep recovery running if the invocation waiting for it is cancelled.
-        tokio::spawn(attempt.clone());
-        Some(attempt)
-    }
-}
-
-fn codex_apps_reconnect_backoff(consecutive_failures: u32) -> Duration {
-    let exponent = consecutive_failures.saturating_sub(1).min(5);
-    CODEX_APPS_RECONNECT_INITIAL_BACKOFF
-        .saturating_mul(1 << exponent)
-        .min(CODEX_APPS_RECONNECT_MAX_BACKOFF)
-}
-
 #[derive(Clone)]
 struct ManagedClientStartup {
     originator: AuthStorageOriginator,
@@ -272,7 +125,6 @@ struct ManagedClientStartup {
     oauth_refresh_mode: McpOAuthRefreshMode,
     tx_event: Option<Sender<Event>>,
     elicitation_requests: ElicitationRequestManager,
-    codex_apps_tools_cache_context: Option<ConnectorRuntimeContext<ToolInfo>>,
     tool_catalog_cache_context: Option<McpToolCatalogCacheContext>,
     runtime_context: McpRuntimeContext,
     resolved_environment: std::result::Result<Option<Arc<Environment>>, String>,
@@ -287,11 +139,7 @@ struct ManagedClientStartup {
 }
 
 impl ManagedClientStartup {
-    fn start(
-        &self,
-        sharing_declined: Option<CancellationToken>,
-        publish_apps: Option<watch::Sender<Option<std::sync::Weak<RmcpClient>>>>,
-    ) -> ManagedClientFuture {
+    fn start(&self, sharing_declined: Option<CancellationToken>) -> ManagedClientFuture {
         // A new attempt must not expose capabilities from an earlier connection.
         *self
             .server_capabilities
@@ -306,7 +154,6 @@ impl ManagedClientStartup {
             oauth_refresh_mode,
             tx_event,
             elicitation_requests,
-            codex_apps_tools_cache_context,
             tool_catalog_cache_context,
             runtime_context,
             resolved_environment,
@@ -319,7 +166,6 @@ impl ManagedClientStartup {
             startup_complete,
             server_capabilities,
         } = self.clone();
-        let is_codex_apps_mcp_server = server_name == CODEX_APPS_MCP_SERVER_NAME;
         let startup_timeout = server
             .config()
             .startup_timeout_sec
@@ -329,7 +175,6 @@ impl ManagedClientStartup {
             let tool_catalog_fetch_ticket = tool_catalog_cache_context
                 .as_ref()
                 .map(McpToolCatalogCacheContext::begin_fetch);
-            let refresh_start = is_codex_apps_mcp_server.then(Instant::now);
             let mut discovery_client = None;
             let outcome = match async {
                 if let Err(error) = validate_mcp_server_name(&server_name) {
@@ -368,12 +213,9 @@ impl ManagedClientStartup {
                     client,
                     StartServerTaskParams {
                         sharing_declined,
-                        publish_apps,
-                        is_codex_apps_mcp_server,
                         startup_timeout: Some(startup_timeout),
                         tx_event,
                         elicitation_requests,
-                        codex_apps_tools_cache_context,
                         tool_catalog_cache_context,
                         tool_catalog_fetch_ticket,
                         client_elicitation_capability,
@@ -419,15 +261,6 @@ impl ManagedClientStartup {
             if let Err(StartupOutcomeError::Failed { error, .. }) = &outcome {
                 warn!(server_name, %error, "MCP server startup failed");
             }
-            if outcome.is_ok()
-                && let Some(refresh_start) = refresh_start
-            {
-                emit_duration(
-                    CODEX_APPS_REFRESH_DURATION_METRIC,
-                    refresh_start.elapsed(),
-                    &[("path", "legacy"), ("trigger", "initial")],
-                );
-            }
 
             startup_complete.store(true, Ordering::Release);
             outcome
@@ -442,14 +275,10 @@ impl ManagedClientStartup {
 #[derive(Clone)]
 pub(crate) struct AsyncManagedClient {
     pub(crate) client: ManagedClientFuture,
-    pub(crate) is_codex_apps_mcp_server: bool,
-    pub(crate) cached_server_info: Option<McpServerInfo>,
     /// Retained after initialization even if subsequent tool discovery fails.
     pub(crate) server_capabilities: Arc<StdMutex<Option<serde_json::Value>>>,
-    pub(crate) codex_apps_tools_cache_context: Option<ConnectorRuntimeContext<ToolInfo>>,
     pub(crate) tool_catalog_cache_context: Option<McpToolCatalogCacheContext>,
     pub(crate) startup_complete: Arc<AtomicBool>,
-    pub(crate) startup_reconnect: Option<Arc<CodexAppsStartupReconnect>>,
     pub(crate) connection_slot: Option<Arc<ConnectionSlot>>,
     pub(crate) cancel_token: CancellationToken,
 }
@@ -461,7 +290,6 @@ impl AsyncManagedClient {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         server_name: String,
-        startup_submit_id: String,
         server: EffectiveMcpServer,
         store_mode: OAuthCredentialsStoreMode,
         keyring_backend_kind: AuthKeyringBackendKind,
@@ -469,7 +297,6 @@ impl AsyncManagedClient {
         cancel_token: CancellationToken,
         tx_event: Option<Sender<Event>>,
         elicitation_requests: ElicitationRequestManager,
-        codex_apps_tools_cache_context: Option<ConnectorRuntimeContext<ToolInfo>>,
         tool_catalog_cache_context: Option<McpToolCatalogCacheContext>,
         runtime_context: McpRuntimeContext,
         resolved_environment: std::result::Result<Option<Arc<Environment>>, String>,
@@ -480,18 +307,7 @@ impl AsyncManagedClient {
         defer_startup: bool,
         catalog_item_limit: usize,
         connection_pool: Option<(crate::McpConnectionPool, ConnectionKey)>,
-        publish_apps: Option<watch::Sender<Option<std::sync::Weak<RmcpClient>>>>,
     ) -> Self {
-        let is_codex_apps_mcp_server = server_name == CODEX_APPS_MCP_SERVER_NAME;
-        let reconnect_server_name = server_name.clone();
-        let reconnect_tx_event = tx_event.clone();
-        let cached_server_info = if is_codex_apps_mcp_server {
-            codex_apps_tools_cache_context
-                .as_ref()
-                .and_then(ConnectorRuntimeContext::cached_server_info)
-        } else {
-            None
-        };
         let startup_complete = Arc::new(AtomicBool::new(false));
         let server_capabilities = Arc::new(StdMutex::new(None));
         // Startup may publish a legacy catalog after negotiation. Only a dormant chat can
@@ -514,7 +330,6 @@ impl AsyncManagedClient {
             oauth_refresh_mode,
             tx_event,
             elicitation_requests,
-            codex_apps_tools_cache_context: codex_apps_tools_cache_context.clone(),
             tool_catalog_cache_context,
             runtime_context,
             resolved_environment,
@@ -545,7 +360,7 @@ impl AsyncManagedClient {
                         |cancellation, sharing_declined| {
                             let mut shared_startup = (*startup).clone();
                             shared_startup.cancel_token = cancellation;
-                            shared_startup.start(sharing_declined, /*publish_apps*/ None)
+                            shared_startup.start(sharing_declined)
                         },
                     )
                     .await
@@ -566,58 +381,29 @@ impl AsyncManagedClient {
             .shared();
             (client, Some(connection_slot))
         } else {
-            (startup.start(/*sharing_declined*/ None, publish_apps), None)
+            (startup.start(/*sharing_declined*/ None), None)
         };
-        let startup_reconnect = is_codex_apps_mcp_server.then(|| {
-            let startup = Arc::clone(&startup);
-            Arc::new(
-                CodexAppsStartupReconnect::new(Arc::new(move || {
-                    startup.start(/*sharing_declined*/ None, /*publish_apps*/ None)
-                }))
-                .with_startup_status_context(
-                    startup_submit_id,
-                    reconnect_server_name,
-                    reconnect_tx_event,
-                ),
-            )
-        });
         Self {
             client,
-            is_codex_apps_mcp_server,
-            cached_server_info,
             server_capabilities,
-            codex_apps_tools_cache_context,
             tool_catalog_cache_context: advertised_catalog,
             startup_complete,
-            startup_reconnect,
             connection_slot,
             cancel_token,
         }
     }
 
     pub(crate) async fn client(&self) -> Result<ManagedClient, StartupOutcomeError> {
-        if let Some(client) = self
-            .startup_reconnect
-            .as_ref()
-            .and_then(|reconnect| reconnect.current_client())
-        {
-            return Ok(client);
-        }
         self.client.clone().await
     }
 
     /// Returns the current ready client, including its tool catalog and metadata,
     /// without waiting for startup or initiating a reconnection.
     pub(crate) fn ready_client(&self) -> Option<ManagedClient> {
-        self.startup_reconnect
-            .as_ref()
-            .and_then(|reconnect| reconnect.current_client())
-            .or_else(|| {
-                self.client
-                    .peek()
-                    .and_then(|result| result.as_ref().ok())
-                    .cloned()
-            })
+        self.client
+            .peek()
+            .and_then(|result| result.as_ref().ok())
+            .cloned()
     }
 
     pub(crate) fn ready_transport(&self) -> Option<Arc<RmcpClient>> {
@@ -651,18 +437,6 @@ impl AsyncManagedClient {
         .shared();
     }
 
-    pub(crate) async fn reconnect_failed_startup(&self) {
-        let Some(startup_reconnect) = self.startup_reconnect.as_ref() else {
-            return;
-        };
-        if !self.startup_complete.load(Ordering::Acquire) {
-            return;
-        }
-        if matches!(self.client().await, Err(StartupOutcomeError::Failed { .. })) {
-            let _ = startup_reconnect.reconnect_in_background();
-        }
-    }
-
     pub(crate) async fn shutdown(&self) {
         self.cancel_token.cancel();
         match self.client().await {
@@ -692,41 +466,21 @@ impl AsyncManagedClient {
     }
 
     pub(crate) fn has_cached_tools(&self) -> bool {
-        self.codex_apps_tools_cache_context
+        self.tool_catalog_cache_context
             .as_ref()
-            .is_some_and(ConnectorRuntimeContext::has_current_tools)
-            || self
-                .tool_catalog_cache_context
-                .as_ref()
-                .is_some_and(McpToolCatalogCacheContext::has_tools)
+            .is_some_and(McpToolCatalogCacheContext::has_tools)
     }
 
     pub(crate) fn cached_tools_or(&self, fallback: Option<Vec<ToolInfo>>) -> Option<Vec<ToolInfo>> {
-        self.codex_apps_tools_cache_context
+        self.tool_catalog_cache_context
             .as_ref()
-            .and_then(ConnectorRuntimeContext::current_tools)
-            .or_else(|| {
-                self.tool_catalog_cache_context
-                    .as_ref()
-                    .and_then(|cache| cache.current_tools_or(fallback))
-            })
+            .and_then(|cache| cache.current_tools_or(fallback))
     }
 
     pub(crate) fn cached_catalog(&self) -> Option<(Vec<ToolInfo>, Option<Arc<serde_json::Value>>)> {
-        self.codex_apps_tools_cache_context
+        self.tool_catalog_cache_context
             .as_ref()
-            .and_then(|context| {
-                context
-                    .current_catalog_snapshot()
-                    .map(|snapshot| (snapshot.tools().to_vec(), snapshot.shared_tool_list_meta()))
-                    // Older caches still supply tools without discovery-scoped metadata.
-                    .or_else(|| context.current_tools().map(|tools| (tools, None)))
-            })
-            .or_else(|| {
-                self.tool_catalog_cache_context
-                    .as_ref()
-                    .and_then(|cache| cache.current_catalog_or(/*fallback*/ None))
-            })
+            .and_then(|cache| cache.current_catalog_or(/*fallback*/ None))
     }
 
     pub(crate) async fn listed_catalog(
@@ -739,7 +493,6 @@ impl AsyncManagedClient {
         } else {
             match self.client().await {
                 Ok(client) => Ok(client.listed_catalog().await),
-                Err(error) if self.is_codex_apps_mcp_server => self.cached_catalog().ok_or(error),
                 Err(error) => Err(error),
             }
         }
@@ -798,8 +551,6 @@ impl From<anyhow::Error> for StartupOutcomeError {
 #[instrument(level = "trace", skip_all, fields(server_name = %server_name))]
 pub(crate) async fn list_tools_for_client_uncached(
     server_name: &str,
-    is_codex_apps_mcp_server: bool,
-    codex_apps_refresh_trigger: &'static str,
     client: &Arc<RmcpClient>,
     timeout: Option<Duration>,
     catalog_item_limit: usize,
@@ -826,53 +577,17 @@ pub(crate) async fn list_tools_for_client_uncached(
     })
     .await?
     .into_iter()
-    .map(|tool| {
-        tool_info_from_listed_tool(
-            server_name,
-            is_codex_apps_mcp_server,
-            server_instructions,
-            tool,
-        )
-    })
+    .map(|tool| regular_mcp_tool_info_from_listed_tool(server_name, server_instructions, tool))
     .collect();
-    if is_codex_apps_mcp_server {
-        emit_duration(
-            MCP_TOOLS_FETCH_UNCACHED_DURATION_METRIC,
-            fetch_start.elapsed(),
-            &[("trigger", codex_apps_refresh_trigger)],
-        );
-    } else {
-        emit_duration(
-            MCP_TOOLS_FETCH_UNCACHED_DURATION_METRIC,
-            fetch_start.elapsed(),
-            &[],
-        );
-    }
+    emit_duration(
+        MCP_TOOLS_FETCH_UNCACHED_DURATION_METRIC,
+        fetch_start.elapsed(),
+        &[],
+    );
     let meta = meta
         .into_inner()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     Ok((tools, meta))
-}
-
-/// Filters disabled connectors, presents declared Codex Apps file parameters to the model as
-/// local-path inputs, and adds plugin names to each tool. Plugin membership is resolved by
-/// connector ID, falling back to the MCP server when absent.
-pub(crate) fn prepare_codex_apps_tools_for_model(
-    mut tools: Vec<ToolInfo>,
-    tool_plugin_context: &ToolPluginContext,
-) -> Vec<ToolInfo> {
-    tools.retain(|tool| tool_plugin_context.allows_connector_id(tool.connector_id.as_deref()));
-    for tool in &mut tools {
-        let plugin_names = match tool.connector_id.as_deref() {
-            Some(connector_id) => {
-                tool_plugin_context.plugin_display_names_for_connector_id(connector_id)
-            }
-            None => tool_plugin_context
-                .plugin_display_names_for_mcp_server_name(tool.server_name.as_str()),
-        };
-        add_plugin_provenance_to_tool(tool, plugin_names);
-    }
-    tools
 }
 
 /// Stores plugin names on the tool and appends a model-visible plugin membership note.
@@ -942,64 +657,6 @@ pub(crate) fn prepare_regular_mcp_tools_for_model(
         add_plugin_provenance_to_tool(tool, plugin_names);
     }
     tools
-}
-
-fn tool_info_from_listed_tool(
-    server_name: &str,
-    is_codex_apps_mcp_server: bool,
-    server_instructions: Option<&str>,
-    tool: ToolWithConnectorId,
-) -> ToolInfo {
-    if is_codex_apps_mcp_server {
-        codex_apps_tool_info_from_listed_tool(server_name, server_instructions, tool)
-    } else {
-        regular_mcp_tool_info_from_listed_tool(server_name, server_instructions, tool)
-    }
-}
-
-/// Converts a Codex Apps tool by preserving connector fields, removing connector prefixes from
-/// model-visible names and titles, and using the connector description for its tool namespace.
-fn codex_apps_tool_info_from_listed_tool(
-    server_name: &str,
-    server_instructions: Option<&str>,
-    tool: ToolWithConnectorId,
-) -> ToolInfo {
-    let mut tool_def = tool.tool;
-    let connector_id = tool.connector_id;
-    let connector_name = tool.connector_name;
-    let connector_description = tool.connector_description;
-    let callable_name = normalize_codex_apps_callable_name(
-        &tool_def.name,
-        connector_id.as_deref(),
-        connector_name.as_deref(),
-    );
-    let callable_namespace =
-        normalize_codex_apps_callable_namespace(server_name, connector_name.as_deref());
-    if let Some(title) = tool_def.title.as_deref() {
-        let normalized_title = normalize_codex_apps_tool_title(connector_name.as_deref(), title);
-        if tool_def.title.as_deref() != Some(normalized_title.as_str()) {
-            tool_def.title = Some(normalized_title);
-        }
-    }
-    let has_connector_metadata =
-        connector_id.is_some() || connector_name.is_some() || connector_description.is_some();
-    let namespace_description = if has_connector_metadata {
-        connector_description
-    } else {
-        server_instructions.map(str::to_string)
-    };
-    ToolInfo {
-        server_name: server_name.to_owned(),
-        supports_parallel_tool_calls: false,
-        server_origin: None,
-        callable_name,
-        callable_namespace,
-        namespace_description,
-        tool: tool_def,
-        connector_id,
-        connector_name,
-        plugin_display_names: Vec::new(),
-    }
 }
 
 /// Converts a regular MCP tool by removing reserved connector metadata, keeping its raw tool name,
@@ -1088,12 +745,9 @@ async fn start_server_task(
 ) -> Result<ManagedClient, StartupOutcomeError> {
     let StartServerTaskParams {
         sharing_declined,
-        publish_apps,
-        is_codex_apps_mcp_server,
         startup_timeout,
         tx_event,
         elicitation_requests,
-        codex_apps_tools_cache_context,
         mut tool_catalog_cache_context,
         tool_catalog_fetch_ticket,
         client_elicitation_capability,
@@ -1131,17 +785,11 @@ async fn start_server_task(
             );
     }
 
-    let requested_capabilities = params.capabilities.clone();
     let started_at = Instant::now();
     let initialize_result = client
         .initialize(params, startup_timeout, send_elicitation)
         .await;
-    record_protocol_discovery_metrics(
-        client.protocol_mode(),
-        is_codex_apps_mcp_server,
-        started_at,
-        &initialize_result,
-    );
+    record_protocol_discovery_metrics(client.protocol_mode(), started_at, &initialize_result);
     let initialize_result = initialize_result.map_err(StartupOutcomeError::from)?;
     if client.protocol_mode() == McpProtocolMode::DiscoverLocalStdio
         && !initialize_result.protocol_version.has_initialize()
@@ -1187,36 +835,11 @@ async fn start_server_task(
             exp.contains_key(crate::MCP_SANDBOX_STATE_CAPABILITY)
                 || exp.contains_key(crate::MCP_SANDBOX_STATE_META_CAPABILITY)
         });
-    let codex_apps_tools_cache_context = codex_apps_tools_cache_context.map(|context| {
-        if server_disables_tool_catalog_cache {
-            context.without_live_scope()
-        } else {
-            // Converted tools can inherit these instructions. Server capabilities and the
-            // negotiated protocol can also differ between otherwise identical connections.
-            let mut scope = serde_json::json!([
-                requested_capabilities,
-                initialize_result.protocol_version,
-                initialize_result.capabilities,
-                initialize_result.instructions,
-                initialize_result.server_info,
-            ]);
-            scope.sort_all_objects();
-            context.with_live_scope(scope.to_string())
-        }
-    });
     let list_start = Instant::now();
     let server_info =
         mcp_server_info_from_implementation(&server_name, initialize_result.server_info);
-    let fetch_ticket = codex_apps_tools_cache_context
-        .as_ref()
-        .map(|context| context.begin_fetch(ConnectorRuntimeFetchSource::Startup));
-    if let Some(tx) = &publish_apps {
-        tx.send_replace(Some(Arc::downgrade(&client)));
-    }
     let (tools, meta) = list_tools_for_client_uncached(
         &server_name,
-        is_codex_apps_mcp_server,
-        /*codex_apps_refresh_trigger*/ "initial",
         &client,
         startup_timeout,
         catalog_item_limit,
@@ -1224,23 +847,7 @@ async fn start_server_task(
     )
     .await
     .map_err(StartupOutcomeError::from)?;
-    let client_tools: Arc<[ToolInfo]> =
-        match (codex_apps_tools_cache_context.as_ref(), fetch_ticket) {
-            (Some(context), Some(ticket)) if server_disables_tool_catalog_cache => {
-                context.publish_runtime_if_newest_accepted(
-                    ticket,
-                    &server_info,
-                    tools.clone(),
-                    meta.clone(),
-                );
-                tools.into()
-            }
-            (Some(context), Some(ticket)) => context
-                .publish_runtime_if_newest_accepted(ticket, &server_info, tools, meta.clone())
-                .shared_tools(),
-            (None, None) => tools.into(),
-            _ => unreachable!("Codex Apps fetch ticket requires cache context"),
-        };
+    let client_tools: Arc<[ToolInfo]> = tools.into();
     if let (Some(cache_context), Some(mut fetch_ticket)) = (
         tool_catalog_cache_context.as_ref(),
         tool_catalog_fetch_ticket,
@@ -1252,7 +859,7 @@ async fn start_server_task(
         }
         cache_context.publish_if_newest(fetch_ticket, &client_tools, meta.clone());
     }
-    if is_codex_apps_mcp_server || tool_catalog_cache_context.is_some() {
+    if tool_catalog_cache_context.is_some() {
         emit_duration(
             MCP_TOOLS_LIST_DURATION_METRIC,
             list_start.elapsed(),
@@ -1265,18 +872,11 @@ async fn start_server_task(
         _auth_change_notifications: auth_change_notifications,
         client: Arc::clone(&client),
         server_info,
-        tool_catalog: Arc::new(ClientToolCatalog::new(
-            client_tools,
-            meta,
-            codex_apps_tools_cache_context
-                .as_ref()
-                .and_then(ConnectorRuntimeContext::subscribe),
-        )),
+        tool_catalog: Arc::new(ClientToolCatalog::new(client_tools, meta)),
         tool_timeout: None,
         server_instructions: initialize_result.instructions,
         server_supports_sandbox_state_meta_capability,
         client_supports_network_policy_meta_capability: client_supports_network_policy_meta,
-        codex_apps_tools_cache_context,
     };
 
     Ok(managed)
@@ -1284,7 +884,6 @@ async fn start_server_task(
 
 fn record_protocol_discovery_metrics(
     mode: McpProtocolMode,
-    is_codex_apps_mcp_server: bool,
     started_at: Instant,
     result: &Result<ServerPeerInfo>,
 ) {
@@ -1301,10 +900,7 @@ fn record_protocol_discovery_metrics(
         Ok(_) => "legacy",
         Err(_) => "failure",
     };
-    let mut tags = vec![("mode", mode), ("outcome", outcome)];
-    if is_codex_apps_mcp_server {
-        tags.push(("server_kind", "openai_codex_apps"));
-    }
+    let tags = [("mode", mode), ("outcome", outcome)];
     let _ = metrics.counter("codex.mcp.protocol_discovery", /*inc*/ 1, &tags);
     let _ = metrics.record_duration(
         "codex.mcp.protocol_discovery.duration_ms",
@@ -1367,14 +963,11 @@ fn mcp_server_info_from_implementation(
 }
 
 struct StartServerTaskParams {
-    publish_apps: Option<watch::Sender<Option<std::sync::Weak<RmcpClient>>>>,
     sharing_declined: Option<CancellationToken>,
     server_capabilities: Arc<StdMutex<Option<serde_json::Value>>>,
-    is_codex_apps_mcp_server: bool,
     startup_timeout: Option<Duration>, // TODO: cancel_token should handle this.
     tx_event: Option<Sender<Event>>,
     elicitation_requests: ElicitationRequestManager,
-    codex_apps_tools_cache_context: Option<ConnectorRuntimeContext<ToolInfo>>,
     tool_catalog_cache_context: Option<McpToolCatalogCacheContext>,
     tool_catalog_fetch_ticket: Option<McpToolCatalogFetchTicket>,
     client_elicitation_capability: ElicitationCapability,
@@ -1686,41 +1279,6 @@ mod tests {
         assert_eq!(
             meta.0.get("custom").and_then(|value| value.as_str()),
             Some("kept")
-        );
-    }
-
-    #[test]
-    fn codex_apps_connector_metadata_is_preserved() {
-        let tool = tool_with_connector_meta();
-        let expected_tool = tool.clone();
-
-        let tool_info = tool_info_from_listed_tool(
-            CODEX_APPS_MCP_SERVER_NAME,
-            /*is_codex_apps_mcp_server*/ true,
-            /*server_instructions*/ None,
-            ToolWithConnectorId {
-                tool,
-                connector_id: Some("connector_gmail".to_string()),
-                connector_name: Some("Gmail".to_string()),
-                connector_description: Some("Mail connector".to_string()),
-            },
-        );
-
-        let expected = ToolInfo {
-            server_name: CODEX_APPS_MCP_SERVER_NAME.to_string(),
-            supports_parallel_tool_calls: false,
-            server_origin: None,
-            callable_name: "capture_file_upload".to_string(),
-            callable_namespace: "codex_apps__gmail".to_string(),
-            namespace_description: Some("Mail connector".to_string()),
-            tool: expected_tool,
-            connector_id: Some("connector_gmail".to_string()),
-            connector_name: Some("Gmail".to_string()),
-            plugin_display_names: Vec::new(),
-        };
-        assert_eq!(
-            serde_json::to_value(tool_info).expect("serialize actual tool info"),
-            serde_json::to_value(expected).expect("serialize expected tool info")
         );
     }
 }

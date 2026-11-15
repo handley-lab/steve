@@ -9,7 +9,6 @@ use crate::attestation::app_server_attestation_provider;
 use crate::config_manager::ConfigManager;
 use crate::connection_rpc_gate::ConnectionRpcGate;
 use crate::current_time::app_server_time_provider;
-use crate::error_code::internal_error;
 use crate::error_code::invalid_params;
 use crate::error_code::invalid_request;
 use crate::error_code::method_not_found;
@@ -35,8 +34,6 @@ use crate::request_processors::FsRequestProcessor;
 use crate::request_processors::GitRequestProcessor;
 use crate::request_processors::InitializeRequestProcessor;
 use crate::request_processors::MarketplaceRequestProcessor;
-use crate::request_processors::McpEventStreamReady;
-use crate::request_processors::McpEventStreams;
 use crate::request_processors::McpRequestProcessor;
 use crate::request_processors::PluginRequestProcessor;
 use crate::request_processors::ProcessExecRequestProcessor;
@@ -182,7 +179,6 @@ pub(crate) struct ConnectionSessionState {
     pub(crate) rpc_gate: Arc<ConnectionRpcGate>,
     #[cfg_attr(not(windows), allow(dead_code))]
     pub(crate) origin: crate::transport::ConnectionOrigin,
-    pub(crate) mcp_event_streams: McpEventStreams,
     initialized: OnceLock<InitializedConnectionSessionState>,
 }
 
@@ -202,7 +198,6 @@ impl ConnectionSessionState {
             origin,
             disconnect: CancellationToken::new(),
             rpc_gate: Arc::new(ConnectionRpcGate::new()),
-            mcp_event_streams: McpEventStreams::default(),
             initialized: OnceLock::new(),
         }
     }
@@ -373,7 +368,6 @@ impl MessageProcessor {
             let manager = ThreadManager::new(
                 config.as_ref(),
                 startup,
-                codex_core::CodexAppsToolsCache::default(),
                 session_source,
                 environment_manager,
                 thread_extensions(
@@ -496,9 +490,7 @@ impl MessageProcessor {
         let marketplace_processor =
             MarketplaceRequestProcessor::new(config_manager.clone(), Arc::clone(&thread_manager));
         let mcp_processor = McpRequestProcessor::new(
-            auth_manager.clone(),
             Arc::clone(&thread_manager),
-            thread_state_manager.clone(),
             outgoing.clone(),
             config_manager.clone(),
         );
@@ -909,7 +901,6 @@ impl MessageProcessor {
         self.account_processor
             .gateway_connection_closed(connection_id);
         self.request_serialization_queues.discard_closed().await;
-        session_state.mcp_event_streams.clear().await;
         if timeout(
             CONNECTION_RPC_DRAIN_TIMEOUT,
             session_state.rpc_gate.shutdown(),
@@ -1043,15 +1034,6 @@ impl MessageProcessor {
             _ => (None, false),
         };
 
-        let event_stream_ready = match &codex_request {
-            ClientRequest::McpServerEventStreamStart { params, .. } => Some(
-                session
-                    .mcp_event_streams
-                    .start(connection_id, params.clone(), self.mcp_processor.clone())
-                    .await?,
-            ),
-            _ => None,
-        };
         let serialization_scope = codex_request.serialization_scope();
         let error_request_id = connection_request_id.clone();
         let rpc_gate = Arc::clone(&session.rpc_gate);
@@ -1079,7 +1061,6 @@ impl MessageProcessor {
                             codex_request,
                             request_context,
                             session,
-                            event_stream_ready,
                         ),
                     ))
                     .await;
@@ -1109,7 +1090,6 @@ impl MessageProcessor {
         codex_request: ClientRequest,
         request_context: RequestContext,
         session: Arc<ConnectionSessionState>,
-        event_stream_ready: Option<McpEventStreamReady>,
     ) -> Result<(), JSONRPCErrorError> {
         let connection_id = connection_request_id.connection_id;
         let app_server_client_name = session.app_server_client_name().map(str::to_string);
@@ -1252,15 +1232,9 @@ impl MessageProcessor {
                     .await
             }
             ClientRequest::ThreadUnsubscribe { params, .. } => {
-                let thread_id = params.thread_id.clone();
-                let response = self
-                    .thread_processor
+                self.thread_processor
                     .thread_unsubscribe(&request_id, params)
-                    .await?;
-                if let Ok(thread_id) = ThreadId::from_string(&thread_id) {
-                    session.mcp_event_streams.stop_thread(thread_id).await;
-                }
-                Ok(response)
+                    .await
             }
             ClientRequest::ThreadResume { params, .. } => {
                 self.thread_processor
@@ -1676,27 +1650,6 @@ impl MessageProcessor {
                 self.mcp_processor
                     .mcp_resource_read(&request_id, params)
                     .await
-            }
-            ClientRequest::McpServerEventStreamStart { params, .. } => {
-                let ready = event_stream_ready.ok_or_else(|| {
-                    internal_error("MCP event subscription was not reserved before startup")
-                })?;
-                session
-                    .mcp_event_streams
-                    .wait_for_activation(&params.subscription_id, ready)
-                    .await?;
-                Ok(Some(
-                    codex_app_server_protocol::McpServerEventStreamStartResponse {}.into(),
-                ))
-            }
-            ClientRequest::McpServerEventStreamStop { params, .. } => {
-                session
-                    .mcp_event_streams
-                    .stop(&params.subscription_id)
-                    .await;
-                Ok(Some(
-                    codex_app_server_protocol::McpServerEventStreamStopResponse {}.into(),
-                ))
             }
             ClientRequest::McpServerToolCall { params, .. } => {
                 self.mcp_processor

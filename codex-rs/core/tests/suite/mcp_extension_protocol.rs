@@ -218,7 +218,6 @@ async fn request_metadata_is_scoped_to_the_selected_tool_and_registration(
             server_name: "selected".into(),
             source: McpServerSource::Extension {
                 id: contributor.into(),
-                host_owned_apps: false,
             },
             transport: config_for(target)?.transport,
             tool_name: "prepare".into(),

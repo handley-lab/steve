@@ -17,7 +17,7 @@ impl Session {
             replacement_history: Some(history.annotated_items().to_vec()),
             guardian_history: history.guardian_history_checkpoint(),
             retained_context: Some(history.retained_context().clone()),
-            mcp_resource_origins: self.services.mcp_runtime.resource_origin_checkpoint(),
+            mcp_resource_origins: None,
             window_number: Some(state.auto_compact_window_number()),
             first_window_id: Some(window_ids.first_window_id.to_string()),
             previous_window_id: window_ids
