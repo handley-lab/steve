@@ -1547,10 +1547,6 @@ pub fn test_codex() -> TestCodexBuilder {
     TestCodexBuilder {
         thread_manager_configurer: None,
         config_mutators: vec![Box::new(|config| {
-            config
-                .features
-                .disable(Feature::Apps)
-                .expect("test config should allow Apps override");
             // Snapshot tests opt in explicitly; avoid spawning login shells for every test.
             config
                 .features

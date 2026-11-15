@@ -1,6 +1,5 @@
 use anyhow::Result;
 use codex_core::TurnInputRequest;
-use codex_features::Feature;
 use codex_history::RolloutItem;
 use codex_login::CodexAuth;
 use codex_models_manager::model_info::model_info_from_slug;
@@ -273,10 +272,6 @@ async fn catalog_collaboration_messages_refresh_without_mode_or_model_change(
         .with_config(|config| {
             config.model_provider.request_max_retries = Some(0);
             config.model_provider.stream_max_retries = Some(1);
-            config
-                .features
-                .disable(Feature::Apps)
-                .expect("test config should allow feature update");
         })
         .build_with_auto_env(&server)
         .await?;

@@ -1481,9 +1481,6 @@
           },
           "type": "object"
         },
-        "include_apps_instructions": {
-          "type": "boolean"
-        },
         "include_collaboration_mode_instructions": {
           "type": "boolean"
         },
@@ -8555,10 +8552,6 @@
     "image_generation_model": {
       "description": "Model used by the standalone image-generation tool.",
       "type": "string"
-    },
-    "include_apps_instructions": {
-      "description": "Whether to inject the `<apps_instructions>` developer block.",
-      "type": "boolean"
     },
     "include_collaboration_mode_instructions": {
       "description": "Whether to inject the `<collaboration_mode>` developer block.",

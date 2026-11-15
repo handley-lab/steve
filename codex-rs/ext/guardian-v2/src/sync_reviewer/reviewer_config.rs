@@ -36,7 +36,6 @@ pub(crate) fn build_reviewer_config(parent_config: &Config) -> anyhow::Result<Co
         .map_err(|err| {
             anyhow::anyhow!("guardian review session could not set permission profile: {err}")
         })?;
-    config.include_apps_instructions = false;
     config.mcp_servers.set(HashMap::new()).map_err(|err| {
         anyhow::anyhow!("guardian review session could not clear MCP servers: {err}")
     })?;
@@ -47,7 +46,6 @@ pub(crate) fn build_reviewer_config(parent_config: &Config) -> anyhow::Result<Co
         Feature::TokenBudget,
         Feature::ContextManagement,
         Feature::CodexHooks,
-        Feature::Apps,
         Feature::Plugins,
         Feature::WebSearchRequest,
         Feature::WebSearchCached,

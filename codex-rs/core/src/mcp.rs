@@ -271,7 +271,6 @@ impl McpManager {
         {
             let mut mcp_config = config.to_mcp_config_with_loaded_plugins(&Default::default(), []);
             mcp_config.mcp_server_catalog = Default::default();
-            mcp_config.apps_enabled = false;
             return McpRuntimeProjection {
                 config: mcp_config,
                 plugins_available: false,

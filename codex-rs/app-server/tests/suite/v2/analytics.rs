@@ -270,7 +270,6 @@ async fn guardian_review_turns_and_tools_reach_analytics() -> Result<()> {
         ))
         .with_provider_config("supports_websockets = false")
         .enable_feature(Feature::GuardianApproval)
-        .disable_feature(Feature::Apps)
         .write(codex_home.path())?;
     let parent_tool = |id: &str| {
         responses::sse_response(responses::sse(vec![

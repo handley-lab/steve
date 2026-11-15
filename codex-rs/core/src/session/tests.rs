@@ -2069,15 +2069,10 @@ disabled_tools = [
     next_config.model = Some("gpt-5.4".to_string());
     next_config.notify = Some(vec!["echo".to_string()]);
     let mcp_protocol_enabled = !original.features.enabled(Feature::Mcp20260728);
-    let apps_protocol_enabled = !original.features.enabled(Feature::CodexAppsMcp20260728);
     next_config
         .features
         .set_enabled(Feature::Mcp20260728, mcp_protocol_enabled)
         .expect("set MCP protocol rollout");
-    next_config
-        .features
-        .set_enabled(Feature::CodexAppsMcp20260728, apps_protocol_enabled)
-        .expect("set Codex Apps MCP protocol rollout");
 
     let _ = session
         .refresh_runtime_config(Arc::clone(&original), next_config)
@@ -2105,10 +2100,6 @@ disabled_tools = [
     assert_eq!(
         config.features.enabled(Feature::Mcp20260728),
         mcp_protocol_enabled
-    );
-    assert_eq!(
-        config.features.enabled(Feature::CodexAppsMcp20260728),
-        apps_protocol_enabled
     );
     assert_eq!(
         config.tool_suggest.disabled_tools,
@@ -2172,15 +2163,10 @@ async fn refresh_mcp_config_replaces_managed_server_and_plugin_requirements(reje
 
     let mut next_config = original.as_ref().clone();
     let mcp_protocol_enabled = !original.features.enabled(Feature::Mcp20260728);
-    let apps_protocol_enabled = !original.features.enabled(Feature::CodexAppsMcp20260728);
     next_config
         .features
         .set_enabled(Feature::Mcp20260728, mcp_protocol_enabled)
         .expect("set MCP protocol rollout");
-    next_config
-        .features
-        .set_enabled(Feature::CodexAppsMcp20260728, apps_protocol_enabled)
-        .expect("set Codex Apps MCP protocol rollout");
     next_config.mcp_servers = codex_config::Constrained::normalized(
         HashMap::from([("beta".to_string(), server.clone())]),
         |mut servers: HashMap<String, McpServerConfig>| {
@@ -2246,10 +2232,6 @@ async fn refresh_mcp_config_replaces_managed_server_and_plugin_requirements(reje
     assert_eq!(
         config.features.enabled(Feature::Mcp20260728),
         mcp_protocol_enabled
-    );
-    assert_eq!(
-        config.features.enabled(Feature::CodexAppsMcp20260728),
-        apps_protocol_enabled
     );
     let mut managed_servers = config.mcp_servers.clone();
     managed_servers

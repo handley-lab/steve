@@ -94,10 +94,6 @@ async fn extension_protocol_mode_does_not_change_other_http_servers() -> anyhow:
         let fixture = test_codex()
             .with_extensions(Arc::new(extensions.build()))
             .with_config(move |config| {
-                config
-                    .features
-                    .disable(Feature::Apps)
-                    .expect("test config should disable hosted Apps");
                 if generic_mode == McpProtocolMode::V20260728 {
                     config
                         .features

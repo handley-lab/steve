@@ -172,26 +172,17 @@ pub struct McpConfig {
     // TODO(anp): Reconcile this runtime-wide copy with TurnEnvironment::sandbox_context
     // for the environment that owns each MCP server.
     pub use_legacy_landlock: bool,
-    /// Whether the app MCP integration is enabled by config.
-    ///
-    /// ChatGPT auth is checked separately before a materialized host-owned Apps
-    /// server can be used.
-    pub apps_enabled: bool,
-    /// Allow hosted Apps catalog reads after MCP initialization, before tools are ready.
-    pub apps_early_resource_discovery: bool,
     /// Whether model-visible MCP tool namespaces should keep the legacy
     /// `mcp__` prefix.
     pub prefix_mcp_tool_names: bool,
     /// MCP servers whose model-visible tool namespaces omit the `mcp__` prefix.
     pub non_prefixed_mcp_tool_servers: Vec<String>,
-    /// Protocol mode for servers other than the host-owned Codex Apps registration.
+    /// Protocol mode for MCP servers.
     pub protocol_mode: McpProtocolMode,
     /// Try protocol discovery before initializing eligible local stdio servers.
     pub discover_local_stdio: bool,
     /// Refresh ordinary server catalogs after tools/list_changed notifications.
     pub mcp_tool_list_changed: bool,
-    /// Independent protocol mode for the trusted, HTTP Codex Apps registration.
-    pub host_owned_apps_protocol_mode: McpProtocolMode,
     /// Client-side elicitation capabilities advertised during MCP initialization.
     pub client_elicitation_capability: ElicitationCapability,
     /// Resolved MCP registrations keyed by logical server name.

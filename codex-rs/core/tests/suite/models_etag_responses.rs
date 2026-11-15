@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use codex_features::Feature;
 use codex_login::CodexAuth;
 use codex_protocol::config_types::CollaborationMode;
 use codex_protocol::config_types::ModeKind;
@@ -58,10 +57,6 @@ async fn refresh_models_on_models_etag_mismatch_and_avoid_duplicate_models_fetch
             // Keep this test deterministic: no request retries, and a small stream retry budget.
             config.model_provider.request_max_retries = Some(0);
             config.model_provider.stream_max_retries = Some(1);
-            config
-                .features
-                .disable(Feature::Apps)
-                .expect("test config should allow feature update");
         });
 
     let test = builder.build(&server).await?;

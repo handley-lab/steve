@@ -3813,19 +3813,13 @@ async fn guardian_review_session_config_isolates_parent_customizations() {
         .mcp_servers
         .set(HashMap::from([("docs".to_string(), server)]))
         .expect("parent MCP servers are configurable");
-    let disabled_features = [
-        Feature::Apps,
-        Feature::Plugins,
-        Feature::GuardianV2,
-        Feature::CodexHooks,
-    ];
+    let disabled_features = [Feature::Plugins, Feature::GuardianV2, Feature::CodexHooks];
     for feature in disabled_features {
         parent_config
             .features
             .enable(feature)
             .expect("enable feature on parent config");
     }
-    parent_config.include_apps_instructions = true;
     parent_config.include_skill_instructions = true;
     parent_config.memories.use_memories = true;
     parent_config.memories.dedicated_tools = true;
@@ -3854,7 +3848,6 @@ async fn guardian_review_session_config_isolates_parent_customizations() {
             "{feature:?} should be disabled in the reviewer"
         );
     }
-    assert!(!guardian_config.include_apps_instructions);
     assert!(!guardian_config.include_skill_instructions);
     assert!(!guardian_config.memories.use_memories);
     assert!(!guardian_config.memories.dedicated_tools);

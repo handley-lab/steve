@@ -2,7 +2,6 @@ use crate::PathExt;
 use anyhow::Result;
 use codex_config::types::AppToolApproval;
 use codex_core::config::Config;
-use codex_features::Feature;
 use codex_protocol::config_types::ApprovalsReviewer;
 use serde_json::Value;
 use serde_json::json;
@@ -276,10 +275,6 @@ pub fn configure_search_capable_model(config: &mut Config) {
 }
 
 fn configure_apps(config: &mut Config, apps_base_url: &str) {
-    config
-        .features
-        .enable(Feature::Apps)
-        .expect("test config should allow feature update");
     config.chatgpt_base_url = apps_base_url.to_string();
 }
 

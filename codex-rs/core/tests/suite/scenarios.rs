@@ -2647,7 +2647,6 @@ async fn code_mode_catalog_messages(ranked_search: bool) -> Result<()> {
         .with_config(move |config| {
             configure_scenario_catalog(config);
             config.chatgpt_base_url = apps.chatgpt_base_url;
-            config.features.enable(Feature::Apps).expect("enable apps");
             config.features.set_enabled(Feature::CodeModeToolSearch, ranked_search)
                 .expect("set ranked tool search");
             config.workspace_roots = vec![config.cwd.clone()];
@@ -4437,10 +4436,6 @@ async fn catalog_selected_plugin_wording_preserves_capability_policy(
             config.chatgpt_base_url = apps.chatgpt_base_url;
             config
                 .features
-                .enable(Feature::Apps)
-                .expect("enable Apps for selected-plugin scenario");
-            config
-                .features
                 .set_enabled(Feature::SimplifiedSelectionHints, simplified_selection)
                 .expect("configure selected-plugin hint mode");
             let catalog = config
@@ -4630,7 +4625,6 @@ async fn catalog_selected_plugin_omission_bounds_runtime_capabilities() -> Resul
         .with_config(move |config| {
             configure_catalog_plugin_scenario(config);
             config.chatgpt_base_url = apps.chatgpt_base_url;
-            config.features.enable(Feature::Apps).unwrap();
             config
                 .features
                 .disable(Feature::SimplifiedSelectionHints)
