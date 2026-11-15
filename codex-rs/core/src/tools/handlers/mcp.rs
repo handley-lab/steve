@@ -849,7 +849,6 @@ mod tests {
             cell_id: cell_id.as_str().to_string(),
             runtime_tool_call_id: "mcp-runtime-call".to_string(),
         };
-        let mut output = output;
         recorder.record_tool_call(
             &crate::tools::router::ToolCall {
                 tool_name: invocation.tool_name.clone(),
