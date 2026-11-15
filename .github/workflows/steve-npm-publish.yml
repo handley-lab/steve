@@ -54,6 +54,8 @@ jobs:
           node-version-file: .nvmrc
           registry-url: "https://registry.npmjs.org"
           scope: "@handley-lab"
+      - name: Install llvm-strip
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends llvm
       - name: Stage npm packages
         run: |
           python scripts/stage_npm_packages.py \

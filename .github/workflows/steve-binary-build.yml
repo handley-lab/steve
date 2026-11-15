@@ -24,9 +24,9 @@ jobs:
       matrix:
         include:
           - runner: ubuntu-22.04
-            target: x86_64-unknown-linux-musl
+            target: x86_64-unknown-linux-gnu
           - runner: ubuntu-22.04-arm
-            target: aarch64-unknown-linux-musl
+            target: aarch64-unknown-linux-gnu
           - runner: macos-15
             target: x86_64-apple-darwin
           - runner: macos-15
@@ -72,29 +72,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential pkg-config libcap-dev libasound2-dev zstd
-      - name: Use hermetic Cargo home (musl)
-        if: contains(matrix.target, 'musl')
-        run: |
-          cargo_home="${GITHUB_WORKSPACE}/.cargo-home"
-          mkdir -p "${cargo_home}/bin"
-          echo "CARGO_HOME=${cargo_home}" >> "$GITHUB_ENV"
-          echo "${cargo_home}/bin" >> "$GITHUB_PATH"
-          : > "${cargo_home}/config.toml"
-      - name: Install Zig
-        if: contains(matrix.target, 'musl')
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
-        with:
-          version: 0.14.0
-          use-cache: false
-      - name: Install musl build tools
-        if: contains(matrix.target, 'musl')
-        run: bash "${GITHUB_WORKSPACE}/.github/scripts/install-musl-build-tools.sh"
-      - name: Disable aws-lc jitter entropy (musl)
-        if: contains(matrix.target, 'musl')
-        run: |
-          echo "AWS_LC_SYS_NO_JITTER_ENTROPY=1" >> "$GITHUB_ENV"
-          target_no_jitter="AWS_LC_SYS_NO_JITTER_ENTROPY_${TARGET//-/_}"
-          echo "${target_no_jitter}=1" >> "$GITHUB_ENV"
       - name: Install macOS archive dependency
         if: runner.os == 'macOS'
         run: command -v zstd >/dev/null || brew install zstd

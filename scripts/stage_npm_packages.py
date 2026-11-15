@@ -21,8 +21,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BUILD_SCRIPT = REPO_ROOT / "codex-cli" / "scripts" / "build_npm_package.py"
 GITHUB_REPO = "handley-lab/steve"
 BINARY_TARGETS = (
-    "x86_64-unknown-linux-musl",
-    "aarch64-unknown-linux-musl",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
     "x86_64-apple-darwin",
     "aarch64-apple-darwin",
     "x86_64-pc-windows-msvc",
@@ -351,6 +351,13 @@ def install_single_codex_package_archive(
     else:
         with tarfile.open(archive_path, "r:gz") as archive:
             archive.extractall(dest_dir, filter="data")
+    if "linux" in target:
+        # Linux packages carry full debug info; npm receives the stripped binaries.
+        strip = shutil.which("llvm-strip")
+        if strip is None:
+            raise RuntimeError("llvm-strip is required to stage Linux npm packages")
+        binaries = [path for path in (dest_dir / "bin").iterdir() if path.is_file()]
+        subprocess.run([strip, "--strip-debug", *map(str, binaries)], check=True)
 
     return dest_dir
 
