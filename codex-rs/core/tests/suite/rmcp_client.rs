@@ -1743,10 +1743,6 @@ async fn apps_enabled_turn_skips_pending_optional_mcp_without_cached_tools() -> 
     let fixture = test_codex()
         .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
-            config
-                .features
-                .enable(Feature::Apps)
-                .expect("test config should allow Apps override");
             config.chatgpt_base_url = apps_base_url;
             insert_mcp_server(
                 config,

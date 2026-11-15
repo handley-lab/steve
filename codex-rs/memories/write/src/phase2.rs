@@ -324,14 +324,12 @@ mod agent {
         agent_config.memories.use_memories = false;
         // Background memory work must not send user-facing completion notifications.
         agent_config.notify = None;
-        agent_config.include_apps_instructions = false;
         agent_config.mcp_servers = Constrained::allow_only(HashMap::new());
         // Approval policy
         agent_config.permissions.approval_policy = Constrained::allow_only(AskForApproval::Never);
         // Consolidation runs as an internal worker and must not recursively delegate.
         let _ = agent_config.features.disable(Feature::Collab);
         let _ = agent_config.features.disable(Feature::MemoryTool);
-        let _ = agent_config.features.disable(Feature::Apps);
         let _ = agent_config.features.disable(Feature::Plugins);
         let _ = agent_config
             .features

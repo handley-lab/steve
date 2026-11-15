@@ -2265,10 +2265,6 @@ async fn start_thread_seeds_extension_data_for_mcp_and_lifecycle_contributors() 
     config.cwd = config.codex_home.abs();
     config
         .features
-        .enable(Feature::Apps)
-        .expect("test config should allow apps");
-    config
-        .features
         .enable(Feature::Plugins)
         .expect("enable plugins");
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");

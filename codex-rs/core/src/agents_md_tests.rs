@@ -26,7 +26,6 @@ use codex_exec_server::WalkOptions;
 use codex_exec_server::WalkOutcome;
 use codex_exec_server::WriteFileOptions;
 use codex_extension_api::Instructions;
-use codex_features::Feature;
 use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::protocol::EnvironmentConfig;
@@ -1765,34 +1764,6 @@ async fn skills_are_not_appended_to_agents_md() {
         "pdf-processing",
         "extract from pdfs",
     );
-
-    let res = get_user_instructions(&cfg)
-        .await
-        .expect("instructions expected");
-    assert_eq!(res, "base doc");
-}
-
-#[tokio::test]
-async fn apps_feature_does_not_emit_user_instructions_by_itself() {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let mut cfg = make_config(&tmp, /*limit*/ 4096, /*instructions*/ None).await;
-    cfg.features
-        .enable(Feature::Apps)
-        .expect("test config should allow apps");
-
-    let res = get_user_instructions(&cfg).await;
-    assert_eq!(res, None);
-}
-
-#[tokio::test]
-async fn apps_feature_does_not_append_to_agents_md_user_instructions() {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    fs::write(tmp.path().join("AGENTS.md"), "base doc").unwrap();
-
-    let mut cfg = make_config(&tmp, /*limit*/ 4096, /*instructions*/ None).await;
-    cfg.features
-        .enable(Feature::Apps)
-        .expect("test config should allow apps");
 
     let res = get_user_instructions(&cfg)
         .await

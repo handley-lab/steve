@@ -7,7 +7,6 @@
 #![recursion_limit = "256"]
 
 mod apply_patch;
-mod apps;
 mod client;
 mod client_common;
 mod model_request;

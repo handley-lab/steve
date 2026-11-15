@@ -769,9 +769,6 @@ pub struct Config {
     /// Whether to inject the `<permissions instructions>` developer block.
     pub include_permissions_instructions: bool,
 
-    /// Whether to inject the `<apps_instructions>` developer block.
-    pub include_apps_instructions: bool,
-
     /// Whether to inject the `<collaboration_mode>` developer block.
     pub include_collaboration_mode_instructions: bool,
 
@@ -2045,10 +2042,6 @@ impl Config {
             codex_self_exe: self.codex_self_exe.clone(),
             codex_linux_sandbox_exe: self.codex_linux_sandbox_exe.clone(),
             use_legacy_landlock: self.features.use_legacy_landlock(),
-            apps_enabled: self.features.enabled(Feature::Apps),
-            apps_early_resource_discovery: self
-                .features
-                .enabled(Feature::AppsEarlyResourceDiscovery),
             prefix_mcp_tool_names: self.prefix_mcp_tool_names(),
             non_prefixed_mcp_tool_servers: if self
                 .features
@@ -2062,11 +2055,6 @@ impl Config {
             },
             protocol_mode: self.mcp_protocol_mode(),
             discover_local_stdio: self.features.enabled(Feature::McpConnectionSharing),
-            host_owned_apps_protocol_mode: if self.features.enabled(Feature::CodexAppsMcp20260728) {
-                McpProtocolMode::V20260728
-            } else {
-                McpProtocolMode::Legacy
-            },
             client_elicitation_capability: if self.features.enabled(Feature::AuthElicitation) {
                 ElicitationCapability::new()
                     .with_form(FormElicitationCapability::new())
@@ -4408,7 +4396,6 @@ impl Config {
             .map(|_| BaseInstructionsProvenance::Custom);
         let developer_instructions = developer_instructions.or(cfg.developer_instructions);
         let include_permissions_instructions = cfg.include_permissions_instructions.unwrap_or(true);
-        let include_apps_instructions = cfg.include_apps_instructions.unwrap_or(true);
         let include_collaboration_mode_instructions =
             cfg.include_collaboration_mode_instructions.unwrap_or(true);
         let include_skill_instructions = cfg
@@ -4740,7 +4727,6 @@ impl Config {
             developer_instructions,
             compact_prompt,
             include_permissions_instructions,
-            include_apps_instructions,
             include_collaboration_mode_instructions,
             include_skill_instructions,
             skill_max_context_tokens,

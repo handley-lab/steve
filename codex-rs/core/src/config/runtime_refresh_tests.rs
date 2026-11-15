@@ -117,22 +117,6 @@ async fn ordinary_transport_transitions_use_the_resolved_incoming_map() {
     }
 }
 
-#[tokio::test]
-async fn mcp_refresh_preserves_apps_until_new_session() {
-    let (_home, base) = base_config().await;
-    let current = layered_config(&base, "[features]\napps = true", "", "", "").await;
-    let next = layered_config(&base, "[features]\napps = true", "", "apps = false", "").await;
-    let refreshed = current
-        .resolve_runtime_refresh(&next, RuntimeConfigRefresh::Mcp)
-        .unwrap();
-    assert!(refreshed.features.enabled(Feature::Apps));
-    let reloaded = refreshed
-        .resolve_runtime_refresh(&next, RuntimeConfigRefresh::User)
-        .unwrap();
-    assert!(reloaded.features.enabled(Feature::Apps));
-    assert!(!next.features.enabled(Feature::Apps));
-}
-
 /// Explicit plugin updates replace only their session override, retaining other thread settings.
 #[tokio::test]
 async fn plugin_override_refresh_preserves_session_and_restores_inheritance() {

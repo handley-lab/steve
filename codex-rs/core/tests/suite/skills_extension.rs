@@ -701,10 +701,6 @@ async fn capability_sections_render_in_order_with_host_repo_and_plugin_skills(
             Ok(())
         })
         .with_config(move |config| {
-            config
-                .features
-                .enable(Feature::Apps)
-                .expect("test config should allow feature update");
             config.chatgpt_base_url = apps_server.chatgpt_base_url;
             config.cwd = config.cwd.join("outer/inner/work");
             let repository = config.cwd.parent().expect("inner repository");
