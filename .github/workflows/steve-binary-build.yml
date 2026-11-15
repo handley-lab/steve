@@ -88,8 +88,6 @@ jobs:
           use-cache: false
       - name: Install musl build tools
         if: contains(matrix.target, 'musl')
-        env:
-          CODEX_MUSL_RELEASE_LINK_FLAGS: "1"
         run: bash "${GITHUB_WORKSPACE}/.github/scripts/install-musl-build-tools.sh"
       - name: Disable aws-lc jitter entropy (musl)
         if: contains(matrix.target, 'musl')
