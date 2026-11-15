@@ -15,7 +15,6 @@ use codex_websocket_auth::WebsocketAuthArgs;
 
 use crate::config::load_exec_server_config;
 use crate::config::load_exec_server_remote_auth_provider;
-use crate::config::read_chatgpt_stdin_auth;
 use crate::exec_server_auth;
 use crate::exec_server_credential::ExecutorCredentialPipe;
 use crate::exec_server_telemetry;
@@ -99,20 +98,11 @@ pub struct ExecServerCommand {
     #[arg(long = "name", value_name = "NAME", global = true)]
     name: Option<String>,
 
-    /// Use Agent Identity auth from STEVE_ACCESS_TOKEN for remote registration.
-    #[arg(
-        long = "use-agent-identity-auth",
-        requires = "exec_server_remote",
-        conflicts_with = "aws_sigv4",
-        global = true
-    )]
-    use_agent_identity_auth: bool,
-
     /// Read one registration bearer from stdin.
     #[arg(
         long,
         requires = "exec_server_remote",
-        conflicts_with_all = ["use_agent_identity_auth", "executor_credential_stdin", "aws_sigv4"],
+        conflicts_with_all = ["executor_credential_stdin", "aws_sigv4"],
         global = true
     )]
     registration_bearer_stdin: bool,
@@ -121,22 +111,10 @@ pub struct ExecServerCommand {
     #[arg(
         long = "executor-credential-stdin",
         requires = "exec_server_remote",
-        conflicts_with_all = ["use_agent_identity_auth", "aws_sigv4"],
+        conflicts_with = "aws_sigv4",
         global = true
     )]
     executor_credential_stdin: bool,
-
-    /// Read a ChatGPT access token from stdin for HTTPS registration.
-    #[arg(
-        long,
-        requires = "exec_server_remote",
-        conflicts_with_all = ["use_agent_identity_auth", "aws_sigv4", "executor_credential_stdin", "registration_bearer_stdin"]
-    )]
-    chatgpt_token_stdin: bool,
-
-    /// ChatGPT account ID. Must match the token's account claim when present.
-    #[arg(long, value_name = "ID", requires = "chatgpt_token_stdin")]
-    chatgpt_account_id: Option<String>,
 
     /// Sign Direct registration and WebSocket handshake requests with AWS SigV4.
     #[arg(long = "aws-sigv4", requires = "exec_server_remote", global = true)]
@@ -221,22 +199,9 @@ impl ExecServerCommand {
                 .registration_bearer_stdin
                 .then(codex_exec_server::registration_auth_from_stdin)
                 .transpose()?;
-            let stdin_auth = if self.chatgpt_token_stdin {
-                codex_http_client::validate_https_endpoint_url(&base_url, "ChatGPT token registry")
-                    .map_err(anyhow::Error::msg)?;
-                Some(read_chatgpt_stdin_auth(self.chatgpt_account_id.take())?)
-            } else {
-                None
-            };
-            let config = load_exec_server_config(
-                root_config_overrides,
-                strict_config,
-                enable_cloud_config,
-                stdin_auth.as_ref(),
-            );
-            let mut parent_lifetime = if self.exit_on_stdin_close && stdin_auth.is_some() {
-                ParentLifetime::MonitoredStdin(exec_server_telemetry::monitor_stdin_close())
-            } else if self.exit_on_stdin_close {
+            let config =
+                load_exec_server_config(root_config_overrides, strict_config, enable_cloud_config);
+            let mut parent_lifetime = if self.exit_on_stdin_close {
                 ParentLifetime::StdinPipe
             } else {
                 ParentLifetime::Independent
@@ -264,12 +229,6 @@ impl ExecServerCommand {
                 parent_lifetime = ParentLifetime::MonitoredStdin(parent_closed);
                 credential_provider = Some(Arc::clone(&provider));
                 provider
-            } else if let Some(auth) = stdin_auth {
-                anyhow::ensure!(
-                    config.auth_config().allows_auth(&auth),
-                    "ChatGPT authentication is not permitted for this account"
-                );
-                codex_model_provider::auth_provider_from_auth(&auth)
             } else if self.aws_sigv4 {
                 exec_server_auth::aws_sigv4_auth_provider(
                     codex_aws_auth::AwsAuthConfig {
@@ -283,12 +242,7 @@ impl ExecServerCommand {
             } else if let Some(provider) = registration_auth {
                 provider
             } else {
-                load_exec_server_remote_auth_provider(
-                    &config,
-                    &base_url,
-                    self.use_agent_identity_auth,
-                )
-                .await?
+                load_exec_server_remote_auth_provider(&config, &base_url).await?
             };
             let mut remote_config = codex_exec_server::RemoteEnvironmentConfig::new_with_transport(
                 base_url,
@@ -303,8 +257,6 @@ impl ExecServerCommand {
             )?;
             if self.executor_credential_stdin || self.registration_bearer_stdin {
                 remote_config = remote_config.with_executor_credential_auth()?;
-            } else if self.chatgpt_token_stdin {
-                remote_config = remote_config.with_registry_bearer_redaction();
             }
             if let Some(name) = self.name {
                 remote_config.name = name;
@@ -353,13 +305,9 @@ impl ExecServerCommand {
             }
             result
         } else {
-            let config_result = load_exec_server_config(
-                root_config_overrides,
-                strict_config,
-                enable_cloud_config,
-                /*stdin_auth*/ None,
-            )
-            .await;
+            let config_result =
+                load_exec_server_config(root_config_overrides, strict_config, enable_cloud_config)
+                    .await;
             let config = if strict_config {
                 Some(config_result?)
             } else {
@@ -404,7 +352,6 @@ impl ExecServerCommand {
             && !self.executor_credential_stdin
             && !self.registration_bearer_stdin
             && !self.aws_sigv4
-            && !self.use_agent_identity_auth
     }
 
     fn validate_remote_transport(&self) -> anyhow::Result<()> {
@@ -414,10 +361,6 @@ impl ExecServerCommand {
                 "--registration-bearer-stdin cannot be used with --executor-credential-stdin"
             );
         }
-        anyhow::ensure!(
-            !self.chatgpt_token_stdin || self.command.is_none(),
-            "--chatgpt-token-stdin cannot be used with forward"
-        );
         match (self.remote_transport, self.aws_sigv4) {
             (ExecServerRemoteTransport::Noise, true) => {
                 anyhow::bail!("--aws-sigv4 requires --remote-transport direct");

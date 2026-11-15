@@ -10,14 +10,12 @@ use std::time::Duration;
 
 use anyhow::Context;
 use anyhow::Result;
-use app_test_support::ChatGptAuthFixture;
 use app_test_support::MockResponsesConfig;
 use app_test_support::TestAppServer;
 use app_test_support::create_fake_paginated_rollout;
 use app_test_support::create_fake_rollout;
 use app_test_support::create_mock_responses_server_repeating_assistant;
 use app_test_support::rollout_path;
-use app_test_support::write_chatgpt_auth;
 use axum::Router;
 use codex_app_server::in_process;
 use codex_app_server::in_process::InProcessServerEvent;
@@ -67,7 +65,6 @@ use codex_config::ThreadConfigContext;
 use codex_config::ThreadConfigLoader;
 use codex_config::ThreadConfigLoaderFuture;
 use codex_config::ThreadConfigSource;
-use codex_config::types::AuthCredentialsStoreMode;
 use codex_core::ARCHIVED_SESSIONS_SUBDIR;
 use codex_core::config::ConfigBuilder;
 use codex_exec_server::EnvironmentManager;
@@ -123,8 +120,6 @@ use tokio::time::timeout;
 
 #[path = "mcp_resource/caller_metadata.rs"]
 mod caller_metadata;
-#[path = "mcp_resource/plugin_metadata_refresh.rs"]
-mod plugin_metadata_refresh;
 
 pub(super) const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(10);
 const TEST_RESOURCE_URI: &str = "test://codex/resource";
@@ -485,88 +480,6 @@ async fn missing_cloud_provider_does_not_expose_skills_namespace(extra_config: &
             reference_reads: 0,
         },
         apps_server_calls.snapshot()
-    );
-
-    apps_server_handle.abort();
-    let _ = apps_server_handle.await;
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn mcp_resource_read_returns_contents_and_declines_elicitation_without_thread() -> Result<()>
-{
-    let (apps_server_url, _apps_server_calls, apps_server_handle) =
-        start_resource_apps_mcp_server().await?;
-
-    let codex_home = TempDir::new()?;
-    std::fs::write(
-        codex_home.path().join("config.toml"),
-        format!(
-            r#"
-chatgpt_base_url = "{apps_server_url}"
-mcp_oauth_credentials_store = "file"
-approval_policy = "never"
-sandbox_mode = "danger-full-access"
-
-[features]
-apps = true
-"#
-        ),
-    )?;
-    write_chatgpt_auth(
-        codex_home.path(),
-        ChatGptAuthFixture::new("chatgpt-token")
-            .account_id("account-123")
-            .chatgpt_user_id("user-123")
-            .chatgpt_account_id("account-123"),
-        AuthCredentialsStoreMode::File,
-    )?;
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .without_auto_env()
-        .build_initialized()
-        .await?;
-    let read_response: McpResourceReadResponse = mcp
-        .request(|request_id| ClientRequest::McpResourceRead {
-            request_id,
-            params: McpResourceReadParams {
-                meta: None,
-                thread_id: None,
-                origin_call_id: None,
-                server: "codex_apps".to_string(),
-                uri: TEST_RESOURCE_URI.to_string(),
-                connector_id: None,
-                target: None,
-            },
-        })
-        .await?;
-    assert_eq!(read_response, expected_resource_read_response());
-    let read_response: McpResourceReadResponse = mcp
-        .request(|request_id| ClientRequest::McpResourceRead {
-            request_id,
-            params: McpResourceReadParams {
-                meta: None,
-                thread_id: None,
-                origin_call_id: None,
-                server: "codex_apps".to_string(),
-                uri: TEST_ELICITATION_RESOURCE_URI.to_string(),
-                connector_id: None,
-                target: None,
-            },
-        })
-        .await?;
-    assert_eq!(
-        read_response,
-        McpResourceReadResponse {
-            contents: vec![McpResourceContent::Text {
-                uri: TEST_ELICITATION_RESOURCE_URI.to_string(),
-                mime_type: Some("text/plain".to_string()),
-                text: TEST_ELICITATION_RESOURCE_TEXT.to_string(),
-                meta: None,
-            }],
-            origin_call_id: None,
-        }
     );
 
     apps_server_handle.abort();
@@ -1380,14 +1293,6 @@ async fn start_resource_test_app_server_with_extra_config(
             "[skills]\ninclude_instructions = true\n{extra_config}"
         ))
         .write(codex_home.path())?;
-    write_chatgpt_auth(
-        codex_home.path(),
-        ChatGptAuthFixture::new("chatgpt-token")
-            .account_id("account-123")
-            .chatgpt_user_id("user-123")
-            .chatgpt_account_id("account-123"),
-        AuthCredentialsStoreMode::File,
-    )?;
 
     let builder = TestAppServer::builder().with_codex_home(codex_home.path());
     let builder = match environment {

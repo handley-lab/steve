@@ -101,7 +101,7 @@ async fn independent_history_resume_filters_rolled_back_sources(compaction: &str
     let local = compaction == "local";
     let test = test_codex()
         .with_history_mode(ThreadHistoryMode::Paginated)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
             config
                 .features
@@ -180,7 +180,7 @@ pub(super) async fn migration_scenario() -> Result<Vec<responses::ResponsesReque
     let server = responses::start_mock_server().await;
     let test = test_codex()
         .with_history_mode(ThreadHistoryMode::Paginated)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_cloud_config_bundle(
             CloudConfigBundleFixture::loader_with_enterprise_requirement(
                 r#"

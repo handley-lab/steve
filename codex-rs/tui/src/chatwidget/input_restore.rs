@@ -172,8 +172,7 @@ impl ChatWidget {
     }
 
     pub(crate) fn submit_initial_user_message_if_pending(&mut self) {
-        if self.suppress_initial_user_message_submit || self.input_queue.rate_limit_recovery_pending
-        {
+        if self.suppress_initial_user_message_submit {
             return;
         }
         #[cfg(any(target_os = "windows", test))]

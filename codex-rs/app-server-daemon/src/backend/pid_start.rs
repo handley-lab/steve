@@ -147,9 +147,6 @@ impl PidBackend {
                 }
             }
         }
-        if let Some((key, value)) = self.command_env() {
-            command.env(key, value);
-        }
 
         crate::background_command::set_working_directory(
             command.as_std_mut(),

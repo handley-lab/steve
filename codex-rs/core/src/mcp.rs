@@ -21,10 +21,7 @@ use codex_extension_api::McpServerContributionContext;
 use codex_extension_api::SelectedPlugin;
 use codex_extension_api::SelectedPluginIdentity;
 use codex_extension_api::SelectedPluginSnapshot;
-use codex_extension_api::SessionIsolation;
 use codex_features::Feature;
-use codex_login::CodexAuth;
-use codex_mcp::CODEX_APPS_MCP_SERVER_NAME;
 use codex_mcp::EffectiveMcpServer;
 use codex_mcp::McpConfig;
 use codex_mcp::McpEnvironmentAuthority;
@@ -32,7 +29,6 @@ use codex_mcp::McpPluginAttribution;
 use codex_mcp::McpServerRegistration;
 use codex_mcp::McpToolCatalogCache;
 use codex_mcp::ToolInfo;
-use codex_mcp::codex_apps_mcp_server_config;
 use codex_mcp::configured_mcp_servers;
 use codex_mcp::effective_mcp_servers;
 use codex_plugin::AppConnectorId;
@@ -40,8 +36,6 @@ use codex_protocol::capabilities::SelectedCapabilityRoot;
 use codex_protocol::protocol::EnvironmentConfigState;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::TurnEnvironmentSelection;
-
-const LEGACY_CODEX_APPS_REGISTRATION_ID: &str = "legacy_codex_apps";
 
 /// Thread-local policy that excludes all MCP servers, including runtime contributions.
 /// Insert into `StartThreadOptions::thread_extension_init` before starting the thread.
@@ -117,7 +111,6 @@ pub struct McpManager {
     codex_apps_tools_cache: ConnectorRuntimeManager<ToolInfo>,
     tool_catalog_cache: McpToolCatalogCache,
     shared_definitions: Arc<SharedMcpDefinitions>,
-    ema_state: Arc<codex_mcp::EmaState>,
 }
 
 impl McpManager {
@@ -142,7 +135,6 @@ impl McpManager {
             codex_apps_tools_cache,
             tool_catalog_cache: McpToolCatalogCache::default(),
             shared_definitions: Arc::new(SharedMcpDefinitions::default()),
-            ema_state: Arc::default(),
         }
     }
 
@@ -196,10 +188,6 @@ impl McpManager {
     pub async fn runtime_config(&self, config: &Config) -> McpConfig {
         self.runtime_config_with_context(
             McpServerContributionContext::global(config),
-            // Threadless discovery and control-plane paths have no effective thread
-            // originator; active-thread tool calls use runtime_config_for_step below.
-            /*originator*/
-            None,
             McpEnvironmentScope::HostOnly,
             &[],
         )
@@ -235,7 +223,6 @@ impl McpManager {
         }
         self.runtime_config_with_context(
             context,
-            Some(identity.originator),
             identity.environments,
             identity.disabled_plugin_ids,
         )
@@ -301,7 +288,6 @@ impl McpManager {
     async fn runtime_config_with_context(
         &self,
         context: McpServerContributionContext<'_, Config>,
-        originator: Option<&str>,
         environment_scope: McpEnvironmentScope<'_>,
         disabled_plugin_ids: &[String],
     ) -> McpRuntimeProjection {
@@ -489,32 +475,7 @@ impl McpManager {
             !selected_plugins.is_empty() || !loaded_plugins.capability_summaries().is_empty();
         let mut mcp_config = config
             .to_mcp_config_with_loaded_plugins(&loaded_plugins, selected_plugin_registrations);
-        mcp_config.ema_state = Arc::clone(&self.ema_state);
         let mut catalog = mcp_config.mcp_server_catalog.to_builder();
-        // Isolated sessions do not inherit the implicit Apps connection.
-        if mcp_config.apps_enabled
-            && context
-                .thread_init()
-                .and_then(codex_extension_api::ExtensionDataInit::get::<SessionIsolation>)
-                .as_deref()
-                != Some(&SessionIsolation::Isolated)
-        {
-            catalog.register(McpServerRegistration::from_compatibility(
-                CODEX_APPS_MCP_SERVER_NAME.to_string(),
-                LEGACY_CODEX_APPS_REGISTRATION_ID,
-                codex_apps_mcp_server_config(
-                    &mcp_config.chatgpt_base_url,
-                    mcp_config.apps_mcp_product_sku.as_deref(),
-                    originator,
-                ),
-            ));
-        } else {
-            catalog.remove_compatibility(
-                CODEX_APPS_MCP_SERVER_NAME.to_string(),
-                LEGACY_CODEX_APPS_REGISTRATION_ID,
-            );
-        }
-
         for overlay in overlays {
             match overlay {
                 OrderedMcpOverlay::Set(registration) => catalog.register(*registration),
@@ -562,13 +523,9 @@ impl McpManager {
     }
 
     /// Returns runtime servers after auth gating and compatibility built-ins.
-    pub async fn effective_servers(
-        &self,
-        config: &Config,
-        auth: Option<&CodexAuth>,
-    ) -> HashMap<String, EffectiveMcpServer> {
+    pub async fn effective_servers(&self, config: &Config) -> HashMap<String, EffectiveMcpServer> {
         let mcp_config = self.runtime_config(config).await;
-        effective_mcp_servers(&mcp_config, auth)
+        effective_mcp_servers(&mcp_config)
     }
 }
 

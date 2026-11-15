@@ -1,6 +1,5 @@
 #![cfg(test)]
 
-use assert_matches::assert_matches;
 use clap::error::ErrorKind;
 use pretty_assertions::assert_eq;
 
@@ -35,7 +34,6 @@ fn exec_server_defaults_preserve_local_and_noise_modes() {
             "env-1",
             "--remote-transport",
             "noise",
-            "--use-agent-identity-auth",
         ],
     ] {
         let command = exec_server_from_args(&args);
@@ -46,22 +44,6 @@ fn exec_server_defaults_preserve_local_and_noise_modes() {
             .validate_remote_transport()
             .expect("valid existing mode");
     }
-}
-
-#[test]
-fn remote_forwarder_skips_cloud_config() {
-    let mut command = exec_server_from_args(&[
-        "forward",
-        "--connect",
-        "ws://localhost:8765",
-        "--remote",
-        "https://registry.example.com",
-        "--environment-id",
-        "env-1",
-    ]);
-    assert!(!command.should_load_cloud_config());
-    command.chatgpt_token_stdin = true;
-    assert!(command.validate_remote_transport().is_err());
 }
 
 #[test]
@@ -155,28 +137,7 @@ fn exec_server_rejects_missing_or_conflicting_remote_options() {
             ErrorKind::MissingRequiredArgument,
         ),
         (
-            vec![
-                "--remote-transport",
-                "direct",
-                "--aws-sigv4",
-                "--use-agent-identity-auth",
-            ],
-            ErrorKind::ArgumentConflict,
-        ),
-        (
-            vec!["--executor-credential-stdin", "--use-agent-identity-auth"],
-            ErrorKind::ArgumentConflict,
-        ),
-        (
             vec!["--executor-credential-stdin", "--registration-bearer-stdin"],
-            ErrorKind::ArgumentConflict,
-        ),
-        (
-            vec!["--chatgpt-token-stdin", "--executor-credential-stdin"],
-            ErrorKind::ArgumentConflict,
-        ),
-        (
-            vec!["--chatgpt-token-stdin", "--registration-bearer-stdin"],
             ErrorKind::ArgumentConflict,
         ),
         (
@@ -304,34 +265,6 @@ async fn exec_server_direct_forwarding_remains_rejected() {
         error.to_string(),
         "direct exec-server transport does not support forwarding"
     );
-}
-
-#[test]
-fn exec_server_forward_parses_shared_remote_options() {
-    let cli = ExecServerCli::try_parse_from([
-        "steve-exec-server",
-        "forward",
-        "--connect",
-        "ws://127.0.0.1:8765",
-        "--remote",
-        "https://example.openai.com",
-        "--environment-id",
-        "env-1",
-        "--name",
-        "forwarded",
-        "--strict-config",
-        "--use-agent-identity-auth",
-    ])
-    .expect("parse forward");
-    assert_matches!(cli.command, ExecServerCommand {
-        command: Some(ExecServerSubcommand::Forward { connect }),
-        remote: Some(remote),
-        environment_id: Some(environment_id),
-        name: Some(name),
-        strict_config: true,
-        use_agent_identity_auth: true,
-        ..
-    } if connect == "ws://127.0.0.1:8765" && remote == "https://example.openai.com" && environment_id == "env-1" && name == "forwarded");
 }
 
 #[test]

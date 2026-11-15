@@ -19,16 +19,6 @@
             "null"
           ]
         },
-        "onboardingEntrypoint": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/DesktopOnboardingEntrypoint"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "success": {
           "type": "boolean"
         }
@@ -39,7 +29,7 @@
       "type": "object"
     },
     "AccountRateLimitsUpdatedNotification": {
-      "description": "Sparse rolling rate-limit update.\n\nClients should merge available values into the most recent `account/rateLimits/read` response or refetch that snapshot. Nullable account metadata may be unavailable in a rolling update and does not clear a previously observed value.",
+      "description": "Sparse rolling rate-limit update.\n\nClients should merge available values into the most recent snapshot. Nullable metadata may be unavailable in a rolling update and does not clear a previously observed value.",
       "properties": {
         "rateLimits": {
           "$ref": "#/definitions/RateLimitSnapshot"
@@ -56,16 +46,6 @@
           "anyOf": [
             {
               "$ref": "#/definitions/AuthMode"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "planType": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/PlanType"
             },
             {
               "type": "null"
@@ -232,290 +212,6 @@
     "AgentPath": {
       "type": "string"
     },
-    "AppBranding": {
-      "description": "EXPERIMENTAL - app metadata returned by app-list APIs.",
-      "properties": {
-        "category": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "developer": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "isDiscoverableApp": {
-          "type": "boolean"
-        },
-        "privacyPolicy": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "termsOfService": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "website": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "isDiscoverableApp"
-      ],
-      "type": "object"
-    },
-    "AppInfo": {
-      "description": "EXPERIMENTAL - app metadata returned by app-list APIs.",
-      "properties": {
-        "appMetadata": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/AppMetadata"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "branding": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/AppBranding"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "description": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "distributionChannel": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "iconAssets": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "iconDarkAssets": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "id": {
-          "type": "string"
-        },
-        "installUrl": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "isAccessible": {
-          "default": false,
-          "type": "boolean"
-        },
-        "isEnabled": {
-          "default": true,
-          "description": "Whether this app is enabled in config.toml. Example: ```toml [apps.bad_app] enabled = false ```",
-          "type": "boolean"
-        },
-        "labels": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "logoUrl": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "logoUrlDark": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "name": {
-          "type": "string"
-        },
-        "pluginDisplayNames": {
-          "default": [],
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "id",
-        "name"
-      ],
-      "type": "object"
-    },
-    "AppListUpdatedNotification": {
-      "description": "EXPERIMENTAL - notification emitted when the app list changes.",
-      "properties": {
-        "data": {
-          "items": {
-            "$ref": "#/definitions/AppInfo"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "data"
-      ],
-      "type": "object"
-    },
-    "AppMetadata": {
-      "properties": {
-        "categories": {
-          "items": {
-            "type": "string"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
-        },
-        "developer": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "firstPartyRequiresInstall": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "review": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/AppReview"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "screenshots": {
-          "items": {
-            "$ref": "#/definitions/AppScreenshot"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
-        },
-        "seoDescription": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "showInComposerWhenUnlinked": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "subCategories": {
-          "items": {
-            "type": "string"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
-        },
-        "version": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "versionId": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "versionNotes": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "type": "object"
-    },
-    "AppReview": {
-      "properties": {
-        "status": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "status"
-      ],
-      "type": "object"
-    },
-    "AppScreenshot": {
-      "properties": {
-        "fileId": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "url": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "userPrompt": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "userPrompt"
-      ],
-      "type": "object"
-    },
     "ApprovalsReviewer": {
       "description": "Configures who approval requests are routed to for review. Examples include sandbox escapes, blocked network access, MCP approval prompts, and ARC escalations. Defaults to `user`. `auto_review` uses a carefully prompted subagent to gather relevant context and apply a risk-based decision framework before approving or denying the request. The legacy value `guardian_subagent` is accepted for compatibility.",
       "enum": [
@@ -602,41 +298,6 @@
           "description": "OpenAI API key provided by the caller and stored by Codex.",
           "enum": [
             "apikey"
-          ],
-          "type": "string"
-        },
-        {
-          "description": "ChatGPT OAuth managed by Codex (tokens persisted and refreshed by Codex).",
-          "enum": [
-            "chatgpt"
-          ],
-          "type": "string"
-        },
-        {
-          "description": "[UNSTABLE] FOR OPENAI INTERNAL USE ONLY - DO NOT USE.\n\nChatGPT auth tokens are supplied by an external host app and are only stored in memory. Token refresh must be handled by the external host app.",
-          "enum": [
-            "chatgptAuthTokens"
-          ],
-          "type": "string"
-        },
-        {
-          "description": "Backend auth supplied as request headers.",
-          "enum": [
-            "headers"
-          ],
-          "type": "string"
-        },
-        {
-          "description": "Programmatic Codex auth backed by a registered Agent Identity.",
-          "enum": [
-            "agentIdentity"
-          ],
-          "type": "string"
-        },
-        {
-          "description": "Programmatic Codex auth backed by a personal access token.",
-          "enum": [
-            "personalAccessToken"
           ],
           "type": "string"
         },
@@ -1224,12 +885,6 @@
         "summary"
       ],
       "type": "object"
-    },
-    "DesktopOnboardingEntrypoint": {
-      "enum": [
-        "life_sciences"
-      ],
-      "type": "string"
     },
     "DynamicToolCallOutputContentItem": {
       "oneOf": [
@@ -3827,41 +3482,6 @@
         "itemId",
         "threadId",
         "turnId"
-      ],
-      "type": "object"
-    },
-    "RemoteControlConnectionStatus": {
-      "enum": [
-        "disabled",
-        "connecting",
-        "connected",
-        "errored"
-      ],
-      "type": "string"
-    },
-    "RemoteControlStatusChangedNotification": {
-      "description": "Current remote-control connection status and remote identity exposed to clients.",
-      "properties": {
-        "environmentId": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "installationId": {
-          "type": "string"
-        },
-        "serverName": {
-          "type": "string"
-        },
-        "status": {
-          "$ref": "#/definitions/RemoteControlConnectionStatus"
-        }
-      },
-      "required": [
-        "installationId",
-        "serverName",
-        "status"
       ],
       "type": "object"
     },
@@ -8341,46 +7961,6 @@
         "params"
       ],
       "title": "Account/rateLimits/updatedNotification",
-      "type": "object"
-    },
-    {
-      "properties": {
-        "method": {
-          "enum": [
-            "app/list/updated"
-          ],
-          "title": "App/list/updatedNotificationMethod",
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/AppListUpdatedNotification"
-        }
-      },
-      "required": [
-        "method",
-        "params"
-      ],
-      "title": "App/list/updatedNotification",
-      "type": "object"
-    },
-    {
-      "properties": {
-        "method": {
-          "enum": [
-            "remoteControl/status/changed"
-          ],
-          "title": "RemoteControl/status/changedNotificationMethod",
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/RemoteControlStatusChangedNotification"
-        }
-      },
-      "required": [
-        "method",
-        "params"
-      ],
-      "title": "RemoteControl/status/changedNotification",
       "type": "object"
     },
     {

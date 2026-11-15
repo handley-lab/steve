@@ -19,7 +19,6 @@ use super::popup_consts::standard_popup_hint_line;
 /// Audience metadata supplied by the configured feedback service.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FeedbackAudience {
-    OpenAiEmployee,
     External,
 }
 

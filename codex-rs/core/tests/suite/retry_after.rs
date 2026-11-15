@@ -645,7 +645,7 @@ async fn compact_v2_uses_retry_after() -> Result<()> {
     )
     .await;
     let test = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(|config| {
             config.model_provider.request_max_retries = Some(1);
             config.model_provider.stream_max_retries = Some(0);
@@ -719,7 +719,7 @@ async fn compact_v2_stream_failure_uses_local_backoff_despite_retry_after() -> R
     )
     .await;
     let test = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(|config| {
             config.model_provider.request_max_retries = Some(0);
             config.model_provider.stream_max_retries = Some(1);
@@ -788,7 +788,7 @@ async fn compact_v2_stream_failure_without_retry_after_exhausts_stream_retries()
     )
     .await;
     let test = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(|config| {
             config.model_provider.request_max_retries = Some(0);
             config.model_provider.stream_max_retries = Some(1);
@@ -896,7 +896,7 @@ async fn compact_v2_rate_limit_uses_server_advice(
     )
     .await;
     let test = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(|config| {
             config.model_provider.request_max_retries = Some(0);
             config.model_provider.stream_max_retries = Some(1);
@@ -961,7 +961,7 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
     )
     .await;
     let test = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(|config| {
             config.model_provider.request_max_retries = Some(2);
             config.model_provider.stream_max_retries = Some(2);

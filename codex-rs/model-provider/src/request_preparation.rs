@@ -50,7 +50,3 @@ where
         }
     }
 }
-
-#[cfg(test)]
-#[path = "request_preparation_tests.rs"]
-mod tests;

@@ -96,7 +96,7 @@ async fn generated_image_ui_item_is_file_backed_in_rollout() -> Result<()> {
         .mount(&server)
         .await;
 
-    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
+    let auth = CodexAuth::from_api_key("dummy");
     let extensions = image_generation_extensions(&auth, |_config| None);
     let image_store = Arc::new(RecordingFileAttachmentStore::default());
     let image_call_id = "image-generate-file-backed";
@@ -233,7 +233,7 @@ async fn extension_tool_respects_restrictions(deny_network: bool) -> Result<()> 
 
     let server = responses::start_mock_server().await;
     let responses_url = format!("{}/v1/responses", server.uri()).parse()?;
-    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
+    let auth = CodexAuth::from_api_key("dummy");
     let extensions = image_generation_extensions(&auth, |config| Some(config.codex_home.clone()));
     let mut builder = test_codex()
         .with_auth(auth)
@@ -356,7 +356,7 @@ async fn extension_tool_uses_granted_turn_permissions_without_host_local_persist
         .mount(&server)
         .await;
 
-    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
+    let auth = CodexAuth::from_api_key("dummy");
     let extensions = image_generation_extensions(&auth, |_config| None);
     let base_permission_profile = PermissionProfile::workspace_write_with(
         &[],
@@ -548,7 +548,7 @@ async fn extension_tool_rebinds_granted_permissions_on_each_turn(
         .mount(&server)
         .await;
 
-    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
+    let auth = CodexAuth::from_api_key("dummy");
     let extensions = image_generation_extensions(&auth, |_config| None);
     let base_permission_profile = PermissionProfile::from_runtime_permissions(
         &FileSystemSandboxPolicy::restricted(vec![

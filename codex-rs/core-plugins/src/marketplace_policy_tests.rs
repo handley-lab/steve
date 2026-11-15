@@ -434,12 +434,6 @@ url = "https://github.com/openai/plugins.git"
             OPENAI_BUNDLED_MARKETPLACE_NAME,
             OPENAI_BUNDLED_ALPHA_MARKETPLACE_NAME,
             OPENAI_PRIMARY_RUNTIME_MARKETPLACE_NAME,
-            crate::remote::REMOTE_GLOBAL_MARKETPLACE_NAME,
-            crate::remote::REMOTE_CREATED_BY_ME_MARKETPLACE_NAME,
-            crate::remote::REMOTE_WORKSPACE_MARKETPLACE_NAME,
-            crate::remote::REMOTE_WORKSPACE_SHARED_WITH_ME_MARKETPLACE_NAME,
-            crate::remote::REMOTE_WORKSPACE_SHARED_WITH_ME_PRIVATE_MARKETPLACE_NAME,
-            crate::remote::REMOTE_WORKSPACE_SHARED_WITH_ME_UNLISTED_MARKETPLACE_NAME,
         ] {
             assert!(
                 MarketplacePolicy::from_requirements(config.requirements())

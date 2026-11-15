@@ -13,8 +13,6 @@ use crate::app_event::FeedbackCategory;
 use crate::app_event::HistoryLookupResponse;
 use crate::app_event::PermissionProfileSelection;
 use crate::app_event::PluginLocation;
-use crate::app_event::PluginRemoteSectionError;
-use crate::app_event::RateLimitRefreshOrigin;
 use crate::app_event::RunningTaskExitAction;
 use crate::app_event::ThreadTitleDestination;
 #[cfg(target_os = "windows")]
@@ -24,7 +22,6 @@ use crate::app_server_session::AppServerBootstrap;
 use crate::app_server_session::AppServerSession;
 use crate::app_server_session::AppServerStartedThread;
 use crate::app_server_session::TurnPermissionsOverride;
-use crate::app_server_session::app_server_rate_limit_snapshots;
 use crate::bottom_pane::AppLinkViewParams;
 use crate::bottom_pane::ApplyPatchApprovalRequest;
 use crate::bottom_pane::ApprovalRequest;
@@ -96,7 +93,6 @@ use crate::workspace_command::WorkspaceCommandRunner;
 use codex_ansi_escape::ansi_escape_line;
 use codex_app_server_client::AppServerRequestHandle;
 use codex_app_server_client::TypedRequestError;
-use codex_app_server_protocol::AddCreditsNudgeCreditType;
 use codex_app_server_protocol::AskForApproval;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::CodexErrorInfo as AppServerCodexErrorInfo;
@@ -105,7 +101,6 @@ use codex_app_server_protocol::ConfigReadResponse;
 use codex_app_server_protocol::ConfigValueWriteParams;
 use codex_app_server_protocol::ConfigWriteResponse;
 use codex_app_server_protocol::FeedbackUploadParams;
-use codex_app_server_protocol::GetAccountRateLimitsResponse;
 use codex_app_server_protocol::HooksListEntry;
 use codex_app_server_protocol::ListMcpServerStatusParams;
 use codex_app_server_protocol::ListMcpServerStatusResponse;
@@ -116,16 +111,13 @@ use codex_app_server_protocol::McpServerStatusDetail;
 use codex_app_server_protocol::MergeStrategy;
 use codex_app_server_protocol::PluginInstallParams;
 use codex_app_server_protocol::PluginInstallResponse;
-use codex_app_server_protocol::PluginListMarketplaceKind;
 use codex_app_server_protocol::PluginListParams;
 use codex_app_server_protocol::PluginListResponse;
-use codex_app_server_protocol::PluginMarketplaceEntry;
 use codex_app_server_protocol::PluginReadParams;
 use codex_app_server_protocol::PluginReadResponse;
 use codex_app_server_protocol::PluginUninstallParams;
 use codex_app_server_protocol::PluginUninstallResponse;
 use codex_app_server_protocol::SandboxMode as AppServerSandboxMode;
-use codex_app_server_protocol::SendAddCreditsNudgeEmailParams;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
 use codex_app_server_protocol::SkillErrorInfo;
@@ -150,7 +142,6 @@ use codex_features::FeaturesToml;
 use codex_models_manager::model_presets::HIDE_GPT_5_1_CODEX_MAX_MIGRATION_PROMPT_CONFIG;
 use codex_models_manager::model_presets::HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG;
 use codex_otel::SessionTelemetry;
-use codex_otel::TelemetryAuthMode;
 use codex_protocol::ThreadId;
 use codex_protocol::models::ActivePermissionProfile;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
@@ -197,7 +188,6 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use toml::Value as TomlValue;
 use uuid::Uuid;
-mod account_status;
 mod agent_message_consolidation;
 mod agent_navigation;
 mod agent_picker;
@@ -216,7 +206,6 @@ mod app_server_event_targets;
 mod app_server_events;
 pub(crate) mod app_server_requests;
 mod app_server_thread_ownership;
-mod backend_banner_fallback;
 mod backend_events;
 pub(crate) mod backend_selection;
 pub(crate) mod backend_sessions;
@@ -227,7 +216,6 @@ pub(crate) use cloud_switch_wait::wait_for_cloud_switch;
 mod composer_hints;
 mod config_panel;
 mod config_persistence;
-mod connector_mentions;
 mod daemon_menu;
 mod daybreak;
 mod empty_state_policy;
@@ -258,7 +246,6 @@ mod pets;
 mod platform_actions;
 mod plugin_mentions;
 pub(crate) mod provider;
-mod rate_limit_refresh;
 mod realtime_delivery;
 mod realtime_settings;
 mod reasoning_replay;
@@ -298,9 +285,6 @@ mod thread_title;
 mod transcript_export;
 mod tui_mode_picker;
 mod user_turn_submission;
-mod user_verification;
-mod user_verification_errors;
-mod user_verification_requests;
 mod voice_owner;
 #[cfg(test)]
 #[path = "app/warnings_tests.rs"]
@@ -329,10 +313,6 @@ enum ThreadInteractiveRequest {
     AppLink(AppLinkViewParams),
     Approval(ApprovalRequest),
     McpServerElicitation(McpServerElicitationFormRequest),
-    UserVerification {
-        thread_id: ThreadId,
-        request: crate::bottom_pane::user_verification::UserVerificationRequest,
-    },
 }
 
 /// Extracts `receiver_thread_ids` from collab agent tool-call notifications.
@@ -590,13 +570,9 @@ pub(crate) struct App {
     turn_tips: turn_tips::TurnTips,
     pub(crate) transcript_view: crate::transcript_view::TranscriptView,
     conversation_frame: owned_transcript::ConversationFrame,
-    last_rendered_history_tail: Option<history_ui::RenderedHistoryTail>,
-    last_thread_usage_status_cell: Option<history_ui::ThreadUsageStatusHistory>,
-    pub(crate) pending_thread_usage_history_refresh: bool,
 
     // Alternate-screen overlays: transcript, diff, and analytics.
     pub(crate) overlay: Option<Overlay>,
-    pub(crate) retained_analytics: Option<Box<crate::analytics::AnalyticsView>>,
     pub(crate) deferred_history_lines: Vec<crate::terminal_hyperlinks::HyperlinkLine>,
     has_emitted_history_lines: bool,
     transcript_reflow: TranscriptReflowState,
@@ -704,10 +680,6 @@ pub(crate) struct App {
     /// Keeps that boundary armed while an approval waits for the typing-idle timer or a visible
     /// modal's terminal input has not settled.
     startup_pending_protected_request: bool,
-    /// Invalidates in-flight full rate-limit reads when a newer rolling hard stop arrives.
-    account_email_request_id: Option<uuid::Uuid>,
-    rate_limit_hard_stop_generation: u64,
-    rate_limit_refresh_state: rate_limit_refresh::RateLimitRefreshState,
     pending_mcp_login_start: Option<PendingMcpLoginStart>,
     // Latest accepted attempt per server; stale retry completions must not update the UI.
     active_mcp_login_ids: HashMap<String, String>,
@@ -832,14 +804,11 @@ impl App {
             workspace_command_runner: self.workspace_command_runner.clone(),
             initial_user_message,
             enhanced_keys_supported: self.enhanced_keys_supported,
-            has_chatgpt_account: self.chat_widget.has_chatgpt_account(),
             requires_openai_auth: self.chat_widget.requires_openai_auth,
-            has_codex_backend_auth: self.chat_widget.has_codex_backend_auth(),
             model_catalog: self.model_catalog.clone(),
             feedback: self.feedback.clone(),
             is_first_run: false,
             status_account_display: self.chat_widget.status_account_display().cloned(),
-            initial_plan_type: self.chat_widget.current_plan_type(),
             model: Some(self.chat_widget.current_model().to_string()),
             startup_tooltip_override: None,
             status_line_invalid_items_warned: self.status_line_invalid_items_warned.clone(),
@@ -1313,7 +1282,6 @@ impl App {
                         owner.refresh_realtime_microphone_level();
                     }
                     self.chat_widget.pre_draw_tick();
-                    self.refresh_agents_overview_usage(app_server, tui.frame_requester());
                     let rendered_area = self.render_chat_widget_frame(tui, screen_size)?;
                     if tui.is_owned_screen()
                         && self.transcript_view.history

@@ -17,7 +17,6 @@ pub use elicitation::ElicitationLifecycle;
 pub use elicitation::ElicitationReviewRequest;
 pub use elicitation::ElicitationReviewer;
 pub use elicitation::ElicitationReviewerHandle;
-pub use ema_auth::ema_auth_scope;
 pub use event_stream::McpEventStreamOpener;
 pub use resource_client::CodexAppsResourceListParams;
 pub use resource_client::McpEventCatalogSnapshot;
@@ -46,7 +45,6 @@ pub use tool_catalog_cache::McpToolCatalogCache;
 pub use tool_request_meta::McpToolRequestMetaHook;
 pub use tool_request_meta::McpToolRequestMetaProvider;
 pub use tools::ToolInfo;
-pub use trusted_access::TrustedAccessContext;
 
 /// Backward-compatible name for the shared Codex Apps tools runtime.
 pub type CodexAppsToolsCache = codex_connectors::ConnectorRuntimeManager<ToolInfo>;
@@ -82,12 +80,9 @@ pub use auth_elicitation::connector_auth_failure_from_tool_result;
 pub use auth_elicitation::is_connector_auth_failure_from_tool_result;
 /// Backward-compatible name for the Codex Apps runtime context key builder.
 pub use codex_connectors::connector_runtime_context_key as codex_apps_tools_cache_key;
-pub use mcp::codex_apps_mcp_server_config;
 pub use mcp::configured_mcp_servers;
 pub use mcp::effective_mcp_servers;
 pub use mcp::effective_mcp_servers_from_configured;
-pub use mcp::host_owned_codex_apps_enabled;
-pub use mcp::hosted_plugin_runtime_mcp_server_config;
 pub use mcp::tool_plugin_context;
 pub use plugin_config::PluginMcpConfigParseOutcome;
 pub use plugin_config::PluginMcpServerParseError;
@@ -114,12 +109,10 @@ pub use mcp::resolve_oauth_callback;
 pub use mcp::resolve_oauth_scopes;
 pub use mcp::should_retry_without_scopes;
 
-pub use codex_apps::declared_openai_file_input_param_names;
 pub use mcp::McpPermissionPromptAutoApproveContext;
 pub use mcp::mcp_permission_prompt_is_auto_approved;
 pub use mcp::qualified_mcp_tool_name_prefix;
 
-mod auth;
 mod auth_changes;
 pub(crate) mod auth_elicitation;
 mod binding;
@@ -131,10 +124,6 @@ pub(crate) mod codex_apps;
 pub(crate) mod connection_manager;
 mod connection_pool;
 pub(crate) mod elicitation;
-mod ema_account;
-mod ema_auth;
-mod ema_token_source;
-pub use ema_account::EmaState;
 mod event_stream;
 mod executor_environment_http_client;
 pub(crate) mod mcp;
@@ -150,4 +139,3 @@ pub(crate) mod server;
 mod tool_catalog_cache;
 mod tool_request_meta;
 pub(crate) mod tools;
-mod trusted_access;

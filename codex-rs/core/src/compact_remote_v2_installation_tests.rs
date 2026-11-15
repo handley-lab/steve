@@ -67,7 +67,7 @@ async fn prepared_prefix_rejection_respects_caller_intent(
     let server_uri = server.uri();
     let (sess, turn, _events) =
         crate::session::tests::make_session_and_context_with_auth_and_config_and_rx(
-            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+            CodexAuth::from_api_key("dummy"),
             Vec::new(),
             move |config| {
                 config.model = Some("gpt-5.2".to_string());

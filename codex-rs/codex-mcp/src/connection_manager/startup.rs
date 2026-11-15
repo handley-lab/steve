@@ -2,8 +2,6 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use async_channel::Sender;
-use codex_api::SharedAuthProvider;
-use codex_config::McpServerAuth;
 use codex_config::McpServerConfig;
 use codex_config::McpServerTransportConfig;
 use codex_protocol::protocol::Event;
@@ -16,20 +14,6 @@ use codex_rmcp_client::McpLoginRequirement;
 use crate::mcp::CODEX_APPS_MCP_SERVER_NAME;
 use crate::rmcp_client::DEFAULT_STARTUP_TIMEOUT;
 use crate::rmcp_client::StartupOutcomeError;
-use crate::server::EffectiveMcpServer;
-
-/// Makes ChatGPT authentication available to servers that explicitly opt in.
-pub(super) fn chatgpt_auth_provider_for_server(
-    server: &EffectiveMcpServer,
-    chatgpt_auth_provider: Option<SharedAuthProvider>,
-) -> Option<SharedAuthProvider> {
-    if !matches!(&server.config().auth, McpServerAuth::ChatGpt)
-        || !server.config().is_local_environment()
-    {
-        return None;
-    }
-    chatgpt_auth_provider
-}
 
 pub(super) fn should_share_codex_apps_tools_cache(
     server_name: &str,
@@ -57,13 +41,6 @@ pub(super) fn mcp_startup_failure_reason(
 ) -> Option<McpStartupFailureReason> {
     if !error.is_authentication_required() {
         return None;
-    }
-    if let StartupOutcomeError::Failed {
-        is_ema_authentication_required: true,
-        ..
-    } = error
-    {
-        return Some(McpStartupFailureReason::ReauthenticationRequired);
     }
     match auth_state {
         Some(
@@ -108,14 +85,11 @@ pub(super) fn mcp_init_error_display(
             "GitHub MCP does not support OAuth. Log in by adding a personal access token (https://github.com/settings/personal-access-tokens) to your environment and config.toml:\n[mcp_servers.{server_key}]\nbearer_token_env_var = STEVE_GITHUB_PERSONAL_ACCESS_TOKEN"
         )
     } else if error.is_authentication_required() {
-        let recovery_hint =
-            if config.is_some_and(|config| matches!(config.auth, McpServerAuth::EmaAuth)) {
-                "Sign in to your enterprise provider in Codex, then start a new thread.".to_string()
-            } else if config.is_some_and(|config| !config.is_local_environment()) {
-                "Use your client's MCP OAuth sign-in flow.".to_string()
-            } else {
-                format!("Run `codex mcp login {server_name}`.")
-            };
+        let recovery_hint = if config.is_some_and(|config| !config.is_local_environment()) {
+            "Use your client's MCP OAuth sign-in flow.".to_string()
+        } else {
+            format!("Run `codex mcp login {server_name}`.")
+        };
         let auth_status = match reason {
             Some(McpStartupFailureReason::ReauthenticationRequired) => {
                 "requires OAuth reauthentication"

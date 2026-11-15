@@ -12,8 +12,6 @@ use codex_api::TransportError;
 use codex_features::RuntimeAuthMode;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
-use codex_login::WorkspaceRoutingRequest;
-use codex_login::default_client::ClientRedirectPolicy;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_models_manager::cache::ModelsCache;
 use codex_models_manager::manager::ModelCatalogSettings;
@@ -21,13 +19,11 @@ use codex_models_manager::manager::OpenAiModelsManager;
 use codex_models_manager::manager::SharedModelsManager;
 use codex_models_manager::manager::StaticModelsManager;
 use codex_protocol::account::ProviderAccount;
-use codex_protocol::auth::RefreshTokenFailedError;
 use codex_protocol::error::CodexErr;
 use codex_protocol::openai_models::ModelsResponse;
 use codex_runtime_agent_instance::RuntimeAuthManager;
 
 use crate::ProviderCapabilities;
-use crate::ResolvedResponsesProvider;
 use crate::amazon_bedrock::AmazonBedrockModelProvider;
 use crate::auth::ResolvedProviderAuth;
 use crate::auth::auth_manager_for_provider;
@@ -37,7 +33,6 @@ use crate::combined_auth::compose_auth;
 use crate::gcp::GcpModelProvider;
 use crate::models_endpoint::OpenAiModelsEndpoint;
 use crate::request_setup::resolve_request_auth;
-use crate::workspace_routing::WorkspaceRoutingContext;
 
 /// Current app-visible account state for a model provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -174,64 +169,6 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
         Box::pin(async move {
             let auth = self.auth().await;
             self.api_provider_for_auth(auth.as_ref())
-        })
-    }
-
-    /// Resolves routing for Responses HTTP, compaction, and WebSocket handshakes.
-    fn responses_api_provider<'a>(
-        &'a self,
-        routing_context: &'a WorkspaceRoutingContext,
-    ) -> ModelProviderFuture<'a, codex_protocol::error::Result<ResolvedResponsesProvider>> {
-        Box::pin(async move {
-            let provider = self.api_provider().await?;
-            let auth = self.auth().await;
-            self.route_responses_api_provider(provider, auth.as_ref(), routing_context)
-                .await
-        })
-    }
-
-    /// Applies workspace routing using the credentials already selected for this request.
-    #[expect(
-        clippy::await_holding_invalid_type,
-        reason = "serialize discovery and the session's first successful routing transition"
-    )]
-    fn route_responses_api_provider<'a>(
-        &'a self,
-        mut provider: Provider,
-        auth: Option<&'a CodexAuth>,
-        routing_context: &'a WorkspaceRoutingContext,
-    ) -> ModelProviderFuture<'a, codex_protocol::error::Result<ResolvedResponsesProvider>> {
-        Box::pin(async move {
-            if provider_uses_first_party_auth_path(self.info())
-                && self.info().supports_codex_backend_routes()
-                && let Some(auth) = auth.filter(|auth| auth.is_chatgpt_auth())
-                && let Some(auth_manager) = self.auth_manager()
-            {
-                let mut previously_routed = routing_context.previously_routed.lock().await;
-                if let Some(routing) = auth_manager
-                    .workspace_routing(
-                        auth,
-                        WorkspaceRoutingRequest {
-                            provider_base_url: provider.base_url.clone(),
-                            chatgpt_base_url: routing_context.chatgpt_base_url.clone(),
-                            previously_routed: *previously_routed,
-                            session: routing_context.session.clone(),
-                        },
-                    )
-                    .await
-                    .map_err(|error| match error.downcast::<RefreshTokenFailedError>() {
-                        Ok(rejection) => CodexErr::RefreshTokenFailed(rejection),
-                        Err(error) => error.into(),
-                    })?
-                {
-                    crate::workspace_routing::apply_workspace_routing(&mut provider, routing)?;
-                    *previously_routed = true;
-                }
-            }
-            Ok(ResolvedResponsesProvider {
-                provider,
-                redirect_policy: ClientRedirectPolicy::Reject,
-            })
         })
     }
 
@@ -562,27 +499,12 @@ impl ModelProvider for ConfiguredModelProvider {
                     if auth_manager.refresh_failure_for_auth(&auth).is_some() {
                         return None;
                     }
-                    if matches!(auth, CodexAuth::Headers(_)) {
-                        return None;
-                    }
                     Some(auth)
                 })
                 .map(|auth| match &auth {
                     CodexAuth::ApiKey(_) => Ok(ProviderAccount::ApiKey),
                     CodexAuth::BedrockApiKey(_) | CodexAuth::BedrockAccessKeys(_) => {
                         Err(ProviderAccountError::UnsupportedBedrockApiKeyAuth)
-                    }
-                    CodexAuth::Chatgpt(_)
-                    | CodexAuth::ChatgptAuthTokens(_)
-                    | CodexAuth::Headers(_)
-                    | CodexAuth::AgentIdentity(_)
-                    | CodexAuth::PersonalAccessToken(_) => {
-                        let email = auth.get_account_email();
-                        let plan_type = auth.account_plan_type();
-
-                        plan_type
-                            .map(|plan_type| ProviderAccount::Chatgpt { email, plan_type })
-                            .ok_or(ProviderAccountError::MissingChatgptAccountDetails)
                     }
                 })
                 .transpose()?

@@ -4,17 +4,10 @@
 use super::*;
 use crate::create_model_provider;
 use crate::test_support::seed_gateway_auth;
-use codex_api::Compression;
-use codex_api::ResponsesClient;
-use codex_http_client::ClientRouteClass;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
-use codex_http_client::ReqwestTransport;
-use codex_login::AuthHeaders;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
-use codex_login::default_client::ClientRedirectPolicy;
-use codex_login::default_client::create_client_for_route;
 use codex_model_provider_info::GatewayOAuthConfig;
 use codex_model_provider_info::GatewayOAuthDelivery;
 use codex_model_provider_info::GatewayOAuthSettings;
@@ -23,7 +16,6 @@ use codex_model_provider_info::OAuthCredentialsStore;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_protocol::error::CodexErrorDetails;
 use codex_protocol::protocol::CodexErrorInfo;
-use codex_protocol::protocol::SessionSource;
 use http::HeaderMap;
 use http::HeaderName;
 use http::HeaderValue;
@@ -34,151 +26,6 @@ use wiremock::MockServer;
 use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
-
-#[tokio::test]
-async fn gateway_credentials_accompany_primary_auth_in_models_and_responses() {
-    let server = MockServer::start().await;
-    let home = tempfile::tempdir().unwrap();
-    Mock::given(method("GET"))
-        .and(path("/models"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": []})))
-        .expect(2)
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path("/responses"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("content-type", "text/event-stream")
-                .set_body_string(
-                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\"}}\n\n",
-                ),
-        )
-        .expect(2)
-        .mount(&server)
-        .await;
-    let factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
-    for delivery in [
-        GatewayOAuthDelivery::Header {
-            name: "x-gateway-auth".into(),
-            scheme: "Bearer".into(),
-        },
-        GatewayOAuthDelivery::Cookie {
-            name: "gateway_session".into(),
-        },
-    ] {
-        let config = GatewayOAuthSettings {
-            authorization_url: format!("{}/authorize", server.uri()),
-            device_authorization_url: None,
-            token_url: format!("{}/token", server.uri()),
-            client_id: "test".into(),
-            resource: None,
-            scopes: vec![],
-            redirect_port: None,
-            // Avoid spending the model discovery deadline on keyring-backed decryption.
-            credentials_store: OAuthCredentialsStore::File,
-            delivery: delivery.clone(),
-        };
-        let info = ModelProviderInfo {
-            gateway_oauth: Some(GatewayOAuthConfig::OAuth(config.clone())),
-            requires_openai_auth: true,
-            ..ModelProviderInfo::create_openai_provider(Some(server.uri()))
-        };
-        let mut primary_headers = HeaderMap::new();
-        primary_headers.insert(
-            "authorization",
-            HeaderValue::from_static("Bearer primary-token"),
-        );
-        primary_headers.insert("chatgpt-account-id", HeaderValue::from_static("account"));
-        let primary = AuthManager::from_auth_for_testing_with_home(
-            CodexAuth::Headers(AuthHeaders::new(primary_headers)),
-            home.path().to_path_buf(),
-        );
-        let manager = seed_gateway_auth(
-            &info,
-            &primary,
-            json!({"access_token": "gateway-token", "refresh_token": "refresh-secret", "expires_at": i64::MAX}),
-        );
-        let provider = create_model_provider(info.clone(), Some(primary));
-        assert!(Arc::ptr_eq(
-            &provider
-                .gateway_auth_manager()
-                .unwrap()
-                .unwrap()
-                .oauth_session()
-                .unwrap(),
-            &manager,
-        ));
-        let models = provider.models_manager_without_cache(/*config_model_catalog*/ None);
-        models.set_api_key_model_discovery_enabled(/*enabled*/ true);
-        models
-            .raw_model_catalog(RefreshStrategy::Online, factory.clone())
-            .await;
-        let (api, resolved) = provider.request_provider_and_auth().await.unwrap();
-        let auth = resolved.auth;
-        let scoped = provider.api_auth_for_scope().await.unwrap();
-        let mut expected = HeaderMap::from_iter([
-            (
-                http::header::AUTHORIZATION,
-                HeaderValue::from_static("Bearer primary-token"),
-            ),
-            (
-                HeaderName::from_static("chatgpt-account-id"),
-                HeaderValue::from_static("account"),
-            ),
-        ]);
-        let (name, value) = match delivery {
-            GatewayOAuthDelivery::Header { .. } => ("x-gateway-auth", "Bearer gateway-token"),
-            GatewayOAuthDelivery::Cookie { .. } => ("cookie", "gateway_session=gateway-token"),
-        };
-        expected.insert(
-            HeaderName::from_static(name),
-            HeaderValue::from_static(value),
-        );
-        // Legacy consumers and asynchronous handshakes preserve the same gateway credential.
-        assert_eq!(auth.to_auth_headers().unwrap(), expected);
-        assert_eq!(
-            auth.apply_auth_headers(HeaderMap::new()).await.unwrap(),
-            expected
-        );
-        assert_eq!(scoped.auth.to_auth_headers().unwrap(), expected);
-        assert!(auth.to_auth_headers().unwrap()[name].is_sensitive());
-        let transport = ReqwestTransport::from_http_client(
-            create_client_for_route(
-                &factory,
-                &api.url_for_path("responses"),
-                ClientRouteClass::Api,
-                ClientRedirectPolicy::Default,
-            )
-            .unwrap(),
-        );
-        let client = ResponsesClient::new(transport, api, auth);
-        let _stream = client
-            .stream(
-                json!({"model": "test", "input": []}),
-                HeaderMap::new(),
-                Compression::None,
-                /*turn_state*/ None,
-            )
-            .await
-            .unwrap();
-    }
-    let requests = server.received_requests().await.unwrap();
-    assert_eq!(requests.len(), 4);
-    for request in requests {
-        assert_eq!(request.headers["authorization"], "Bearer primary-token");
-        assert!(
-            request
-                .headers
-                .get("x-gateway-auth")
-                .is_some_and(|value| value == "Bearer gateway-token")
-                || request
-                    .headers
-                    .get("cookie")
-                    .is_some_and(|value| value == "gateway_session=gateway-token")
-        );
-    }
-}
 
 #[tokio::test]
 async fn gateway_preserves_runtime_auth_and_rejects_header_collisions() {

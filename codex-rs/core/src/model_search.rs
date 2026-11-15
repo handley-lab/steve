@@ -10,10 +10,7 @@ use codex_extension_api::ExtensionData;
 use codex_history::InitialHistory;
 use codex_history::ResponseItemEnvelope;
 use codex_history::RolloutItem;
-use codex_mcp::McpBinding;
-use codex_mcp::SearchDiscovery;
 use codex_protocol::config_types::WebSearchMode;
-use codex_protocol::mcp::McpAttributionStatus;
 use codex_protocol::openai_models::WebSearchProvider;
 use codex_tools::ToolSpec;
 use serde_json::Map;
@@ -22,20 +19,12 @@ use serde_json::json;
 
 use crate::session::step_settings::ResolvedStepSettings;
 use crate::session::turn_context::TurnContext;
-use crate::state::SessionServices;
 use crate::turn_metadata::ExecutionMetadata;
 
 #[derive(Clone)]
 pub(crate) enum ModelSearch {
-    Hosted {
-        binding: Arc<McpBinding>,
-        context: Map<String, Value>,
-    },
     ClientMcp,
-    Native {
-        mode: WebSearchMode,
-        fallback: bool,
-    },
+    Native { mode: WebSearchMode, fallback: bool },
     Disabled,
 }
 
@@ -67,12 +56,6 @@ impl SearchTurnUsage {
             }
         }
     }
-}
-
-struct CachedSearch {
-    base: Arc<McpBinding>,
-    request: Map<String, Value>,
-    discovery: SearchDiscovery,
 }
 
 /// Concurrent calls on the same provider share a reservation. An actual search
@@ -242,69 +225,9 @@ fn native_search_mode(turn: &TurnContext, request: &Map<String, Value>) -> Optio
     (mode != WebSearchMode::Disabled).then_some(mode)
 }
 
-fn search_context(turn: &TurnContext, request: &Map<String, Value>) -> Option<Map<String, Value>> {
-    let native_mode = turn.config.web_search_mode.value();
-    if !turn.apps_enabled() {
-        return None;
-    }
-    let config = turn.config.web_search_config.as_ref();
-    if config.is_some_and(|config| {
-        config.user_location.is_some() || config.search_context_size.is_some()
-    }) {
-        return None;
-    }
-    let mut context = object(request.get("openai/search_context"))?;
-    let host_mode = requested_mode(&context, native_mode)?;
-    let mode = if native_mode == WebSearchMode::Disabled
-        && turn
-            .config
-            .features
-            .enabled(codex_features::Feature::HostedSearchPolicy)
-    {
-        host_mode
-    } else {
-        native_mode.restrict_to(host_mode)
-    };
-    if mode == WebSearchMode::Disabled {
-        return None;
-    }
-    turn.config.web_search_mode.can_set(&mode).ok()?;
-    context.insert("mode".into(), json!(mode));
-    let restricted = context
-        .get("is_web_access_restricted")
-        .map_or(Some(false), Value::as_bool)?;
-    context.insert(
-        "is_web_access_restricted".into(),
-        json!(restricted || mode == WebSearchMode::Cached),
-    );
-    let persistent = context
-        .get("session_persistent")
-        .map_or(Some(true), Value::as_bool)?;
-    context.insert(
-        "session_persistent".into(),
-        json!(persistent && !turn.config.ephemeral),
-    );
-    if let Some(domains) = config
-        .and_then(|c| c.filters.as_ref()?.allowed_domains.as_ref())
-        .filter(|d| !d.is_empty())
-    {
-        // Distinct domain policies can contain wildcards. Don't guess at their intersection.
-        if context
-            .get("allowed_domains")
-            .is_some_and(|value| *value != json!(domains))
-        {
-            return None;
-        }
-        context.insert("allowed_domains".into(), json!(domains));
-    }
-    Some(context)
-}
-
 pub(crate) async fn resolve(
     turn: &TurnContext,
     settings: &ResolvedStepSettings,
-    base: &Arc<McpBinding>,
-    services: &SessionServices,
 ) -> Option<ModelSearch> {
     let native_required = turn.config.requires_native_search();
     let provider = if native_required {
@@ -325,11 +248,11 @@ pub(crate) async fn resolve(
         );
         Some(decision)
     };
-    let mut turn_meta = turn
+    let turn_meta = turn
         .turn_metadata_state
         .current_meta_value_for_mcp_request(ExecutionMetadata::from_settings(settings))
         .unwrap_or_else(|| json!({}));
-    let Some(mut request) = object(turn_meta.get("mcp_request_meta")) else {
+    let Some(request) = object(turn_meta.get("mcp_request_meta")) else {
         return observe(ModelSearch::Disabled, "invalid_request_metadata");
     };
     let native_mode = native_search_mode(turn, &request);
@@ -353,104 +276,6 @@ pub(crate) async fn resolve(
             }),
         );
     }
-    if !crate::mcp_tool_exposure::filter_codex_apps_mcp_tools(base.tools(), &turn.config)
-        .any(codex_mcp::is_model_search_tool)
-    {
-        return observe(ModelSearch::Disabled, "connector_unavailable");
-    }
-    let usage = turn.extension_data.get_or_init(SearchTurnUsage::default);
-    let Some(mut context) = search_context(turn, &request) else {
-        return observe(ModelSearch::Disabled, "search_policy");
-    };
-    context.insert(
-        "model_supported_tools".into(),
-        json!(settings.model_info.experimental_supported_tools),
-    );
-    // Scoped discovery may narrow an unrestricted catalog. Keep existing allowlists,
-    // denylists, plugin selection, and all other host metadata intact.
-    if unrestricted_connectors(&request) {
-        request.insert(
-            "selected_connector_ids".into(),
-            json!([codex_mcp::SEARCH_CONNECTOR]),
-        );
-    }
-    request.insert("openai/search_context".into(), json!(&context));
-    turn_meta["mcp_request_meta"] = json!(&request);
-    // Only discovery is stable within the turn. A yielded search can finish on a later step.
-    let cached = turn
-        .extension_data
-        .get::<CachedSearch>()
-        .filter(|cached| Arc::ptr_eq(&cached.base, base) && cached.request == request);
-    let fresh = cached.is_none();
-    let cached = match cached {
-        Some(cached) => cached,
-        None => {
-            let cached = Arc::new(CachedSearch {
-                base: Arc::clone(base),
-                request,
-                discovery: base.discover_model_search(turn_meta).await,
-            });
-            turn.extension_data.insert_arc(Arc::clone(&cached));
-            cached
-        }
-    };
-    let finish = |decision, reason| {
-        if fresh {
-            observe(decision, reason)
-        } else {
-            Some(decision)
-        }
-    };
-    let owner = SearchOwner::current(&services.thread_extension_data);
-    let reason = match &cached.discovery {
-        SearchDiscovery::Ready(binding) => {
-            if owner != Some(WebSearchProvider::Standalone) {
-                return finish(
-                    ModelSearch::Hosted {
-                        binding: Arc::clone(binding),
-                        context,
-                    },
-                    "hosted",
-                );
-            }
-            "native_browsing_state"
-        }
-        SearchDiscovery::Critical(reason) => *reason,
-        SearchDiscovery::Unavailable => return finish(ModelSearch::Disabled, "unavailable"),
-    };
-    let attribution = services.executed_tool_calls.mcp_attribution_snapshot();
-    if let Some(mode) = native_mode
-        && owner != Some(WebSearchProvider::SearchMcp)
-        && usage.0.load(Ordering::Relaxed) & SearchTurnUsage::MCP == 0
-        && attribution.status != McpAttributionStatus::AttributionError
-        && !attribution
-            .sources
-            .iter()
-            .any(|source| source.connector_id.as_deref() == Some(codex_mcp::SEARCH_CONNECTOR))
-    {
-        finish(
-            ModelSearch::Native {
-                mode,
-                fallback: true,
-            },
-            reason,
-        )
-    } else {
-        finish(ModelSearch::Disabled, "fallback_restricted")
-    }
-}
-
-/// Preserve all other per-call metadata while replacing the policy with the one used for discovery.
-pub(crate) fn with_search_context(
-    request: &mut Value,
-    context: &Map<String, Value>,
-) -> anyhow::Result<()> {
-    let envelope = request
-        .as_object_mut()
-        .ok_or_else(|| anyhow::anyhow!("invalid search turn metadata"))?;
-    let mut meta = object(envelope.get("mcp_request_meta"))
-        .ok_or_else(|| anyhow::anyhow!("invalid MCP request metadata"))?;
-    meta.insert("openai/search_context".into(), json!(context));
-    envelope.insert("mcp_request_meta".into(), Value::Object(meta));
-    Ok(())
+    // The search connector is served by the hosted Apps server, which needs an account.
+    observe(ModelSearch::Disabled, "connector_unavailable")
 }

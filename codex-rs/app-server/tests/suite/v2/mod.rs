@@ -1,18 +1,11 @@
 mod account;
-#[path = "account_system_proxy_tests.rs"]
-mod account_system_proxy;
 
 mod account_gcp;
-mod account_thread_usage;
 mod agent_message_board;
 mod analytics;
-mod app_installed;
-mod app_list;
-mod app_read;
 mod application_network;
 #[path = "attached_thread_tests.rs"]
 mod attached_thread;
-mod attestation;
 #[path = "auth_storage_originator_tests.rs"]
 mod auth_storage_originator;
 mod auto_env;
@@ -55,7 +48,6 @@ mod curated_mcp_sync;
 mod current_time;
 mod cyber_access_program;
 mod daemon_update_recovery;
-mod daybreak_access;
 mod dynamic_tools;
 mod environment_add;
 mod environment_info;
@@ -78,7 +70,6 @@ mod fs;
 mod gateway_oauth;
 #[path = "gcp_setup_tests.rs"]
 mod gcp_setup;
-mod git_attribution;
 mod guardian_v2;
 mod history_notes_extension;
 mod hooks_list;
@@ -86,13 +77,10 @@ mod host_skills;
 mod https_mock;
 mod imagegen_extension;
 mod initialize;
-mod luna_reserve;
 mod marketplace_add;
 mod marketplace_remove;
 mod marketplace_upgrade;
 mod mcp_connection_sharing;
-mod mcp_event_stream;
-mod mcp_protocol_default;
 mod mcp_resource;
 mod mcp_resource_origin;
 mod mcp_server_elicitation;
@@ -110,7 +98,6 @@ mod model_provider_config_tests;
 mod model_provider_enforcement;
 mod model_provider_list_tests;
 mod multi_agent_v2_developer_instructions;
-mod otel;
 mod output_schema;
 mod permission_profile_list;
 mod plan_item;
@@ -118,19 +105,11 @@ mod plugin_install;
 mod plugin_list;
 mod plugin_manifest_cache;
 mod plugin_read;
-mod plugin_reconcile;
 mod plugin_search;
-mod plugin_share;
 mod plugin_uninstall;
 mod process_exec;
 mod projects;
-mod rate_limit_reset_credits;
-mod rate_limits;
-#[path = "rate_limits_identity_tests.rs"]
-mod rate_limits_identity;
 mod realtime_conversation;
-mod recommended_plugins;
-mod remote_control;
 #[cfg(debug_assertions)]
 mod remote_thread_store;
 mod request_permissions;
@@ -181,7 +160,6 @@ mod thread_timeline;
 mod thread_unarchive;
 mod thread_unload;
 mod thread_unsubscribe;
-mod turn_cost_otel;
 mod turn_interrupt;
 mod turn_settings_update;
 mod turn_start;
@@ -189,7 +167,3 @@ mod turn_steer;
 mod view_image;
 mod web_search;
 mod windows_sandbox_setup;
-mod workspace_routing;
-
-mod user_verification;
-mod user_verification_mcp;

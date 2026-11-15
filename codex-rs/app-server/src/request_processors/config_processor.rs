@@ -398,14 +398,8 @@ pub(super) async fn reload_user_config(
 }
 
 async fn reload_user_config_inner(config_manager: &ConfigManager, thread_manager: &ThreadManager) {
-    config_manager.revoke_mcp_ema_startups();
     if let Err(err) = config_manager.load_config_layers(/*cwd*/ None).await {
         tracing::warn!("failed to rebuild user config for runtime refresh: {err}");
-        for thread_id in thread_manager.list_thread_ids().await {
-            if let Ok(thread) = thread_manager.get_thread(thread_id).await {
-                thread.disable_mcp_enterprise_auth().await;
-            }
-        }
         return;
     }
     let thread_ids = thread_manager.list_thread_ids().await;
@@ -425,7 +419,6 @@ async fn reload_user_config_inner(config_manager: &ConfigManager, thread_manager
                 Ok(config) => config,
                 Err(err) => {
                     tracing::warn!(%thread_id, %err, "failed to reload thread configuration");
-                    thread.disable_mcp_enterprise_auth().await;
                     break;
                 }
             };
@@ -456,8 +449,7 @@ async fn reload_user_config_inner(config_manager: &ConfigManager, thread_manager
                 }
             }
             if attempt == 3 {
-                thread.disable_mcp_enterprise_auth().await;
-                tracing::warn!(%thread_id, "configuration kept changing during user reload; enterprise MCP disabled");
+                tracing::warn!(%thread_id, "configuration kept changing during user reload");
             }
         }
     }

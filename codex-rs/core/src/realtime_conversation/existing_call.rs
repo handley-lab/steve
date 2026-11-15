@@ -8,8 +8,6 @@ use super::RealtimeWebrtcSidebandInputTask;
 use super::spawn_webrtc_sideband_input_task;
 use crate::client::ModelClient;
 use async_channel::Sender;
-use codex_api::Provider;
-use codex_api::RealtimeEvent;
 use codex_api::RealtimeEventParser;
 use codex_api::RealtimeSessionConfig;
 use codex_api::RealtimeTranscriptState;
@@ -28,7 +26,6 @@ use tokio_util::sync::CancellationToken;
 pub(super) struct ExistingCallAttachment {
     pub(super) attachment_cancellation: CancellationToken,
     pub(super) client: RealtimeWebsocketClient,
-    pub(super) api_provider: Provider,
     pub(super) model_client: ModelClient,
     pub(super) auth_context: codex_model_provider::ProviderAuthContext,
     pub(super) http_client_factory: HttpClientFactory,
@@ -50,7 +47,6 @@ pub(super) async fn attach(attachment: ExistingCallAttachment) -> CodexResult<Jo
     let ExistingCallAttachment {
         attachment_cancellation,
         client,
-        api_provider,
         model_client,
         auth_context,
         http_client_factory,

@@ -133,26 +133,6 @@ async fn command_gateway_authenticates_without_an_oauth_grant_and_caches_the_tok
 }
 
 #[tokio::test]
-async fn inference_sends_chatgpt_and_gateway_credentials_to_the_configured_headers() -> Result<()> {
-    sample_with_gateway(
-        "requires_openai_auth = true",
-        "delivery = { kind = 'header', name = 'x-gateway-auth' }",
-        CodexAuth::from_external_chatgpt_tokens(
-            "header.e30.sig",
-            "test-account",
-            /*chatgpt_plan_type*/ None,
-        )?,
-        &[
-            ("authorization", "Bearer header.e30.sig"),
-            ("x-gateway-auth", "Bearer gateway-token"),
-            ("chatgpt-account-id", "test-account"),
-        ],
-        /*expected_error*/ None,
-    )
-    .await
-}
-
-#[tokio::test]
 async fn gateway_token_failure_blocks_sampling() -> Result<()> {
     sample_with_gateway(
         "requires_openai_auth = true",
@@ -168,7 +148,7 @@ async fn omitted_delivery_sends_only_gateway_auth_even_when_signed_in() -> Resul
     sample_with_gateway(
         "requires_openai_auth = false",
         "",
-        CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+        CodexAuth::from_api_key("dummy"),
         &[("authorization", "Bearer gateway-token")],
         /*expected_error*/ None,
     )

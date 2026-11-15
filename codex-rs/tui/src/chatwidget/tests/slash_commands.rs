@@ -1422,119 +1422,6 @@ async fn usage_error_slash_command_is_available_from_local_recall() {
 }
 
 #[tokio::test]
-async fn signed_out_usage_command_reports_chatgpt_login_requirement() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-
-    submit_composer_text(&mut chat, "/usage");
-
-    let cells = drain_insert_history(&mut rx);
-    let rendered = cells
-        .iter()
-        .map(|cell| lines_to_single_string(cell))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert_chatwidget_snapshot!(
-        "signed_out_usage_command_reports_chatgpt_login_requirement",
-        rendered
-    );
-    assert_eq!(recall_latest_after_clearing(&mut chat), "/usage");
-}
-
-#[tokio::test]
-async fn signed_out_usage_command_with_args_reports_chatgpt_login_requirement() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-
-    submit_composer_text(&mut chat, "/usage weekly");
-
-    let cells = drain_insert_history(&mut rx);
-    let rendered = cells
-        .iter()
-        .map(|cell| lines_to_single_string(cell))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(
-        rendered.contains("Sign in with ChatGPT to use /usage."),
-        "expected ChatGPT login requirement, got: {rendered:?}"
-    );
-    assert_eq!(recall_latest_after_clearing(&mut chat), "/usage weekly");
-}
-
-#[tokio::test]
-async fn usage_command_with_invalid_view_reports_usage_snapshot() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-    set_chatgpt_auth(&mut chat);
-
-    submit_composer_text(&mut chat, "/usage monthly");
-
-    let rendered = drain_insert_history(&mut rx)
-        .iter()
-        .map(|cell| lines_to_single_string(cell))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert_chatwidget_snapshot!("usage_command_with_invalid_view_reports_usage", rendered);
-    assert_eq!(recall_latest_after_clearing(&mut chat), "/usage monthly");
-}
-
-#[tokio::test]
-async fn usage_views_open_the_requested_summary_mode() {
-    use crate::analytics::TokenActivityView;
-    for (argument, expected) in [
-        ("daily", TokenActivityView::Daily),
-        ("weekly", TokenActivityView::Weekly),
-        ("cumulative", TokenActivityView::Cumulative),
-    ] {
-        let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-        set_chatgpt_auth(&mut chat);
-        chat.dispatch_command_with_args(SlashCommand::Usage, argument.to_string(), Vec::new());
-        match rx.try_recv().unwrap() {
-            AppEvent::OpenAnalytics { view } => assert_eq!(view, Some(expected)),
-            other => panic!("expected Analytics, got {other:?}"),
-        }
-    }
-}
-
-#[tokio::test]
-async fn usage_command_runs_with_backend_auth_without_chatgpt_account_flag() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-    chat.update_account_state(
-        /*status_account_display*/ None, /*plan_type*/ None,
-        /*has_chatgpt_account*/ false, /*has_codex_backend_auth*/ true,
-    );
-
-    chat.dispatch_command_with_args(SlashCommand::Usage, "daily".to_string(), Vec::new());
-
-    assert_matches!(
-        rx.try_recv(),
-        Ok(AppEvent::OpenAnalytics {
-            view: Some(crate::analytics::TokenActivityView::Daily)
-        })
-    );
-    assert!(!chat.has_chatgpt_account());
-}
-
-#[tokio::test]
-async fn usage_command_runs_with_backend_auth_from_widget_init() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual_with_auth(
-        /*model_override*/ None,
-        /*has_chatgpt_account*/ false,
-        /*has_codex_backend_auth*/ true,
-        FrameRequester::test_dummy(),
-    )
-    .await;
-
-    chat.dispatch_command_with_args(SlashCommand::Usage, "daily".to_string(), Vec::new());
-
-    assert_matches!(
-        rx.try_recv(),
-        Ok(AppEvent::OpenAnalytics {
-            view: Some(crate::analytics::TokenActivityView::Daily)
-        })
-    );
-    assert!(!chat.has_chatgpt_account());
-    assert!(chat.has_codex_backend_auth());
-}
-
-#[tokio::test]
 async fn unrecognized_slash_command_is_not_added_to_local_recall() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 
@@ -1933,72 +1820,6 @@ async fn slash_copy_status_omits_missing_fields_and_copies_full_directory() {
 }
 
 #[tokio::test]
-async fn slash_copy_status_yields_to_later_turns_and_commands_even_after_refresh() {
-    enum NextTurn {
-        Response,
-        UserTurn,
-        Command,
-        InlineCommand,
-        RejectedInlineCommand,
-        ServiceTier,
-        ShellCommand,
-    }
-    for next in [
-        NextTurn::Response,
-        NextTurn::UserTurn,
-        NextTurn::Command,
-        NextTurn::InlineCommand,
-        NextTurn::RejectedInlineCommand,
-        NextTurn::ServiceTier,
-        NextTurn::ShellCommand,
-    ] {
-        let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.4")).await;
-        chat.local_settings.transcript_mode = crate::transcript_mode::TranscriptMode::Terminal;
-        chat.thread_id = Some(ThreadId::new());
-        complete_turn_with_message(&mut chat, "turn-1", Some("Original reply"));
-        set_chatgpt_auth(&mut chat);
-        chat.dispatch_command(SlashCommand::Status);
-        drain_insert_history(&mut rx);
-        chat.dispatch_command(SlashCommand::Copy);
-        assert!(render_bottom_popup(&chat, /*width*/ 80).contains("1. Whole status"));
-        chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        drain_insert_history(&mut rx);
-
-        match next {
-            NextTurn::Response => {
-                complete_turn_with_message(&mut chat, "turn-2", Some("Next reply"))
-            }
-            NextTurn::UserTurn => chat.submit_user_message(UserMessage::from("Next question")),
-            NextTurn::Command => chat.dispatch_command(SlashCommand::Pwd),
-            NextTurn::InlineCommand => chat.dispatch_command_with_args(
-                SlashCommand::Rename,
-                "Renamed thread".to_string(),
-                Vec::new(),
-            ),
-            NextTurn::RejectedInlineCommand => {
-                handle_turn_started(&mut chat, "turn-2");
-                chat.dispatch_command_with_args(SlashCommand::Cd, "/tmp".to_string(), Vec::new());
-            }
-            NextTurn::ServiceTier => chat.handle_service_tier_command_dispatch(fast_tier_command()),
-            NextTurn::ShellCommand => chat.submit_user_message(UserMessage::from("!echo hello")),
-        }
-        chat.finish_status_rate_limit_refresh(/*request_id*/ 0, Vec::new());
-        drain_insert_history(&mut rx);
-        chat.dispatch_command(SlashCommand::Copy);
-        chat.handle_key_event(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
-        let expected = if matches!(next, NextTurn::Response) {
-            "Next reply"
-        } else {
-            "Original reply"
-        };
-        assert_eq!(
-            next_copy_selection(&mut rx),
-            (expected.to_string(), "Whole response".to_string())
-        );
-    }
-}
-
-#[tokio::test]
 async fn slash_copy_status_yields_to_queued_commands_after_queued_status() {
     for command in ["/rename Queued rename", "!echo hello"] {
         let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
@@ -2230,109 +2051,6 @@ async fn slash_copy_picker_remains_available_from_parent_owned_threads() {
         op_rx.try_recv().is_err(),
         "copy must not submit an agent turn"
     );
-}
-
-#[tokio::test]
-async fn slash_daybreak_describes_the_catalog_when_unavailable() {
-    let (mut chat, mut rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
-    chat.has_chatgpt_account = true;
-    let mut model = crate::test_support::TEST_MODEL_PRESETS[0].clone();
-    model.available_access_programs = Some(codex_protocol::openai_models::ModelAccessPrograms {
-        cyber: vec![codex_protocol::turn_input::CyberAccessProgram::Standard],
-    });
-    chat.model_catalog = std::sync::Arc::new(ModelCatalog::new(vec![model.clone()]));
-
-    chat.set_daybreak_enabled(/*enabled*/ false);
-    chat.bottom_pane
-        .set_composer_text("/daybreak".to_string(), Vec::new(), Vec::new());
-    assert_chatwidget_snapshot!(
-        "slash_daybreak_help_unavailable",
-        render_bottom_popup(&chat, /*width*/ 80)
-            .lines()
-            .next()
-            .unwrap()
-    );
-
-    chat.dispatch_command(SlashCommand::Daybreak);
-
-    let cells = drain_insert_history(&mut rx);
-    let rendered = lines_to_single_string(&cells[0]);
-    assert!(rendered.contains("model catalog does not advertise a Daybreak program"));
-    assert!(!rendered.contains("https://"));
-    assert_chatwidget_snapshot!(
-        "slash_daybreak_unavailable",
-        lines_to_single_string(&cells[0])
-    );
-
-    chat.model_catalog = std::sync::Arc::new(ModelCatalog::new(Vec::new()));
-    chat.dispatch_command(SlashCommand::Daybreak);
-    let cells = drain_insert_history(&mut rx);
-    assert_chatwidget_snapshot!(
-        "slash_daybreak_catalog_unknown",
-        lines_to_single_string(&cells[0])
-    );
-
-    chat.has_chatgpt_account = false;
-    chat.dispatch_command(SlashCommand::Daybreak);
-    let cells = drain_insert_history(&mut rx);
-    assert!(lines_to_single_string(&cells[0]).contains("availability could not be determined"));
-    chat.has_chatgpt_account = true;
-
-    model
-        .available_access_programs
-        .as_mut()
-        .unwrap()
-        .cyber
-        .push(codex_protocol::turn_input::CyberAccessProgram::DaybreakBlue);
-    chat.model_catalog = std::sync::Arc::new(ModelCatalog::new(vec![model]));
-    chat.has_chatgpt_account = false;
-    chat.status_account_display = Some(StatusAccountDisplay::ApiKey);
-    chat.set_feature_enabled(Feature::ApiKeyCyberAccessPrograms, /*enabled*/ true);
-    chat.set_daybreak_enabled(/*enabled*/ false);
-    chat.bottom_pane
-        .set_composer_text(String::new(), Vec::new(), Vec::new());
-    chat.bottom_pane
-        .set_composer_text("/daybreak".to_string(), Vec::new(), Vec::new());
-    assert_chatwidget_snapshot!(
-        "slash_daybreak_api_key_help",
-        render_bottom_popup(&chat, /*width*/ 80)
-            .lines()
-            .next()
-            .unwrap()
-    );
-    chat.set_daybreak_enabled(/*enabled*/ true);
-    chat.set_feature_enabled(Feature::ApiKeyCyberAccessPrograms, /*enabled*/ false);
-    chat.bottom_pane
-        .set_composer_text(String::new(), Vec::new(), Vec::new());
-    chat.bottom_pane
-        .set_composer_text("/daybreak".to_string(), Vec::new(), Vec::new());
-    assert!(chat.daybreak_enabled);
-    assert!(render_bottom_popup(&chat, /*width*/ 80).contains("Disable broader access"));
-    chat.has_chatgpt_account = true;
-    chat.status_account_display = None;
-    for (enabled, name) in [
-        (false, "slash_daybreak_help_enable"),
-        (true, "slash_daybreak_help_disable"),
-    ] {
-        chat.set_daybreak_enabled(enabled);
-        chat.bottom_pane
-            .set_composer_text(String::new(), Vec::new(), Vec::new());
-        chat.bottom_pane
-            .set_composer_text("/daybreak".to_string(), Vec::new(), Vec::new());
-        assert_chatwidget_snapshot!(
-            name,
-            render_bottom_popup(&chat, /*width*/ 80)
-                .lines()
-                .next()
-                .unwrap()
-        );
-    }
-    chat.set_feature_enabled(Feature::CliDaybreak, /*enabled*/ false);
-    chat.set_daybreak_enabled(/*enabled*/ true);
-    assert!(!chat.daybreak_enabled);
-    assert!(chat.daybreak_command_description().is_none());
-    chat.dispatch_command(SlashCommand::Daybreak);
-    assert!(drain_insert_history(&mut rx).is_empty());
 }
 
 #[tokio::test]
@@ -3548,7 +3266,6 @@ async fn fast_keybinding_toggle_requires_feature_and_idle_surface() {
 async fn user_turn_carries_service_tier_after_fast_toggle() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(Some("gpt-5.4")).await;
     chat.thread_id = Some(ThreadId::new());
-    set_chatgpt_auth(&mut chat);
     set_fast_mode_test_catalog(&mut chat);
     chat.set_feature_enabled(Feature::FastMode, /*enabled*/ true);
 
@@ -3570,43 +3287,9 @@ async fn user_turn_carries_service_tier_after_fast_toggle() {
 }
 
 #[tokio::test]
-async fn user_turn_preserves_flex_without_catalog_support() {
-    for fast_mode_enabled in [false, true] {
-        let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(Some("gpt-5.4")).await;
-        chat.thread_id = Some(ThreadId::new());
-        set_chatgpt_auth(&mut chat);
-        let mut models = chat.model_catalog.try_list_models().expect("test catalog");
-        for model in &mut models {
-            model.service_tiers.clear();
-            model.default_service_tier = None;
-        }
-        chat.model_catalog = std::sync::Arc::new(ModelCatalog::new(models));
-        chat.set_feature_enabled(Feature::FastMode, fast_mode_enabled);
-        chat.set_service_tier(Some(ServiceTier::Flex.request_value().to_string()));
-
-        assert_eq!(
-            chat.current_service_tier(),
-            Some(ServiceTier::Flex.request_value())
-        );
-        chat.bottom_pane
-            .set_composer_text("hello".to_string(), Vec::new(), Vec::new());
-        chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
-
-        let Op::UserTurn { service_tier, .. } = next_submit_op(&mut op_rx) else {
-            panic!("expected a user turn");
-        };
-        assert_eq!(
-            service_tier,
-            Some(Some(ServiceTier::Flex.request_value().to_string()))
-        );
-    }
-}
-
-#[tokio::test]
 async fn model_switch_recomputes_catalog_default_service_tier() {
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(Some("gpt-5.2")).await;
     chat.thread_id = Some(ThreadId::new());
-    set_chatgpt_auth(&mut chat);
     set_fast_mode_test_catalog(&mut chat);
     chat.set_feature_enabled(Feature::FastMode, /*enabled*/ true);
 
@@ -3644,52 +3327,9 @@ async fn model_switch_recomputes_catalog_default_service_tier() {
 }
 
 #[tokio::test]
-async fn queued_fast_slash_applies_before_next_queued_message() {
-    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(Some("gpt-5.4")).await;
-    chat.thread_id = Some(ThreadId::new());
-    set_chatgpt_auth(&mut chat);
-    set_fast_mode_test_catalog(&mut chat);
-    chat.set_feature_enabled(Feature::FastMode, /*enabled*/ true);
-    handle_turn_started(&mut chat, "turn-1");
-
-    queue_composer_text_with_tab(&mut chat, "/fast");
-    queue_composer_text_with_tab(&mut chat, "hello after fast");
-
-    complete_turn_with_message(&mut chat, "turn-1", Some("done"));
-
-    let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
-    assert!(
-        events.iter().any(|event| matches!(
-            event,
-            AppEvent::CodexOp(Op::OverrideTurnContext {
-                service_tier: Some(Some(service_tier)),
-                ..
-            }) if service_tier == ServiceTier::Fast.request_value()
-        )),
-        "expected queued /fast to update service tier before next turn; events: {events:?}"
-    );
-
-    match next_submit_op(&mut op_rx) {
-        Op::UserTurn {
-            items,
-            service_tier: Some(Some(service_tier)),
-            ..
-        } if service_tier == ServiceTier::Fast.request_value() => assert_eq!(
-            items,
-            vec![UserInput::Text {
-                text: "hello after fast".to_string(),
-                text_elements: Vec::new(),
-            }]
-        ),
-        other => panic!("expected queued message to submit with fast tier, got {other:?}"),
-    }
-}
-
-#[tokio::test]
 async fn user_turn_sends_standard_override_after_fast_is_turned_off() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(Some("gpt-5.4")).await;
     chat.thread_id = Some(ThreadId::new());
-    set_chatgpt_auth(&mut chat);
     set_fast_mode_test_catalog(&mut chat);
     chat.set_feature_enabled(Feature::FastMode, /*enabled*/ true);
 

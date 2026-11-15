@@ -16,7 +16,7 @@ async fn command_sessions_world_state_tracks_retained_processes() -> Result<()> 
     let builder = || {
         test_codex()
             .with_model("gpt-6-astra")
-            .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+            .with_auth(CodexAuth::from_api_key("dummy"))
             .with_config(|config| {
                 configure_scenario_catalog(config);
                 let catalog = config

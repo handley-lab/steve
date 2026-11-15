@@ -3,10 +3,7 @@ use super::*;
 use crate::error_code::OVERLOADED_ERROR_CODE;
 use codex_app_server_protocol::FeedbackSaveParams;
 use codex_app_server_protocol::FeedbackSaveResponse;
-use codex_connectors::ConnectorDirectoryCacheContext;
-use codex_connectors::ConnectorDirectoryCacheKey;
 use codex_connectors::connector_runtime_cache_path;
-use codex_feedback::CODEX_APP_DIRECTORY_CACHE_ATTACHMENT_FILENAME;
 use codex_feedback::CODEX_APPS_TOOLS_CACHE_ATTACHMENT_FILENAME;
 use codex_feedback::FeedbackAttachment;
 use codex_feedback::FeedbackSnapshot;
@@ -154,18 +151,6 @@ impl FeedbackRequestProcessor {
         apply_feedback_turn_metadata(&mut upload_tags, turn_metadata);
         let prompt_hash = upload_tags.get("prompt_hash").cloned();
 
-        if let Some(chatgpt_user_id) = auth
-            .as_ref()
-            .and_then(codex_login::CodexAuth::get_chatgpt_user_id)
-        {
-            tracing::info!(target: "feedback_tags", chatgpt_user_id);
-        }
-        if let Some(account_id) = auth
-            .as_ref()
-            .and_then(codex_login::CodexAuth::get_account_id)
-        {
-            tracing::info!(target: "feedback_tags", account_id);
-        }
         let snapshot = self.feedback.snapshot(conversation_id);
         let mut extra_attachments = Vec::new();
         let mut feedback_index = None;
@@ -284,11 +269,9 @@ impl FeedbackRequestProcessor {
             {
                 attachment_paths.push(sandbox_log_attachment);
             }
-            for cache_attachment in tool_cache_feedback_attachments(
-                self.config.codex_home.as_path(),
-                &self.config.chatgpt_base_url,
-                auth.as_ref(),
-            ) {
+            for cache_attachment in
+                tool_cache_feedback_attachments(self.config.codex_home.as_path(), auth.as_ref())
+            {
                 if seen_attachment_paths.insert(cache_attachment.path.clone()) {
                     attachment_paths.push(cache_attachment);
                 }
@@ -515,7 +498,6 @@ fn normalized_prompt_hash(prompt: &str) -> String {
 
 fn tool_cache_feedback_attachments(
     codex_home: &Path,
-    chatgpt_base_url: &str,
     auth: Option<&CodexAuth>,
 ) -> Vec<FeedbackAttachmentPath> {
     let mut attachments = Vec::with_capacity(2);
@@ -525,28 +507,6 @@ fn tool_cache_feedback_attachments(
             path: tools_cache_path,
             attachment_filename_override: Some(
                 CODEX_APPS_TOOLS_CACHE_ATTACHMENT_FILENAME.to_string(),
-            ),
-        });
-    }
-
-    let Some(auth) = auth.filter(|auth| auth.uses_codex_backend()) else {
-        return attachments;
-    };
-    let directory_cache_context = ConnectorDirectoryCacheContext::new(
-        codex_home.to_path_buf(),
-        ConnectorDirectoryCacheKey::new(
-            chatgpt_base_url.to_string(),
-            auth.get_account_id(),
-            auth.get_chatgpt_user_id(),
-            auth.is_workspace_account(),
-        ),
-    );
-    let directory_cache_path = directory_cache_context.cache_path();
-    if directory_cache_path.is_file() {
-        attachments.push(FeedbackAttachmentPath {
-            path: directory_cache_path,
-            attachment_filename_override: Some(
-                CODEX_APP_DIRECTORY_CACHE_ATTACHMENT_FILENAME.to_string(),
             ),
         });
     }
@@ -641,7 +601,6 @@ mod tests {
     use codex_rollout::RolloutLine;
     use core_test_support::responses::start_mock_server;
     use core_test_support::test_codex::test_codex;
-    use http::HeaderMap;
     use pretty_assertions::assert_eq;
 
     #[tokio::test]
@@ -894,98 +853,6 @@ mod tests {
         std::fs::write(&rollout_path, format!("{contents}\n")).expect("write feedback rollout");
 
         (tempdir, rollout_path)
-    }
-
-    #[test]
-    fn tool_cache_feedback_attachments_include_existing_active_cache_files() {
-        let codex_home = tempfile::tempdir().expect("create tempdir");
-        let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
-        let tools_cache_path = connector_runtime_cache_path(codex_home.path(), Some(&auth));
-        std::fs::create_dir_all(tools_cache_path.parent().expect("tools cache parent"))
-            .expect("create tools cache directory");
-        std::fs::write(&tools_cache_path, b"tools").expect("write tools cache");
-
-        let account_id = auth.get_account_id().expect("dummy auth account id");
-        let directory_cache_context = ConnectorDirectoryCacheContext::new(
-            codex_home.path().to_path_buf(),
-            ConnectorDirectoryCacheKey::new(
-                "https://chatgpt.com/backend-api".to_string(),
-                Some(account_id),
-                auth.get_chatgpt_user_id(),
-                auth.is_workspace_account(),
-            ),
-        );
-        let directory_cache_path = directory_cache_context.cache_path();
-        std::fs::create_dir_all(
-            directory_cache_path
-                .parent()
-                .expect("directory cache parent"),
-        )
-        .expect("create directory cache directory");
-        std::fs::write(&directory_cache_path, b"directory").expect("write directory cache");
-
-        let attachments = tool_cache_feedback_attachments(
-            codex_home.path(),
-            "https://chatgpt.com/backend-api",
-            Some(&auth),
-        )
-        .into_iter()
-        .map(|attachment| (attachment.path, attachment.attachment_filename_override))
-        .collect::<Vec<_>>();
-
-        assert_eq!(
-            attachments,
-            vec![
-                (
-                    tools_cache_path,
-                    Some(CODEX_APPS_TOOLS_CACHE_ATTACHMENT_FILENAME.to_string()),
-                ),
-                (
-                    directory_cache_path,
-                    Some(CODEX_APP_DIRECTORY_CACHE_ATTACHMENT_FILENAME.to_string()),
-                ),
-            ]
-        );
-    }
-
-    #[test]
-    fn tool_cache_feedback_attachments_include_directory_cache_without_account_id() {
-        let codex_home = tempfile::tempdir().expect("create tempdir");
-        let auth = CodexAuth::Headers(codex_login::AuthHeaders::new(HeaderMap::new()));
-        let directory_cache_context = ConnectorDirectoryCacheContext::new(
-            codex_home.path().to_path_buf(),
-            ConnectorDirectoryCacheKey::new(
-                "https://chatgpt.com/backend-api".to_string(),
-                /*account_id*/ None,
-                auth.get_chatgpt_user_id(),
-                auth.is_workspace_account(),
-            ),
-        );
-        let directory_cache_path = directory_cache_context.cache_path();
-        std::fs::create_dir_all(
-            directory_cache_path
-                .parent()
-                .expect("directory cache parent"),
-        )
-        .expect("create directory cache directory");
-        std::fs::write(&directory_cache_path, b"directory").expect("write directory cache");
-
-        let attachments = tool_cache_feedback_attachments(
-            codex_home.path(),
-            "https://chatgpt.com/backend-api",
-            Some(&auth),
-        )
-        .into_iter()
-        .map(|attachment| (attachment.path, attachment.attachment_filename_override))
-        .collect::<Vec<_>>();
-
-        assert_eq!(
-            attachments,
-            vec![(
-                directory_cache_path,
-                Some(CODEX_APP_DIRECTORY_CACHE_ATTACHMENT_FILENAME.to_string()),
-            )]
-        );
     }
 
     #[cfg(target_os = "windows")]

@@ -191,38 +191,9 @@ impl ChatWidget {
         self.model_catalog.clone()
     }
 
-    pub(crate) fn on_account_email_loaded(
-        &mut self,
-        current_email: Option<String>,
-        current_workspace: Option<String>,
-    ) {
-        if let Some(StatusAccountDisplay::ChatGpt {
-            email, workspace, ..
-        }) = &mut self.status_account_display
-        {
-            *email = current_email;
-            *workspace = current_workspace;
-        }
-    }
-
-    pub(crate) fn current_plan_type(&self) -> Option<PlanType> {
-        self.plan_type
-    }
-
-    pub(crate) fn has_chatgpt_account(&self) -> bool {
-        self.has_chatgpt_account
-    }
-
-    pub(crate) fn has_codex_backend_auth(&self) -> bool {
-        self.has_codex_backend_auth
-    }
-
     pub(crate) fn update_account_state(
         &mut self,
         status_account_display: Option<StatusAccountDisplay>,
-        plan_type: Option<PlanType>,
-        has_chatgpt_account: bool,
-        has_codex_backend_auth: bool,
     ) {
         // Account-update notifications are the identity boundary. The visible account fields can
         // be identical across two accounts, so always invalidate account-scoped requests and data.
@@ -231,13 +202,6 @@ impl ChatWidget {
             || status_account_display == Some(StatusAccountDisplay::ApiKey);
         self.invalidate_permission_discovery();
         self.permission_discovery = None;
-        self.invalidate_connector_scope();
-        self.clear_pending_rate_limit_reset_requests();
-        self.clear_backend_banner();
-        self.luna_reserve_notice_account_id = None;
-        self.automatic_model_switch_state = backend_banners::AutomaticModelSwitchState::default();
-        self.input_queue.rate_limit_recovery_pending = false;
-        self.add_credits_nudge_email_in_flight = None;
         self.codex_rate_limit_reached_type = None;
         self.codex_spend_control_reached = None;
         self.rate_limit_warnings = RateLimitWarningState::default();
@@ -253,24 +217,12 @@ impl ChatWidget {
         if had_refreshing_status_outputs {
             self.request_redraw();
         }
-        self.status_line_workspace_headline = None;
-        self.status_line_workspace_headline_pending_request_id = None;
-        self.status_line_workspace_headline_last_requested_at = None;
-        self.status_line_workspace_messages_disabled = false;
-        self.clear_thread_usage_state();
         self.status_account_display = status_account_display;
-        self.plan_type = plan_type;
-        self.has_chatgpt_account = has_chatgpt_account;
+        self.plan_type = None;
         if api_key_changed {
             self.refresh_account_scoped_models();
         }
         self.set_daybreak_enabled(self.daybreak_enabled);
-        self.has_codex_backend_auth = has_codex_backend_auth;
-        self.bottom_pane
-            .set_connectors_enabled(self.connectors_enabled());
-        self.refresh_connector_mentions(/*force_refresh*/ false);
-        self.bottom_pane
-            .set_token_activity_command_enabled(has_codex_backend_auth);
         self.refresh_status_surfaces();
     }
 
@@ -284,12 +236,6 @@ impl ChatWidget {
     pub(crate) fn set_model(&mut self, model: &str) {
         if model != self.current_model() {
             self.queue_unavailable_daybreak_disable(model);
-            if self.current_model() == crate::model_catalog::LUNA_RESERVE_MODEL {
-                self.clear_reserve_return();
-            } else {
-                self.automatic_model_switch_state =
-                    backend_banners::AutomaticModelSwitchState::default();
-            }
         }
         self.current_collaboration_mode = self.current_collaboration_mode.with_updates(
             Some(model.to_string()),
@@ -492,7 +438,6 @@ impl ChatWidget {
     /// header/title (`refresh_model_display`) but forget the footer status line
     /// (`refresh_status_line`).
     pub(super) fn refresh_model_dependent_surfaces(&mut self) {
-        self.sync_backend_banner_view();
         self.refresh_model_display();
         self.refresh_status_line();
         self.refresh_open_model_picker();
@@ -562,9 +507,7 @@ impl ChatWidget {
                 self.app_event_tx
                     .send(AppEvent::RefreshWindowsSandbox { thread_id });
             }
-            self.invalidate_connector_scope();
             self.refresh_skills_for_current_cwd(/*force_reload*/ true);
-            self.refresh_connector_mentions(/*force_refresh*/ false);
         }
         self.refresh_plugin_mentions();
         self.request_redraw();

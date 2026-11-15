@@ -1,14 +1,9 @@
 use super::*;
 use crate::ProviderAuthContext;
-use base64::Engine;
 use codex_features::RuntimeAuthMode;
-use codex_login::AuthCredentialsStoreMode;
-use codex_login::AuthKeyringBackendKind;
 use codex_login::CodexAuth;
 use codex_login::auth::BedrockApiKeyAuth;
-use codex_login::auth::RefreshTokenFailedReason;
 use codex_protocol::config_types::ModelProviderAuthInfo;
-use codex_protocol::error::CodexErrorDetails;
 use codex_runtime_agent_instance::AgentHostAuthorization;
 use codex_runtime_agent_instance::RuntimeAuthManager;
 use codex_runtime_agent_instance::RuntimeRegistrationMetadata;
@@ -20,7 +15,6 @@ use wiremock::Mock;
 use wiremock::MockServer;
 use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
-use wiremock::matchers::path;
 
 async fn context(
     server: &MockServer,
@@ -272,194 +266,6 @@ async fn runtime_denial_recovery_is_scoped_to_openai() {
                 provider.is_recoverable_auth_error(&error),
                 !has_runtime || code == "token_expired"
             );
-        }
-    }
-}
-
-struct RevokedExternalOAuth {
-    auth: CodexAuth,
-    token_url: String,
-    renew_on_resolve: bool,
-    resolves: std::sync::atomic::AtomicUsize,
-    refreshes: std::sync::atomic::AtomicUsize,
-}
-
-impl RevokedExternalOAuth {
-    async fn renew(&self) -> std::io::Result<CodexAuth> {
-        let response = codex_login::default_client::create_client_without_request_logging()
-            .post(&self.token_url)
-            .json(&json!({"refresh_token": "revoked-refresh-token"}))
-            .send()
-            .await
-            .map_err(std::io::Error::other)?;
-        assert_eq!(response.status(), http::StatusCode::BAD_REQUEST);
-        let body: serde_json::Value = response.json().await.map_err(std::io::Error::other)?;
-        assert_eq!(body["error"]["code"], "refresh_token_invalidated");
-        Err(std::io::Error::other(
-            codex_login::auth::RefreshTokenFailedError::new(
-                RefreshTokenFailedReason::Revoked,
-                "Configured OAuth grant was revoked",
-            ),
-        ))
-    }
-}
-
-impl codex_login::ExternalAuth for RevokedExternalOAuth {
-    fn resolve(&self) -> codex_login::ExternalAuthFuture<'_, CodexAuth> {
-        use std::sync::atomic::Ordering;
-        let initial = self.resolves.fetch_add(1, Ordering::SeqCst) == 0;
-        Box::pin(async move {
-            if self.renew_on_resolve && !initial {
-                self.renew().await
-            } else {
-                Ok(self.auth.clone())
-            }
-        })
-    }
-
-    fn refresh(
-        &self,
-        _context: codex_login::ExternalAuthRefreshContext,
-    ) -> codex_login::ExternalAuthFuture<'_, CodexAuth> {
-        self.refreshes
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Box::pin(self.renew())
-    }
-
-    fn classify_error(&self, error: std::io::Error) -> codex_login::RefreshTokenError {
-        match error
-            .get_ref()
-            .and_then(|error| error.downcast_ref::<codex_login::auth::RefreshTokenFailedError>())
-        {
-            Some(failure) => codex_login::RefreshTokenError::Permanent(failure.clone()),
-            None => codex_login::RefreshTokenError::Transient(error),
-        }
-    }
-}
-
-#[tokio::test]
-async fn permanent_runtime_refresh_failure_preserves_sign_in_error() {
-    for mode in [RuntimeAuthMode::DualHeader, RuntimeAuthMode::AssertionOnly] {
-        // The configured owner renews during resolution or registration's 401 recovery.
-        for last_refresh in ["2000-01-01T00:00:00Z", "2099-01-01T00:00:00Z"] {
-            let server = MockServer::start().await;
-            Mock::given(method("POST"))
-                .and(path("/oauth/token"))
-                .respond_with(ResponseTemplate::new(400).set_body_json(json!({
-                    "error": {"code": "refresh_token_invalidated"},
-                })))
-                .expect(1)
-                .mount(&server)
-                .await;
-            Mock::given(method("POST"))
-                .and(path("/register"))
-                .respond_with(ResponseTemplate::new(401))
-                .mount(&server)
-                .await;
-            let home = tempfile::tempdir().expect("create auth home");
-            let claims = json!({
-                "https://api.openai.com/auth": {
-                    "chatgpt_user_id": "user-a",
-                    "chatgpt_account_id": "workspace-a",
-                },
-            });
-            let token = format!(
-                "e30.{}.signature",
-                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string())
-            );
-            let stored = serde_json::from_value(json!({
-                "auth_mode": "chatgpt",
-                "tokens": {
-                    "id_token": token, "access_token": "initial-token",
-                    "refresh_token": "revoked-refresh-token", "account_id": "workspace-a",
-                    "oauth_provenance": {
-                        "issuer": server.uri(), "client_id": "runtime-refresh-test",
-                    },
-                },
-                "last_refresh": last_refresh,
-            }))
-            .expect("construct stored OAuth credentials");
-            codex_login::save_auth(
-                home.path(),
-                &stored,
-                AuthCredentialsStoreMode::File,
-                AuthKeyringBackendKind::Direct,
-            )
-            .expect("save OAuth credentials");
-            let credentials = Arc::new(
-                AuthManager::new(
-                    home.path().to_path_buf(),
-                    /*enable_codex_api_key_env*/ false,
-                    AuthCredentialsStoreMode::File,
-                    /*forced_chatgpt_workspace_id*/ None,
-                    /*chatgpt_base_url*/ None,
-                    AuthKeyringBackendKind::Direct,
-                    codex_login::test_support::transport_default_auth_route_config(),
-                )
-                .await,
-            );
-            let original = credentials.auth_cached().expect("load OAuth credentials");
-            let external = Arc::new(RevokedExternalOAuth {
-                auth: original.clone(),
-                token_url: format!("{}/oauth/token", server.uri()),
-                renew_on_resolve: last_refresh == "2000-01-01T00:00:00Z",
-                resolves: std::sync::atomic::AtomicUsize::new(0),
-                refreshes: std::sync::atomic::AtomicUsize::new(0),
-            });
-            credentials
-                .set_external_auth(external.clone())
-                .await
-                .expect("install configured OAuth owner");
-            let runtime = Arc::new(RuntimeAuthManager::new(
-                Arc::clone(&credentials),
-                AgentHostAuthorization::InstallationId {
-                    installation_id: "00000000-0000-0000-0000-000000000000"
-                        .parse()
-                        .expect("parse installation ID"),
-                },
-                RuntimeRegistrationMetadata {
-                    harness: None,
-                    harness_version: None,
-                    role: RuntimeRole::Orchestrator,
-                },
-                format!("{}/register", server.uri())
-                    .parse()
-                    .expect("parse registration URL"),
-            ));
-            let provider = ProviderAuthContext {
-                credentials: Arc::clone(&credentials),
-                runtime_auth: Some((Arc::clone(&runtime), mode)),
-            }
-            .model_provider(ModelProviderInfo {
-                requires_openai_auth: true,
-                ..ModelProviderInfo::create_openai_provider(Some(
-                    "https://api.openai.com/v1".into(),
-                ))
-            });
-
-            // A later request must preserve the cached rejection, not retry it as a stream error.
-            for _ in 0..2 {
-                let error = provider
-                    .request_auth()
-                    .await
-                    .err()
-                    .expect("revoked refresh must reject request preparation");
-                let failure = credentials
-                    .refresh_failure_for_auth(&original)
-                    .expect("permanent refresh rejection is cached");
-                assert_eq!(failure.reason, RefreshTokenFailedReason::Revoked);
-                let CodexErrorDetails::RefreshTokenFailed(actual) = error.details() else {
-                    panic!("expected sign-in error for {mode:?}/{last_refresh}, got {error:?}");
-                };
-                assert_eq!(actual, &failure);
-                assert_eq!(error.retry_delay(/*retry_count*/ 1), None);
-            }
-
-            assert_eq!(
-                external.refreshes.load(std::sync::atomic::Ordering::SeqCst),
-                usize::from(!external.renew_on_resolve),
-            );
-            server.verify().await;
         }
     }
 }

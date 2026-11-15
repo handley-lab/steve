@@ -33,7 +33,6 @@ use codex_login::default_client::ClientRedirectPolicy;
 use codex_login::default_client::add_originator_header;
 use codex_login::default_client::create_client_for_route_async;
 use codex_login::default_client::default_headers;
-use codex_model_provider::ACCOUNT_ROUTING_HEADER;
 use codex_model_provider::ResponsesConnectionKey;
 use codex_protocol::ThreadId;
 use codex_protocol::models::ContentItem;
@@ -284,11 +283,6 @@ impl ConnectionPool {
                 // Sampling owns the retry budget across both transports.
                 provider.retry.max_attempts = 0;
                 let url = provider.url_for_path("/responses");
-                let redirect_policy = if provider.headers.contains_key(ACCOUNT_ROUTING_HEADER) {
-                    ClientRedirectPolicy::Reject
-                } else {
-                    redirect_policy
-                };
                 let transport = {
                     let mut cached = self
                         .http_transport
@@ -371,7 +365,7 @@ impl ConnectionPool {
     async fn client_setup(&self) -> Result<ClientSetup, LunaSamplerError> {
         let setup = codex_model_provider::resolve_request(
             self.config.provider.as_ref(),
-            Some(&self.config.workspace_routing),
+            ClientRedirectPolicy::Reject,
             self.config.http_client_factory.clone(),
         )
         .await

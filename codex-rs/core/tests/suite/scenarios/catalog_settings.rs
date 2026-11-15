@@ -81,7 +81,7 @@ async fn start_test(server: &MockServer, effort: ReasoningEffort, tier: &str) ->
     .await;
     let tier = tier.to_string();
     test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_model("gpt-5.5")
         .with_config(move |config| {
             config.model_reasoning_effort = Some(effort);
@@ -237,7 +237,7 @@ async fn reopening_consumes_catalog_refreshed_while_chat_was_closed() -> Result<
         .list_models(RefreshStrategy::Online, test.config.http_client_factory())
         .await;
     let resumed = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_model("gpt-5.5")
         .with_models_manager(manager)
         .with_config(|config| {

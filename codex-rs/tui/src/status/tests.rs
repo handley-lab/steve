@@ -9,20 +9,15 @@ use super::rate_limits::StatusRateLimitData;
 use super::rate_limits::compose_rate_limit_data_many;
 use crate::clock_format::ClockFormat;
 use crate::history_cell::HistoryCell;
-use crate::history_cell::PlainHistoryCell;
-use crate::keymap::RuntimeKeymap;
 use crate::legacy_core::config::Config;
 use crate::legacy_core::config::ConfigBuilder;
 use crate::legacy_core::config::PermissionProfileSnapshot;
-use crate::pager_overlay::TranscriptOverlay;
 use crate::status::StatusAccountDisplay;
 use crate::status::remote_connection::RemoteConnectionStatus;
 use crate::test_support::PathBufExt;
 use crate::test_support::test_path_buf;
 use crate::token_usage::TokenUsage;
 use crate::token_usage::TokenUsageInfo;
-use app_test_support::ChatGptAuthFixture;
-use app_test_support::write_chatgpt_auth;
 use chrono::Duration as ChronoDuration;
 use chrono::Local;
 use chrono::TimeZone;
@@ -33,7 +28,6 @@ use codex_app_server_protocol::RateLimitSnapshot;
 use codex_app_server_protocol::RateLimitWindow;
 use codex_app_server_protocol::SpendControlLimitSnapshot;
 use codex_config::LoaderOverrides;
-use codex_config::types::AuthCredentialsStoreMode;
 use codex_model_provider_info::ModelProviderAwsAuthInfo;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_models_manager::test_support::construct_model_info_offline_for_tests;
@@ -56,7 +50,6 @@ use codex_utils_path_uri::PathUri;
 use insta::assert_snapshot;
 use pretty_assertions::assert_eq;
 use ratatui::prelude::*;
-use std::sync::Arc;
 use tempfile::TempDir;
 
 #[test]
@@ -64,7 +57,6 @@ fn stale_monthly_limit_marks_fresh_rolling_snapshot_stale() {
     let now = Local::now();
     let snapshot = RateLimitSnapshotDisplay {
         limit_name: "steve".to_string(),
-        normal_model_slug: None,
         captured_at: now,
         primary: Some(RateLimitWindowDisplay {
             used_percent: 20.0,
@@ -203,28 +195,6 @@ fn sanitize_directory(lines: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-fn buffer_to_text(buffer: &Buffer, width: u16) -> String {
-    let lines = buffer
-        .content
-        .chunks(usize::from(width))
-        .map(|row| {
-            row.iter()
-                .map(|cell| {
-                    let symbol = cell.symbol();
-                    symbol
-                        .strip_prefix("\x1b]8;;")
-                        .and_then(|symbol| symbol.split_once('\x07'))
-                        .and_then(|(_, symbol)| symbol.strip_suffix("\x1b]8;;\x07"))
-                        .unwrap_or(symbol)
-                })
-                .collect::<String>()
-                .trim_end()
-                .to_string()
-        })
-        .collect::<Vec<_>>();
-    sanitize_directory(lines).join("\n")
-}
-
 fn reset_at_from(captured_at: &chrono::DateTime<chrono::Local>, seconds: i64) -> i64 {
     (*captured_at + ChronoDuration::seconds(seconds))
         .with_timezone(&Utc)
@@ -349,129 +319,6 @@ async fn status_snapshot_includes_reasoning_details() {
         }
     }
     let sanitized = sanitize_directory(rendered_lines).join("\n");
-    assert_snapshot!(sanitized);
-}
-
-#[tokio::test]
-async fn status_snapshot_shows_chatgpt_plan_without_email() {
-    let temp_home = TempDir::new().expect("temp home");
-    let profile_path = temp_home.path().join("work.config.toml");
-    let loader_overrides = LoaderOverrides {
-        user_config_path: Some(profile_path.abs()),
-        user_config_profile: Some("work".parse().expect("profile")),
-        ..LoaderOverrides::without_managed_config_for_tests()
-    };
-    let server = wiremock::MockServer::start().await;
-    wiremock::Mock::given(wiremock::matchers::path("/api/codex/accounts/check"))
-        .respond_with(
-            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "accounts": [{
-                    "id": "account-123",
-                    "name": "Example workspace",
-                    "workspace_backend_origin": "https://chatgpt.com",
-                    "account_routing_override": "NO_CONSTRAINT"
-                }]
-            })),
-        )
-        .mount(&server)
-        .await;
-    wiremock::Mock::given(wiremock::matchers::path("/api/codex/config/bundle"))
-        .respond_with(wiremock::ResponseTemplate::new(/*s*/ 200).set_body_string("{}"))
-        .mount(&server)
-        .await;
-    wiremock::Mock::given(wiremock::matchers::path("/models"))
-        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
-            codex_protocol::openai_models::ModelsResponse {
-                models: vec![codex_models_manager::test_support::model_info(
-                    "gpt-5.1-codex-max",
-                )],
-            },
-        ))
-        .mount(&server)
-        .await;
-    std::fs::write(
-        &profile_path,
-        format!(
-            r#"model_provider = "status-test"
-chatgpt_base_url = "{0}"
-openai_base_url = "{0}/v1"
-[model_providers.status-test]
-name = "OpenAI"
-base_url = "{0}/v1"
-model_catalog_url = "{0}/models"
-requires_openai_auth = true
-"#,
-            server.uri()
-        ),
-    )
-    .expect("configure local ChatGPT fixture");
-    std::fs::copy(&profile_path, temp_home.path().join("config.toml"))
-        .expect("configure bootstrap provider");
-    let mut config = test_config_with_provider(&temp_home, "status-test").await;
-    config.chatgpt_base_url = server.uri();
-    config.model = Some("gpt-5.1-codex-max".to_string());
-    config.cli_auth_credentials_store_mode = AuthCredentialsStoreMode::File;
-    set_workspace_cwd(&mut config, test_path_buf("/workspace/tests").abs());
-
-    write_chatgpt_auth(
-        temp_home.path(),
-        ChatGptAuthFixture::new("access-chatgpt")
-            .plan_type("enterprise_cbp_automation")
-            .account_id("account-123"),
-        AuthCredentialsStoreMode::File,
-    )
-    .expect("write email-less ChatGPT auth");
-    let mut app_server = crate::start_app_server_for_picker(
-        crate::backend_id::BackendId::new(),
-        &config,
-        &crate::AppServerTarget::Embedded,
-        Vec::new(),
-        loader_overrides,
-        /*state_db*/ None,
-        Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
-    )
-    .await
-    .expect("start embedded app server");
-    let bootstrap = app_server
-        .bootstrap(&config)
-        .await
-        .expect("bootstrap app server session");
-    app_server.shutdown().await.expect("shut down app server");
-    let account_display = bootstrap
-        .status_account_display
-        .expect("bootstrap should return ChatGPT account display");
-    assert_eq!(
-        account_display,
-        StatusAccountDisplay::ChatGpt {
-            email: None,
-            plan: Some("Enterprise (Automation)".to_string()),
-            workspace: Some("Example workspace (account-123)".to_string()),
-        }
-    );
-    let usage = TokenUsage::default();
-    let captured_at = chrono::Local
-        .with_ymd_and_hms(2024, 1, 2, 3, 4, 5)
-        .single()
-        .expect("timestamp");
-    let model_slug = get_model_offline_for_tests(config.model.as_deref());
-
-    let composite = new_status_output(
-        &config,
-        Some(&account_display),
-        /*token_info*/ None,
-        &usage,
-        &None,
-        /*thread_name*/ None,
-        /*forked_from*/ None,
-        /*rate_limits*/ None,
-        None,
-        captured_at,
-        &model_slug,
-        /*collaboration_mode*/ None,
-        /*reasoning_effort_override*/ None,
-    );
-    let sanitized =
-        sanitize_directory(render_lines(&composite.display_lines(/*width*/ 80))).join("\n");
     assert_snapshot!(sanitized);
 }
 
@@ -788,169 +635,6 @@ async fn status_snapshot_shows_active_user_defined_profile() {
     }
     let sanitized = sanitize_directory(rendered_lines).join("\n");
     assert_snapshot!(sanitized);
-}
-
-#[tokio::test]
-async fn status_account_metadata_does_not_hide_local_tokens_or_invent_login() {
-    let mut failures = Vec::new();
-    let usage = TokenUsage {
-        input_tokens: 50_000,
-        cached_input_tokens: 10_000,
-        output_tokens: 20_000,
-        reasoning_output_tokens: 0,
-        total_tokens: 70_000,
-    };
-    let token_info = TokenUsageInfo {
-        total_token_usage: usage.clone(),
-        last_token_usage: TokenUsage {
-            total_tokens: 20_000,
-            ..TokenUsage::default()
-        },
-        model_context_window: Some(100_000),
-    };
-    let now = chrono::Local
-        .with_ymd_and_hms(2024, 1, 2, 3, 4, 5)
-        .single()
-        .unwrap();
-    for (provider_id, provider_name) in [
-        ("test-provider", "Configured provider"),
-        ("second-provider", "OpenAI"),
-    ] {
-        let home = TempDir::new().unwrap();
-        std::fs::write(home.path().join("config.toml"), format!(
-            "model_provider = \"{provider_id}\"\n[model_providers.{provider_id}]\nname = \"{provider_name}\"\nbase_url = \"http://127.0.0.1:9/v1\"\nwire_api = \"responses\"\n"
-        )).unwrap();
-        let config = ConfigBuilder::default()
-            .codex_home(home.path().to_path_buf())
-            .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
-            .build()
-            .await
-            .unwrap();
-        for (label, mode, supplied_display, expected_account) in [
-            (
-                "API key",
-                Some(codex_app_server_protocol::AuthMode::ApiKey),
-                None,
-                Some("API key configured"),
-            ),
-            (
-                "account",
-                Some(codex_app_server_protocol::AuthMode::Chatgpt),
-                None,
-                Some("Account credentials configured"),
-            ),
-            (
-                "supplied tokens",
-                Some(codex_app_server_protocol::AuthMode::ChatgptAuthTokens),
-                None,
-                Some("Account credentials configured"),
-            ),
-            (
-                "agent",
-                Some(codex_app_server_protocol::AuthMode::AgentIdentity),
-                None,
-                Some("Account credentials configured"),
-            ),
-            (
-                "PAT",
-                Some(codex_app_server_protocol::AuthMode::PersonalAccessToken),
-                None,
-                Some("Account credentials configured"),
-            ),
-            (
-                "headers",
-                Some(codex_app_server_protocol::AuthMode::Headers),
-                None,
-                None,
-            ),
-            (
-                "Bedrock key",
-                Some(codex_app_server_protocol::AuthMode::BedrockApiKey),
-                None,
-                None,
-            ),
-            (
-                "Bedrock access",
-                Some(codex_app_server_protocol::AuthMode::BedrockAccessKeys),
-                None,
-                None,
-            ),
-            ("absent", None, None, None),
-            (
-                "email and plan",
-                None,
-                Some(StatusAccountDisplay::ChatGpt {
-                    email: Some("user@test.invalid".into()),
-                    plan: Some("Supplied plan".into()),
-                    workspace: None,
-                }),
-                Some("user@test.invalid (Supplied plan)"),
-            ),
-            (
-                "email",
-                None,
-                Some(StatusAccountDisplay::ChatGpt {
-                    email: Some("user@test.invalid".into()),
-                    plan: None,
-                    workspace: None,
-                }),
-                Some("user@test.invalid"),
-            ),
-            (
-                "plan",
-                None,
-                Some(StatusAccountDisplay::ChatGpt {
-                    email: None,
-                    plan: Some("Supplied plan".into()),
-                    workspace: None,
-                }),
-                Some("Supplied plan"),
-            ),
-        ] {
-            let account = supplied_display.or_else(|| {
-                crate::app_server_session::status_account_display_from_auth_mode(mode, None)
-            });
-            for width in [42, 120] {
-                let (card, _) = new_status_output_with_rate_limits_handle(
-                    &config,
-                    config.model_provider.requires_openai_auth,
-                    Some(provider_id),
-                    None,
-                    account.as_ref(),
-                    Some(&token_info),
-                    &usage,
-                    &None,
-                    None,
-                    None,
-                    &[],
-                    None,
-                    now,
-                    "configured-model",
-                    None,
-                    None,
-                    "<none>".to_string(),
-                    false,
-                );
-                let rendered = render_lines(&card.display_lines(width)).join("\n");
-                println!(
-                    "{}",
-                    serde_json::json!({"case":label,"provider_id":provider_id,"provider_name":provider_name,"width":width,"account":format!("{account:?}"),"rendered":rendered})
-                );
-                let normalized = rendered.split_whitespace().collect::<Vec<_>>().join(" ");
-                let tokens_ok = normalized.contains("60K total (40K input + 20K output)");
-                let context_ok = normalized.contains("91% left (20K used / 100K)");
-                let account_ok = expected_account
-                    .map_or(!normalized.contains("Account:"), |expected| {
-                        normalized.contains(expected)
-                    });
-                let login_ok = !normalized.contains("login") && !normalized.contains("ChatGPT");
-                if !(tokens_ok && context_ok && account_ok && login_ok) {
-                    failures.push(format!("{label}/{provider_id}/{width}: tokens={tokens_ok} context={context_ok} account={account_ok} login={login_ok}"));
-                }
-            }
-        }
-    }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[tokio::test]
@@ -1805,46 +1489,6 @@ async fn status_snapshot_wraps_in_narrow_terminal() {
 }
 
 #[tokio::test]
-async fn status_snapshot_wraps_halfwidth_kana_in_narrow_terminal() {
-    let temp_home = TempDir::new().expect("temp home");
-    let mut config = test_config(&temp_home).await;
-    set_workspace_cwd(&mut config, test_path_buf("/workspace/tests").abs());
-
-    let account = StatusAccountDisplay::ChatGpt {
-        email: Some("ｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟ@example.com".to_string()),
-        plan: Some("ｶﾞﾊﾟ plan".to_string()),
-        workspace: None,
-    };
-    let usage = TokenUsage::default();
-    let now = chrono::Local
-        .with_ymd_and_hms(2024, 1, 2, 3, 4, 5)
-        .single()
-        .expect("timestamp");
-    let composite = new_status_output(
-        &config,
-        Some(&account),
-        /*token_info*/ None,
-        &usage,
-        &None,
-        Some("ｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟ thread".to_string()),
-        /*forked_from*/ None,
-        /*rate_limits*/ None,
-        /*plan_type*/ None,
-        now,
-        "ｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟ-model",
-        Some("ｶﾞﾊﾟ collaboration mode"),
-        /*reasoning_effort_override*/ None,
-    );
-    let rendered_lines = render_lines(&composite.display_lines(/*width*/ 42));
-    let sanitized = sanitize_directory(rendered_lines).join("\n");
-
-    assert_snapshot!(
-        "status_snapshot_truncates_halfwidth_kana_in_narrow_terminal",
-        sanitized
-    );
-}
-
-#[tokio::test]
 async fn status_snapshot_shows_missing_limits_message() {
     let temp_home = TempDir::new().expect("temp home");
     let mut config = test_config(&temp_home).await;
@@ -2018,168 +1662,6 @@ async fn status_snapshot_shows_refreshing_limits_notice() {
         /*collaboration_mode*/ None,
         /*reasoning_effort_override*/ None,
         /*refreshing_rate_limits*/ true,
-    );
-    let mut rendered_lines = render_lines(&composite.display_lines(/*width*/ 80));
-    if cfg!(windows) {
-        for line in &mut rendered_lines {
-            *line = line.replace('\\', "/");
-        }
-    }
-    let sanitized = sanitize_directory(rendered_lines).join("\n");
-    assert_snapshot!(sanitized);
-}
-
-#[tokio::test]
-async fn transcript_overlay_remeasures_status_after_rate_limit_refresh() {
-    let temp_home = TempDir::new().expect("temp home");
-    let mut config = test_config(&temp_home).await;
-    config.model = Some("gpt-5.1-codex-max".to_string());
-    set_workspace_cwd(&mut config, test_path_buf("/workspace/tests").abs());
-    let usage = TokenUsage::default();
-    let now = Local
-        .with_ymd_and_hms(2024, 6, 7, 8, 9, 10)
-        .single()
-        .expect("timestamp");
-    let model_slug = get_model_offline_for_tests(config.model.as_deref());
-
-    let (status, handle) = new_status_output_with_rate_limits_handle(
-        &config,
-        /*requires_openai_auth*/ true,
-        /*model_provider_id*/ None,
-        /*remote_connection*/ None,
-        /*account_display*/ None,
-        /*token_info*/ None,
-        &usage,
-        &None,
-        /*thread_name*/ None,
-        /*forked_from*/ None,
-        /*rate_limits*/ &[],
-        None,
-        now,
-        &model_slug,
-        /*collaboration_mode*/ None,
-        /*reasoning_effort_override*/ None,
-        "<none>".to_string(),
-        /*refreshing_rate_limits*/ true,
-    );
-    let mut overlay =
-        TranscriptOverlay::new(vec![Arc::new(status)], RuntimeKeymap::defaults().pager);
-    let area = Rect::new(
-        /*x*/ 0, /*y*/ 0, /*width*/ 80, /*height*/ 30,
-    );
-    let mut buffer = Buffer::empty(area);
-    overlay.render(area, &mut buffer);
-    let before = buffer_to_text(&buffer, area.width);
-
-    handle.finish_rate_limit_refresh(
-        &[RateLimitSnapshotDisplay {
-            limit_name: "spark".to_string(),
-            normal_model_slug: None,
-            captured_at: now,
-            primary: Some(RateLimitWindowDisplay {
-                used_percent: 45.0,
-                resets_at: Some("soon".to_string()),
-                window_minutes: Some(300),
-            }),
-            secondary: Some(RateLimitWindowDisplay {
-                used_percent: 30.0,
-                resets_at: Some("later".to_string()),
-                window_minutes: Some(10_080),
-            }),
-            credits: None,
-            individual_limit: None,
-        }],
-        now,
-    );
-    overlay.insert_cell(Arc::new(PlainHistoryCell::new(vec!["next message".into()])));
-    buffer = Buffer::empty(area);
-    overlay.render(area, &mut buffer);
-    let after = buffer_to_text(&buffer, area.width);
-
-    assert!(
-        after.contains("spark limit"),
-        "status output was clipped: {after:?}"
-    );
-    assert!(
-        after.contains("5h limit"),
-        "status output was clipped: {after:?}"
-    );
-    assert!(
-        after.contains("Weekly limit"),
-        "status output was clipped: {after:?}"
-    );
-    insta::assert_snapshot!(
-        "transcript_overlay_status_rate_limit_refresh",
-        format!("before:\n{before}\n\nafter:\n{after}")
-    );
-}
-
-#[tokio::test]
-async fn status_snapshot_includes_credits_and_limits() {
-    let temp_home = TempDir::new().expect("temp home");
-    let mut config = test_config(&temp_home).await;
-    config.model = Some("gpt-5.1-codex".to_string());
-    set_workspace_cwd(&mut config, test_path_buf("/workspace/tests").abs());
-
-    let account_display = Some(StatusAccountDisplay::ChatGpt {
-        email: Some("user@example.com".into()),
-        plan: Some("Pro 200".into()),
-        workspace: None,
-    });
-    let usage = TokenUsage {
-        input_tokens: 1_500,
-        cached_input_tokens: 100,
-        output_tokens: 600,
-        reasoning_output_tokens: 0,
-        total_tokens: 2_200,
-    };
-
-    let captured_at = chrono::Local
-        .with_ymd_and_hms(2024, 7, 8, 9, 10, 11)
-        .single()
-        .expect("timestamp");
-    let snapshot = RateLimitSnapshot {
-        limit_id: None,
-        limit_name: None,
-        normal_model_slug: None,
-        primary: Some(RateLimitWindow {
-            used_percent: 45,
-            window_duration_mins: Some(300),
-            resets_at: Some(reset_at_from(&captured_at, /*seconds*/ 900)),
-        }),
-        secondary: Some(RateLimitWindow {
-            used_percent: 30,
-            window_duration_mins: Some(10_080),
-            resets_at: Some(reset_at_from(&captured_at, /*seconds*/ 2_700)),
-        }),
-        credits: Some(CreditsSnapshot {
-            has_credits: true,
-            unlimited: false,
-            balance: None,
-        }),
-        individual_limit: None,
-        spend_control_reached: None,
-        plan_type: None,
-        rate_limit_reached_type: None,
-    };
-    let rate_display = rate_limit_snapshot_display(&snapshot, captured_at);
-
-    let model_slug = get_model_offline_for_tests(config.model.as_deref());
-    let token_info = token_info_for(&model_slug, &config, &usage);
-    let composite = new_status_output(
-        &config,
-        account_display.as_ref(),
-        Some(&token_info),
-        &usage,
-        &None,
-        /*thread_name*/ None,
-        /*forked_from*/ None,
-        Some(&rate_display),
-        None,
-        captured_at,
-        &model_slug,
-        /*collaboration_mode*/ None,
-        /*reasoning_effort_override*/ None,
     );
     let mut rendered_lines = render_lines(&composite.display_lines(/*width*/ 80));
     if cfg!(windows) {

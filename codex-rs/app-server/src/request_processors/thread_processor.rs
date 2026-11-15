@@ -4,11 +4,6 @@ mod daemon_continuation;
 #[path = "daemon_snapshot.rs"]
 mod daemon_snapshot;
 
-mod workspace_switching;
-
-#[path = "thread_resume_account.rs"]
-mod thread_resume_account;
-
 use super::persisted_resume_settings::PersistedResumeSettings;
 use super::persisted_resume_settings::latest_owned_thread_settings;
 use super::persisted_resume_settings::latest_persisted_model_settings;
@@ -2286,15 +2281,7 @@ impl ThreadRequestProcessor {
                 "thread/revert only supports paginated threads",
             ));
         }
-        let mut config = thread.config().await.as_ref().clone();
-        // Give the replacement its own pending lifetime before removal revokes the old runtime.
-        let ema_cancellation = config
-            .config_layer_stack
-            .mcp_ema_cancellation()
-            .for_startup();
-        config.config_layer_stack = config
-            .config_layer_stack
-            .with_mcp_ema_cancellation(ema_cancellation);
+        let config = thread.config().await.as_ref().clone();
         let runtime_snapshot = ThreadRevertRuntimeSnapshot {
             config,
             settings: thread.restorable_thread_settings().await,
@@ -2758,7 +2745,7 @@ impl ThreadRequestProcessor {
     ) -> Result<ThreadListResponse, JSONRPCErrorError> {
         let ThreadListParams {
             include_attached_threads,
-            current_account_only,
+            current_account_only: _,
             cursor,
             limit,
             excluded_thread_ids,
@@ -2892,7 +2879,7 @@ impl ThreadRequestProcessor {
                 store_sort_key,
                 sort_direction,
                 ThreadListFilters {
-                    account: self.local_history_account(current_account_only),
+                    account: None,
                     model_providers,
                     source_kinds,
                     archived: archived.unwrap_or(false),
@@ -2943,7 +2930,7 @@ impl ThreadRequestProcessor {
     ) -> Result<ThreadSearchResponse, JSONRPCErrorError> {
         let ThreadSearchParams {
             include_attached_threads,
-            current_account_only,
+            current_account_only: _,
             cursor,
             limit,
             sort_key,
@@ -2970,7 +2957,7 @@ impl ThreadRequestProcessor {
         let mut cursor_obj = cursor;
         let mut last_cursor = cursor_obj.clone();
         let mut remaining = requested_page_size;
-        let account = self.local_history_account(current_account_only);
+        let account = None;
         let mut search_results = Vec::with_capacity(requested_page_size);
         let mut next_cursor = None;
 
@@ -4081,12 +4068,6 @@ impl ThreadRequestProcessor {
                     .await?
                 }
             };
-            thread_resume_account::check(
-                &self.config.features,
-                app_server_client_name.as_deref(),
-                &self.auth_manager,
-                &stored_thread,
-            )?;
             let (thread_history, stored_thread) = self
                 .load_resume_initial_history_from_stored_thread(
                     stored_thread,
@@ -4746,12 +4727,6 @@ impl ThreadRequestProcessor {
         };
 
         if let Some((existing_thread_id, existing_thread, mut source_thread)) = running_thread {
-            thread_resume_account::check(
-                &self.config.features,
-                app_server_client_name.as_deref(),
-                &self.auth_manager,
-                &source_thread,
-            )?;
             let paginated_resume =
                 matches!(source_thread.history_mode, ThreadHistoryMode::Paginated);
             let existing_thread_rollout_path = existing_thread.rollout_path();
@@ -6080,22 +6055,6 @@ impl ThreadRequestProcessor {
         let stored_thread = read_result?;
         let summary = summary_from_stored_thread(stored_thread, fallback_provider);
         Ok(GetConversationSummaryResponse { summary })
-    }
-
-    /// Local discovery matches each recorded creator ID to the current login. Threads with
-    /// no creator IDs or predating enforcement are shared; API-key logins see all local history.
-    fn local_history_account(&self, current_account_only: bool) -> Option<LocalHistoryAccount> {
-        if !current_account_only || !self.thread_store.as_any().is::<LocalThreadStore>() {
-            return None;
-        }
-        let auth = self.auth_manager.auth_cached();
-        if auth.as_ref().is_some_and(CodexAuth::is_api_key_auth) {
-            return None;
-        }
-        Some(LocalHistoryAccount {
-            user_id: auth.as_ref().and_then(CodexAuth::get_chatgpt_user_id),
-            account_id: auth.as_ref().and_then(CodexAuth::get_account_id),
-        })
     }
 
     async fn list_threads_common(

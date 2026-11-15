@@ -11,9 +11,8 @@ impl BottomPane {
             self.questions
                 .as_ref()
                 .filter(|questions| questions.expanded),
-            self.inline_banner_accepts_dismissal(),
         ) {
-            ([], None, None, false) => self.composer.empty_state_composer(),
+            ([], None, None) => self.composer.empty_state_composer(),
             _ => None,
         }
     }

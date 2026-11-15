@@ -832,7 +832,6 @@ mod tests {
             .build()
             .await
             .unwrap();
-        let path_style = config.chatgpt_path_style;
         let mut auth_config = config.auth_config();
         let client = InProcessAppServerClient::start(InProcessClientStartArgs {
             required_human_approval: true,
@@ -843,12 +842,8 @@ mod tests {
             strict_config: false,
             cloud_config_bundle: managed_config_bundle_loader_for_storage(
                 auth_config.clone(),
-                path_style,
                 &Default::default(),
-                /*enable_codex_api_key_env*/ false,
-            )
-            .await
-            .expect("test cloud config loader"),
+            ),
             embedded_network_policy: Default::default(),
             feedback: codex_feedback::CodexFeedback::new(),
             log_db: None,

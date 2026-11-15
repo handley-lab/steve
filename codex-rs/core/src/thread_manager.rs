@@ -279,7 +279,6 @@ pub enum McpRefreshReason {
     CurrentEnvironmentsChanged,
     DisabledPluginSelectionChanged,
     EffectivePluginsChanged,
-    EnterpriseAuthDisabled,
     EnvironmentBindingsChanged,
     ExecutorCapabilityDiscoveryRecovered,
     ExecutorCapabilityInventoryChanged,
@@ -306,8 +305,6 @@ pub enum McpRefreshReason {
     TurnStartContributorPreparedMcp,
     UserConfigFilesReloaded,
     UserConfigReloaded,
-    /// Links to the field-level diff logged when the installed plugin cache changed.
-    InstalledPluginMetadata(uuid::Uuid),
 }
 
 /// [`ThreadManager`] is responsible for creating threads and maintaining
@@ -770,7 +767,6 @@ impl ThreadManager {
             codex_home.to_path_buf(),
             restriction_product,
             Arc::clone(&auth_manager),
-            Arc::clone(&runtime_auth),
             skills_service.clone(),
         ));
         let mcp_manager = Arc::new(McpManager::new_with_extensions(
@@ -986,7 +982,6 @@ impl ThreadManager {
             codex_home.clone(),
             restriction_product,
             Arc::clone(&auth_manager),
-            Arc::clone(&runtime_auth),
             skills_service.clone(),
         ));
         let mcp_manager = Arc::new(McpManager::new(Arc::clone(&plugins_manager)));
@@ -1085,7 +1080,7 @@ impl ThreadManager {
         mcp_manager: &McpManager,
     ) -> std::io::Result<Option<(Arc<RuntimeAuthManager>, codex_features::RuntimeAuthMode)>> {
         Ok(crate::runtime_auth::runtime_for_config(
-            &mcp_manager.plugins_manager().runtime_auth_slot(),
+            &crate::runtime_auth::RuntimeAuthSlot::default(),
             config,
             mcp_manager.auth_manager(),
             &self.state.installation_id,
@@ -1790,9 +1785,7 @@ impl ThreadManager {
                 "live internal threads can only be removed by their owner".to_owned(),
             ));
         }
-        Ok(threads.remove(thread_id).inspect(|thread| {
-            thread.session.services.mcp_runtime.revoke_ema();
-        }))
+        Ok(threads.remove(thread_id))
     }
 
     /// Removes a thread only if `thread_id` still maps to `expected`.
@@ -1809,9 +1802,7 @@ impl ThreadManager {
             .get(thread_id)
             .is_some_and(|thread| Arc::ptr_eq(thread, expected))
         {
-            threads.remove(thread_id).inspect(|thread| {
-                thread.session.services.mcp_runtime.revoke_ema();
-            })
+            threads.remove(thread_id)
         } else {
             None
         }
@@ -1853,9 +1844,7 @@ impl ThreadManager {
 
         let mut tracked_threads = self.state.threads.write().await;
         for thread_id in &report.completed {
-            if let Some(thread) = tracked_threads.remove(thread_id) {
-                thread.session.services.mcp_runtime.revoke_ema();
-            }
+            tracked_threads.remove(thread_id);
         }
 
         report
@@ -2246,13 +2235,7 @@ impl ThreadManagerState {
 
     /// Remove a thread from the manager by ID, returning it when present.
     pub(crate) async fn remove_thread(&self, thread_id: &ThreadId) -> Option<Arc<CodexThread>> {
-        self.threads
-            .write()
-            .await
-            .remove(thread_id)
-            .inspect(|thread| {
-                thread.session.services.mcp_runtime.revoke_ema();
-            })
+        self.threads.write().await.remove(thread_id)
     }
 
     pub(crate) async fn effective_multi_agent_version_for_spawn(
@@ -2569,17 +2552,6 @@ impl ThreadManagerState {
 
     /// Spawn a new thread with optional history and register it with the manager.
     async fn spawn_thread(&self, mut request: ThreadSpawnRequest) -> CodexResult<NewThread> {
-        let cancellation = request
-            .options
-            .config
-            .config_layer_stack
-            .mcp_ema_cancellation()
-            .for_startup();
-        request.options.config.config_layer_stack = request
-            .options
-            .config
-            .config_layer_stack
-            .with_mcp_ema_cancellation(cancellation);
         let runtime = request.agent_control.runtime().clone();
         let membership = runtime.admit_start()?;
         let owns_startup = request.startup.is_none();
@@ -2738,7 +2710,6 @@ impl ThreadManagerState {
                     });
                 }
                 threads.remove(&resumed.conversation_id);
-                thread.session.services.mcp_runtime.revoke_ema();
             }
         }
         let supplied_thread_instructions =
@@ -2920,7 +2891,7 @@ impl ThreadManagerState {
                 let runtime_auth = inherited_runtime_auth.unwrap_or_default();
                 let plugins = Arc::new(
                     self.plugins_manager
-                        .for_auth_context(Arc::clone(&auth_manager), Arc::clone(&runtime_auth)),
+                        .for_auth_context(Arc::clone(&auth_manager)),
                 );
                 let runtime_provider = None;
                 let analytics = self.analytics_events_client.as_ref().map(|client| {
@@ -3120,12 +3091,6 @@ impl ThreadManagerState {
             }
         };
 
-        let ema_cancellation = session
-            .get_config()
-            .await
-            .config_layer_stack
-            .mcp_ema_cancellation()
-            .clone();
         {
             let pending_service_tier = if self.agent_control_factory.is_some()
                 || matches!(
@@ -3139,7 +3104,6 @@ impl ThreadManagerState {
             };
             let mut threads = self.threads.write().await;
             if let std::collections::hash_map::Entry::Vacant(e) = threads.entry(thread_id) {
-                ema_cancellation.publish();
                 let thread = Arc::new(CodexThread::new(
                     Arc::clone(&session),
                     io,

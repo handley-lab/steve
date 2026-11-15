@@ -10,9 +10,6 @@ use super::forward_incoming_message;
 use super::next_connection_id;
 use super::serialize_outgoing_message;
 use crate::outgoing_message::QueuedOutgoingMessage;
-use codex_app_server_protocol::InitializeParams;
-use codex_app_server_protocol::JSONRPCMessage;
-use codex_app_server_protocol::JSONRPCRequest;
 use std::io::BufRead;
 use std::io::ErrorKind;
 use std::io::Result as IoResult;
@@ -27,7 +24,6 @@ use tracing::info;
 
 pub async fn start_stdio_connection(
     transport_event_tx: mpsc::Sender<TransportEvent>,
-    initialize_client_name_tx: oneshot::Sender<String>,
     install_shutdown_signal_handler: bool,
 ) -> IoResult<JoinHandle<()>> {
     let shutdown_signal = CancellationToken::new();
@@ -96,7 +92,6 @@ pub async fn start_stdio_connection(
 
     let transport_event_tx_for_reader = transport_event_tx.clone();
     let read_messages = async move {
-        let mut initialize_client_name_tx = Some(initialize_client_name_tx);
         while let Some(line) = stdin_rx.recv().await {
             let line = match line {
                 Ok(line) => line,
@@ -105,11 +100,6 @@ pub async fn start_stdio_connection(
                     break;
                 }
             };
-            if let Some(client_name) = stdio_initialize_client_name(&line)
-                && let Some(initialize_client_name_tx) = initialize_client_name_tx.take()
-            {
-                let _ = initialize_client_name_tx.send(client_name);
-            }
             if !forward_incoming_message(
                 &transport_event_tx_for_reader,
                 &writer_tx_for_reader,
@@ -179,16 +169,4 @@ fn start_shutdown_watchdog() {
             })
             .unwrap_or_else(|_| std::process::exit(/*code*/ 1));
     });
-}
-
-fn stdio_initialize_client_name(line: &str) -> Option<String> {
-    let message = serde_json::from_str::<JSONRPCMessage>(line).ok()?;
-    let JSONRPCMessage::Request(JSONRPCRequest { method, params, .. }) = message else {
-        return None;
-    };
-    if method != "initialize" {
-        return None;
-    }
-    let params = serde_json::from_value::<InitializeParams>(params?).ok()?;
-    Some(params.client_info.name)
 }

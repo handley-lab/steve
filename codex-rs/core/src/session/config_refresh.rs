@@ -9,29 +9,10 @@ use crate::config::Constrained;
 use crate::config::RuntimeConfigRefresh;
 use crate::session::Session;
 use codex_config::CloudConfigBundleBindingStatus;
-use codex_config::McpServerAuth;
 use codex_features::Feature;
 use tracing::warn;
 
 impl Session {
-    pub(crate) async fn disable_mcp_enterprise_auth(&self) {
-        {
-            let mut state = self.state.lock().await;
-            let mut config = state
-                .session_configuration
-                .original_config_do_not_use
-                .as_ref()
-                .clone();
-            config.config_layer_stack.mcp_ema_cancellation().cancel();
-            config.disable_mcp_enterprise_auth();
-            state.session_configuration.original_config_do_not_use = Arc::new(config);
-            self.services.mcp_runtime.invalidate_resource_caches();
-            self.mark_mcp_runtime_dirty(McpRefreshReason::EnterpriseAuthDisabled);
-        }
-        self.services.mcp_runtime.quiesce_ema().await;
-        self.schedule_mcp_prewarm();
-    }
-
     pub(crate) async fn refresh_runtime_config(
         &self,
         expected_config: Arc<Config>,
@@ -66,18 +47,7 @@ impl Session {
                         // preserved session overrides. Keep ordinary-server revocations even
                         // when retained layers make the enterprise merge invalid.
                         let mut refreshed_servers = next_config.mcp_servers.clone();
-                        let mut servers = refreshed_servers.get().clone();
-                        // Retain enterprise identities so a later corrected refresh cannot
-                        // admit an ordinary-auth replacement under a retired server's name.
-                        for (name, server) in expected_config.mcp_servers.get() {
-                            if matches!(server.auth, McpServerAuth::EmaAuth)
-                                || server.ema_registration().is_some()
-                            {
-                                let mut retired = server.clone();
-                                retired.enabled = false;
-                                servers.insert(name.clone(), retired);
-                            }
-                        }
+                        let servers = refreshed_servers.get().clone();
                         config.mcp_servers = if refreshed_servers.set(servers).is_ok() {
                             refreshed_servers
                         } else {
@@ -91,7 +61,6 @@ impl Session {
                         warn!(%err, "failed to apply managed MCP feature restrictions");
                         config.mcp_servers = Constrained::allow_any(Default::default());
                     }
-                    config.disable_mcp_enterprise_auth();
                     (config, ConfigRefreshOutcome::Rejected, Some(error.kind()))
                 }
             };
@@ -144,10 +113,8 @@ impl Session {
                 CloudConfigBundleBindingStatus::Current => {}
                 CloudConfigBundleBindingStatus::Stale => return ConfigRefreshOutcome::Stale,
                 CloudConfigBundleBindingStatus::Suspended => {
-                    // Publish ordinary changes under the last valid requirements,
-                    // but revoke enterprise authority until a valid policy is loaded.
+                    // Publish ordinary changes under the last valid requirements.
                     let config = Arc::make_mut(&mut config);
-                    config.disable_mcp_enterprise_auth();
                     config.config_layer_stack = config
                         .config_layer_stack
                         .clone()
@@ -174,20 +141,6 @@ impl Session {
             }
             let previous_config = notify_contributors
                 .then(|| self.build_effective_session_config(&state.session_configuration));
-            if config.mcp_enterprise_managed_auth.is_none() {
-                config.config_layer_stack.mcp_ema_cancellation().cancel();
-            }
-            if !matches!(scope, RuntimeConfigRefresh::UserFiles) {
-                let cancellation = config
-                    .config_layer_stack
-                    .mcp_ema_cancellation()
-                    .refreshed(next_config.config_layer_stack.mcp_ema_cancellation());
-                let config = Arc::make_mut(&mut config);
-                config.config_layer_stack = config
-                    .config_layer_stack
-                    .clone()
-                    .with_mcp_ema_cancellation(cancellation);
-            }
             state.session_configuration.original_config_do_not_use = Arc::clone(&config);
             drop(policy_guard);
             if matches!(scope, RuntimeConfigRefresh::Mcp) {
@@ -202,13 +155,6 @@ impl Session {
                 .then(|| self.build_effective_session_config(&state.session_configuration));
             (previous_config, new_config)
         };
-        if config
-            .config_layer_stack
-            .mcp_ema_cancellation()
-            .is_cancelled()
-        {
-            self.services.mcp_runtime.quiesce_ema().await;
-        }
         self.emit_config_changed_contributors(previous_config.as_ref(), new_config.as_ref());
         self.schedule_mcp_prewarm();
         self.refresh_hooks(config).await;

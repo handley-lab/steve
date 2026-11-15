@@ -67,12 +67,8 @@ pub async fn config_builder(
                 .context("failed to resolve cloud configuration authentication")?,
             path_style,
         ),
-        path_style,
         bootstrap_config.config_layer_stack.requirements_toml(),
-        /*enable_codex_api_key_env*/ false,
-    )
-    .await
-    .context("failed to initialize cloud configuration authentication")?;
+    );
 
     Ok(ConfigBuilder::default()
         .codex_home(codex_home.to_path_buf())

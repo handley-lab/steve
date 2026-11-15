@@ -51,8 +51,6 @@ pub(super) struct InputQueueState {
     pub(super) submit_pending_steers_after_interrupt: bool,
     pub(super) suppress_queue_autosend: bool,
     pub(super) transcript_copy: std::sync::Weak<crate::copy_input_guard::CopyInputGuard>,
-    /// Hold submissions while a usage failure or backend-directed model fallback is resolved.
-    pub(super) rate_limit_recovery_pending: bool,
     /// Pause for user recovery (for example an image or permission failure), independent of delivery.
     pub(super) recovered_queue: bool,
 }
@@ -93,7 +91,6 @@ impl InputQueueState {
         self.rejected_steer_history_records.clear();
         self.pending_steers.clear();
         self.submit_pending_steers_after_interrupt = false;
-        self.rate_limit_recovery_pending = false;
     }
 
     pub(super) fn preview(&self) -> PendingInputPreview {

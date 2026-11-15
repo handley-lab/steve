@@ -10,11 +10,6 @@ use codex_protocol::auth::AuthMode;
 pub(crate) fn auth_mode_to_api(auth_mode: AuthMode) -> ApiAuthMode {
     match auth_mode {
         AuthMode::ApiKey => ApiAuthMode::ApiKey,
-        AuthMode::Chatgpt => ApiAuthMode::Chatgpt,
-        AuthMode::ChatgptAuthTokens => ApiAuthMode::ChatgptAuthTokens,
-        AuthMode::Headers => ApiAuthMode::Headers,
-        AuthMode::AgentIdentity => ApiAuthMode::AgentIdentity,
-        AuthMode::PersonalAccessToken => ApiAuthMode::PersonalAccessToken,
         AuthMode::BedrockApiKey => ApiAuthMode::BedrockApiKey,
         AuthMode::BedrockAccessKeys => ApiAuthMode::BedrockAccessKeys,
     }

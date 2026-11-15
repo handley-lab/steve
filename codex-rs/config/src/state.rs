@@ -250,8 +250,6 @@ impl ConfigLayerEntry {
 pub struct ConfigLayerStack {
     /// Runtime-only EMA authority; it does not change the configuration's contents.
     cloud_config_binding: Option<crate::CloudConfigBundleBinding>,
-    /// Runtime-only cancellation inherited by config snapshots and pending EMA startups.
-    mcp_ema_cancellation: crate::McpEmaCancellation,
     /// Identifies the service that supplied the loaded configuration, for comparison with the configured service.
     applied_config_server: Option<std::sync::Arc<crate::ConfigServer>>,
     /// Cached TOML projection derived only from `requirements_toml`.
@@ -288,7 +286,6 @@ impl PartialEq for ConfigLayerStack {
     fn eq(&self, other: &Self) -> bool {
         let Self {
             cloud_config_binding: _,
-            mcp_ema_cancellation: _,
             applied_config_server,
             model_provider_requirements,
             layers,
@@ -325,7 +322,6 @@ impl ConfigLayerStack {
         )?);
         let stack = Self {
             cloud_config_binding: None,
-            mcp_ema_cancellation: crate::McpEmaCancellation::default(),
             applied_config_server: None,
             model_provider_requirements,
             layers,
@@ -384,15 +380,6 @@ impl ConfigLayerStack {
 
     pub fn cloud_config_binding(&self) -> Option<&crate::CloudConfigBundleBinding> {
         self.cloud_config_binding.as_ref()
-    }
-
-    pub fn with_mcp_ema_cancellation(mut self, cancellation: crate::McpEmaCancellation) -> Self {
-        self.mcp_ema_cancellation = cancellation;
-        self
-    }
-
-    pub fn mcp_ema_cancellation(&self) -> &crate::McpEmaCancellation {
-        &self.mcp_ema_cancellation
     }
 
     pub fn with_applied_config_server(
@@ -549,7 +536,6 @@ impl ConfigLayerStack {
         Ok(Self {
             layers,
             cloud_config_binding: self.cloud_config_binding.clone(),
-            mcp_ema_cancellation: self.mcp_ema_cancellation.clone(),
             applied_config_server: self.applied_config_server.clone(),
             model_provider_requirements: self.model_provider_requirements.clone(),
             requirements: self.requirements.clone(),
@@ -634,7 +620,6 @@ impl ConfigLayerStack {
         Self {
             layers,
             cloud_config_binding: self.cloud_config_binding.clone(),
-            mcp_ema_cancellation: self.mcp_ema_cancellation.clone(),
             applied_config_server: self.applied_config_server.clone(),
             model_provider_requirements: self.model_provider_requirements.clone(),
             requirements: self.requirements.clone(),

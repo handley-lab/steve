@@ -12,8 +12,12 @@ async fn catalog_origins_survive_reload_and_auth_change() {
     ] {
         let home = tempdir().unwrap();
         let model = remote_model_with_visibility(slug, "Gateway", /*priority*/ 0, "hide");
-        let auth =
-            AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+        let auth = AuthManager::from_auth_for_testing(CodexAuth::BedrockApiKey(
+            codex_login::auth::BedrockApiKeyAuth {
+                api_key: "dummy".to_string(),
+                region: "us-east-1".to_string(),
+            },
+        ));
         let endpoint =
             TestAuthAwareModelsEndpoint::new(Some(auth.clone()), vec![vec![model.clone()]]);
         let manager =

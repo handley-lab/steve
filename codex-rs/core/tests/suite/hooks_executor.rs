@@ -1,7 +1,6 @@
 use anyhow::Context;
 use anyhow::Result;
 use codex_config::McpServerConfig;
-use codex_config::test_support::CloudConfigBundleFixture;
 use codex_core::EnvironmentConfig;
 use codex_core::StartThreadOptions;
 use codex_core::TurnInputRequest;
@@ -20,10 +19,7 @@ use codex_protocol::protocol::EnvironmentConfigState;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::HookRunStatus;
 use codex_protocol::protocol::Op;
-use codex_protocol::protocol::SessionSource;
-use codex_protocol::protocol::SubAgentSource;
 use codex_protocol::protocol::ThreadSettingsOverrides;
-use codex_protocol::protocol::ThreadSource;
 use codex_protocol::protocol::TurnEnvironmentRequest;
 use codex_protocol::protocol::TurnEnvironmentRequests;
 use codex_protocol::protocol::TurnEnvironmentSelection;
@@ -33,9 +29,6 @@ use codex_protocol::user_input::UserInput;
 use codex_utils_path_uri::LegacyAppPathString;
 use codex_utils_path_uri::PathUri;
 use core_test_support::TestTargetOs;
-use core_test_support::apps_test_server::AppsTestServer;
-use core_test_support::apps_test_server::apps_enabled_builder;
-use core_test_support::apps_test_server::recorded_apps_tool_calls;
 use core_test_support::exec_server::ExecServerProcess;
 use core_test_support::responses::ResponseMock;
 use core_test_support::responses::ev_assistant_message;
@@ -72,7 +65,6 @@ use wiremock::Mock;
 use wiremock::MockServer;
 use wiremock::Request;
 use wiremock::ResponseTemplate;
-use wiremock::matchers::body_partial_json;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
@@ -1244,227 +1236,6 @@ async fn executor_stop_hook_rejects_mismatched_environment() -> Result<()> {
         2
     );
 
-    Ok(())
-}
-
-#[test_case("Stop", "", "", 1; "enabled")]
-#[test_case("Interrupt", "", "", 1; "interrupt_enabled")]
-#[test_case("SubagentStop", "", "", 1; "subagent_enabled")]
-#[test_case(
-    "Stop",
-    "[apps.connector_openai_browser]\nenabled = false\n",
-    "",
-    0;
-    "user_disabled"
-)]
-#[test_case(
-    "Stop",
-    "[apps.connector_openai_browser]\nenabled = true\n",
-    "[apps.connector_openai_browser]\nenabled = false\n",
-    0;
-    "managed_disabled"
-)]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn executor_browser_and_computer_use_cleanup_hooks_use_separate_mcp_routes(
-    hook_event: &'static str,
-    user_config: &'static str,
-    requirements: &'static str,
-    expected_browser_calls: usize,
-) -> Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let apps_server = start_mock_server().await;
-    let apps = AppsTestServer::mount(&apps_server).await?;
-    let routing = json!({
-        "resource_uri": "/connector_openai_browser/browser-link/turn_ended",
-        "contains_mcp_source": true,
-    });
-    let listed_routing = routing.clone();
-    Mock::given(method("POST"))
-        .and(path("/api/codex/ps/mcp"))
-        .and(body_partial_json(json!({ "method": "tools/list" })))
-        .respond_with(move |request: &Request| {
-            let request: Value = serde_json::from_slice(&request.body).expect("valid Apps request");
-            ResponseTemplate::new(200).set_body_json(json!({
-                "jsonrpc": "2.0",
-                "id": request["id"],
-                "result": { "tools": [{
-                    "name": "browser.turn_ended",
-                    "inputSchema": { "type": "object" },
-                    "_meta": {
-                        "connector_id": "connector_openai_browser",
-                        "connector_name": "Browser",
-                        "ui": { "visibility": ["app"] },
-                        "_codex_apps": listed_routing,
-                    },
-                }] },
-            }))
-        })
-        .with_priority(1)
-        .mount(&apps_server)
-        .await;
-
-    let plugins = [
-        (
-            "browser@openai-curated-remote",
-            json!({
-                "name": "browser",
-                "hooks": { "hooks": {
-                    "Stop": [{ "hooks": [{
-                        "type": "mcp_tool",
-                        "server": "codex_apps",
-                        "tool": "browser.turn_ended",
-                        "input": {},
-                    }] }],
-                    "Interrupt": [{ "hooks": [{
-                        "type": "mcp_tool",
-                        "server": "codex_apps",
-                        "tool": "browser.turn_ended",
-                        "input": {},
-                    }] }],
-                    "SubagentStop": [{ "hooks": [{
-                        "type": "mcp_tool",
-                        "server": "codex_apps",
-                        "tool": "browser.turn_ended",
-                        "input": {},
-                    }] }],
-                } },
-            }),
-        ),
-        ("computer-use@openai-bundled", computer_use_hook_manifest()),
-    ];
-    let mut fixture = executor_plugin_hook_fixture(
-        apps_enabled_builder(apps.chatgpt_base_url)
-            .with_pre_build_hook(move |home| {
-                std::fs::write(home.join("config.toml"), user_config)
-                    .expect("write Browser app configuration");
-            })
-            .with_cloud_config_bundle(
-                CloudConfigBundleFixture::loader_with_enterprise_requirement(requirements),
-            ),
-        &plugins,
-        vec![if hook_event == "Interrupt" {
-            completed_turn_response("browser-turn").set_delay(Duration::from_secs(60))
-        } else {
-            completed_turn_response("browser-turn")
-        }],
-    )
-    .await?;
-    if hook_event == "SubagentStop" {
-        let child = fixture
-            .test
-            .thread_manager
-            .start_thread(StartThreadOptions {
-                session_source: Some(SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
-                    parent_thread_id: fixture.test.session_configured.thread_id,
-                    depth: 1,
-                    agent_path: None,
-                    agent_nickname: None,
-                    agent_role: None,
-                })),
-                thread_source: Some(ThreadSource::Subagent),
-                ..fixture.test.start_thread_options().await
-            })
-            .await?;
-        fixture.test.codex = child.thread;
-        fixture.test.session_configured = child.session_configured;
-    }
-    fixture.attach().await?;
-    if hook_event == "SubagentStop" {
-        // Cached subagent MCP servers start on first use; cleanup must not start them.
-        fixture
-            .test
-            .codex
-            .call_mcp_tool(
-                "node_repl",
-                "js",
-                Some(json!({ "code": "1 + 1" })),
-                /*meta*/ None,
-            )
-            .await?;
-    }
-    if hook_event == "Interrupt" {
-        fixture
-            .test
-            .codex
-            .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
-                text: "interrupt browsing".to_string(),
-                text_elements: Vec::new(),
-            }]))
-            .await?;
-        tokio::time::timeout(Duration::from_secs(10), async {
-            while fixture.responses.requests().is_empty() {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .context("interrupted turn should reach the model request")?;
-        fixture.test.codex.submit(Op::Interrupt).await?;
-        wait_for_event(&fixture.test.codex, |event| {
-            matches!(event, EventMsg::TurnAborted(_))
-        })
-        .await;
-    } else {
-        fixture.test.submit_text_turn("finish browsing").await?;
-    }
-    fixture.wait_for_hook_call().await?;
-    let node_calls = fixture.calls().await?;
-    let expected_node_tools = if hook_event == "SubagentStop" {
-        vec!["js", "turn_ended"]
-    } else {
-        vec!["turn_ended"]
-    };
-    assert_eq!(
-        node_calls
-            .iter()
-            .map(|call| call["params"]["name"].as_str().expect("Node tool name"))
-            .collect::<Vec<_>>(),
-        expected_node_tools
-    );
-    let node_params = &node_calls.last().context("Node cleanup call")?["params"];
-    assert_eq!(node_params["arguments"]["hook_event_name"], hook_event);
-    assert!(node_params["_meta"].get("_codex_apps").is_none());
-
-    // Executor cleanup runs in the background, so observe a no-call window after Node runs.
-    let browser_timeout = if expected_browser_calls == 0 {
-        Duration::from_secs(1)
-    } else {
-        Duration::from_secs(10)
-    };
-    let calls = tokio::time::timeout(browser_timeout, async {
-        loop {
-            let calls = recorded_apps_tool_calls(&apps_server).await;
-            if !calls.is_empty() {
-                break calls;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .unwrap_or_default();
-    assert_eq!(calls.len(), expected_browser_calls);
-    if calls.is_empty() {
-        return Ok(());
-    }
-    let browser_params = &calls[0]["params"];
-    let response_body = fixture.responses.single_request().body_json();
-    let thread_id = fixture.test.session_configured.thread_id.to_string();
-    assert_eq!(browser_params["name"], "browser.turn_ended");
-    assert_eq!(browser_params["arguments"], json!({}));
-    assert_eq!(browser_params["_meta"]["_codex_apps"], routing);
-    let turn_metadata = &browser_params["_meta"]["x-codex-turn-metadata"];
-    assert_eq!(
-        node_params["_meta"]["x-codex-turn-metadata"],
-        *turn_metadata
-    );
-    assert_eq!(turn_metadata["thread_id"], thread_id);
-    if hook_event == "SubagentStop" {
-        assert_eq!(turn_metadata["thread_source"], "subagent");
-    }
-    assert_eq!(
-        turn_metadata["turn_id"],
-        response_body["client_metadata"]["turn_id"]
-    );
     Ok(())
 }
 

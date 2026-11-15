@@ -6,7 +6,6 @@
 
 use super::*;
 use crate::bottom_pane::footer_content::FooterContent;
-use crate::status::thread_cost_micros;
 
 impl ChatWidget {
     /// Update the status indicator header and details.
@@ -268,14 +267,7 @@ impl ChatWidget {
             self.refreshing_status_outputs
                 .push((request_id, handle.clone()));
         }
-        if self.thread_usage_is_available() {
-            handle.reserve_thread_usage_label_width();
-            handle.set_thread_usage(self.estimated_thread_usage().cloned());
-            self.add_to_history(cell);
-            self.request_thread_usage_for_status(handle.clone());
-        } else {
-            self.add_to_history(cell);
-        }
+        self.add_to_history(cell);
         // Capture the displayed status inputs before later configuration or thread changes.
         let mut copy_targets = vec![
             ("Model".to_string(), Arc::<str>::from(model)),
@@ -294,45 +286,6 @@ impl ChatWidget {
             handle,
             fields: copy_targets,
         });
-    }
-
-    pub(crate) fn finish_status_rate_limit_refresh(
-        &mut self,
-        request_id: u64,
-        snapshots: Vec<RateLimitSnapshot>,
-    ) {
-        if !self
-            .refreshing_status_outputs
-            .iter()
-            .any(|(pending_request_id, _)| *pending_request_id == request_id)
-        {
-            return;
-        }
-
-        for snapshot in snapshots {
-            self.on_rate_limit_snapshot(Some(snapshot));
-        }
-
-        let rate_limit_snapshots: Vec<RateLimitSnapshotDisplay> = self
-            .rate_limit_snapshots_by_limit_id
-            .values()
-            .cloned()
-            .collect();
-        let now = Local::now();
-        let mut remaining = Vec::with_capacity(self.refreshing_status_outputs.len());
-        let mut updated_any = false;
-        for (pending_request_id, handle) in self.refreshing_status_outputs.drain(..) {
-            if pending_request_id == request_id {
-                updated_any = true;
-                handle.finish_rate_limit_refresh(rate_limit_snapshots.as_slice(), now);
-            } else {
-                remaining.push((pending_request_id, handle));
-            }
-        }
-        self.refreshing_status_outputs = remaining;
-        if updated_any {
-            self.request_redraw();
-        }
     }
 
     pub(super) fn open_status_line_setup(&mut self) {
@@ -382,13 +335,6 @@ impl ChatWidget {
                     preview_data.suppress_placeholder(item);
                 }
             }
-        }
-
-        if self
-            .estimated_thread_usage()
-            .is_some_and(|usage| thread_cost_micros(usage, self.plan_type).is_none())
-        {
-            preview_data.suppress_placeholder(StatusSurfacePreviewItem::EstimatedThreadCost);
         }
 
         preview_data

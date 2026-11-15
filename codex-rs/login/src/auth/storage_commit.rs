@@ -76,16 +76,9 @@ impl AuthStorageBackend for CommittedStorage {
     fn load(&self) -> std::io::Result<Option<AuthDotJson>> {
         self.inner.load()
     }
-    fn load_account_grant(&self) -> std::io::Result<Option<AuthDotJson>> {
-        self.inner.load_account_grant()
-    }
     fn save(&self, auth: &AuthDotJson) -> std::io::Result<()> {
         let _guard = self.lock()?;
         self.inner.save(auth)
-    }
-    fn compare_and_save(&self, expected: &AuthDotJson, auth: &AuthDotJson) -> std::io::Result<()> {
-        let _guard = self.lock()?;
-        self.inner.compare_and_save(expected, auth)
     }
     fn delete(&self) -> std::io::Result<bool> {
         // A missing file-store directory contains no credentials to delete.

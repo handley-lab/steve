@@ -1177,10 +1177,8 @@ goals = true
             .await?;
         let settings = next_thread_settings_updated(&mut app_server, source_thread_id).await;
         app.chat_widget.on_thread_settings_updated(settings);
-        app.chat_widget.update_account_state(
-            /*status_account_display*/ None, /*plan_type*/ None,
-            /*has_chatgpt_account*/ true, /*has_codex_backend_auth*/ false,
-        );
+        app.chat_widget
+            .update_account_state(/*status_account_display*/ None);
         app.chat_widget
             .set_feature_enabled(Feature::CliDaybreak, /*enabled*/ true);
         app.chat_widget.set_daybreak_enabled(/*enabled*/ true);

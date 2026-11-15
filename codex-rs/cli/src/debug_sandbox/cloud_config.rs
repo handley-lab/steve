@@ -49,11 +49,8 @@ pub(super) async fn bootstrap_cloud_config_bundle(
             bootstrap_auth_config(codex_home.as_path(), &bootstrap_config)?,
             path_style,
         ),
-        path_style,
         bootstrap_config.config_layer_stack.requirements_toml(),
-        /*enable_codex_api_key_env*/ false,
-    )
-    .await?)
+    ))
 }
 
 #[cfg(test)]

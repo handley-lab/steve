@@ -9,7 +9,6 @@ use crate::is_openai_curated_marketplace_name;
 use crate::marketplace::marketplace_root_dir;
 use crate::marketplace_add::MarketplaceSource;
 use crate::marketplace_add::parse_marketplace_source;
-use crate::remote::RemotePluginScope;
 use crate::startup_sync::OPENAI_PLUGINS_GIT_URL;
 use crate::startup_sync::curated_plugins_api_marketplace_path;
 use crate::startup_sync::curated_plugins_repo_path;
@@ -466,7 +465,7 @@ fn is_reserved_marketplace_name(marketplace_name: &str) -> bool {
             | OPENAI_BUNDLED_MARKETPLACE_NAME
             | OPENAI_BUNDLED_ALPHA_MARKETPLACE_NAME
             | OPENAI_PRIMARY_RUNTIME_MARKETPLACE_NAME
-    ) || RemotePluginScope::from_marketplace_name(marketplace_name).is_some()
+    )
 }
 
 fn managed_marketplace_name(

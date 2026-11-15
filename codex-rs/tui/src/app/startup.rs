@@ -16,7 +16,6 @@ use crate::session_start::SessionStartOutcome;
 use crate::session_start::cancel_session_start;
 use crate::session_start::complete_session_start;
 use crate::unarchive_prompt::run_unarchive_prompt;
-use color_eyre::eyre::ContextCompat;
 
 fn spawn_startup_thread_start(
     app_server: &AppServerSession,
@@ -534,17 +533,14 @@ impl App {
                 .with_collaboration_modes(bootstrap.collaboration_modes),
         );
         let auth_mode = bootstrap.auth_mode;
-        let has_chatgpt_account = bootstrap.has_chatgpt_account;
-        let has_codex_backend_auth = matches!(auth_mode, Some(TelemetryAuthMode::Chatgpt));
         let requires_openai_auth = bootstrap.requires_openai_auth;
         let status_account_display = bootstrap.status_account_display.clone();
-        let initial_plan_type = bootstrap.plan_type;
         let session_telemetry = SessionTelemetry::new(
             ThreadId::new(),
             model.as_str(),
             model.as_str(),
             /*account_id*/ None,
-            bootstrap.account_email.clone(),
+            /*account_email*/ None,
             auth_mode,
             codex_login::default_client::originator().value,
             config.otel.log_user_prompt,
@@ -634,14 +630,11 @@ impl App {
                         Vec::new(),
                     ),
                     enhanced_keys_supported,
-                    has_chatgpt_account,
                     requires_openai_auth,
-                    has_codex_backend_auth,
                     model_catalog: model_catalog.clone(),
                     feedback: feedback.clone(),
                     is_first_run,
                     status_account_display: status_account_display.clone(),
-                    initial_plan_type,
                     model: Some(model.clone()),
                     startup_tooltip_override,
                     status_line_invalid_items_warned: status_line_invalid_items_warned.clone(),
@@ -788,14 +781,11 @@ impl App {
                     )
                     .filter(|_| resumed.is_some()),
                     enhanced_keys_supported,
-                    has_chatgpt_account,
                     requires_openai_auth,
-                    has_codex_backend_auth,
                     model_catalog: model_catalog.clone(),
                     feedback: feedback.clone(),
                     is_first_run,
                     status_account_display: status_account_display.clone(),
-                    initial_plan_type,
                     model: config.model.clone(),
                     startup_tooltip_override: None,
                     status_line_invalid_items_warned: status_line_invalid_items_warned.clone(),
@@ -900,14 +890,11 @@ impl App {
                     )
                     .filter(|_| forked.is_some()),
                     enhanced_keys_supported,
-                    has_chatgpt_account,
                     requires_openai_auth,
-                    has_codex_backend_auth,
                     model_catalog: model_catalog.clone(),
                     feedback: feedback.clone(),
                     is_first_run,
                     status_account_display: status_account_display.clone(),
-                    initial_plan_type,
                     model: config.model.clone(),
                     startup_tooltip_override: None,
                     status_line_invalid_items_warned: status_line_invalid_items_warned.clone(),
@@ -984,7 +971,7 @@ See the Steve keymap documentation for supported actions and examples."
         let mut app = Self {
             provider_writes,
             feature_write_lock: Arc::default(),
-            feedback_audience: bootstrap.feedback_audience,
+            feedback_audience: FeedbackAudience::External,
             config_notification_test_generation: 0,
             config_notification_test_pending: None,
             model_catalog,
@@ -1017,11 +1004,7 @@ See the Steve keymap documentation for supported actions and examples."
             turn_tips: Default::default(),
             transcript_view: Default::default(),
             conversation_frame: Default::default(),
-            last_rendered_history_tail: None,
-            last_thread_usage_status_cell: None,
-            pending_thread_usage_history_refresh: false,
             overlay: None,
-            retained_analytics: None,
             deferred_history_lines: Vec::new(),
             has_emitted_history_lines: false,
             transcript_reflow: TranscriptReflowState::default(),
@@ -1101,9 +1084,6 @@ See the Steve keymap documentation for supported actions and examples."
             pending_managed_worktree_attach: None,
             startup_protected_input_boundary: true,
             startup_pending_protected_request: false,
-            account_email_request_id: None,
-            rate_limit_hard_stop_generation: 0,
-            rate_limit_refresh_state: Default::default(),
             pending_mcp_login_start: None,
             active_mcp_login_ids: HashMap::new(),
             pending_plugin_enabled_writes: HashMap::new(),
@@ -1264,25 +1244,6 @@ See the Steve keymap documentation for supported actions and examples."
             "tui startup initial frame scheduled"
         );
         app.refresh_startup_skills(&app_server);
-        // Kick off a non-blocking rate-limit prefetch so the first `/status`
-        // already has data and available reset credits can be surfaced, without
-        // delaying the initial frame render.
-        if requires_openai_auth && has_chatgpt_account {
-            crate::security_setup::prefetch(
-                &app.config,
-                &app_server,
-                app.app_event_tx.clone(),
-                app.chat_widget.security_setup_request_id,
-            );
-            let reset_hint_request_id = app.chat_widget.start_rate_limit_reset_startup_check();
-            app.refresh_rate_limits(
-                &app_server,
-                RateLimitRefreshOrigin::StartupPrefetch {
-                    reset_hint_request_id,
-                },
-            );
-        }
-
         let mut last_screen_size = tui.terminal.last_known_screen_size;
         let mut settled_size_tags = crate::terminal_size_telemetry::tags(last_screen_size);
         let mut pending_resize: Option<(ratatui::layout::Size, Instant)> = None;
@@ -1483,10 +1444,6 @@ See the Steve keymap documentation for supported actions and examples."
                         Some((size, Instant::now() + Duration::from_secs(/*secs*/ 15)));
                 }
                 last_screen_size = size;
-                let rate_limit_poll_deadline = app
-                    .chat_widget
-                    .rate_limit_refresh_interval()
-                    .and_then(|interval| app.rate_limit_refresh_state.poll_deadline(interval));
                 let control = select! {
                     result = async {
                         match app.daemon_restart.as_mut() {
@@ -1706,17 +1663,6 @@ See the Steve keymap documentation for supported actions and examples."
                                 settled_size_tags = tags;
                             }
                         }
-                        AppRunControl::Continue
-                    }
-                    () = async {
-                        match rate_limit_poll_deadline {
-                            Some(deadline) => {
-                                tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await;
-                            }
-                            None => std::future::pending().await,
-                        }
-                    }, if backends.is_listening(displayed_owner) => {
-                        app.refresh_rate_limits(backends.session_at(displayed_session), RateLimitRefreshOrigin::Periodic);
                         AppRunControl::Continue
                     }
                     () = async {

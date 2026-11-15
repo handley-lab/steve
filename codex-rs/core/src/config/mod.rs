@@ -18,7 +18,6 @@ use codex_config::ConfigRequirementsToml;
 use codex_config::ConstrainedWithSource;
 use codex_config::FeatureRequirementsToml;
 use codex_config::ManagedAuthPolicy;
-use codex_config::McpEnterpriseManagedAuthConfig;
 use codex_config::McpServerRequirement;
 use codex_config::PluginRequirementsToml;
 use codex_config::ProfileV2Name;
@@ -98,7 +97,6 @@ use codex_model_provider_info::GatewayOAuthConfig;
 use codex_model_provider_info::LEGACY_OLLAMA_CHAT_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::OLLAMA_CHAT_PROVIDER_REMOVED_ERROR;
-use codex_model_provider_info::OPENAI_PROVIDER_ID;
 use codex_model_provider_info::built_in_model_providers;
 use codex_model_provider_info::merge_configured_model_providers;
 use codex_models_manager::ModelsManagerConfig;
@@ -962,9 +960,6 @@ pub struct Config {
     /// Definition for MCP servers that Codex can reach out to for tool calls.
     pub mcp_servers: Constrained<HashMap<String, McpServerConfig>>,
 
-    /// Trusted IdP shared by all permitted EMA MCP registrations.
-    pub mcp_enterprise_managed_auth: Option<McpEnterpriseManagedAuthConfig>,
-
     /// When present, only these MCP servers omit the legacy `mcp__` namespace prefix.
     pub non_prefixed_mcp_tool_servers: Option<Vec<String>>,
 
@@ -1114,9 +1109,6 @@ pub struct Config {
 
     /// Whether configuration or managed requirements explicitly selected the backend URL.
     pub chatgpt_base_url_is_explicit: bool,
-
-    /// Additional configured origins permitted to receive backend-staged file contents.
-    pub file_upload_origins: Vec<String>,
 
     /// Optional explicitly configured desktop update feed.
     pub desktop_update_url: Option<String>,
@@ -1942,13 +1934,7 @@ impl Config {
             self.plugins.clone(),
             self.model_provider_id.clone(),
             self.features.enabled(Feature::Plugins),
-            self.features.enabled(Feature::RemotePlugin),
-            self.chatgpt_base_url.clone(),
-            self.http_client_factory(),
-            self.apps_mcp_product_sku.clone(),
-            self.file_upload_origins.clone(),
         )
-        .with_runtime_auth_mode(None)
     }
 
     /// Applies managed MCP requirements to servers supplied by one plugin.
@@ -1998,11 +1984,6 @@ impl Config {
         additional_plugin_registrations: impl IntoIterator<Item = McpServerRegistration>,
     ) -> McpConfig {
         let mut catalog = ResolvedMcpCatalog::builder();
-        if self.features.enabled(Feature::UseXaa)
-            && let Some(auth) = &self.mcp_enterprise_managed_auth
-        {
-            catalog.enable_ema(auth.idp.clone());
-        }
         for (plugin_order, plugin) in loaded_plugins
             .plugins()
             .iter()
@@ -2047,11 +2028,6 @@ impl Config {
             apps_mcp_product_sku: self.apps_mcp_product_sku.clone(),
             requires_read_only_mcp_tools: false,
             codex_home: self.codex_home.to_path_buf(),
-            mcp_enterprise_managed_auth: self.mcp_enterprise_managed_auth.clone(),
-            ema_state: Default::default(),
-            mcp_ema_cancellation: self.config_layer_stack.mcp_ema_cancellation().clone(),
-            xaa_enabled: self.features.enabled(Feature::UseXaa)
-                && self.mcp_enterprise_managed_auth.is_some(),
             mcp_oauth_credentials_store_mode: self.mcp_oauth_credentials_store_mode,
             mcp_tool_list_changed: self.features.enabled(Feature::McpToolListChanged),
             oauth_refresh_mode: if self.features.enabled(Feature::McpOAuthRefreshCoordination) {
@@ -2128,14 +2104,6 @@ impl Config {
         } else {
             McpProtocolMode::Legacy
         }
-    }
-
-    pub fn workspace_routing_context(&self) -> codex_model_provider::WorkspaceRoutingContext {
-        codex_model_provider::WorkspaceRoutingContext::new(self.chatgpt_base_url.clone())
-            .with_session(codex_login::WorkspaceRoutingSession {
-                cwd: self.cwd.to_path_buf(),
-                config_layer_stack: self.config_layer_stack.clone(),
-            })
     }
 
     pub async fn rebuild_with_session_layers(
@@ -3737,12 +3705,6 @@ impl Config {
                 "`[features.guardianv2].async_classifier_mode` is deprecated and ignored. Async classification always uses conversations; remove this setting from config.toml or profile configuration files.".to_owned(),
             );
         }
-        let mcp_enterprise_managed_auth = McpEnterpriseManagedAuthConfig::resolve(
-            &config_layer_stack,
-            cfg.mcp_enterprise_managed_auth.as_ref(),
-            &cfg.mcp_servers,
-            features.enabled(Feature::UseXaa),
-        )?;
         let non_prefixed_mcp_tool_servers = if features.enabled(Feature::NonPrefixedMcpToolNames) {
             cfg.features
                 .as_ref()
@@ -4815,7 +4777,6 @@ impl Config {
             },
             mcp_servers,
             non_prefixed_mcp_tool_servers,
-            mcp_enterprise_managed_auth,
             // The config.toml omits "_mode" because it's a config file. However, "_mode"
             // is important in code to differentiate the mode from the store implementation.
             mcp_oauth_credentials_store_mode: resolve_mcp_oauth_credentials_store_mode(
@@ -4918,7 +4879,6 @@ impl Config {
             chatgpt_base_url_is_explicit,
             chatgpt_base_url: cfg.chatgpt_base_url.unwrap_or_default(),
             chatgpt_path_style: cfg.chatgpt_path_style.unwrap_or_default(),
-            file_upload_origins: cfg.file_upload_origins.unwrap_or_default(),
             desktop_update_url: cfg.desktop_update_url,
             respect_system_proxy,
             apps_mcp_product_sku: cfg.apps_mcp_product_sku.clone(),

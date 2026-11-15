@@ -449,32 +449,6 @@ def test_schema_normalization_preserves_nonliteral_unions(branch: dict) -> None:
     assert definition == original
 
 
-def test_schema_normalization_makes_chatgpt_account_email_nullable() -> None:
-    script = _load_update_script_module()
-    schema = {
-        "definitions": {
-            "Account": {
-                "oneOf": [
-                    {
-                        "properties": {
-                            "email": {"type": "string"},
-                            "type": {"enum": ["chatgpt"], "type": "string"},
-                        },
-                        "required": ["email", "type"],
-                        "type": "object",
-                    }
-                ]
-            }
-        }
-    }
-
-    script._make_chatgpt_account_email_nullable(schema)
-
-    chatgpt_account = schema["definitions"]["Account"]["oneOf"][0]
-    assert chatgpt_account["properties"]["email"]["type"] == ["string", "null"]
-    assert "email" in chatgpt_account["required"]
-
-
 def test_python_codegen_schema_annotation_adds_stable_variant_titles() -> None:
     """Schema annotations should give generated protocol classes stable names."""
     script = _load_update_script_module()
@@ -514,17 +488,6 @@ def test_generate_v2_all_uses_titles_for_generated_names() -> None:
     assert "--use-annotated" in source
     assert "--formatters" in source
     assert "ruff-format" in source
-
-
-def test_generated_chatgpt_account_email_is_required_nullable() -> None:
-    from steve_sdk.generated.v2_all import ChatgptAccount
-
-    account = ChatgptAccount.model_validate({"email": None, "planType": "pro", "type": "chatgpt"})
-    assert account.email is None
-    assert ChatgptAccount.model_fields["email"].is_required()
-
-    with pytest.raises(ValidationError):
-        ChatgptAccount.model_validate({"planType": "pro", "type": "chatgpt"})
 
 
 @pytest.mark.parametrize("link_id", ["link_calendar", None])

@@ -338,8 +338,7 @@ pub(super) async fn start_app_server_for_session_command(
         &bootstrap_config,
         codex_home.as_path(),
         &embedded_network_policy,
-    )
-    .await?;
+    )?;
 
     let model_provider = if cli.oss {
         resolve_oss_provider(cli.oss_provider.as_deref(), config_toml)

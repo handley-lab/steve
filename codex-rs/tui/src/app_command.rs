@@ -9,8 +9,6 @@ use codex_app_server_protocol::RequestId as AppServerRequestId;
 use codex_app_server_protocol::ReviewTarget;
 use codex_app_server_protocol::ToolRequestUserInputResponse;
 use codex_app_server_protocol::UserInput;
-use codex_app_server_protocol::UserVerificationErrorDetails;
-use codex_app_server_protocol::UserVerificationProof;
 use codex_config::types::ApprovalsReviewer;
 use codex_protocol::ThreadId;
 use codex_protocol::approvals::GuardianAssessmentEvent;
@@ -172,11 +170,6 @@ pub(crate) enum AppCommand {
         content: Option<Value>,
         meta: Option<Value>,
     },
-    ResolveUserVerification {
-        server_name: String,
-        request_id: AppServerRequestId,
-        response: UserVerificationResponse,
-    },
     UserInputAnswer {
         id: String,
         response: ToolRequestUserInputResponse,
@@ -200,27 +193,6 @@ pub(crate) enum AppCommand {
     ApproveGuardianDeniedAction {
         event: GuardianAssessmentEvent,
     },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) enum UserVerificationResponse {
-    Accept {
-        // AppCommand serialization is used by session recording, not the RPC wire response.
-        // The controller serializes the assertion only into McpServerElicitationRequestResponse.
-        #[serde(skip_serializing)]
-        proof: UserVerificationProof,
-    },
-    Cancel,
-    Failed {
-        error: UserVerificationErrorDetails,
-    },
-}
-
-/// Carries only a safe display message and the closed native error category.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct UserVerificationFailure {
-    pub(crate) message: &'static str,
-    pub(crate) details: UserVerificationErrorDetails,
 }
 
 impl AppCommand {
@@ -326,18 +298,6 @@ impl AppCommand {
             decision,
             content,
             meta,
-        }
-    }
-
-    pub(crate) fn resolve_user_verification(
-        server_name: String,
-        request_id: AppServerRequestId,
-        response: UserVerificationResponse,
-    ) -> Self {
-        Self::ResolveUserVerification {
-            server_name,
-            request_id,
-            response,
         }
     }
 

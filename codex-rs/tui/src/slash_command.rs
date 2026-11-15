@@ -60,7 +60,6 @@ pub enum SlashCommand {
     Cd,
     #[strum(to_string = "pwd", serialize = "cwd")]
     Pwd,
-    Usage,
     DebugConfig,
     Title,
     Statusline,
@@ -68,7 +67,6 @@ pub enum SlashCommand {
     #[strum(to_string = "pets", serialize = "pet")]
     Pets,
     Mcp,
-    Apps,
     Plugins,
     Logout,
     Quit,
@@ -123,7 +121,6 @@ impl SlashCommand {
             SlashCommand::Status => "show current session configuration and token usage",
             SlashCommand::Cd => "change the current working directory",
             SlashCommand::Pwd => "show the current working directory",
-            SlashCommand::Usage => "view account usage or use a usage limit reset",
             SlashCommand::DebugConfig => "show config layers and requirement sources for debugging",
             SlashCommand::Title => "configure which items appear in the terminal title",
             SlashCommand::Statusline => "configure which items appear in the status line",
@@ -155,7 +152,6 @@ impl SlashCommand {
             SlashCommand::AutoReview => "approve one retry of a recent auto-review denial",
             SlashCommand::Memories => "configure memory use and generation",
             SlashCommand::Mcp => "list MCP tools; use /mcp verbose or /mcp login <name>",
-            SlashCommand::Apps => "manage apps",
             SlashCommand::Plugins => "browse plugins",
             SlashCommand::Logout => "log out of Steve",
             SlashCommand::Rollout => "print the rollout file path",
@@ -192,7 +188,6 @@ impl SlashCommand {
                 | SlashCommand::Raw
                 | SlashCommand::Cd
                 | SlashCommand::Pwd
-                | SlashCommand::Usage
                 | SlashCommand::Pets
                 | SlashCommand::Side
                 | SlashCommand::Btw
@@ -214,7 +209,6 @@ impl SlashCommand {
                 | SlashCommand::Daemon
                 | SlashCommand::Warnings
                 | SlashCommand::Pwd
-                | SlashCommand::Usage
                 | SlashCommand::Ide
                 | SlashCommand::Rename
         )
@@ -289,7 +283,6 @@ impl SlashCommand {
             | SlashCommand::Daemon
             | SlashCommand::Warnings
             | SlashCommand::Pwd
-            | SlashCommand::Usage
             | SlashCommand::DebugConfig
             | SlashCommand::Ps
             | SlashCommand::Stop
@@ -297,7 +290,6 @@ impl SlashCommand {
             | SlashCommand::Goal
             | SlashCommand::Voice
             | SlashCommand::Mcp
-            | SlashCommand::Apps
             | SlashCommand::Plugins
             | SlashCommand::Title
             | SlashCommand::Statusline

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::future::Future;
 use std::net::SocketAddr;
 use std::string::String;
 use std::sync::Arc;
@@ -9,7 +8,6 @@ use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
 use anyhow::bail;
-use codex_config::McpEmaTokenEndpointAuthMethod;
 use codex_config::McpServerOAuthConfig;
 use codex_exec_server::HttpClient;
 use codex_otel::auth_storage::AuthStorageOriginator;
@@ -28,9 +26,6 @@ use urlencoding::decode;
 
 use crate::StoredOAuthTokens;
 use crate::WrappedOAuthTokenResponse;
-use crate::enterprise_oauth_login::enterprise_authorization_url;
-use crate::enterprise_oauth_login::enterprise_callback_settings;
-use crate::enterprise_oauth_login::resolve_enterprise_authorization_manager;
 use crate::http_client_adapter::StreamableHttpRedirectMode;
 use crate::oauth::compute_expires_at_millis;
 use crate::oauth::validate_authorization_server_endpoints;
@@ -38,7 +33,6 @@ use crate::oauth_callback::McpOAuthCallbackMode;
 use crate::oauth_callback::append_callback_id_to_redirect_uri;
 use crate::oauth_callback::callback_id_from_server_url;
 use crate::oauth_callback::callback_mode;
-use crate::oauth_callback::resolve_mcp_oauth_callback_url;
 use crate::oauth_callback::validate_callback_redirect;
 use crate::oauth_client_credentials::OAuthClientCredentials;
 use crate::oauth_client_registration::McpOAuthClientRegistration;
@@ -53,12 +47,6 @@ use codex_config::types::OAuthCredentialsStoreMode;
 #[path = "oauth_callback_input.rs"]
 mod callback_input;
 pub use callback_input::perform_oauth_login_with_callback_input;
-
-#[derive(Clone, Copy)]
-pub(crate) enum OAuthLoginPurpose {
-    Mcp,
-    EnterpriseIdp,
-}
 
 pub(crate) struct OAuthHttpContext {
     pub(crate) http_headers: Option<HashMap<String, String>>,
@@ -217,7 +205,6 @@ async fn perform_oauth_login_with_browser_output(
         http_context,
         scopes,
         oauth_config,
-        OAuthLoginPurpose::Mcp,
         client_registration,
         oauth_resource,
         /*launch_browser*/ true,
@@ -264,7 +251,6 @@ pub async fn perform_oauth_login_return_url(
         http_context,
         scopes,
         oauth_config,
-        OAuthLoginPurpose::Mcp,
         client_registration,
         oauth_resource,
         /*launch_browser*/ false,
@@ -285,11 +271,8 @@ fn spawn_callback_server(
     server: Arc<Server>,
     tx: oneshot::Sender<CallbackResult>,
     expected_callback_path: String,
-    closed: tokio_util::sync::CancellationToken,
 ) {
     tokio::task::spawn_blocking(move || {
-        // Drop the listener before publishing closure, including if this task unwinds.
-        let _closed = closed.drop_guard();
         let listener = server;
         while let Ok(request) = listener.recv() {
             let path = request.url().to_string();
@@ -449,7 +432,6 @@ pub(crate) struct OauthLoginFlow {
     authorization_server_issuer: Option<String>,
     rx: oneshot::Receiver<CallbackResult>,
     guard: CallbackServerGuard,
-    callback_closed: tokio_util::sync::CancellationToken,
     server_name: String,
     server_url: String,
     store_mode: OAuthCredentialsStoreMode,
@@ -549,7 +531,6 @@ impl OauthLoginFlow {
         http_context: OAuthHttpContext,
         scopes: &[String],
         oauth_config: Option<&McpServerOAuthConfig>,
-        purpose: OAuthLoginPurpose,
         client_registration: McpOAuthClientRegistration,
         oauth_resource: Option<&str>,
         launch_browser: bool,
@@ -563,18 +544,6 @@ impl OauthLoginFlow {
         let credentials = OAuthClientCredentials::resolve(oauth_config)?;
         let oauth_client_id = credentials.client_id.as_deref();
         let callback_port = resolve_callback_port(callback_port)?;
-        let is_enterprise_idp = matches!(purpose, OAuthLoginPurpose::EnterpriseIdp);
-        let (enterprise_bind_ip, callback_port) = if is_enterprise_idp {
-            let (ip, port) = enterprise_callback_settings(
-                server_url,
-                oauth_client_id,
-                callback_url,
-                callback_port,
-            )?;
-            (Some(ip), port)
-        } else {
-            (None, callback_port)
-        };
         let callback_id = callback_id_from_server_url(server_url)?;
         let configured_callback = if oauth_client_id.is_some() {
             callback_url
@@ -609,19 +578,7 @@ impl OauthLoginFlow {
                 redirect_mode,
             )?);
         let registered_authorization = if oauth_client_id.is_some() {
-            Some(
-                resolve_authorization_manager(
-                    server_url,
-                    Arc::clone(&oauth_http_client),
-                    purpose,
-                    credentials
-                        .client_secret
-                        .as_ref()
-                        .map(|secret| secret.secret().as_str()),
-                    oauth_config.and_then(|config| config.token_endpoint_auth_method),
-                )
-                .await?,
-            )
+            Some(resolve_authorization_manager(server_url, Arc::clone(&oauth_http_client)).await?)
         } else {
             None
         };
@@ -629,8 +586,8 @@ impl OauthLoginFlow {
             .as_ref()
             .map(|(_, metadata)| callback_mode(metadata))
             .transpose()?;
-        let use_legacy_fallback = !is_enterprise_idp
-            && registered_callback_mode == Some(McpOAuthCallbackMode::CallbackSpecific)
+        let use_legacy_fallback = registered_callback_mode
+            == Some(McpOAuthCallbackMode::CallbackSpecific)
             && configured_callback.as_ref().is_some_and(|callback_url| {
                 callback_url
                     .path_segments()
@@ -649,50 +606,15 @@ impl OauthLoginFlow {
             callback_url
         };
 
-        let bind_ip = match enterprise_bind_ip {
-            Some(ip) => ip,
-            None => callback_bind_host(callback_url).parse()?,
-        };
+        let bind_ip = callback_bind_host(callback_url).parse()?;
         // Port zero asks the OS for a free ephemeral port; the resolved
         // redirect receives that port after the listener has been bound.
         let bind_addr = SocketAddr::new(bind_ip, callback_port.unwrap_or(0));
-        let bind_deadline = tokio::time::Instant::now() + Duration::from_secs(/*secs*/ 1);
-        let server = loop {
-            match Server::http(bind_addr) {
-                Ok(server) => break Arc::new(server),
-                Err(err)
-                    if is_enterprise_idp
-                        && callback_port.is_some()
-                        && err
-                            .downcast_ref::<std::io::Error>()
-                            .is_some_and(|err| err.kind() == std::io::ErrorKind::AddrInUse)
-                        && tokio::time::Instant::now() < bind_deadline =>
-                {
-                    // tiny_http drops its accept loop asynchronously after Server::drop.
-                    // Only retry the fixed listener bind, never OAuth requests or callbacks.
-                    tokio::time::sleep(Duration::from_millis(/*millis*/ 10)).await;
-                }
-                Err(err) => return Err(anyhow!(err)),
-            }
-        };
+        let server = Arc::new(Server::http(bind_addr).map_err(|err| anyhow!(err))?);
         let guard = CallbackServerGuard {
             server: Arc::clone(&server),
         };
         let redirect_uri = resolve_redirect_uri(&server, callback_url)?;
-        let redirect_uri = if is_enterprise_idp {
-            let listener_port = server
-                .server_addr()
-                .to_ip()
-                .ok_or_else(|| anyhow!("unable to determine enterprise callback listener port"))?
-                .port();
-            let mut redirect = Url::parse(&redirect_uri)?;
-            redirect
-                .set_port(Some(listener_port))
-                .map_err(|()| anyhow!("invalid enterprise callback port"))?;
-            redirect.to_string()
-        } else {
-            redirect_uri
-        };
 
         let scope_refs: Vec<&str> = scopes.iter().map(String::as_str).collect();
         let PreparedOAuthLogin {
@@ -702,13 +624,7 @@ impl OauthLoginFlow {
         } = if let Some((oauth_client_id, (auth_manager, metadata))) =
             oauth_client_id.zip(registered_authorization)
         {
-            let redirect_uri = if is_enterprise_idp {
-                resolve_mcp_oauth_callback_url(
-                    server_url,
-                    Some(&redirect_uri),
-                    callback_mode(&metadata)?,
-                )?
-            } else if callback_url.is_some() && !use_legacy_fallback {
+            let redirect_uri = if callback_url.is_some() && !use_legacy_fallback {
                 redirect_uri
             } else {
                 append_callback_id_to_redirect_uri(&redirect_uri, &callback_id)?
@@ -721,7 +637,6 @@ impl OauthLoginFlow {
                 &callback_id,
                 oauth_client_id,
                 credentials.client_secret.as_ref(),
-                purpose,
             )
             .await?
         } else {
@@ -746,8 +661,7 @@ impl OauthLoginFlow {
         // No fallible work or suspension after spawning: every callback worker
         // must be owned by a returned flow, including during constructor cancellation.
         let (tx, rx) = oneshot::channel();
-        let callback_closed = tokio_util::sync::CancellationToken::new();
-        spawn_callback_server(server, tx, callback_path, callback_closed.clone());
+        spawn_callback_server(server, tx, callback_path);
 
         Ok(Self {
             auth_url,
@@ -756,7 +670,6 @@ impl OauthLoginFlow {
             authorization_server_issuer,
             rx,
             guard,
-            callback_closed,
             server_name: server_name.to_string(),
             server_url: server_url.to_string(),
             store_mode,
@@ -768,10 +681,6 @@ impl OauthLoginFlow {
 
     pub(crate) fn authorization_url(&self) -> String {
         self.auth_url.clone()
-    }
-
-    pub(crate) fn callback_closed(&self) -> impl Future<Output = ()> + Send + 'static {
-        self.callback_closed.clone().cancelled_owned()
     }
 
     async fn finish(self, emit_browser_url: bool) -> Result<()> {
@@ -874,19 +783,7 @@ impl OauthLoginFlow {
 async fn resolve_authorization_manager(
     server_url: &str,
     http_client: Arc<dyn OAuthHttpClient>,
-    purpose: OAuthLoginPurpose,
-    client_secret: Option<&str>,
-    token_endpoint_auth_method: Option<McpEmaTokenEndpointAuthMethod>,
 ) -> Result<(AuthorizationManager, AuthorizationMetadata)> {
-    if matches!(purpose, OAuthLoginPurpose::EnterpriseIdp) {
-        return resolve_enterprise_authorization_manager(
-            server_url,
-            http_client,
-            client_secret,
-            token_endpoint_auth_method,
-        )
-        .await;
-    }
     let mut auth_manager =
         AuthorizationManager::new_with_oauth_http_client(server_url, http_client).await?;
     auth_manager.set_allow_missing_issuer(true);
@@ -904,9 +801,7 @@ async fn start_authorization(
     callback_id: &str,
     oauth_client_id: &str,
     client_secret: Option<&oauth2::ClientSecret>,
-    purpose: OAuthLoginPurpose,
 ) -> Result<PreparedOAuthLogin> {
-    let strict_enterprise_idp = matches!(purpose, OAuthLoginPurpose::EnterpriseIdp);
     let authorization_server_issuer = metadata.issuer.clone();
     validate_callback_redirect(redirect_uri, callback_id, callback_mode(&metadata)?)?;
     auth_manager.set_metadata(metadata);
@@ -917,11 +812,6 @@ async fn start_authorization(
     }
     auth_manager.configure_client(client_config)?;
     let auth_url = auth_manager.get_authorization_url(scopes).await?;
-    let auth_url = if strict_enterprise_idp {
-        enterprise_authorization_url(&auth_url)?
-    } else {
-        auth_url
-    };
 
     Ok(PreparedOAuthLogin {
         oauth_state: OAuthState::Session(AuthorizationSession::for_scope_upgrade(
@@ -988,7 +878,6 @@ mod tests {
     use super::McpOAuthClientRegistration;
     use super::OAuthHttpClientAdapter;
     use super::OAuthHttpContext;
-    use super::OAuthLoginPurpose;
     use super::OAuthProviderError;
     use super::OauthLoginFlow;
     use super::StreamableHttpRedirectMode;
@@ -1147,7 +1036,6 @@ mod tests {
                 client_id: Some("test-client".to_string()),
                 ..Default::default()
             }),
-            OAuthLoginPurpose::Mcp,
             McpOAuthClientRegistration::Auto,
             /*oauth_resource*/ None,
             /*launch_browser*/ false,
@@ -1207,9 +1095,6 @@ mod tests {
                     HeaderMap::new(),
                     &format!("{base_url}/mcp"),
                 )),
-                OAuthLoginPurpose::Mcp,
-                /*client_secret*/ None,
-                /*token_endpoint_auth_method*/ None,
             )
             .await
             .expect("resolve pre-registered OAuth metadata");
@@ -1221,7 +1106,6 @@ mod tests {
                 "configured-client",
                 client_id,
                 /*client_secret*/ None,
-                OAuthLoginPurpose::Mcp,
             )
             .await
             .expect("start pre-registered OAuth authorization");
@@ -1316,9 +1200,6 @@ mod tests {
                     HeaderMap::new(),
                     &format!("{issuer}/mcp"),
                 )),
-                OAuthLoginPurpose::Mcp,
-                /*client_secret*/ None,
-                /*token_endpoint_auth_method*/ None,
             )
             .await
             .expect("resolve issuer-aware authorization metadata");
@@ -1330,7 +1211,6 @@ mod tests {
                 "test-callback",
                 "test-client",
                 /*client_secret*/ None,
-                OAuthLoginPurpose::Mcp,
             )
             .await
             .expect("start issuer-aware authorization");

@@ -20,7 +20,6 @@ use crate::app_server_session::source_agent_path;
 use crate::app_server_session::thread_blocks_direct_input;
 use crate::chatwidget::ThreadInputStateRestoreMode;
 use crate::streaming::commit_tick::CommitTickScope;
-use codex_model_provider_info::OPENAI_PROVIDER_ID;
 use std::collections::HashSet;
 
 #[derive(Clone, Copy)]
@@ -570,12 +569,6 @@ impl App {
         {
             chat_widget.windows_sandbox_elevated_setup_complete =
                 self.chat_widget.windows_sandbox_elevated_setup_complete;
-        }
-        if chat_widget.status_account_display() == self.chat_widget.status_account_display()
-            && chat_widget.has_chatgpt_account() == self.chat_widget.has_chatgpt_account()
-        {
-            chat_widget.inherit_backend_banner_state(&mut self.chat_widget);
-            chat_widget.inherit_security_setup(&mut self.chat_widget);
         }
         chat_widget
             .mention_usage_mut()
@@ -1144,9 +1137,6 @@ impl App {
                         .blank_sessions
                         .insert(thread_id, started.clone());
                 }
-                // A full usage read can finish before thread/start. Apply its cached fallback
-                // after attachment but before the initial prompt or queued draft is submitted.
-                let recovery_was_pending = self.chat_widget.hold_rate_limit_recovery();
                 if self.loader_overrides.user_config_profile.is_none() {
                     self.chat_widget.accept_startup_approval_policy(
                         &mut self.config.permissions.approval_policy,
@@ -1155,54 +1145,8 @@ impl App {
                 }
                 self.enqueue_primary_thread_session(started.session, started.turns)
                     .await?;
-                if self.chat_widget.config_ref().fallback_model.is_some() {
-                    // Attachment invalidates the previous catalogue. Resolve this thread's
-                    // choices before deciding whether a cached usage read requires fallback,
-                    // while initial and queued prompts are still held.
-                    let request_id = self.chat_widget.refresh_account_scoped_models();
-                    let response = match app_server.list_models_for_thread(thread_id).await {
-                        Ok(response) => response,
-                        Err(error) => {
-                            self.chat_widget.add_error_message(format!(
-                                "Couldn't load models for startup recovery: {error}. Retry with /model."
-                            ));
-                            // Keep the draft held. The queued catalogue fetch or a /model
-                            // refresh can finish recovery without discarding the attached task.
-                            return Ok(());
-                        }
-                    };
-                    let models = response
-                        .data
-                        .into_iter()
-                        .map(crate::app_server_session::model_preset_from_api_model)
-                        .collect();
-                    for error in response.provider_errors {
-                        self.chat_widget
-                            .add_error_message(format!("{}: {}", error.provider, error.message));
-                    }
-                    self.chat_widget.on_models_loaded(request_id, Ok(models));
-                    self.model_catalog = self.chat_widget.model_catalog();
-                }
-                self.apply_backend_banner_fallback(app_server).await;
-                if let Some(model) = self.harness_overrides.model.as_deref()
-                    && model == self.chat_widget.current_model()
-                    && self.chat_widget.has_chatgpt_account()
-                    && self.chat_widget.config_ref().model_provider_id == OPENAI_PROVIDER_ID
-                    && !self
-                        .model_catalog
-                        .models
-                        .iter()
-                        .any(|preset| preset.model == model)
-                {
-                    self.chat_widget.add_to_history(history_cell::new_visible_warning_event(format!(
-                        "Your ChatGPT model list doesn't include `{model}`. Check the spelling or use /model to choose another model."
-                    )));
-                }
                 if let Some(notice) = self.pending_server_version_notice.take() {
                     self.chat_widget.add_server_version_warning(notice);
-                }
-                if !recovery_was_pending {
-                    self.chat_widget.finish_rate_limit_recovery();
                 }
                 self.chat_widget.maybe_send_next_queued_input();
             }
@@ -1465,13 +1409,8 @@ impl App {
             initial_user_message,
         );
         if let Some(account) = account {
-            self.account_email_request_id = None;
-            self.feedback_audience = account.feedback_audience();
-            init.has_chatgpt_account = account.has_chatgpt_account();
-            init.has_codex_backend_auth = init.has_chatgpt_account;
             init.requires_openai_auth = account.requires_openai_auth;
             init.status_account_display = account.display;
-            init.initial_plan_type = account.plan;
         }
         self.replace_chat_widget(ChatWidget::new_with_app_event(init));
         if matches!(

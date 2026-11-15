@@ -14,14 +14,12 @@ use crate::tools::handlers::DynamicToolHandler;
 use crate::tools::handlers::ExecCommandHandler;
 use crate::tools::handlers::ExecCommandHandlerOptions;
 use crate::tools::handlers::GetContextRemainingHandler;
-use crate::tools::handlers::ListAvailablePluginsToInstallHandler;
 use crate::tools::handlers::ListMcpResourceTemplatesHandler;
 use crate::tools::handlers::ListMcpResourcesHandler;
 use crate::tools::handlers::NewContextWindowHandler;
 use crate::tools::handlers::PlanHandler;
 use crate::tools::handlers::ReadMcpResourceHandler;
 use crate::tools::handlers::RequestPermissionsHandler;
-use crate::tools::handlers::RequestPluginInstallHandler;
 use crate::tools::handlers::RequestUserInputAsyncHandler;
 use crate::tools::handlers::RequestUserInputHandler;
 use crate::tools::handlers::SendMessageToUserAsyncHandler;
@@ -89,7 +87,6 @@ use codex_tools::ToolName;
 use codex_tools::ToolSpec;
 use codex_tools::can_request_original_image_detail;
 use codex_tools::collect_code_mode_exec_prompt_tool_definitions;
-use codex_tools::collect_request_plugin_install_entries;
 use codex_tools::default_namespace_description;
 use codex_tools::request_user_input_available_modes;
 use std::collections::BTreeMap;
@@ -109,7 +106,6 @@ struct CoreToolPlanContext<'a> {
     model_info: &'a ModelInfo,
     environments: &'a TurnEnvironmentSnapshot,
     mcp: &'a codex_mcp::McpBinding,
-    tool_suggest_candidates: Option<&'a crate::tools::router::ToolSuggestCandidates>,
     wait_for_environment_tool_config: Option<&'a Arc<crate::WaitForEnvironmentToolConfig>>,
     default_agent_type_description: &'a str,
     wait_agent_timeouts: WaitAgentTimeoutOptions,
@@ -125,7 +121,6 @@ pub(crate) fn build_tool_router(
     mcp: &Arc<codex_mcp::McpBinding>,
     apps_enabled: bool,
     step_store: &ExtensionData,
-    tool_suggest_candidates: Option<&crate::tools::router::ToolSuggestCandidates>,
     dynamic_tools: &[DynamicToolSpec],
 ) -> CodexResult<ToolRouter> {
     let default_agent_type_description =
@@ -140,7 +135,6 @@ pub(crate) fn build_tool_router(
         model_info,
         environments,
         mcp,
-        tool_suggest_candidates,
         wait_for_environment_tool_config: wait_for_environment_tool_config.as_ref(),
         default_agent_type_description: &default_agent_type_description,
         wait_agent_timeouts: wait_agent_timeout_options(turn_context),
@@ -325,7 +319,6 @@ pub(crate) fn build_core_tool_registry(
     model_info: &ModelInfo,
     environments: &TurnEnvironmentSnapshot,
     mcp: &codex_mcp::McpBinding,
-    tool_suggest_candidates: Option<&crate::tools::router::ToolSuggestCandidates>,
     wait_for_environment_tool_config: Option<&Arc<crate::WaitForEnvironmentToolConfig>>,
 ) -> ToolRegistry {
     let default_agent_type_description =
@@ -336,7 +329,6 @@ pub(crate) fn build_core_tool_registry(
         model_info,
         environments,
         mcp,
-        tool_suggest_candidates,
         wait_for_environment_tool_config,
         default_agent_type_description: &default_agent_type_description,
         wait_agent_timeouts: wait_agent_timeout_options(turn_context),
@@ -749,13 +741,6 @@ fn hosted_model_tool_specs(
         specs.push(hosted_web_search_tool);
     }
     specs
-}
-
-pub(crate) fn tool_suggest_enabled(turn_context: &TurnContext) -> bool {
-    let features = turn_context.config.features.get();
-    features.enabled(Feature::ToolSuggest)
-        && features.enabled(Feature::Apps)
-        && features.enabled(Feature::Plugins)
 }
 
 fn multi_agent_v2_enabled(turn_context: &TurnContext) -> bool {
@@ -1433,22 +1418,6 @@ fn add_core_utility_tools(context: &CoreToolPlanContext<'_>, registry: &mut Tool
         }
     {
         registry.add(SleepHandler);
-    }
-
-    if tool_suggest_enabled(turn_context)
-        && let Some(candidates) = context
-            .tool_suggest_candidates
-            .filter(|candidates| !candidates.tools.is_empty())
-    {
-        if candidates.presentation == crate::tools::router::ToolSuggestPresentation::ListTool {
-            registry.add(ListAvailablePluginsToInstallHandler::new(
-                collect_request_plugin_install_entries(&candidates.tools),
-            ));
-        }
-        registry.add(RequestPluginInstallHandler::new(
-            candidates.tools.clone(),
-            candidates.presentation,
-        ));
     }
 
     if context.model_info.apply_patch_tool_type.is_some() {

@@ -1,10 +1,7 @@
 use std::time::Duration;
 
-use anyhow::Error;
 use anyhow::Result;
-use app_test_support::ChatGptAuthFixture;
 use app_test_support::TestAppServer;
-use app_test_support::write_chatgpt_auth;
 use app_test_support::write_models_cache;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ExperimentalFeatureEnablementSetParams;
@@ -20,21 +17,15 @@ use codex_app_server_protocol::RequestId;
 use codex_config::types::AuthCredentialsStoreMode;
 use codex_login::AuthKeyringBackendKind;
 use codex_login::login_with_api_key;
-use codex_models_manager::model_info::model_info_from_slug;
-use codex_protocol::openai_models::MODEL_SPECIALTY_CYBER;
-use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelPreset;
-use codex_protocol::openai_models::ModelVisibility;
 use codex_protocol::openai_models::ModelsResponse;
 use pretty_assertions::assert_eq;
-use serde_json::json;
 use tempfile::TempDir;
 use test_case::test_case;
 use tokio::time::timeout;
 use wiremock::Mock;
 use wiremock::MockServer;
 use wiremock::ResponseTemplate;
-use wiremock::matchers::header;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
@@ -308,232 +299,6 @@ async fn list_models_includes_hidden_models() -> Result<()> {
 
     assert!(items.iter().any(|item| item.hidden));
     assert!(next_cursor.is_none());
-    Ok(())
-}
-
-#[test_case("chatgpt-access-token", None; "chatgpt")]
-#[test_case("test-api-key", Some("test-api-key"); "api key")]
-#[tokio::test]
-async fn list_models_uses_remote_catalog_as_source_of_truth(
-    bearer_token: &str,
-    api_key: Option<&str>,
-) -> Result<()> {
-    let server = MockServer::start().await;
-    let remote_models = [
-        (
-            json!("2030-01-01T00:00:00Z"),
-            json!({ "cyber": ["standard", "daybreak_blue"] }),
-        ),
-        (json!(null), json!({ "cyber": ["daybreak_red"] })),
-        (json!(null), json!({ "cyber": [] })),
-        (json!(null), json!(null)),
-    ]
-    .into_iter()
-    .enumerate()
-    .map(|(priority, (retirement_at, access_programs))| {
-        serde_json::from_value::<ModelInfo>(json!({
-            "slug": format!("remote-only-{priority}"),
-            "display_name": "Remote Only",
-            "description": "Remote-only model for app-server model/list coverage",
-            "model_specialty": MODEL_SPECIALTY_CYBER,
-            "available_access_programs": access_programs,
-            "default_reasoning_level": "max",
-            "supported_reasoning_levels": [
-                {"effort": "max", "description": "Maximum"},
-                {"effort": "low", "description": "Low"},
-                {"effort": "focused", "description": "Focused"}
-            ],
-            "shell_type": "shell_command",
-            "visibility": "list",
-            "minimal_client_version": [0, 1, 0],
-            "supported_in_api": true,
-            "priority": priority,
-            "upgrade": {
-                "model": "replacement-model",
-                "migration_markdown": "Use the replacement model.",
-                "retirement_at": retirement_at,
-            },
-            "support_verbosity": false,
-            "default_verbosity": null,
-            "apply_patch_tool_type": null,
-            "truncation_policy": {"mode": "bytes", "limit": 10_000},
-            "supports_image_detail_original": false,
-            "multi_agent_version": "v2",
-            "context_window": 272_000,
-            "max_context_window": 272_000,
-            "experimental_supported_tools": [],
-        }))
-    })
-    .collect::<Result<Vec<_>, _>>()?;
-    // The startup refresh worker and model/list can both fetch before the cache is populated.
-    let _models_mock = Mock::given(method("GET"))
-        .and(path("/v1/models"))
-        .and(header("authorization", format!("Bearer {bearer_token}")))
-        .respond_with(
-            ResponseTemplate::new(/*s*/ 200).set_body_json(ModelsResponse {
-                // This custom provider expects priority ordering even if the array is unsorted.
-                models: remote_models.iter().rev().cloned().collect(),
-            }),
-        )
-        .expect(1..)
-        .mount_as_scoped(&server)
-        .await;
-
-    let codex_home = TempDir::new()?;
-    let server_uri = server.uri();
-    std::fs::write(
-        codex_home.path().join("config.toml"),
-        format!(
-            r#"
-model = "mock-model"
-approval_policy = "never"
-sandbox_mode = "read-only"
-model_provider = "catalog-test"
-[features]
-api_key_model_discovery = true
-[model_providers.catalog-test]
-name = "OpenAI"
-base_url = "{server_uri}/v1"
-requires_openai_auth = true
-model_catalog_url = "{server_uri}/v1/models"
-"#
-        ),
-    )?;
-    if let Some(api_key) = api_key {
-        login_with_api_key(
-            codex_home.path(),
-            api_key,
-            AuthCredentialsStoreMode::File,
-            AuthKeyringBackendKind::default(),
-        )?;
-    } else {
-        write_chatgpt_auth(
-            codex_home.path(),
-            ChatGptAuthFixture::new(bearer_token).plan_type("pro"),
-            AuthCredentialsStoreMode::File,
-        )?;
-    }
-
-    let mut mcp = TestAppServer::builder()
-        .with_codex_home(codex_home.path())
-        .without_auto_env()
-        .with_env_overrides(&[("OPENAI_API_KEY", None), ("STEVE_API_KEY", None)])
-        .build_initialized()
-        .await?;
-    let request_id = mcp
-        .send_list_models_request(ModelListParams {
-            thread_id: None,
-            limit: Some(100),
-            cursor: None,
-            include_hidden: None,
-            ..Default::default()
-        })
-        .await?;
-    let response = mcp
-        .read_stream_until_response_message(RequestId::Integer(request_id))
-        .await?;
-    assert_eq!(
-        response.result["data"][0]["upgradeInfo"]["retirementAt"],
-        json!(1_893_456_000)
-    );
-    assert_eq!(
-        response.result["data"][1]["upgradeInfo"]["retirementAt"],
-        serde_json::Value::Null
-    );
-    assert_eq!(
-        response.result["data"]
-            .as_array()
-            .expect("model/list data should be an array")
-            .iter()
-            .map(|model| model["availableAccessPrograms"].clone())
-            .collect::<Vec<_>>(),
-        vec![
-            json!({ "cyber": ["standard", "daybreakBlue"] }),
-            json!({ "cyber": ["daybreakRed"] }),
-            json!({ "cyber": [] }),
-            json!(null),
-        ]
-    );
-    let ModelListResponse {
-        data: items,
-        next_cursor,
-        ..
-    } = serde_json::from_value(response.result)?;
-    let mut expected_presets: Vec<ModelPreset> =
-        remote_models.into_iter().map(Into::into).collect();
-    ModelPreset::mark_default_by_picker_visibility(&mut expected_presets);
-    let mut expected_items = expected_presets
-        .iter()
-        .map(model_from_preset)
-        .collect::<Vec<_>>();
-    expected_items[0].supported_reasoning_efforts = vec![
-        ReasoningEffortOption {
-            reasoning_effort: "max".parse().map_err(Error::msg)?,
-            description: "Maximum".to_string(),
-        },
-        ReasoningEffortOption {
-            reasoning_effort: "low".parse().map_err(Error::msg)?,
-            description: "Low".to_string(),
-        },
-        ReasoningEffortOption {
-            reasoning_effort: "focused".parse().map_err(Error::msg)?,
-            description: "Focused".to_string(),
-        },
-    ];
-
-    assert_eq!(items, expected_items);
-    assert!(next_cursor.is_none());
-    Ok(())
-}
-
-#[tokio::test]
-async fn list_models_uses_display_order_and_marks_the_selection_default() -> Result<()> {
-    let home = TempDir::new()?;
-    let backend = MockServer::start().await;
-    let models = [("z-model", 3), ("a-model", 2), ("recommended", 1)]
-        .into_iter()
-        .map(|(slug, priority)| ModelInfo {
-            priority,
-            visibility: ModelVisibility::List,
-            ..model_info_from_slug(slug)
-        })
-        .collect();
-    Mock::given(method("GET"))
-        .and(path("/backend-api/codex/models"))
-        .respond_with(ResponseTemplate::new(/*s*/ 200).set_body_json(ModelsResponse { models }))
-        .mount(&backend)
-        .await;
-    write_chatgpt_auth(
-        home.path(),
-        ChatGptAuthFixture::new("chatgpt-access-token").plan_type("team"),
-        AuthCredentialsStoreMode::File,
-    )?;
-    std::fs::write(
-        home.path().join("config.toml"),
-        format!("openai_base_url = \"{}/backend-api/codex\"", backend.uri()),
-    )?;
-    let mut server = TestAppServer::builder()
-        .with_codex_home(home.path())
-        .build_initialized()
-        .await?;
-    let response: ModelListResponse = server
-        .request(|request_id| ClientRequest::ModelList {
-            request_id,
-            params: ModelListParams::default(),
-        })
-        .await?;
-    assert_eq!(
-        response
-            .data
-            .iter()
-            .map(|row| (row.model.as_str(), row.is_default))
-            .collect::<Vec<_>>(),
-        [
-            ("z-model", false),
-            ("a-model", false),
-            ("recommended", true)
-        ]
-    );
     Ok(())
 }
 

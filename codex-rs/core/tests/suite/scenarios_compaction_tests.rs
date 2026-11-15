@@ -42,7 +42,7 @@ async fn remote_slash_compact_preserves_context_across_windows() -> Result<()> {
     };
     let mut builder = test_codex()
         .with_model("gpt-6-astra")
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(configure);
     let mut test = builder.build_with_auto_env(&server).await?;
 

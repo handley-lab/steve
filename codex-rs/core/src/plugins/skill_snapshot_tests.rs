@@ -1,8 +1,6 @@
 use codex_core_plugins::PluginsManager;
-use codex_core_plugins::store::PluginStore;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
-use codex_plugin::PluginId;
 use codex_protocol::protocol::Product;
 use codex_skills_extension::HostSkillsLoadInput;
 use codex_skills_extension::HostSkillsService;
@@ -14,7 +12,6 @@ use super::test_support::load_plugins_config;
 use super::test_support::write_file;
 
 const PLUGIN_CONFIG_NAME: &str = "sample@openai-curated-remote";
-const REMOTE_PLUGIN_ID: &str = "plugins~Plugin_sample";
 
 #[tokio::test]
 async fn host_skills_service_reuses_plugin_manager_skill_snapshot() {
@@ -43,10 +40,6 @@ enabled = false
 "#,
         ),
     );
-    let plugin_id = PluginId::parse(PLUGIN_CONFIG_NAME).expect("remote plugin id should parse");
-    PluginStore::new(codex_home.path().to_path_buf())
-        .write_remote_plugin_id(&plugin_id, REMOTE_PLUGIN_ID)
-        .expect("persist remote plugin id");
     let config = load_plugins_config(codex_home.path()).await;
     let plugins_input = config.plugins_config_input();
     let skills_service = Arc::new(HostSkillsService::new(
@@ -56,8 +49,7 @@ enabled = false
     let plugins_manager = PluginsManager::new_with_options(
         codex_home.path().to_path_buf(),
         Some(Product::Codex),
-        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
-        codex_runtime_agent_instance::RuntimeAuthSlot::default(),
+        AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy")),
         skills_service.clone(),
     );
     let plugin_outcome = plugins_manager.plugins_for_config(&plugins_input).await;
@@ -95,7 +87,7 @@ enabled = false
                     )
                 })
                 .collect::<Vec<_>>(),
-            vec![("first", Some(PLUGIN_CONFIG_NAME), Some(REMOTE_PLUGIN_ID),)]
+            vec![("first", Some(PLUGIN_CONFIG_NAME), None)]
         );
     }
 }

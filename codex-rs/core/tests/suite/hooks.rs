@@ -18,8 +18,6 @@ use codex_history::InitialHistory;
 use codex_history::RolloutItem;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::built_in_model_providers;
-use codex_plugin::PluginHookSource;
-use codex_plugin::PluginId;
 use codex_protocol::items::parse_hook_prompt_fragment;
 use codex_protocol::mcp::ClientMcpExtensions;
 use codex_protocol::models::ContentItem;

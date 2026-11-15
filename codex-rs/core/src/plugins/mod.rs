@@ -1,4 +1,3 @@
-mod discoverable;
 mod injection;
 mod mentions;
 pub(crate) mod metrics;
@@ -17,7 +16,6 @@ use std::sync::Arc;
 
 pub(crate) use codex_plugin::PluginCapabilitySummary;
 
-pub(crate) use discoverable::list_tool_suggest_discoverable_plugins;
 pub(crate) use injection::build_plugin_injections;
 pub(crate) use render::render_explicit_plugin_instructions;
 
@@ -43,13 +41,4 @@ pub fn plugins_manager_for_config(
         auth_manager,
         skill_root_loader,
     )
-}
-
-/// Initialize a standalone command's runtime before it can make first-party plugin requests.
-/// Callers that own a ThreadManager should reuse that manager's PluginsManager instead.
-pub async fn plugins_manager_for_config_with_runtime(
-    config: &Config,
-    auth_manager: Arc<AuthManager>,
-) -> anyhow::Result<PluginsManager> {
-    Ok(plugins_manager_for_config(config, auth_manager))
 }

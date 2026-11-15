@@ -199,7 +199,6 @@ fn test_tool_router(
         step_context.turn.model_info(),
         &step_context.environments,
         step_context.mcp.as_ref(),
-        /*tool_suggest_candidates*/ None,
         /*wait_for_environment_tool_config*/ None,
     );
     let hosted_specs = append_source_tools(
@@ -600,7 +599,6 @@ fn mcp_tool_info(
                 "type": "object",
             }))),
         ),
-        openai_file_input_optional_fields: Default::default(),
         connector_id: None,
         connector_name: None,
         plugin_display_names: Vec::new(),

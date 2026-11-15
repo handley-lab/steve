@@ -6,8 +6,6 @@ use crate::AppServerTarget;
 use crate::app_server_session::AppServerSession;
 use crate::app_server_session::AppServerSessionEvent;
 use crate::backend_id::BackendId;
-use crate::legacy_core::config::Config;
-use crate::local_settings::LocalSettings;
 use codex_app_server_client::AppServerEvent;
 use codex_app_server_protocol::ServerNotification;
 use std::collections::HashMap;
@@ -31,24 +29,6 @@ impl InitialBackendSessions {
             others: Vec::new(),
             settings: HashMap::new(),
         }
-    }
-
-    pub(crate) fn register(
-        &mut self,
-        connection: AppServerSession,
-        target: AppServerTarget,
-        config: Config,
-        local_settings: LocalSettings,
-    ) {
-        self.settings.insert(
-            connection.backend_id(),
-            BackendSettings {
-                target,
-                config,
-                local_settings,
-            },
-        );
-        self.others.push(connection);
     }
 
     pub(super) fn into_parts(

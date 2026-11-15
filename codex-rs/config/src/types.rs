@@ -3,9 +3,6 @@
 // Note this file should generally be restricted to simple struct/enum
 // definitions that do not contain business logic.
 
-pub use crate::mcp_ema::McpEmaAuthScope;
-pub use crate::mcp_ema::McpEnterpriseManagedAuthConfig;
-pub use crate::mcp_ema::McpServerIdpOAuthConfig;
 pub use crate::mcp_types::AppToolApproval;
 pub use crate::mcp_types::McpServerAuth;
 pub use crate::mcp_types::McpServerConfig;
@@ -1210,16 +1207,6 @@ pub struct PluginMcpServerConfig {
     #[serde(default = "default_enabled")]
     pub enabled: bool,
 
-    /// Retired EMA overlays must disable the server instead of losing their auth policy.
-    #[serde(
-        default,
-        rename = "ema_auth",
-        deserialize_with = "unsupported_plugin_ema_auth",
-        skip_serializing_if = "std::ops::Not::not"
-    )]
-    #[schemars(skip)]
-    pub has_unsupported_ema_auth: bool,
-
     /// Approval mode for tools in this server unless a tool override exists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_tools_approval_mode: Option<AppToolApproval>,
@@ -1241,20 +1228,12 @@ impl Default for PluginMcpServerConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            has_unsupported_ema_auth: false,
             default_tools_approval_mode: None,
             enabled_tools: None,
             disabled_tools: None,
             tools: HashMap::new(),
         }
     }
-}
-
-fn unsupported_plugin_ema_auth<'de, D>(deserializer: D) -> Result<bool, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    serde::de::IgnoredAny::deserialize(deserializer).map(|_| true)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default, JsonSchema)]

@@ -1940,7 +1940,6 @@ async fn inline_confirmation_preserves_compact_viewport_without_replaying_histor
     app.chat_widget.handle_key_event(KeyCode::Esc.into());
     app.render_chat_widget_frame(&mut tui, size)?;
     assert!(tui.terminal.viewport_area.height < size.height);
-    assert!(app.last_rendered_history_tail.is_none());
     assert!(
         buffer_text(crate::custom_terminal::test_support::last_rendered_buffer(
             &tui.terminal

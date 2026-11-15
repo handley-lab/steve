@@ -18,7 +18,6 @@ use std::time::Duration;
 use anyhow::Result;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use codex_analytics::CompactionTrigger;
 use codex_config::ConfigLayerEntry;
 use codex_config::ConfigLayerSource;
 use codex_config::ConfigLayerStack;
@@ -179,20 +178,11 @@ mod guardian_sender_context;
 #[path = "scenarios_guardian_direct_review.rs"]
 mod guardian_direct_review;
 
-#[path = "scenarios_guardian_direct_mcp.rs"]
-mod guardian_direct_mcp;
-
 #[path = "scenarios_guardian_extra_policy.rs"]
 mod guardian_extra_policy;
 
 #[path = "scenarios_guardian_reconsideration.rs"]
 mod guardian_reconsideration;
-
-#[path = "scenarios_guardian_orchestrator_connector.rs"]
-mod guardian_orchestrator_connector;
-
-#[path = "scenarios_guardian_conversation_history_tests.rs"]
-mod guardian_conversation_history;
 
 #[path = "scenarios_indirect_namespace_prefixes.rs"]
 mod indirect_namespace_prefixes;
@@ -425,7 +415,7 @@ async fn gif_generation_preserves_animation_and_replays_a_still_preview() -> Res
         .mount(&server)
         .await;
 
-    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
+    let auth = CodexAuth::from_api_key("dummy");
     let mut extensions = ExtensionRegistryBuilder::<Config>::new();
     install_image_generation_extension(
         &mut extensions,
@@ -1043,7 +1033,7 @@ async fn astra_asks_an_async_question_and_receives_the_answer_while_working() ->
     let base_url = format!("{}/v1", streaming.uri());
     let test = test_codex()
         .with_model("gpt-6-astra")
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
             configure_scenario_catalog(config);
             config
@@ -1178,7 +1168,7 @@ async fn astra_switches_environments_for_the_rest_of_the_active_turn() -> Result
     .await;
     let test = test_codex()
         .with_model("gpt-6-astra")
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(|config| {
             configure_scenario_catalog(config);
             config.workspace_roots = vec![config.cwd.clone()];
@@ -1301,7 +1291,7 @@ async fn astra_kickoff_with_skills_plugins_and_remote_compaction() -> Result<()>
     let mut builder = test_codex()
         .with_model("gpt-6-astra")
         .with_home(home)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_extensions(skills_extensions())
         .with_workspace_setup(|cwd, fs| async move {
             fs.write_file(
@@ -1371,100 +1361,6 @@ async fn astra_kickoff_with_skills_plugins_and_remote_compaction() -> Result<()>
         "astra_kickoff_remote_compaction_windows",
         context_snapshot::format_request_history_snapshot(
             "Astra plans a kickoff with local and plugin skills, remotely compacts, and checks an image brief.",
-            &requests,
-            &ContextSnapshotOptions::default().include_request_settings(),
-        )
-    );
-    Ok(())
-}
-
-#[test_case::test_case(false; "descriptions")]
-#[test_case::test_case(true; "omit_descriptions")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn astra_plugin_policy_limits_visible_skills(omit_descriptions: bool) -> Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let server = start_mock_server().await;
-    let home = Arc::new(TempDir::new()?);
-    write_scenario_capabilities(&home)?;
-    fs::rename(
-        home.path().join("plugins/cache/test"),
-        home.path().join("plugins/cache/openai-curated-remote"),
-    )?;
-    fs::write(
-        home.path().join("config.toml"),
-        r#"[features]
-plugins = true
-remote_plugin = true
-[skills.bundled]
-enabled = false
-[plugins._default]
-enabled = false
-[plugins."calendar@openai-curated-remote"]
-enabled = true
-"#,
-    )?;
-    let installed_plugins = ["calendar", "notes"].map(|name| json!({
-        "id": format!("plugins~Plugin_{name}"),
-        "name": name,
-        "scope": "GLOBAL",
-        "status": "ENABLED",
-        "installation_policy": "AVAILABLE",
-        "authentication_policy": "ON_USE",
-        "release": { "version": "local", "display_name": name, "description": name, "interface": {} },
-        "enabled": true,
-    }));
-    wiremock::Mock::given(wiremock::matchers::method("GET"))
-        .and(wiremock::matchers::path("/ps/plugins/installed"))
-        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
-            "plugins": installed_plugins,
-            "pagination": { "next_page_token": null },
-        })))
-        .mount(&server)
-        .await;
-    let mock = mount_sse_sequence(
-        &server,
-        vec![sse(vec![
-            ev_response_created("skills-response"),
-            ev_assistant_message("skills", "The calendar agenda skill is available."),
-            ev_completed("skills-response"),
-        ])],
-    )
-    .await;
-    let chatgpt_base_url = server.uri();
-    let test = test_codex()
-        .with_model("gpt-6-astra")
-        .with_home(home)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
-        .with_extensions(skills_extensions())
-        .with_config(move |config| {
-            configure_scenario_catalog(config);
-            config
-                .features
-                .set_enabled(Feature::OmitSkillDescriptions, omit_descriptions)
-                .expect("set omit_skill_descriptions feature");
-            config.chatgpt_base_url = chatgpt_base_url;
-            config.workspace_roots = vec![config.cwd.clone()];
-        })
-        .build_with_auto_env(&server)
-        .await?;
-    let auth = test.thread_manager.auth_manager().auth().await;
-    test.thread_manager
-        .plugins_manager()
-        .reconcile_remote_installed_plugins(&test.config.plugins_config_input(), auth.as_ref())
-        .await?;
-    test.submit_turn("Plan a team kickoff. Which planning skills are available?")
-        .await?;
-
-    let requests = mock.requests();
-    insta::assert_snapshot!(
-        if omit_descriptions {
-            "astra_plugin_policy_without_skill_descriptions"
-        } else {
-            "astra_plugin_policy_limits_visible_skills"
-        },
-        context_snapshot::format_request_history_snapshot(
-            "Astra sees the permitted calendar plugin and standalone skills, but not the unlisted notes plugin.",
             &requests,
             &ContextSnapshotOptions::default().include_request_settings(),
         )
@@ -1601,7 +1497,7 @@ async fn astra_omits_disabled_executor_and_plugin_skills_from_model_context(
     .await;
     let test = test_codex()
         .with_model("gpt-6-astra")
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_extensions(Arc::new(extensions.build()))
         .with_config(configure_scenario_catalog)
         .build(&server)
@@ -2122,7 +2018,7 @@ async fn skill_read_recovers_omitted_installation_and_reads_selected_environment
     .await;
     let test = test_codex()
         .with_model("gpt-6-astra")
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         // Start without a local attachment so Cloud skills remain available.
         .with_exec_server_url("none")
         .with_extensions(Arc::new(extensions.build()))
@@ -2305,7 +2201,7 @@ async fn astra_settings_release_check_with_direct_and_code_mode_tools() -> Resul
     let mut builder = test_codex()
         .with_model("gpt-6-astra")
         .with_home(home)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
             configure_scenario_catalog(config);
             let mut servers = config.mcp_servers.get().clone();
@@ -2528,7 +2424,7 @@ async fn astra_continues_after_a_stream_is_interrupted() -> Result<()> {
     let base_url = format!("{}/v1", streaming.uri());
     let test = test_codex()
         .with_model("gpt-6-astra")
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
             configure_scenario_catalog(config);
             config.model_provider.base_url = Some(base_url);
@@ -2745,7 +2641,7 @@ async fn code_mode_catalog_messages(ranked_search: bool) -> Result<()> {
         core_test_support::apps_test_server::AppsTestServer::mount_searchable(&server).await?;
     let test = test_codex()
         .with_model("gpt-6-astra")
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
             configure_scenario_catalog(config);
             config.chatgpt_base_url = apps.chatgpt_base_url;
@@ -2940,7 +2836,7 @@ async fn astra_refreshes_plugin_tools_and_skills_in_an_existing_thread(
     let mut builder = test_codex()
         .with_model("gpt-6-astra")
         .with_home(Arc::clone(&home))
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_extensions(skills_extensions())
         .with_config(configure_scenario_catalog);
     let test = builder.build(&server).await?;
@@ -3500,27 +3396,6 @@ async fn guardian_checkpoint_migration_request_history() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn app_tool_exposure_request_history() -> Result<()> {
-    let requests = super::app_tool_exposure::connector_exposure_requests(
-        super::app_tool_exposure::ExposureCase::non_deferred(
-            codex_protocol::openai_models::ToolMode::CodeModeOnly,
-        ),
-    )
-    .await?;
-    insta::assert_snapshot!(
-        "app_tool_exposure_CodeModeOnly",
-        context_snapshot::format_request_history_snapshot(
-            "A non-deferred connector is called through code mode while another connector stays deferred.",
-            &requests,
-            &ContextSnapshotOptions::default()
-                .rewrite_known_segments()
-                .include_request_settings(),
-        )
-    );
-    Ok(())
-}
-
 #[cfg(not(target_os = "windows"))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn model_catalog_refresh_preserves_tools_and_history() -> Result<()> {
@@ -3624,7 +3499,7 @@ async fn async_compaction_test(
     let config_server = start_mock_server().await;
     let base_url = format!("{responses_uri}/v1");
     let test = builder
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_config(move |config| {
             configure_scenario_catalog(config);
             config.model_provider.base_url = Some(base_url);
@@ -3682,7 +3557,7 @@ async fn async_compaction_image_checks_do_not_block_turn_completion() -> Result<
     let config_server = start_mock_server().await;
     let base_url = format!("{}/v1", streaming.uri());
     let test = test_codex()
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_image_store(image_store.clone())
         .with_config(move |config| {
             configure_scenario_catalog(config);
@@ -4349,331 +4224,6 @@ async fn astra_async_compaction_preserves_exec_catalog(change: ExecCatalogRefres
     Ok(())
 }
 
-#[derive(PartialEq)]
-enum PendingCompactionOutcome {
-    Absent,
-    Success,
-    SuccessOverBudget,
-    StaleSuccess,
-    Failure,
-    ReadyFailure,
-    Interrupted,
-}
-
-#[test_case::test_case(PendingCompactionOutcome::Success, CompactionTrigger::Auto; "auto uses pending result")]
-#[test_case::test_case(PendingCompactionOutcome::Failure, CompactionTrigger::Auto; "auto falls back after failure")]
-#[test_case::test_case(PendingCompactionOutcome::ReadyFailure, CompactionTrigger::Auto; "auto falls back after failure before checkpoint")]
-#[test_case::test_case(PendingCompactionOutcome::StaleSuccess, CompactionTrigger::Auto; "auto falls back after account changes")]
-#[test_case::test_case(PendingCompactionOutcome::Interrupted, CompactionTrigger::Auto; "auto can be interrupted")]
-#[test_case::test_case(PendingCompactionOutcome::Absent, CompactionTrigger::Manual; "manual without background")]
-#[test_case::test_case(PendingCompactionOutcome::Success, CompactionTrigger::Manual; "manual uses pending result")]
-#[test_case::test_case(PendingCompactionOutcome::Failure, CompactionTrigger::Manual; "manual falls back after failure")]
-#[test_case::test_case(PendingCompactionOutcome::StaleSuccess, CompactionTrigger::Manual; "manual falls back after account changes")]
-#[test_case::test_case(PendingCompactionOutcome::Interrupted, CompactionTrigger::Manual; "manual can be interrupted")]
-#[test_case::test_case(PendingCompactionOutcome::SuccessOverBudget, CompactionTrigger::Auto; "pending adoption still over budget")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn async_compaction_reuses_pending_work(
-    outcome: PendingCompactionOutcome,
-    trigger: CompactionTrigger,
-) -> Result<()> {
-    use super::rollout_budget::HostAccounting;
-
-    const BACKGROUND_TOKENS: i64 = 3_001;
-
-    skip_if_no_network!(Ok(()));
-    let over_budget = outcome == PendingCompactionOutcome::SuccessOverBudget;
-    let retained_output = format!("LATE_OUTPUT {}", "x ".repeat(12_000));
-    let manual = matches!(trigger, CompactionTrigger::Manual);
-    let has_background = outcome != PendingCompactionOutcome::Absent;
-    let seed_tokens = if over_budget {
-        2_000
-    } else if has_background {
-        70_000
-    } else {
-        10_000
-    };
-    let valid_output = !matches!(
-        outcome,
-        PendingCompactionOutcome::Failure | PendingCompactionOutcome::ReadyFailure
-    );
-    let succeeds = !matches!(
-        outcome,
-        PendingCompactionOutcome::Absent
-            | PendingCompactionOutcome::SuccessOverBudget
-            | PendingCompactionOutcome::Failure
-            | PendingCompactionOutcome::ReadyFailure
-            | PendingCompactionOutcome::StaleSuccess
-    );
-    let response = |id, event, tokens| vec![event, ev_completed_with_tokens(id, tokens)];
-    let immediate = |events| vec![compaction_chunk(/*gate*/ None, events)];
-    let (release_background, background_gate) = oneshot::channel();
-    let mut responses = vec![immediate(response(
-        "seed",
-        ev_assistant_message("seed", "seed"),
-        seed_tokens,
-    ))];
-    if has_background {
-        responses.push(vec![compaction_chunk(
-            Some(background_gate),
-            response(
-                "background",
-                if valid_output {
-                    compaction_output("ASYNC")
-                } else {
-                    ev_assistant_message("invalid", "missing compaction output")
-                },
-                BACKGROUND_TOKENS,
-            ),
-        )]);
-    }
-    if !manual {
-        responses.push(immediate(response(
-            "second",
-            ev_function_call_with_namespace("team", "collaboration", "list_agents", "{}"),
-            /*tokens*/ if over_budget { 9_000 } else { 91_000 },
-        )));
-    }
-    if !succeeds {
-        responses.push(immediate(response(
-            "sync",
-            compaction_output("SYNC"),
-            /*tokens*/ 3_000,
-        )));
-    }
-    responses.push(immediate(response(
-        "continuation",
-        ev_assistant_message("continuation", "continuation"),
-        /*tokens*/ if over_budget { 10 } else { 3_000 },
-    )));
-    let (streaming, mut completions) = start_streaming_sse_server(responses).await;
-    let accounting =
-        (outcome == PendingCompactionOutcome::Success).then(|| Arc::new(HostAccounting::default()));
-    let mut builder = test_codex();
-    if let Some(accounting) = &accounting {
-        let mut extensions = ExtensionRegistryBuilder::new();
-        extensions.thread_lifecycle_contributor(accounting.clone());
-        builder = builder.with_extensions(Arc::new(extensions.build()));
-    }
-    let (_config_server, test) = async_compaction_test(
-        builder,
-        streaming.uri(),
-        if over_budget {
-            vec![Feature::RetainClientToolOutputs]
-        } else {
-            vec![]
-        },
-        move |config| {
-            if over_budget {
-                config.async_compaction_threshold_percent = 1;
-                config.model_auto_compact_token_limit = Some(5_000);
-            }
-        },
-    )
-    .await?;
-    test.codex.ensure_rollout_materialized().await;
-    let timeout = Duration::from_secs(/*secs*/ 20);
-    test.submit_text_turn("first").await?;
-    if has_background {
-        tokio::time::timeout(timeout, streaming.wait_for_request_count(/*count*/ 2)).await?;
-    }
-    let release_background = if outcome == PendingCompactionOutcome::ReadyFailure {
-        release_background
-            .send(())
-            .expect("fail background compaction before the next checkpoint");
-        // The client must observe the failure before take_ready polls the closed receiver.
-        tokio::time::timeout(
-            timeout,
-            test.codex.wait_for_background_compaction_for_test(),
-        )
-        .await?;
-        None
-    } else {
-        Some(release_background)
-    };
-    if manual {
-        test.codex.submit(Op::Compact).await?;
-    } else if over_budget {
-        test.codex.start_or_steer_turn(TurnInputRequest::new(TurnInput::AnnotatedResponseItem(
-            codex_protocol::turn_input::AnnotatedResponseItem {
-                item: serde_json::from_value(json!({"type": "function_call_output", "name": "send_message_to_thread", "namespace": "codex_app", "output": retained_output}))?,
-                annotations: codex_protocol::turn_input::ResponseItemAnnotations { retain: true },
-            },
-        ))).await?;
-    } else {
-        test.codex
-            .start_or_steer_turn(TurnInputRequest::user_input(vec![text("newer")]))
-            .await?;
-    }
-    let started = wait_for_event(&test.codex, |event| {
-        matches!(event, EventMsg::ItemStarted(event)
-            if matches!(event.item, TurnItem::ContextCompaction(_)))
-    })
-    .await;
-    if has_background && outcome != PendingCompactionOutcome::ReadyFailure {
-        assert_eq!(streaming.requests().await.len(), if manual { 2 } else { 3 });
-    }
-    if outcome == PendingCompactionOutcome::Interrupted {
-        test.codex.submit(Op::Interrupt).await?;
-        wait_for_event(&test.codex, |event| {
-            matches!(event, EventMsg::TurnAborted(_))
-        })
-        .await;
-        release_background
-            .expect("pending background compaction")
-            .send(())
-            .expect("release unused result");
-        completions.remove(1).await?;
-        test.codex.shutdown_and_wait().await?;
-        assert_eq!(streaming.requests().await.len(), if manual { 2 } else { 3 });
-        return Ok(());
-    }
-    if outcome == PendingCompactionOutcome::StaleSuccess {
-        let auth = test.thread_manager.auth_manager();
-        let mut tokens = auth.auth_cached().expect("test auth").get_token_data()?;
-        tokens.id_token.raw_jwt = "e30.e30.signature".to_string();
-        tokens.account_id = Some("second-account".to_string());
-        tokens.access_token = "second-account-token".to_string();
-        std::fs::write(
-            test.home.path().join("auth.json"),
-            serde_json::to_vec(
-                &json!({"auth_mode":"chatgpt", "tokens":tokens, "last_refresh":chrono::Utc::now()}),
-            )?,
-        )?;
-        auth.reload().await;
-    }
-    if has_background && let Some(release_background) = release_background {
-        release_background.send(()).expect("release pending result");
-    }
-    let EventMsg::ItemStarted(started) = started else {
-        unreachable!();
-    };
-    let mut starts = vec![started.item.id()];
-    let mut completed = Vec::new();
-    wait_for_event(&test.codex, |event| {
-        if let EventMsg::ItemStarted(event) = event
-            && matches!(event.item, TurnItem::ContextCompaction(_))
-        {
-            starts.push(event.item.id());
-        }
-        if let EventMsg::ItemCompleted(event) = event
-            && matches!(event.item, TurnItem::ContextCompaction(_))
-        {
-            completed.push(event.item.id());
-        }
-        matches!(event, EventMsg::TurnComplete(_))
-    })
-    .await;
-    assert_eq!(completed, starts);
-    assert_eq!(starts.len(), if over_budget { 2 } else { 1 });
-    assert_eq!(starts.iter().collect::<HashSet<_>>().len(), starts.len());
-    tokio::time::timeout(
-        timeout,
-        test.codex.wait_for_background_compaction_for_test(),
-    )
-    .await?;
-    if manual {
-        test.submit_text_turn("after manual compaction").await?;
-    }
-
-    let history = test.codex.load_history(/*include_archived*/ false).await?;
-    let usage = |id| {
-        history
-            .items
-            .iter()
-            .find_map(|item| match item {
-                RolloutItem::TokenUsageRecord(record) if record.response_id == id => Some(record),
-                _ => None,
-            })
-            .expect("persisted usage")
-    };
-    assert!(history.items.iter().all(|item| !matches!(item,
-        RolloutItem::TokenUsageRecord(record) if record.response_id == "background"
-    )));
-    if let Some(accounting) = accounting {
-        let reports = accounting.reports.lock().expect("usage reports");
-        let charged_turns: Vec<_> = reports
-            .iter()
-            .filter(|report| report.usage.total_tokens == BACKGROUND_TOKENS)
-            .map(|report| &report.turn_id)
-            .collect();
-        assert_eq!(charged_turns, [&usage("seed").turn_id]);
-    }
-    let continuation = usage("continuation");
-    assert_eq!(
-        (
-            continuation.turn_token_usage.total_tokens,
-            continuation.thread_token_usage.total_tokens,
-        ),
-        if over_budget {
-            (12_010, 14_010)
-        } else if manual {
-            (3_000, seed_tokens + if succeeds { 3_000 } else { 6_000 })
-        } else if succeeds {
-            (94_000, 164_000)
-        } else {
-            (97_000, 167_000)
-        },
-    );
-
-    let requests = streaming
-        .requests()
-        .await
-        .iter()
-        .map(|body| serde_json::from_slice::<serde_json::Value>(body))
-        .collect::<serde_json::Result<Vec<_>>>()?;
-    assert_eq!(
-        requests.len(),
-        (if manual { 2 } else { 3 }) + usize::from(has_background) + usize::from(!succeeds)
-    );
-    if over_budget {
-        for request in &requests[3..] {
-            assert!(
-                request["input"]
-                    .as_array()
-                    .expect("compaction or continuation input")
-                    .iter()
-                    .any(|item| item["output"] == retained_output)
-            );
-        }
-    }
-    if manual && !succeeds {
-        let foreground = &requests[requests.len() - 2];
-        let metadata: serde_json::Value = serde_json::from_str(
-            foreground["client_metadata"]["x-codex-turn-metadata"]
-                .as_str()
-                .expect("manual foreground metadata"),
-        )?;
-        assert_eq!(metadata["compaction"]["trigger"], "manual");
-        assert_eq!(metadata["compaction"]["reason"], "user_requested");
-        assert_eq!(metadata["compaction"]["phase"], "standalone_turn");
-    }
-    let summaries: Vec<_> = requests.last().expect("continuation")["input"]
-        .as_array()
-        .expect("foreground input")
-        .iter()
-        .filter(|item| item["type"] == "compaction")
-        .map(|item| &item["encrypted_content"])
-        .collect();
-    assert_eq!(summaries, [&json!(if succeeds { "ASYNC" } else { "SYNC" })]);
-    Ok(())
-}
-
-#[tokio::test]
-async fn unshared_apps_catalog_across_turns() -> Result<()> {
-    skip_if_no_network!(Ok(()));
-    let requests =
-        super::mcp_tool_cache::apps_requests_during_peer_discovery(/*share*/ false).await?;
-    let snapshot = context_snapshot::format_request_history_snapshot(
-        "A peer finishes Apps discovery during submit. The thread uses its own catalog on its first and second model requests.",
-        &requests,
-        &ContextSnapshotOptions::default()
-            .rewrite_known_segments()
-            .include_request_settings(),
-    );
-    insta::assert_snapshot!("unshared_apps_catalog_across_turns", snapshot);
-    Ok(())
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn catalog_plugin_guidance_follows_model_and_survives_resume() -> Result<()> {
     skip_if_no_network!(Ok(()));
@@ -4733,7 +4283,7 @@ async fn catalog_plugin_guidance_follows_model_and_survives_resume() -> Result<(
     let mut builder = test_codex()
         .with_model("plugins-default")
         .with_home(home)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_extensions(skills_extensions())
         .with_config(configure);
     let test = builder.build_with_auto_env(&server).await?;
@@ -4936,7 +4486,7 @@ async fn catalog_selected_plugin_wording_preserves_capability_policy(
     let test = test_codex()
         .with_model("selected-custom")
         .with_home(home)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_extensions(skills_extensions())
         .with_config(move |config| {
             configure_catalog_plugin_scenario(config);
@@ -5131,7 +4681,7 @@ async fn catalog_selected_plugin_omission_bounds_runtime_capabilities() -> Resul
     let test = test_codex()
         .with_model("gpt-5.5")
         .with_home(home)
-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+        .with_auth(CodexAuth::from_api_key("dummy"))
         .with_extensions(skills_extensions())
         .with_config(move |config| {
             configure_catalog_plugin_scenario(config);

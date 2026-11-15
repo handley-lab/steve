@@ -2,11 +2,9 @@
 
 use crate::ModelProvider;
 use crate::ResolvedProviderAuth;
-use crate::WorkspaceRoutingContext;
 use crate::auth::bearer_auth_for_provider;
 use crate::auth::resolve_provider_auth;
 use crate::auth::resolve_provider_auth_for_scope;
-use codex_api::AgentIdentityTelemetry;
 use codex_api::Provider;
 use codex_api::ReqwestTransport;
 use codex_api::SharedAuthProvider;
@@ -98,40 +96,30 @@ pub struct ResolvedProviderRequest {
     pub api_provider: Provider,
     pub redirect_policy: ClientRedirectPolicy,
     pub api_auth: SharedAuthProvider,
-    pub agent_identity_telemetry: Option<AgentIdentityTelemetry>,
     pub runtime_id: Option<String>,
     pub http_client_factory: HttpClientFactory,
 }
 
 impl ResolvedProviderRequest {
     pub fn http_transport(&self, endpoint: &str) -> Result<ReqwestTransport> {
-        let redirect_policy = if self
-            .api_provider
-            .headers
-            .contains_key(crate::ACCOUNT_ROUTING_HEADER)
-        {
-            ClientRedirectPolicy::Reject
-        } else {
-            self.redirect_policy
-        };
         let request_url = self.api_provider.url_for_path(endpoint);
         let client = create_client_for_route(
             &self.http_client_factory,
             &request_url,
             ClientRouteClass::Api,
-            redirect_policy,
+            self.redirect_policy,
         )
         .map_err(std::io::Error::from)?;
         Ok(ReqwestTransport::from_http_client(client))
     }
 }
 
-/// Resolve one attempt, including any workspace route, without mixing credential revisions.
+/// Resolve one attempt without mixing credential revisions.
 /// The supplied factory retains the caller's proxy/TLS settings; runtime requests bind its
 /// application policy to the same selected account used to sign the request.
 pub async fn resolve_request(
     provider: &dyn ModelProvider,
-    routing: Option<&WorkspaceRoutingContext>,
+    redirect_policy: ClientRedirectPolicy,
     http_client_factory: HttpClientFactory,
 ) -> Result<ResolvedProviderRequest> {
     let check_auth = provider.runtime_auth().is_none()
@@ -146,15 +134,6 @@ pub async fn resolve_request(
             let auth = match &resolved_auth.credential {
                 Some(auth) => Some(auth.clone()),
                 None => provider.auth().await,
-            };
-            let (api_provider, redirect_policy) = match routing {
-                Some(routing) => {
-                    let resolved = provider
-                        .route_responses_api_provider(api_provider, auth.as_ref(), routing)
-                        .await?;
-                    (resolved.provider, resolved.redirect_policy)
-                }
-                None => (api_provider, ClientRedirectPolicy::Default),
             };
             resolved_auth.validate_headers(&api_provider.headers)?;
             let runtime_state = resolved_auth
@@ -190,7 +169,6 @@ pub async fn resolve_request(
                     redirect_policy
                 },
                 api_auth: resolved_auth.auth,
-                agent_identity_telemetry: resolved_auth.agent_identity_telemetry,
                 runtime_id,
                 http_client_factory,
             })

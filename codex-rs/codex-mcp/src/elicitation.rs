@@ -23,8 +23,6 @@ use async_channel::Sender;
 use codex_protocol::approvals::ElicitationAbandonedEvent;
 use codex_protocol::approvals::ElicitationRequest;
 use codex_protocol::approvals::ElicitationRequestEvent;
-use codex_protocol::mcp::ClientMcpExtensions;
-use codex_protocol::mcp::OPENAI_ELICITATION_EXTENSION_ID;
 use codex_protocol::mcp::RequestId as ProtocolRequestId;
 use codex_protocol::mcp_approval_meta::APPROVAL_KIND_KEY;
 use codex_protocol::mcp_approval_meta::APPROVAL_KIND_TOOL_SUGGESTION;
@@ -46,9 +44,6 @@ use tokio::sync::oneshot;
 static NEXT_ELICITATION_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
 
 const STRICT_AUTO_REVIEW_DECLINE_MESSAGE: &str = "Automated review of this operation failed. Do not proceed without asking the user for explicit approval.";
-
-#[path = "user_verification_elicitation.rs"]
-mod user_verification_elicitation;
 
 #[derive(Debug, Clone)]
 pub struct ElicitationReviewRequest {
@@ -285,18 +280,10 @@ impl ElicitationRequestRouter {
         // and synchronously enqueue abandonment from Drop. Preserve bounded callers'
         // existing request-only behavior because they require asynchronous backpressure.
         let abandonment_events = events.capacity().is_none().then(|| events.clone());
-        let (delivery_context, response_context) =
-            if matches!(&request, ElicitationRequest::UserVerification { .. }) {
-                (
-                    "failed to deliver user-verification request",
-                    "user-verification response channel closed",
-                )
-            } else {
-                (
-                    "failed to deliver MCP elicitation request",
-                    "elicitation request channel closed unexpectedly",
-                )
-            };
+        let (delivery_context, response_context) = (
+            "failed to deliver MCP elicitation request",
+            "elicitation request channel closed unexpectedly",
+        );
         let public_request_id = format!(
             "codex-mcp-elicitation-{}",
             NEXT_ELICITATION_REQUEST_ID.fetch_add(1, Ordering::Relaxed)
@@ -420,14 +407,7 @@ impl ElicitationRequestManager {
         &self,
         server_name: String,
         tx_event: Option<Sender<Event>>,
-        client_mcp_extensions: &ClientMcpExtensions,
     ) -> SendElicitation {
-        // Event receivers such as codex mcp-server do not necessarily handle verification.
-        // Only wait for a response when trusted host activation enabled this exact route.
-        let user_verification_enabled = client_mcp_extensions
-            .get(OPENAI_ELICITATION_EXTENSION_ID)
-            .and_then(|settings| settings.get("userVerification"))
-            .is_some_and(Value::is_object);
         let router = self.router.clone();
         let authority = self.authority.clone();
         Box::new(move |id, elicitation| {
@@ -440,37 +420,6 @@ impl ElicitationRequestManager {
                     .lock()
                     .ok()
                     .and_then(|authority| authority.clone());
-                if let Elicitation::UserVerification {
-                    meta,
-                    title,
-                    description,
-                    challenge,
-                } = elicitation
-                {
-                    if !user_verification_enabled {
-                        return Ok(ElicitationResponse {
-                            action: ElicitationAction::Cancel,
-                            content: None,
-                            meta: Some(
-                                codex_rmcp_client::UserVerificationReason::ApprovalUnavailable
-                                    .into_meta(),
-                            ),
-                        });
-                    }
-                    return user_verification_elicitation::route(
-                        router,
-                        tx_event,
-                        authority,
-                        server_name,
-                        ElicitationRequest::UserVerification {
-                            meta,
-                            title,
-                            description,
-                            challenge,
-                        },
-                    )
-                    .await;
-                }
                 if elicitation
                     .meta()
                     .and_then(|meta| meta.get(APPROVAL_KIND_KEY))
@@ -588,9 +537,7 @@ impl ElicitationRequestManager {
                             .get("properties")
                             .and_then(Value::as_object)
                             .is_some_and(|properties| !properties.is_empty()),
-                        Elicitation::Mcp(_)
-                        | Elicitation::OpenAiForm { .. }
-                        | Elicitation::UserVerification { .. } => false,
+                        Elicitation::Mcp(_) | Elicitation::OpenAiForm { .. } => false,
                     };
 
                 if !should_surface_form_in_full_access {
@@ -615,13 +562,6 @@ impl ElicitationRequestManager {
                 }
 
                 let request = match elicitation {
-                    Elicitation::UserVerification { .. } => {
-                        return Ok(ElicitationResponse {
-                            action: ElicitationAction::Cancel,
-                            content: None,
-                            meta: None,
-                        });
-                    }
                     Elicitation::Mcp(rmcp::model::ElicitRequestParams::FormElicitationParams {
                         meta,
                         message,
@@ -716,8 +656,7 @@ fn can_auto_accept_elicitation(elicitation: &Elicitation) -> bool {
         }
         Elicitation::Mcp(_)
         | Elicitation::OpenAiForm { .. }
-        | Elicitation::OpenAiElicitationForm { .. }
-        | Elicitation::UserVerification { .. } => false,
+        | Elicitation::OpenAiElicitationForm { .. } => false,
     }
 }
 

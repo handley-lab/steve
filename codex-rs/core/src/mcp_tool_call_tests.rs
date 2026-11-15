@@ -16,7 +16,6 @@ use crate::state::ActiveTurn;
 use crate::test_support::models_manager_with_provider;
 use crate::tools::hook_names::HookToolName;
 use crate::turn_metadata::ExecutionMetadata;
-use codex_app_server_protocol as app_server_protocol;
 use codex_config::CONFIG_TOML_FILE;
 use codex_config::config_toml::ConfigToml;
 use codex_config::types::AppConfig;
@@ -99,7 +98,6 @@ fn approval_metadata(
         mcp_app_resource_uri: None,
         mcp_app_ui: None,
         codex_apps_meta: None,
-        openai_file_input_optional_fields: None,
     }
 }
 
@@ -372,20 +370,6 @@ fn mcp_app_resource_uri_reads_known_tool_meta_keys() {
     assert_eq!(
         get_mcp_app_resource_uri(output_template.as_object()),
         Some("ui://widget/output-template.html".to_string())
-    );
-}
-
-#[test]
-fn openai_file_params_are_only_honored_for_codex_apps() {
-    let params = HashMap::from([("file".to_string(), Vec::new())]);
-
-    assert_eq!(
-        openai_file_input_optional_fields_for_server(CODEX_APPS_MCP_SERVER_NAME, &params),
-        Some(params.clone())
-    );
-    assert_eq!(
-        openai_file_input_optional_fields_for_server("minimaltest", &params),
-        None
     );
 }
 
@@ -1594,7 +1578,6 @@ async fn codex_apps_tool_call_request_meta_includes_turn_metadata_and_codex_apps
             .cloned()
             .expect("_codex_apps metadata should be an object"),
         ),
-        openai_file_input_optional_fields: None,
     };
 
     let mut expected_apps_meta = serde_json::json!({
@@ -2086,7 +2069,6 @@ fn guardian_mcp_review_request_includes_annotations_when_present() {
         mcp_app_resource_uri: None,
         mcp_app_ui: None,
         codex_apps_meta: None,
-        openai_file_input_optional_fields: None,
     };
 
     let request = build_guardian_mcp_tool_review_request("call-1", &invocation, Some(&metadata));
@@ -2290,153 +2272,6 @@ fn accepted_elicitation_without_content_defaults_to_accept() {
     );
 
     assert_eq!(response, ReviewDecision::Approved);
-}
-
-#[tokio::test]
-async fn dispatched_mcp_approval_with_closed_response_is_classified_as_approval() {
-    use wiremock::matchers::method;
-    use wiremock::matchers::path;
-
-    let server = wiremock::MockServer::start().await;
-    wiremock::Mock::given(method("POST"))
-        .and(path("/codex/analytics-events/events"))
-        .respond_with(wiremock::ResponseTemplate::new(200))
-        .mount(&server)
-        .await;
-
-    let (mut session, turn_context, rx_event) = make_session_and_context_with_rx().await;
-    let client = codex_analytics::AnalyticsEventsClient::new(
-        crate::test_support::auth_manager_from_auth(
-            codex_login::CodexAuth::create_dummy_chatgpt_auth_for_testing(),
-        ),
-        server.uri(),
-        /*analytics_enabled*/ Some(true),
-    );
-    Arc::get_mut(&mut session)
-        .expect("session should be uniquely owned")
-        .services
-        .analytics_events_client = client.clone();
-    *session.active_turn.lock().await = Some(ActiveTurn::default());
-
-    let call_id = "modern-missing-response";
-    let thread_id = session.thread_id.to_string();
-    let turn_id = turn_context.sub_id.clone();
-    client.track_initialize(
-        /*connection_id*/ 1,
-        app_server_protocol::InitializeParams::default(),
-        "test-client".to_string(),
-        codex_analytics::AppServerRpcTransport::Stdio,
-    );
-    let response = serde_json::from_value(serde_json::json!({
-        "thread": {
-            "id": thread_id, "sessionId": thread_id, "preview": "", "ephemeral": false,
-            "modelProvider": "openai", "createdAt": 1, "updatedAt": 1,
-            "status": {"type": "idle"}, "cwd": &turn_context.config.cwd,
-            "cliVersion": "0.0.0", "source": "exec", "turns": [],
-        },
-        "model": "test-model", "modelProvider": "openai", "cwd": &turn_context.config.cwd,
-        "approvalPolicy": "on-request", "approvalsReviewer": "user",
-        "sandbox": {"type": "dangerFullAccess"},
-    }))
-    .expect("thread-start response should deserialize");
-    client.track_response(
-        /*connection_id*/ 1,
-        app_server_protocol::RequestId::Integer(1),
-        &app_server_protocol::ClientResponsePayload::ThreadStart(response),
-    );
-    client.track_notification(&app_server_protocol::ServerNotification::TurnStarted(
-        serde_json::from_value(serde_json::json!({
-            "threadId": thread_id,
-            "turn": {"id": turn_id, "items": [], "status": "inProgress"},
-        }))
-        .expect("turn-started notification should deserialize"),
-    ));
-    let mut item = serde_json::json!({
-        "type": "mcpToolCall", "id": call_id, "server": "calendar", "tool": "send",
-        "status": "inProgress", "arguments": {},
-        "appContext": {"connectorId": "calendar"},
-    });
-    client.track_notification(&app_server_protocol::ServerNotification::ItemStarted(
-        serde_json::from_value(serde_json::json!({
-            "threadId": thread_id, "turnId": turn_id, "startedAtMs": 1, "item": item,
-        }))
-        .expect("item-started notification should deserialize"),
-    ));
-
-    let action = ApprovalAction::McpToolCall {
-        id: call_id.to_string(),
-        environment_id: test_environment_id(&turn_context).to_owned(),
-        server: "calendar".to_string(),
-        tool_name: "send".to_string(),
-        arguments: None,
-        connector_id: Some("calendar".to_string()),
-        connector_name: None,
-        connector_description: None,
-        connected_account_email: None,
-        tool_title: None,
-        tool_description: None,
-        annotations: None,
-        hook_tool_name: HookToolName::new("mcp__calendar__send"),
-        approval_policy: AskForApproval::OnRequest,
-        reviewer: ApprovalsReviewer::User,
-        approval_mode: AppToolApproval::Auto,
-        allow_session_remember: true,
-        allow_persistent_approval: true,
-        prompt_permissions: None,
-    };
-    let approval = tokio::spawn({
-        let session = Arc::clone(&session);
-        let turn_context = Arc::clone(&turn_context);
-        async move { request_mcp_tool_user_approval(&session, &turn_context, call_id, &action).await }
-    });
-    let event = tokio::time::timeout(std::time::Duration::from_secs(1), rx_event.recv())
-        .await
-        .expect("approval request should be dispatched")
-        .expect("approval request should be received");
-    assert!(matches!(event.msg, EventMsg::ElicitationRequest(_)));
-    *session.active_turn.lock().await = None;
-    assert_eq!(
-        approval.await.expect("approval task should complete"),
-        ApprovalResolution {
-            decision: ReviewDecision::Abort,
-            source: ApprovalResolutionSource::User,
-            cancellation_reason: Some(McpApprovalCancellationReason::Interrupted),
-        }
-    );
-
-    item["status"] = serde_json::json!("failed");
-    client.track_notification(&app_server_protocol::ServerNotification::ItemCompleted(
-        serde_json::from_value(serde_json::json!({
-            "threadId": thread_id, "turnId": turn_id, "completedAtMs": 2, "item": item,
-        }))
-        .expect("item-completed notification should deserialize"),
-    ));
-    client.flush().await;
-    let events = server
-        .received_requests()
-        .await
-        .expect("analytics requests should be recorded")
-        .into_iter()
-        .flat_map(|request| {
-            serde_json::from_slice::<serde_json::Value>(&request.body)
-                .expect("analytics request should deserialize")["events"]
-                .as_array()
-                .expect("analytics events should be an array")
-                .clone()
-        })
-        .collect::<Vec<_>>();
-    let mcp_events = events
-        .iter()
-        .filter(|event| {
-            event["event_type"] == "codex_mcp_tool_call_event"
-                && event["event_params"]["item_id"] == call_id
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(mcp_events.len(), 1);
-    assert_eq!(
-        mcp_events[0]["event_params"]["elicitation_type"],
-        "approval"
-    );
 }
 
 #[tokio::test]
@@ -2904,7 +2739,6 @@ async fn approve_mode_skips_when_annotations_do_not_require_approval() {
         mcp_app_resource_uri: None,
         mcp_app_ui: None,
         codex_apps_meta: None,
-        openai_file_input_optional_fields: None,
     };
 
     let decision = maybe_request_mcp_tool_approval(
@@ -2987,7 +2821,6 @@ async fn guardian_mode_skips_auto_when_annotations_do_not_require_approval() {
         mcp_app_resource_uri: None,
         mcp_app_ui: None,
         codex_apps_meta: None,
-        openai_file_input_optional_fields: None,
     };
 
     let decision = maybe_request_mcp_tool_approval(
@@ -3052,7 +2885,6 @@ async fn permission_request_hook_allows_mcp_tool_call() {
         mcp_app_resource_uri: None,
         mcp_app_ui: None,
         codex_apps_meta: None,
-        openai_file_input_optional_fields: None,
     };
 
     let decision = maybe_request_mcp_tool_approval(
@@ -3220,7 +3052,6 @@ async fn permission_request_hook_runs_after_remembered_mcp_approval() {
         mcp_app_resource_uri: None,
         mcp_app_ui: None,
         codex_apps_meta: None,
-        openai_file_input_optional_fields: None,
     };
     let remembered_key =
         session_mcp_tool_approval_key(&invocation, Some(&metadata), AppToolApproval::Auto)
@@ -3328,7 +3159,6 @@ async fn strict_auto_review_forces_guardian_for_mcp_policy_skip(
         mcp_app_resource_uri: None,
         mcp_app_ui: None,
         codex_apps_meta: None,
-        openai_file_input_optional_fields: None,
     };
     let mut captured_mcp_config = approval_config(&turn_context);
     captured_mcp_config
@@ -3423,7 +3253,6 @@ async fn assert_mcp_user_approval_persistence(
         mcp_app_resource_uri: None,
         mcp_app_ui: None,
         codex_apps_meta: None,
-        openai_file_input_optional_fields: None,
     };
 
     let approval_task = tokio::spawn({
@@ -3511,7 +3340,6 @@ async fn prompt_mode_waits_for_approval_when_annotations_do_not_require_approval
         mcp_app_resource_uri: None,
         mcp_app_ui: None,
         codex_apps_meta: None,
-        openai_file_input_optional_fields: None,
     };
 
     let mut approval_task = {
@@ -3578,7 +3406,6 @@ async fn full_access_mode_skips_mcp_tool_approval_for_all_approval_modes() {
         mcp_app_resource_uri: None,
         mcp_app_ui: None,
         codex_apps_meta: None,
-        openai_file_input_optional_fields: None,
     };
 
     for approval_mode in [
@@ -3639,7 +3466,6 @@ async fn approve_mode_skips_guardian_in_every_permission_mode() {
         mcp_app_resource_uri: None,
         mcp_app_ui: None,
         codex_apps_meta: None,
-        openai_file_input_optional_fields: None,
     };
 
     for approval_policy in [
@@ -3656,7 +3482,7 @@ async fn approve_mode_skips_guardian_in_every_permission_mode() {
     ] {
         let (mut session, mut turn_context) = make_session_and_context().await;
         turn_context.auth_manager = Some(crate::test_support::auth_manager_from_auth(
-            codex_login::CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+            codex_login::CodexAuth::from_api_key("dummy"),
         ));
         Arc::make_mut(&mut turn_context.config)
             .permissions
