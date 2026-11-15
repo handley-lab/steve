@@ -26,6 +26,10 @@ async fn test_config_with_cli_overrides(
     let home_path = home.path().to_path_buf();
     let config = ConfigBuilder::default()
         .codex_home(home_path.clone())
+        .harness_overrides(crate::config::ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .cli_overrides(cli_overrides)
         .fallback_cwd(Some(home_path))
         .build()

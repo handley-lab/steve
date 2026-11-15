@@ -104,6 +104,10 @@ async fn test_config() -> Config {
     let codex_home = std::env::temp_dir();
     ConfigBuilder::default()
         .codex_home(codex_home.clone())
+        .harness_overrides(crate::legacy_core::config::ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .build()
         .await
         .expect("config")
