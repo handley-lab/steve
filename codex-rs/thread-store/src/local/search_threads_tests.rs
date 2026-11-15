@@ -149,7 +149,6 @@ async fn search_matches_selected_rollout_across_path_spellings_and_compression()
                     let page = store
                         .search_threads(SearchThreadsParams {
                             include_attached_threads: false,
-                            account: None,
                             page_size: 10,
                             cursor: None,
                             sort_key: ThreadSortKey::CreatedAt,
@@ -248,7 +247,6 @@ async fn title_and_content_search_return_attached_parent_without_state_db() {
             archived: false,
             search_term: "searchable message".to_string(),
             include_attached_threads: true,
-            account: None,
         })
         .await
         .expect("search messages on disk");

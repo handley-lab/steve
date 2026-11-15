@@ -397,9 +397,6 @@ pub struct ListThreadsParams {
 pub struct SearchThreadsParams {
     #[serde(default)]
     pub include_attached_threads: bool,
-    /// The current login when searching account-scoped local history.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub account: Option<crate::LocalHistoryAccount>,
     /// Maximum number of threads to return.
     pub page_size: usize,
     /// Opaque cursor returned by a previous search call.

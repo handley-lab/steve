@@ -1455,9 +1455,6 @@ pub struct ThreadListParams {
     #[experimental("thread/list.includeAttachedThreads")]
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub include_attached_threads: bool,
-    /// Show local history visible to the current ChatGPT account. Defaults to false.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub current_account_only: bool,
     /// Opaque pagination cursor returned by a previous call.
     #[ts(optional = nullable)]
     pub cursor: Option<String>,
@@ -1549,9 +1546,6 @@ pub struct ThreadSearchParams {
     /// Include persistent threads attached to a parent in search results.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub include_attached_threads: bool,
-    /// Show local history visible to the current ChatGPT account. Defaults to false.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub current_account_only: bool,
     /// Opaque pagination cursor returned by a previous call.
     #[ts(optional = nullable)]
     pub cursor: Option<String>,

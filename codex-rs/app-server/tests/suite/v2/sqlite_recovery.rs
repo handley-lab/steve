@@ -236,7 +236,6 @@ async fn state_recovery_restores_saved_threads() -> Result<()> {
     let request = server
         .send_thread_list_request(ThreadListParams {
             include_attached_threads: false,
-            current_account_only: false,
             excluded_thread_ids: None,
             attached_to_thread_id: None,
             originators: None,

@@ -49,7 +49,6 @@ pub(crate) async fn list_pinned_threads(
                     request_id: RequestId::String(Uuid::new_v4().to_string()),
                     params: ThreadListParams {
                         include_attached_threads: false,
-                        current_account_only: true,
                         excluded_thread_ids: None,
                         originators: None,
                         cursor: cursor.clone(),
@@ -195,7 +194,6 @@ impl SourcePage {
                     request_id: RequestId::String(Uuid::new_v4().to_string()),
                     params: ThreadListParams {
                         include_attached_threads: false,
-                        current_account_only: true,
                         excluded_thread_ids: None,
                         attached_to_thread_id: None,
                         originators: None,

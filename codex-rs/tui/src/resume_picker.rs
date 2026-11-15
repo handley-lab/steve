@@ -2560,7 +2560,6 @@ fn thread_list_params(
 ) -> ThreadListParams {
     ThreadListParams {
         include_attached_threads: false,
-        current_account_only: true,
         excluded_thread_ids: None,
         attached_to_thread_id: None,
         originators: None,
