@@ -11,7 +11,6 @@ use codex_config::RequirementSource;
 use codex_protocol::mcp_policy::EnvironmentMcpPolicy;
 use codex_utils_path_uri::PathUri;
 
-use crate::CODEX_APPS_MCP_SERVER_NAME;
 use crate::McpProtocolMode;
 use crate::server::McpCredentialPolicy;
 
@@ -75,12 +74,8 @@ pub enum McpServerSource {
     /// A plugin explicitly selected for this thread through a capability root.
     SelectedPlugin(McpPluginAttribution),
     Config,
-    Compatibility {
-        id: String,
-    },
     Extension {
         id: String,
-        host_owned_apps: bool,
     },
 }
 
@@ -90,21 +85,8 @@ impl McpServerSource {
             Self::Plugin(attribution) | Self::SelectedPlugin(attribution) => {
                 attribution.is_agent_plugin()
             }
-            Self::Config | Self::Compatibility { .. } | Self::Extension { .. } => false,
+            Self::Config | Self::Extension { .. } => false,
         }
-    }
-
-    pub(crate) fn is_host_owned_apps(&self, name: &str, config: &McpServerConfig) -> bool {
-        name == CODEX_APPS_MCP_SERVER_NAME
-            && config.is_local_environment()
-            && matches!(
-                self,
-                Self::Compatibility { .. }
-                    | Self::Extension {
-                        host_owned_apps: true,
-                        ..
-                    }
-            )
     }
 
     fn disabled_registration_is_name_veto(&self) -> bool {
@@ -119,7 +101,6 @@ enum RegistrationPrecedence {
     Plugin(Reverse<usize>),
     SelectedPlugin(Reverse<usize>),
     Config,
-    Compatibility,
     Extension(usize),
 }
 
@@ -129,8 +110,7 @@ impl RegistrationPrecedence {
             Self::Plugin(_) => 0,
             Self::SelectedPlugin(_) => 1,
             Self::Config => 2,
-            Self::Compatibility => 3,
-            Self::Extension(_) => 4,
+            Self::Extension(_) => 3,
         }
     }
 }
@@ -213,20 +193,6 @@ impl McpServerRegistration {
         )
     }
 
-    pub fn from_compatibility(
-        name: String,
-        id: impl Into<String>,
-        config: McpServerConfig,
-    ) -> Self {
-        Self::new(
-            name,
-            McpServerSource::Compatibility { id: id.into() },
-            config,
-            RegistrationPrecedence::Compatibility,
-            McpCredentialPolicy::HostFallbackAllowed,
-        )
-    }
-
     pub fn from_extension(
         name: String,
         id: impl Into<String>,
@@ -235,10 +201,7 @@ impl McpServerRegistration {
     ) -> Self {
         Self::new(
             name,
-            McpServerSource::Extension {
-                id: id.into(),
-                host_owned_apps: false,
-            },
+            McpServerSource::Extension { id: id.into() },
             config,
             RegistrationPrecedence::Extension(contribution_order),
             McpCredentialPolicy::HostFallbackAllowed,
@@ -249,25 +212,6 @@ impl McpServerRegistration {
     pub fn with_protocol_mode(mut self, protocol_mode: McpProtocolMode) -> Self {
         self.protocol_mode = Some(protocol_mode);
         self
-    }
-
-    /// Registers the controller-owned Apps server contributed by a host extension.
-    pub fn from_hosted_apps(
-        id: impl Into<String>,
-        contribution_order: usize,
-        config: McpServerConfig,
-    ) -> Self {
-        let host_owned_apps = config.is_local_environment();
-        Self::new(
-            CODEX_APPS_MCP_SERVER_NAME.to_string(),
-            McpServerSource::Extension {
-                id: id.into(),
-                host_owned_apps,
-            },
-            config,
-            RegistrationPrecedence::Extension(contribution_order),
-            McpCredentialPolicy::HostFallbackAllowed,
-        )
     }
 
     fn new(
@@ -379,10 +323,7 @@ impl McpCatalogBuilder {
     ) {
         self.actions.push(CatalogAction::Remove {
             name,
-            source: McpServerSource::Extension {
-                id: id.into(),
-                host_owned_apps: false,
-            },
+            source: McpServerSource::Extension { id: id.into() },
             precedence: RegistrationPrecedence::Extension(contribution_order),
         });
     }
@@ -396,12 +337,8 @@ impl McpCatalogBuilder {
             let CatalogAction::Register(registration) = action else {
                 continue;
             };
-            // Controller-owned Apps and existing managed denials are not attachment-owned.
-            if !registration.config.enabled
-                || registration
-                    .source
-                    .is_host_owned_apps(&registration.name, &registration.config)
-            {
+            // Existing managed denials are not attachment-owned.
+            if !registration.config.enabled {
                 continue;
             }
 
@@ -412,9 +349,7 @@ impl McpCatalogBuilder {
                 }
                 McpEnvironmentAuthority::Unavailable => false,
                 McpEnvironmentAuthority::Restricted(policy) => match &registration.source {
-                    McpServerSource::Config
-                    | McpServerSource::Compatibility { .. }
-                    | McpServerSource::Extension { .. } => {
+                    McpServerSource::Config | McpServerSource::Extension { .. } => {
                         policy.servers.as_ref().is_none_or(|requirements| {
                             requirements
                                 .get(&registration.name)
@@ -522,13 +457,9 @@ impl McpCatalogBuilder {
                     if disabled_server_names.contains(&name) {
                         registration.config.enabled = false;
                     }
-                    // Only trusted Apps may ignore a previous registration's requirements denial.
-                    // Retain it so a later custom replacement is still blocked.
-                    if !registration
-                        .source
-                        .is_host_owned_apps(&name, &registration.config)
-                        && let Some(source) = requirements_disabled_server_names.get(&name)
-                    {
+                    // Retain a previous registration's requirements denial so a later custom
+                    // replacement is still blocked.
+                    if let Some(source) = requirements_disabled_server_names.get(&name) {
                         registration.config.disable_by_requirements(source.clone());
                     }
                     Some((
@@ -647,7 +578,6 @@ impl ResolvedMcpCatalog {
                     RegistrationPrecedence::SelectedPlugin(Reverse(0))
                 }
                 McpServerSource::Config => RegistrationPrecedence::Config,
-                McpServerSource::Compatibility { .. } => RegistrationPrecedence::Compatibility,
                 McpServerSource::Extension { .. } => RegistrationPrecedence::Extension(0),
             };
             let credential_policy = previous.credential_policy();
@@ -668,9 +598,7 @@ impl ResolvedMcpCatalog {
                 | McpServerSource::SelectedPlugin(attribution) => {
                     Some((name.clone(), attribution.clone()))
                 }
-                McpServerSource::Config
-                | McpServerSource::Compatibility { .. }
-                | McpServerSource::Extension { .. } => None,
+                McpServerSource::Config | McpServerSource::Extension { .. } => None,
             })
             .collect()
     }

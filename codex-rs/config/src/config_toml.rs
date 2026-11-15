@@ -3,7 +3,6 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::num::NonZeroU64;
-use std::num::NonZeroUsize;
 use std::path::Path;
 
 use crate::HooksToml;
@@ -604,12 +603,6 @@ pub struct AutoReviewToml {
     pub circuit_break_action: Option<CircuitBreakAction>,
     /// Additional policy instructions inserted into the guardian prompt.
     pub policy: Option<String>,
-    /// Experimental replacement for the history-retrieval instructions when history tools
-    /// and Apps are enabled. Omitted or blank values use the built-in prompt.
-    pub experimental_conversation_history_prompt: Option<String>,
-    /// Maximum estimated tokens per Guardian history-tool response, before the standard
-    /// serialization allowance. Defaults to 4,000; stricter parent tool limits still apply.
-    pub conversation_history_max_output_tokens: Option<NonZeroUsize>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq, JsonSchema)]

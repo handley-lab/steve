@@ -2049,7 +2049,6 @@ async fn run_sampling_request(
     fields(
         turn_id = %turn_context.sub_id,
         model = %model_info.slug,
-        apps_enabled = false
     )
 )]
 pub(crate) async fn built_tools(
@@ -2061,14 +2060,12 @@ pub(crate) async fn built_tools(
     step_store: &ExtensionData,
     dynamic_tools: &[codex_protocol::dynamic_tools::DynamicToolSpec],
 ) -> CodexResult<Arc<ToolRouter>> {
-    let apps_enabled = false;
     Ok(Arc::new(build_tool_router(
         sess,
         turn_context,
         model_info,
         environments,
         mcp,
-        apps_enabled,
         step_store,
         dynamic_tools,
     )?))

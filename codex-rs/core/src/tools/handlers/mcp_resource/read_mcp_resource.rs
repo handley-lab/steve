@@ -14,7 +14,6 @@ use rmcp::model::ReadResourceRequestParams;
 use super::ReadResourceArgs;
 use super::ReadResourcePayload;
 use super::ResourceOperation;
-use super::ensure_model_can_access_mcp_server;
 use super::resource_arguments;
 use super::resource_environments;
 use super::run_resource_operation;
@@ -62,7 +61,6 @@ impl ReadMcpResourceHandler {
             payload,
             ..
         } = invocation;
-        let turn = std::sync::Arc::clone(&step_context.turn);
         let mcp = &step_context.mcp;
 
         let arguments = resource_arguments(&payload)?;
@@ -75,7 +73,6 @@ impl ReadMcpResourceHandler {
         };
 
         run_resource_operation(&session, &step_context, &call_id, invocation, async {
-            ensure_model_can_access_mcp_server(turn.as_ref(), &server)?;
             let result = mcp
                 .read_resource(&server, ReadResourceRequestParams::new(uri.clone()))
                 .await

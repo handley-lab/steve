@@ -441,7 +441,6 @@ enabled = false
                         good_config.codex_home.to_path_buf(),
                     )),
                 ),
-                codex_core::CodexAppsToolsCache::default(),
                 SessionSource::Exec,
                 Arc::clone(&environment_manager),
                 thread_extensions(

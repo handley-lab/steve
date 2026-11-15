@@ -12,7 +12,6 @@ use codex_protocol::mcp_policy::PluginMcpRequirements;
 use codex_utils_path_uri::PathUri;
 use pretty_assertions::assert_eq;
 
-use crate::CODEX_APPS_MCP_SERVER_NAME;
 use crate::McpProtocolMode;
 use crate::server::McpCredentialPolicy;
 
@@ -74,10 +73,7 @@ fn selected_plugin_source(plugin_id: &str) -> McpServerSource {
 }
 
 fn extension_source(id: &str) -> McpServerSource {
-    McpServerSource::Extension {
-        id: id.to_string(),
-        host_owned_apps: false,
-    }
+    McpServerSource::Extension { id: id.to_string() }
 }
 
 fn register(source: McpServerSource) -> McpServerConflictAction {
@@ -210,65 +206,6 @@ fn plugin_host_root_is_retained_in_catalog_identity() {
     };
     assert_eq!(attribution.host_root(), Some(&original_root));
     assert!(!original.has_same_servers(&replacement));
-}
-
-#[test]
-fn source_precedence_preserves_the_winning_registration() {
-    let extension = server("https://extension.example/mcp");
-    let mut plugin_server = server("https://plugin.example/mcp");
-    plugin_server.enabled = false;
-    let mut builder = ResolvedMcpCatalog::builder();
-    builder.register(McpServerRegistration::from_extension(
-        "docs".to_string(),
-        "hosted",
-        /*contribution_order*/ 0,
-        extension.clone(),
-    ));
-    builder.register(McpServerRegistration::from_plugin(
-        "docs".to_string(),
-        plugin("plugin@test"),
-        /*plugin_order*/ 0,
-        plugin_server,
-    ));
-    builder.register(McpServerRegistration::from_plugin(
-        "docs".to_string(),
-        plugin("other-plugin@test"),
-        /*plugin_order*/ 1,
-        server("https://other-plugin.example/mcp"),
-    ));
-    builder.register(McpServerRegistration::from_compatibility(
-        "docs".to_string(),
-        "legacy",
-        server("https://compatibility.example/mcp"),
-    ));
-    builder.register(McpServerRegistration::from_config(
-        "docs".to_string(),
-        server("https://config.example/mcp"),
-    ));
-
-    let catalog = builder.build();
-    let resolved = catalog.server("docs").expect("resolved server");
-
-    assert_eq!(
-        resolved.source(),
-        &McpServerSource::Extension {
-            id: "hosted".to_string(),
-            host_owned_apps: false,
-        }
-    );
-    assert_eq!(resolved.config(), &extension);
-    assert!(catalog.plugin_attributions_by_server_name().is_empty());
-    assert_eq!(
-        catalog.conflicts(),
-        &[McpServerConflict {
-            name: "docs".to_string(),
-            outcome: register(extension_source("hosted")),
-            contenders: vec![
-                register(plugin_source("other-plugin@test")),
-                register(plugin_source("plugin@test")),
-            ],
-        }]
-    );
 }
 
 #[test]
@@ -569,67 +506,6 @@ fn extension_protocol_mode_follows_the_winner_through_materialization() {
             protocol_mode: Some(McpProtocolMode::Legacy),
         })
     );
-}
-
-#[test]
-fn environment_policy_exempts_only_explicitly_host_owned_apps() {
-    let policy = EnvironmentMcpPolicy {
-        servers: Some(BTreeMap::new()),
-        plugins: None,
-    };
-    for (registration, expected) in [
-        (
-            McpServerRegistration::from_extension(
-                CODEX_APPS_MCP_SERVER_NAME.to_string(),
-                "apps",
-                /*contribution_order*/ 0,
-                server("https://apps.example/mcp"),
-            ),
-            false,
-        ),
-        (
-            McpServerRegistration::from_hosted_apps(
-                "apps",
-                /*contribution_order*/ 0,
-                server("https://apps.example/mcp"),
-            ),
-            true,
-        ),
-    ] {
-        let custom = server("https://custom.example/mcp");
-        let mut builder = ResolvedMcpCatalog::builder();
-        builder.register(McpServerRegistration::from_config(
-            CODEX_APPS_MCP_SERVER_NAME.to_string(),
-            custom.clone(),
-        ));
-        let denied = builder
-            .build_with_environment_authority(|_| McpEnvironmentAuthority::Restricted(&policy));
-        let mut builder = denied.to_builder();
-        builder.register(registration);
-        let catalog = builder
-            .build_with_environment_authority(|_| McpEnvironmentAuthority::Restricted(&policy));
-        assert_eq!(
-            catalog
-                .server(CODEX_APPS_MCP_SERVER_NAME)
-                .expect("Apps registration")
-                .config()
-                .enabled,
-            expected
-        );
-        let mut builder = catalog
-            .with_materialized_servers(catalog.configured_servers())
-            .to_builder();
-        builder.register(McpServerRegistration::from_extension(
-            CODEX_APPS_MCP_SERVER_NAME.to_string(),
-            "custom",
-            /*contribution_order*/ 1,
-            custom,
-        ));
-        assert_eq!(
-            builder.build().configured_servers(),
-            denied.configured_servers()
-        );
-    }
 }
 
 #[test]

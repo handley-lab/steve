@@ -1,10 +1,8 @@
 mod catalog_observability;
-mod cloud_plugin;
 mod plugin;
 mod plugin_contributor;
 mod plugin_contributor_state;
 mod plugin_providers;
-mod stream_manager;
 
 pub use codex_core_plugins::PluginListQuery;
 pub use codex_core_plugins::PluginProvider;
@@ -15,5 +13,3 @@ pub use plugin_contributor::install_plugin_providers;
 pub use plugin_contributor::install_plugins;
 pub use plugin_contributor_state::PluginsThreadState;
 pub use plugin_providers::PluginProviders;
-pub use stream_manager::McpEventStreamManager;
-pub use stream_manager::McpEventStreamUpdate;

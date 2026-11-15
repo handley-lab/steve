@@ -12,7 +12,6 @@ use codex_tools::ToolSpec;
 use super::ListResourceArgs;
 use super::ListResourcesPayload;
 use super::ResourceOperation;
-use super::model_can_access_mcp_server;
 use super::resource_arguments;
 use super::resource_environments;
 use super::run_resource_operation;
@@ -60,7 +59,6 @@ impl ListMcpResourcesHandler {
             payload,
             ..
         } = invocation;
-        let turn = std::sync::Arc::clone(&step_context.turn);
         let mcp = &step_context.mcp;
 
         let arguments = resource_arguments(&payload)?;
@@ -73,7 +71,7 @@ impl ListMcpResourcesHandler {
         };
 
         run_resource_operation(&session, &step_context, &call_id, invocation, async {
-            if let Some((server_name, params)) = args.target(turn.as_ref())? {
+            if let Some((server_name, params)) = args.target()? {
                 let result = mcp
                     .list_resources(&server_name, params)
                     .await
@@ -85,11 +83,7 @@ impl ListMcpResourcesHandler {
                     result,
                 ))
             } else {
-                let resources = mcp
-                    .list_all_resources(|server_name| {
-                        model_can_access_mcp_server(turn.as_ref(), server_name)
-                    })
-                    .await;
+                let resources = mcp.list_all_resources(|_| true).await;
                 Ok(ListResourcesPayload::from_all_servers(resources))
             }
         })

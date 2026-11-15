@@ -58,11 +58,9 @@ use crate::tools::registry::ToolExposure;
 use crate::tools::registry::ToolRegistry;
 use crate::tools::router::ToolRouter;
 use crate::tools::tool_namespaces_info::collect_tool_namespaces_info;
-use codex_connectors::apps_config_from_layer_stack;
 use codex_extension_api::ExtensionData;
 use codex_features::Feature;
 use codex_features::SleepToolMode;
-use codex_mcp::CODEX_APPS_MCP_SERVER_NAME;
 use codex_prompts::ResolvedModelMessages;
 use codex_protocol::DEFAULT_FUNCTION_NAMESPACE;
 use codex_protocol::config_types::WebSearchMode;
@@ -119,7 +117,6 @@ pub(crate) fn build_tool_router(
     model_info: &ModelInfo,
     environments: &TurnEnvironmentSnapshot,
     mcp: &Arc<codex_mcp::McpBinding>,
-    apps_enabled: bool,
     step_store: &ExtensionData,
     dynamic_tools: &[DynamicToolSpec],
 ) -> CodexResult<ToolRouter> {
@@ -144,8 +141,6 @@ pub(crate) fn build_tool_router(
 
     let registered_mcp_tools = session.services.mcp_handler_cache.append_mcp_tools(
         mcp,
-        &turn_context.config,
-        apps_enabled,
         &mcp.config().mcp_server_catalog,
         model_info.supports_search_tool,
         session.services.mcp_manager.shared_definitions(),
@@ -170,21 +165,6 @@ pub(crate) fn build_tool_router(
         Some(crate::model_search::ModelSearch::Native { mode, .. }) => Some(*mode),
         _ => None,
     };
-    if matches!(
-        search.as_deref(),
-        Some(
-            crate::model_search::ModelSearch::Native { .. }
-                | crate::model_search::ModelSearch::Disabled
-        )
-    ) {
-        for tool in mcp
-            .tools()
-            .iter()
-            .filter(|tool| codex_mcp::is_model_search_tool(tool))
-        {
-            registry.remove(&tool.canonical_tool_name());
-        }
-    }
     if native_mode.is_none() {
         registry.remove(&ToolName::namespaced("web", "run"));
     }
@@ -226,7 +206,6 @@ fn apply_mcp_tool_exposure_policy(
     registry: &mut ToolRegistry,
 ) {
     let mut omitted_exposures_by_tool = HashMap::new();
-    let apps_config = apps_config_from_layer_stack(&turn_context.config.config_layer_stack);
     for tool in mcp.tools() {
         let tool_name = tool.canonical_tool_name();
         // Disabled, denied, app-only and over-budget MCP tools are absent from this set.
@@ -239,19 +218,12 @@ fn apply_mcp_tool_exposure_policy(
         omitted_exposures_by_tool
             .entry(tool_name)
             .or_insert_with(|| {
-                let connector_omissions = (tool.server_name == CODEX_APPS_MCP_SERVER_NAME)
-                    .then_some(tool.connector_id.as_deref())
-                    .flatten()
-                    .and_then(|id| apps_config.as_ref()?.apps.get(id))
-                    .and_then(|app| app.omit_tools_from.as_deref())
-                    .unwrap_or_default();
                 server
                     .config()
                     .omit_tools_from
                     .as_deref()
                     .unwrap_or_default()
                     .iter()
-                    .chain(connector_omissions)
                     .copied()
                     .collect::<ToolExposures>()
             });

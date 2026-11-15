@@ -3,25 +3,20 @@
 //! Explicit goal authorization becomes live only after its persistence barrier succeeds.
 
 use std::collections::HashMap;
-use std::future::Future;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
-use std::task::Context;
-use std::task::Poll;
 
 use crate::context::ContextualUserFragment;
 use crate::context::UserGoalUpdate;
 use codex_history::CodexHarnessMetadata;
 use codex_history::ResponseItemEnvelope;
 use codex_history::RetainedContextEvent;
-use codex_history::RetainedUserMessage;
 use codex_history::RolloutItem;
 use codex_protocol::models::ResponseItem;
 use codex_thread_store::PersistContext;
 use tokio::sync::Semaphore;
 use tokio::sync::watch;
-use tokio::task::JoinHandle;
 use tokio_util::task::TaskTracker;
 use tokio_util::task::task_tracker::TaskTrackerToken;
 
@@ -192,61 +187,6 @@ impl Session {
             tasks.clone()
         };
         tasks.wait().await;
-    }
-
-    /// Starts recording confirmed delivery synchronously while the tool's admission is held.
-    pub(crate) fn record_delivered_assistant_message(
-        self: &Arc<Self>,
-        message: RetainedUserMessage,
-    ) -> (JoinHandle<()>, watch::Receiver<()>) {
-        let session = Arc::clone(self);
-        let persistence_session = Arc::clone(self);
-        let (recorded, recording) = watch::channel(());
-        let pending_recording = recording.clone();
-        let mut reserve = Box::pin(async move {
-            let boundary = Arc::clone(&session.code_mode_message_tasks.communication_boundary)
-                .acquire_owned()
-                .await
-                .unwrap_or_else(|_| unreachable!("communication boundary remains open"));
-            let mut state = session.state.lock().await;
-            let mut event = RetainedContextEvent::DeliveredAssistantMessage {
-                message,
-                acceptance_order: state.history.reserve_input_order(),
-            };
-            event.bound();
-            state.history.record_retained_context(&event);
-            let mut pending = session
-                .code_mode_message_tasks
-                .pending_persistence
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            pending.retain(|recording| recording.has_changed().is_ok());
-            pending.push(pending_recording);
-            (event, boundary)
-        });
-        // Poll while still at the confirmed MCP response boundary. A free state lock
-        // reserves the order now; a busy lock queues this reservation ahead of a
-        // later user reply before the detached task can be scheduled.
-        let mut context = Context::from_waker(futures::task::noop_waker_ref());
-        let reservation = reserve.as_mut().poll(&mut context);
-        let task = self
-            .code_mode_message_tasks
-            .tasks
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .spawn(async move {
-                let (event, _boundary) = match reservation {
-                    Poll::Ready(reservation) => reservation,
-                    Poll::Pending => reserve.await,
-                };
-                let _guard = thread_settings::acquire_persistence_lock(&persistence_session).await;
-                // A distinct delivery still belongs in the rollout when the live window is full.
-                persistence_session
-                    .persist_rollout_items(&[RolloutItem::RetainedContext(event)])
-                    .await;
-                drop(recorded);
-            });
-        (task, recording)
     }
 }
 

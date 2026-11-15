@@ -266,13 +266,10 @@ export type { McpElicitationUntitledMultiSelectEnumSchema } from "./McpElicitati
 export type { McpElicitationUntitledSingleSelectEnumSchema } from "./McpElicitationUntitledSingleSelectEnumSchema";
 export type { McpResourceReadParams } from "./McpResourceReadParams";
 export type { McpResourceReadResponse } from "./McpResourceReadResponse";
-export type { McpResourceReadTarget } from "./McpResourceReadTarget";
 export type { McpServerConnectionStatus } from "./McpServerConnectionStatus";
 export type { McpServerElicitationAction } from "./McpServerElicitationAction";
 export type { McpServerElicitationRequestParams } from "./McpServerElicitationRequestParams";
 export type { McpServerElicitationRequestResponse } from "./McpServerElicitationRequestResponse";
-export type { McpServerEventNotification } from "./McpServerEventNotification";
-export type { McpServerEventStreamNotification } from "./McpServerEventStreamNotification";
 export type { McpServerMigration } from "./McpServerMigration";
 export type { McpServerOauthClientRegistration } from "./McpServerOauthClientRegistration";
 export type { McpServerOauthLoginCompletedNotification } from "./McpServerOauthLoginCompletedNotification";

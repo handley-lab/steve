@@ -26,7 +26,6 @@ use codex_config::types::AppToolApproval;
 use codex_config::types::ApprovalsReviewer;
 use codex_config::types::AuthKeyringBackendKind;
 use codex_config::types::OAuthCredentialsStoreMode;
-use codex_connectors::ConnectorRuntimeManager;
 use codex_connectors::ConnectorSnapshot;
 use codex_connectors::connector_runtime_context_key;
 use codex_exec_server::FileSystemSandboxContext;
@@ -57,7 +56,6 @@ use crate::runtime::McpRuntimeContext;
 use crate::runtime::McpRuntimeInput;
 use crate::runtime::McpStartupPolicy;
 use crate::server::EffectiveMcpServer;
-use crate::tools::ToolInfo;
 
 pub const CODEX_APPS_MCP_SERVER_NAME: &str = "codex_apps";
 pub(crate) const DEFAULT_CODEX_APPS_MCP_PRODUCT_SKU: &str = "codex";
@@ -222,12 +220,7 @@ impl McpConfig {
             .filter(|(_, server)| server.enabled())
             .filter_map(|(server_name, _)| {
                 let server = self.mcp_server_catalog.server(server_name)?;
-                let permissions = if server
-                    .source()
-                    .is_host_owned_apps(server_name, server.config())
-                {
-                    McpServerPermissions::Thread
-                } else if let Some(sandbox) =
+                let permissions = if let Some(sandbox) =
                     environment_sandboxes.get(&server.config().environment_id)
                 {
                     McpServerPermissions::Environment(Arc::clone(sandbox))
@@ -275,10 +268,6 @@ pub struct ToolPluginContext {
 }
 
 impl ToolPluginContext {
-    pub(crate) fn allows_connector_id(&self, connector_id: Option<&str>) -> bool {
-        connector_id.is_none_or(|id| !self.disabled_connector_ids.contains(id))
-    }
-
     pub fn plugin_display_names_for_connector_id(&self, connector_id: &str) -> &[String] {
         self.plugin_display_names_by_connector_id
             .get(connector_id)
@@ -399,7 +388,7 @@ pub fn effective_mcp_servers_from_configured(
     configured_servers: HashMap<String, McpServerConfig>,
     config: &McpConfig,
 ) -> HashMap<String, EffectiveMcpServer> {
-    let mut servers = configured_servers
+    let servers = configured_servers
         .into_iter()
         .map(|(name, server)| {
             #[expect(
@@ -420,7 +409,6 @@ pub fn effective_mcp_servers_from_configured(
             )
         })
         .collect::<HashMap<_, _>>();
-    servers.remove(CODEX_APPS_MCP_SERVER_NAME);
     servers
 }
 
@@ -433,7 +421,6 @@ pub async fn read_mcp_resource(
     config: &McpConfig,
     auth: Option<&CodexAuth>,
     runtime_context: McpRuntimeContext,
-    codex_apps_tools_cache: ConnectorRuntimeManager<ToolInfo>,
     tool_catalog_cache: crate::McpToolCatalogCache,
     server: &str,
     params: ReadResourceRequestParams,
@@ -457,7 +444,6 @@ pub async fn read_mcp_resource(
             tx_event: None,
             startup_cancellation_token: cancel_token.clone(),
             runtime_context,
-            codex_apps_tools_cache,
             tool_catalog_cache,
             codex_apps_tools_cache_key: connector_runtime_context_key(auth),
             client_mcp_extensions: ClientMcpExtensions::default(),
@@ -493,7 +479,6 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
     config: &McpConfig,
     auth: Option<&CodexAuth>,
     runtime_context: McpRuntimeContext,
-    codex_apps_tools_cache: ConnectorRuntimeManager<ToolInfo>,
     tool_catalog_cache: crate::McpToolCatalogCache,
     detail: McpSnapshotDetail,
     server_name: Option<&str>,
@@ -541,7 +526,6 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
             tx_event: None,
             startup_cancellation_token: cancel_token.clone(),
             runtime_context,
-            codex_apps_tools_cache,
             tool_catalog_cache,
             codex_apps_tools_cache_key: connector_runtime_context_key(auth),
             client_mcp_extensions: ClientMcpExtensions::default(),

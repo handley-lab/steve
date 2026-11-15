@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 
 use codex_config::AppToolApproval;
 use codex_config::Constrained;
@@ -20,7 +18,6 @@ use pretty_assertions::assert_eq;
 use rmcp::model::JsonObject;
 use rmcp::model::Tool;
 use tokio::io::DuplexStream;
-use tokio::sync::Notify;
 
 use super::McpBinding;
 use super::McpPermissionSource;
@@ -52,7 +49,6 @@ impl InProcessTransportFactory for TestInProcessTransportFactory {
 struct TestStep {
     step: Arc<McpBinding>,
     client: Arc<RmcpClient>,
-    tool_catalog: Arc<ClientToolCatalog>,
 }
 
 async fn test_step(
@@ -84,7 +80,6 @@ async fn test_step(
     let tool_catalog = Arc::new(ClientToolCatalog::new(
         vec![tool.clone()],
         /*meta*/ None,
-        /*updates*/ None,
     ));
     let managed_client = Arc::new(ManagedClient {
         connection_sharing: Default::default(),
@@ -104,7 +99,6 @@ async fn test_step(
         server_instructions: None,
         server_supports_sandbox_state_meta_capability: supports_sandbox_state_meta,
         client_supports_network_policy_meta_capability: false,
-        codex_apps_tools_cache_context: None,
     });
     let clients = Arc::new(McpBindingClients::new(
         HashMap::from([(SERVER_NAME.to_string(), Arc::clone(&managed_client))]),
@@ -171,7 +165,6 @@ async fn test_step(
             calls,
         )),
         client,
-        tool_catalog,
     }
 }
 
@@ -337,131 +330,6 @@ async fn prepared_call_does_not_reroute_after_captured_connection_closes() {
         format!("{error:#}").contains("MCP client is shut down"),
         "the prepared call should fail on its captured client: {error:#}"
     );
-}
-
-#[tokio::test]
-async fn prepared_call_is_rejected_after_catalog_refresh() {
-    let step = test_step(
-        "old",
-        AppToolApproval::Prompt,
-        /*supports_sandbox_state_meta*/ true,
-    )
-    .await;
-    let prepared = step
-        .step
-        .prepare_call(SERVER_NAME, TOOL_NAME)
-        .expect("step should prepare the advertised tool");
-
-    step.tool_catalog
-        .refresh(
-            || async { Ok((step.step.tools().to_vec(), None, ())) },
-            || Some(()),
-            |_, _, ()| {},
-        )
-        .await
-        .expect("refresh tool catalog");
-
-    let error = prepared
-        .call(
-            Some(serde_json::json!({"query": "codex"})),
-            /*meta*/ None,
-            /*timeout*/ None,
-        )
-        .await
-        .expect_err("a call from an older catalog must be rejected");
-    assert!(
-        format!("{error:#}").contains("catalog changed"),
-        "unexpected error: {error:#}"
-    );
-}
-
-#[tokio::test]
-async fn stale_prepared_call_does_not_run_preparation() {
-    let step = test_step(
-        "old",
-        AppToolApproval::Prompt,
-        /*supports_sandbox_state_meta*/ true,
-    )
-    .await;
-    let prepared = step
-        .step
-        .prepare_call(SERVER_NAME, TOOL_NAME)
-        .expect("step should prepare the advertised tool");
-    step.tool_catalog
-        .refresh(
-            || async { Ok((step.step.tools().to_vec(), None, ())) },
-            || Some(()),
-            |_, _, ()| {},
-        )
-        .await
-        .expect("refresh tool catalog");
-    let prepared_side_effect_ran = Arc::new(AtomicBool::new(false));
-    let marker = Arc::clone(&prepared_side_effect_ran);
-
-    prepared
-        .call_with_preparation(/*requested_timeout*/ None, || async move {
-            marker.store(true, Ordering::SeqCst);
-            Ok((None, None))
-        })
-        .await
-        .expect_err("a call from an older catalog must be rejected");
-
-    assert!(!prepared_side_effect_ran.load(Ordering::SeqCst));
-}
-
-#[tokio::test]
-async fn preparation_holds_catalog_authority_until_it_finishes() {
-    let step = test_step(
-        "old",
-        AppToolApproval::Prompt,
-        /*supports_sandbox_state_meta*/ true,
-    )
-    .await;
-    let prepared = step
-        .step
-        .prepare_call(SERVER_NAME, TOOL_NAME)
-        .expect("step should prepare the advertised tool");
-    let preparation_started = Arc::new(Notify::new());
-    let finish_preparation = Arc::new(Notify::new());
-    let started = Arc::clone(&preparation_started);
-    let finish = Arc::clone(&finish_preparation);
-    let call = tokio::spawn(async move {
-        prepared
-            .call_with_preparation(/*requested_timeout*/ None, || async move {
-                started.notify_one();
-                finish.notified().await;
-                Err(anyhow::anyhow!("stop after preparation"))
-            })
-            .await
-    });
-
-    preparation_started.notified().await;
-    let validation_reached = AtomicBool::new(false);
-    let refresh = step.tool_catalog.refresh(
-        || async { Ok((step.step.tools().to_vec(), None, ())) },
-        || {
-            validation_reached.store(true, Ordering::SeqCst);
-            Some(())
-        },
-        |_, _, ()| {},
-    );
-    tokio::pin!(refresh);
-    assert!(
-        futures::poll!(&mut refresh).is_pending(),
-        "catalog replacement must wait for irreversible call preparation"
-    );
-    assert!(
-        !validation_reached.load(Ordering::SeqCst),
-        "publication validation must not hold its guard while calls drain"
-    );
-    finish_preparation.notify_one();
-    call.await
-        .expect("call task should finish")
-        .expect_err("the test preparation should stop the call");
-    refresh
-        .await
-        .expect("catalog refresh should finish after preparation");
-    assert!(validation_reached.load(Ordering::SeqCst));
 }
 
 #[tokio::test]

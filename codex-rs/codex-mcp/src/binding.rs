@@ -1,11 +1,5 @@
 //! Immutable MCP catalog and execution handles.
 
-#[path = "model_search.rs"]
-mod model_search;
-pub use model_search::SEARCH_CONNECTOR;
-pub use model_search::SearchDiscovery;
-pub use model_search::is_model_search_tool;
-
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
@@ -140,9 +134,6 @@ impl McpBinding {
         server: &str,
         params: Option<PaginatedRequestParams>,
     ) -> Result<ListResourceTemplatesResult> {
-        if self.connections.skips_resource_template_listing(server) {
-            return Ok(ListResourceTemplatesResult::with_all_items(Vec::new()));
-        }
         if self.clients.client(server).is_some() {
             self.clients.list_resource_templates(server, params).await
         } else {
@@ -157,9 +148,7 @@ impl McpBinding {
         include_server: impl Fn(&str) -> bool,
     ) -> McpResourceListing<ResourceTemplate> {
         self.clients
-            .list_all_resource_templates(|server| {
-                include_server(server) && !self.connections.skips_resource_template_listing(server)
-            })
+            .list_all_resource_templates(include_server)
             .await
     }
 
@@ -363,18 +352,6 @@ impl PreparedMcpCall {
 
     pub fn server_name(&self) -> &str {
         &self.server_name
-    }
-
-    /// Returns whether this call is bound to the host-owned Codex Apps server.
-    pub fn is_host_owned_apps(&self) -> bool {
-        self.config
-            .mcp_server_catalog
-            .server(&self.server_name)
-            .is_some_and(|registration| {
-                registration
-                    .source()
-                    .is_host_owned_apps(&self.server_name, registration.config())
-            })
     }
 
     pub fn server_origin(&self) -> Option<&str> {
