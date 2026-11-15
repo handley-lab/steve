@@ -21,7 +21,6 @@ use std::time::Duration;
 use codex_config::ConfigLayerStack;
 use codex_config::Constrained;
 use codex_config::McpServerConfig;
-use codex_config::McpServerTransportConfig;
 use codex_config::types::AppToolApproval;
 use codex_config::types::ApprovalsReviewer;
 use codex_config::types::AuthKeyringBackendKind;
@@ -124,8 +123,6 @@ pub enum McpServerPermissions {
 /// runtime entry points such as [`effective_mcp_servers`].
 #[derive(Debug, Clone)]
 pub struct McpConfig {
-    /// Base URL for ChatGPT-hosted app MCP servers, copied from the root config.
-    pub chatgpt_base_url: String,
     /// Optional product SKU forwarded to the host-owned apps MCP server.
     pub apps_mcp_product_sku: Option<String>,
     /// Requests server-side read-only filtering and invocation checks for MCP tools.
@@ -354,28 +351,6 @@ pub fn effective_mcp_servers(config: &McpConfig) -> HashMap<String, EffectiveMcp
     effective_mcp_servers_from_configured(configured_mcp_servers(config), config)
 }
 
-pub(crate) fn is_trusted_chatgpt_mcp_server(
-    transport: &McpServerTransportConfig,
-    chatgpt_base_url: &str,
-) -> bool {
-    let McpServerTransportConfig::StreamableHttp { url, .. } = transport else {
-        return false;
-    };
-    let Ok(server_url) = url::Url::parse(url) else {
-        return false;
-    };
-    if !matches!(server_url.scheme(), "http" | "https") {
-        return false;
-    }
-
-    url::Url::parse(chatgpt_base_url)
-        .ok()
-        .is_some_and(|backend_url| {
-            matches!(backend_url.scheme(), "http" | "https")
-                && server_url.origin() == backend_url.origin()
-        })
-}
-
 /// Converts a materialized server map to its auth-gated runtime view.
 ///
 /// Compatibility built-ins and extension overlays must already be reflected in
@@ -434,7 +409,6 @@ pub async fn read_mcp_resource(
         /*previous*/ None,
         McpPublicationGate::already_published(),
         McpRuntimeInput {
-            network_policy_metadata: None,
             startup_policy: McpStartupPolicy::Eager,
             config: Arc::new(runtime_config),
             plugins_available: false,
@@ -516,7 +490,6 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
         /*previous*/ None,
         McpPublicationGate::already_published(),
         McpRuntimeInput {
-            network_policy_metadata: None,
             startup_policy: McpStartupPolicy::Eager,
             config: Arc::new(runtime_config),
             plugins_available: false,

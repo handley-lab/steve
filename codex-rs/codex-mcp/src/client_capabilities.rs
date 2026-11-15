@@ -8,19 +8,9 @@ use codex_protocol::mcp::OPENAI_STANDARD_FORM_INPUT_EXTENSION_ID;
 use serde_json::Map;
 use serde_json::Value;
 
-/// Projects privileged capabilities only to their intended recipients.
-/// Verification requires the host-owned plugin service; network policy requires a trusted
-/// ChatGPT origin. Server names and caller-supplied capabilities do not grant either privilege.
-pub(crate) fn server_mcp_extensions(
-    extensions: &ClientMcpExtensions,
-    server: Option<&crate::catalog::ResolvedMcpServer>,
-    advertise_network_policy: bool,
-    chatgpt_base_url: &str,
-) -> ClientMcpExtensions {
-    let network_policy = advertise_network_policy
-        && server.is_some_and(|server| {
-            crate::mcp::is_trusted_chatgpt_mcp_server(&server.config().transport, chatgpt_base_url)
-        });
+/// Projects client extensions to a server without privileged capabilities.
+/// Caller-supplied network policy and user verification are never forwarded.
+pub(crate) fn server_mcp_extensions(extensions: &ClientMcpExtensions) -> ClientMcpExtensions {
     ClientMcpExtensions::new(
         extensions
             .iter()
@@ -33,13 +23,7 @@ pub(crate) fn server_mcp_extensions(
                     settings.remove("userVerification");
                 }
                 (id.to_string(), settings)
-            })
-            .chain(network_policy.then(|| {
-                (
-                    crate::MCP_NETWORK_POLICY_META_CAPABILITY.to_string(),
-                    Value::Object(Map::new()),
-                )
-            })),
+            }),
     )
 }
 

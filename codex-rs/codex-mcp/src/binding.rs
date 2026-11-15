@@ -452,12 +452,7 @@ impl PreparedMcpCall {
                         .call_tool(
                             tool_name.clone(),
                             arguments,
-                            self.connections.network_policy_meta_for_call(
-                                &self.client,
-                                Some(self.permission_profile()),
-                                self.server_environment_id(),
-                                meta,
-                            ),
+                            self.connections.network_policy_meta_for_call(meta),
                             remaining_timeout,
                         )
                         .await

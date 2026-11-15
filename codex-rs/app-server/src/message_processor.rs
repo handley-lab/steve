@@ -249,7 +249,6 @@ impl ConnectionSessionState {
 }
 
 pub(crate) struct MessageProcessorArgs {
-    pub(crate) cloud_skill_provider: Option<Arc<dyn codex_skills_extension::SkillProvider>>,
     pub(crate) outgoing: Arc<OutgoingMessageSender>,
     pub(crate) analytics_events_client: AnalyticsEventsClient,
     pub(crate) arg0_paths: Arg0DispatchPaths,
@@ -278,7 +277,6 @@ impl MessageProcessor {
     /// `Sender` so handlers can enqueue messages to be written to stdout.
     pub(crate) fn new(args: MessageProcessorArgs) -> Self {
         let MessageProcessorArgs {
-            cloud_skill_provider,
             outgoing,
             analytics_events_client,
             arg0_paths,
@@ -382,7 +380,6 @@ impl MessageProcessor {
                         goal_service: Arc::clone(&goal_service),
                         environment_manager: Arc::clone(&environment_manager_for_extensions),
                         executor_skill_provider: Arc::clone(&executor_skill_provider),
-                        cloud_skill_provider: cloud_skill_provider.clone(),
                         queue_service: queue_service.clone(),
                         turn_start_admission: Some(Arc::clone(&turn_start_admission)),
                     },

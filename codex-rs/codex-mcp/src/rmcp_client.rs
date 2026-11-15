@@ -757,8 +757,6 @@ async fn start_server_task(
         server_capabilities,
     } = params;
     let send_elicitation = elicitation_requests.make_sender(server_name.clone(), tx_event);
-    let client_supports_network_policy_meta =
-        client_mcp_extensions.contains(MCP_NETWORK_POLICY_META_CAPABILITY);
     let (sharing_negotiation, send_elicitation) = if let Some(sharing_declined) = sharing_declined {
         let (negotiation, sender) = SharingNegotiation::new(send_elicitation, sharing_declined);
         (Some(negotiation), sender)
@@ -876,7 +874,6 @@ async fn start_server_task(
         tool_timeout: None,
         server_instructions: initialize_result.instructions,
         server_supports_sandbox_state_meta_capability,
-        client_supports_network_policy_meta_capability: client_supports_network_policy_meta,
     };
 
     Ok(managed)
