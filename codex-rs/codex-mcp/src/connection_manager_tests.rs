@@ -1,8 +1,4 @@
 use super::*;
-use codex_rmcp_client::McpAuthState;
-use codex_rmcp_client::McpLoginRequirement;
-#[path = "connection_manager/network_policy_tests.rs"]
-mod network_policy_tests;
 use crate::McpBinding;
 use crate::McpServerPermissions;
 use crate::client_tool_catalog::ClientToolCatalog;
@@ -43,6 +39,8 @@ use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::GranularApprovalConfig;
 use codex_rmcp_client::ElicitationResponse;
 use codex_rmcp_client::InProcessTransportFactory;
+use codex_rmcp_client::McpAuthState;
+use codex_rmcp_client::McpLoginRequirement;
 use codex_rmcp_client::McpOAuthRefreshMode;
 use codex_rmcp_client::RmcpClient;
 use codex_utils_path_uri::PathUri;
@@ -90,8 +88,6 @@ impl McpConnectionSet {
         prefix_mcp_tool_names: bool,
     ) -> Self {
         Self {
-            config: None,
-            network_policy_metadata: None,
             servers: HashMap::new(),
             disabled_servers: Vec::new(),
             required_servers: Vec::new(),
@@ -454,7 +450,6 @@ async fn create_test_managed_client(tools: Vec<ToolInfo>) -> ManagedClient {
         tool_timeout: None,
         server_instructions: None,
         server_supports_sandbox_state_meta_capability: false,
-        client_supports_network_policy_meta_capability: false,
     }
 }
 
@@ -2927,7 +2922,6 @@ async fn no_local_runtime_fails_local_stdio_but_keeps_local_http_server() {
         /*previous*/ None,
         McpPublicationGate::already_published(),
         McpRuntimeInput {
-            network_policy_metadata: None,
             startup_policy: McpStartupPolicy::Eager,
             config: Arc::new(crate::mcp::tests::test_mcp_config(
                 codex_home.path().to_path_buf(),
@@ -3381,7 +3375,6 @@ async fn reconcile_reusable_server_with_mcp_config(
         }),
         McpPublicationGate::already_published(),
         McpRuntimeInput {
-            network_policy_metadata: None,
             startup_policy: McpStartupPolicy::Eager,
             config: Arc::new(mcp_config),
             plugins_available: false,
@@ -3493,7 +3486,6 @@ async fn reconciliation_reuses_connection_without_relisting_regular_tools() -> a
         tool_timeout: None,
         server_instructions: initialize.instructions,
         server_supports_sandbox_state_meta_capability: false,
-        client_supports_network_policy_meta_capability: false,
     };
     let runtime_context = reusable_server_runtime_context();
     let mut config = reusable_server_config("http://127.0.0.1:1");
@@ -3877,7 +3869,6 @@ async fn reconciliation_replaces_connection_when_protocol_mode_changes() {
         }),
         McpPublicationGate::already_published(),
         McpRuntimeInput {
-            network_policy_metadata: None,
             startup_policy: McpStartupPolicy::Eager,
             config: Arc::new(mcp_config),
             plugins_available: false,
@@ -3939,7 +3930,6 @@ async fn reconciliation_reuses_legacy_stdio_server_when_modern_protocol_is_enabl
         }),
         McpPublicationGate::already_published(),
         McpRuntimeInput {
-            network_policy_metadata: None,
             startup_policy: McpStartupPolicy::Eager,
             config: Arc::new(mcp_config),
             plugins_available: false,

@@ -79,7 +79,6 @@ async fn forced_refresh_replaces_pending_connection_without_interrupting_other_c
         cached_binding: Mutex::new(None),
     }));
     let input = McpRuntimeInput {
-        network_policy_metadata: None,
         startup_policy: McpStartupPolicy::Eager,
         config,
         plugins_available: false,

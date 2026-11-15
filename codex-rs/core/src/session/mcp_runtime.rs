@@ -365,7 +365,6 @@ impl Session {
         let runtime_context =
             self.mcp_runtime_context(&desired.environments, &desired.local_process_cwd);
         McpRuntimeInput {
-            network_policy_metadata: None,
             startup_policy: if matches!(desired.session_source, SessionSource::SubAgent(_)) {
                 McpStartupPolicy::DeferCachedServers
             } else if desired

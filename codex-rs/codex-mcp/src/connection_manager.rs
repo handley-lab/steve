@@ -12,7 +12,6 @@ mod network_policy;
 #[path = "connection_manager/required.rs"]
 mod required;
 pub use network_policy::NetworkPolicyMetadata;
-pub use network_policy::NetworkPolicyMetadataProvider;
 #[path = "connection_manager/resources.rs"]
 mod resources;
 #[path = "connection_manager/startup.rs"]
@@ -301,8 +300,6 @@ pub(crate) struct PreviousMcpConnections<'a> {
 
 /// A published view over a set of running MCP server connections.
 pub(crate) struct McpConnectionSet {
-    config: Option<Arc<crate::McpConfig>>,
-    network_policy_metadata: Option<Arc<dyn NetworkPolicyMetadataProvider>>,
     servers: HashMap<String, McpServerView>,
     disabled_servers: Vec<String>,
     required_servers: Vec<String>,
@@ -328,7 +325,6 @@ impl McpConnectionSet {
         let McpRuntimeInput {
             startup_policy,
             config,
-            network_policy_metadata,
             plugins_available: _,
             ready_selected_capability_roots: _,
             mcp_servers,
@@ -397,12 +393,8 @@ impl McpConnectionSet {
         {
             let server = server.with_read_only_mcp_tools(config.requires_read_only_mcp_tools);
             let registration = config.mcp_server_catalog.server(&server_name);
-            let client_mcp_extensions = crate::client_capabilities::server_mcp_extensions(
-                &client_mcp_extensions,
-                registration,
-                network_policy_metadata.is_some(),
-                &config.chatgpt_base_url,
-            );
+            let client_mcp_extensions =
+                crate::client_capabilities::server_mcp_extensions(&client_mcp_extensions);
             let host_plugin_root = registration.and_then(|server| match server.source() {
                 McpServerSource::Plugin(plugin) => plugin.host_root(),
                 McpServerSource::SelectedPlugin(_)
@@ -824,8 +816,6 @@ impl McpConnectionSet {
             }
         }
         let manager = Self {
-            config: Some(config),
-            network_policy_metadata,
             servers,
             disabled_servers,
             required_servers,
@@ -899,8 +889,6 @@ impl McpConnectionSet {
 
     pub fn empty(prefix_mcp_tool_names: bool) -> Self {
         Self {
-            config: None,
-            network_policy_metadata: None,
             servers: HashMap::new(),
             disabled_servers: Vec::new(),
             required_servers: Vec::new(),
@@ -1130,14 +1118,7 @@ impl McpConnectionSet {
             .call_tool(
                 tool.to_string(),
                 arguments,
-                self.network_policy_meta_for_call(
-                    &client,
-                    self.config
-                        .as_ref()
-                        .and_then(|config| config.permission_profile_for_server(server)),
-                    &view.metadata.environment_id,
-                    meta,
-                ),
+                self.network_policy_meta_for_call(meta),
                 effective_timeout,
             )
             .await
