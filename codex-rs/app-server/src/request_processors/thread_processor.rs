@@ -44,7 +44,6 @@ use codex_protocol::error::CodexErrorDetails;
 use codex_protocol::mcp::ClientMcpExtensions;
 use codex_protocol::mcp::plain_output_text;
 use codex_protocol::protocol::ThreadHistoryMode;
-use codex_thread_store::LocalHistoryAccount;
 use codex_thread_store::PersistContext;
 use std::ops::ControlFlow;
 
@@ -90,7 +89,6 @@ async fn remove_pending_thread_metadata(
 }
 
 struct ThreadListFilters {
-    account: Option<LocalHistoryAccount>,
     model_providers: Option<Vec<String>>,
     source_kinds: Option<Vec<ThreadSourceKind>>,
     archived: bool,
@@ -2745,7 +2743,6 @@ impl ThreadRequestProcessor {
     ) -> Result<ThreadListResponse, JSONRPCErrorError> {
         let ThreadListParams {
             include_attached_threads,
-            current_account_only: _,
             cursor,
             limit,
             excluded_thread_ids,
@@ -2879,7 +2876,6 @@ impl ThreadRequestProcessor {
                 store_sort_key,
                 sort_direction,
                 ThreadListFilters {
-                    account: None,
                     model_providers,
                     source_kinds,
                     archived: archived.unwrap_or(false),
@@ -2930,7 +2926,6 @@ impl ThreadRequestProcessor {
     ) -> Result<ThreadSearchResponse, JSONRPCErrorError> {
         let ThreadSearchParams {
             include_attached_threads,
-            current_account_only: _,
             cursor,
             limit,
             sort_key,
@@ -2957,7 +2952,6 @@ impl ThreadRequestProcessor {
         let mut cursor_obj = cursor;
         let mut last_cursor = cursor_obj.clone();
         let mut remaining = requested_page_size;
-        let account = None;
         let mut search_results = Vec::with_capacity(requested_page_size);
         let mut next_cursor = None;
 
@@ -2966,7 +2960,6 @@ impl ThreadRequestProcessor {
                 .thread_store
                 .search_threads(StoreSearchThreadsParams {
                     include_attached_threads,
-                    account: account.clone(),
                     page_size: remaining.min(THREAD_LIST_MAX_LIMIT),
                     cursor: cursor_obj.clone(),
                     sort_key: store_sort_key,
@@ -6066,7 +6059,6 @@ impl ThreadRequestProcessor {
         filters: ThreadListFilters,
     ) -> Result<(Vec<StoredThread>, Option<String>), JSONRPCErrorError> {
         let ThreadListFilters {
-            account,
             model_providers,
             source_kinds,
             archived,
@@ -6130,23 +6122,8 @@ impl ThreadRequestProcessor {
                 .await
                 .map_err(thread_store_list_error)?;
 
-            let page_thread_ids: Vec<_> = page.items.iter().map(|item| item.thread_id).collect();
-            let mut original_paths = None;
             let mut filtered = Vec::with_capacity(page.items.len());
             for it in page.items {
-                if let Some(account) = &account
-                    && !account
-                        .includes(
-                            &self.config.codex_home,
-                            it.thread_id,
-                            it.rollout_path.as_deref(),
-                            &page_thread_ids,
-                            &mut original_paths,
-                        )
-                        .await
-                {
-                    continue;
-                }
                 let source = with_thread_spawn_agent_metadata(
                     it.source.clone(),
                     it.agent_nickname.clone(),

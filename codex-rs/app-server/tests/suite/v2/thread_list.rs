@@ -103,7 +103,6 @@ async fn list_threads_with_sort(
         request_id,
         params: codex_app_server_protocol::ThreadListParams {
             include_attached_threads: false,
-            current_account_only: false,
             excluded_thread_ids: None,
             attached_to_thread_id: None,
             originators: None,
@@ -147,7 +146,6 @@ async fn list_threads_for_relation(
         request_id,
         params: codex_app_server_protocol::ThreadListParams {
             include_attached_threads: false,
-            current_account_only: false,
             excluded_thread_ids: None,
             attached_to_thread_id: None,
             originators: None,
@@ -782,7 +780,6 @@ async fn thread_list_respects_cwd_filters() -> Result<()> {
     let request_id = mcp
         .send_thread_list_request(codex_app_server_protocol::ThreadListParams {
             include_attached_threads: false,
-            current_account_only: false,
             excluded_thread_ids: None,
             attached_to_thread_id: None,
             originators: None,
@@ -975,7 +972,6 @@ async fn thread_search_returns_content_matches() -> Result<()> {
     let request_id = mcp
         .send_thread_search_request(codex_app_server_protocol::ThreadSearchParams {
             include_attached_threads: false,
-            current_account_only: false,
             cursor: None,
             limit: Some(10),
             sort_key: None,
@@ -1032,7 +1028,6 @@ async fn thread_search_returns_content_matches() -> Result<()> {
     let request_id = mcp
         .send_thread_search_request(codex_app_server_protocol::ThreadSearchParams {
             include_attached_threads: false,
-            current_account_only: false,
             cursor: None,
             limit: Some(10),
             sort_key: None,
@@ -1096,7 +1091,6 @@ async fn thread_search_matches_json_escaped_content() -> Result<()> {
     let request_id = mcp
         .send_thread_search_request(codex_app_server_protocol::ThreadSearchParams {
             include_attached_threads: false,
-            current_account_only: false,
             cursor: None,
             limit: Some(10),
             sort_key: None,
@@ -1143,7 +1137,6 @@ async fn thread_search_filters_by_source_kind() -> Result<()> {
     let request_id = mcp
         .send_thread_search_request(codex_app_server_protocol::ThreadSearchParams {
             include_attached_threads: false,
-            current_account_only: false,
             cursor: None,
             limit: Some(10),
             sort_key: None,
@@ -1322,7 +1315,6 @@ sqlite = true
     let request_id = mcp
         .send_thread_list_request(codex_app_server_protocol::ThreadListParams {
             include_attached_threads: false,
-            current_account_only: false,
             excluded_thread_ids: None,
             attached_to_thread_id: None,
             originators: None,
@@ -1363,7 +1355,6 @@ sqlite = true
     let request_id = mcp
         .send_thread_list_request(codex_app_server_protocol::ThreadListParams {
             include_attached_threads: false,
-            current_account_only: false,
             excluded_thread_ids: None,
             attached_to_thread_id: None,
             originators: None,
@@ -1397,7 +1388,6 @@ sqlite = true
     let request_id = mcp
         .send_thread_list_request(codex_app_server_protocol::ThreadListParams {
             include_attached_threads: false,
-            current_account_only: false,
             excluded_thread_ids: None,
             attached_to_thread_id: None,
             originators: None,
@@ -1587,7 +1577,6 @@ async fn thread_list_relation_filters_reject_invalid_requests() -> Result<()> {
     let request_id = mcp
         .send_thread_list_request(codex_app_server_protocol::ThreadListParams {
             include_attached_threads: false,
-            current_account_only: false,
             excluded_thread_ids: None,
             attached_to_thread_id: None,
             originators: None,
@@ -1618,7 +1607,6 @@ async fn thread_list_relation_filters_reject_invalid_requests() -> Result<()> {
     let request_id = mcp
         .send_thread_list_request(codex_app_server_protocol::ThreadListParams {
             include_attached_threads: false,
-            current_account_only: false,
             excluded_thread_ids: None,
             attached_to_thread_id: None,
             originators: None,
@@ -1860,7 +1848,6 @@ async fn thread_list_reports_loaded_subagent_direct_input_capability() -> Result
     let request_id = mcp
         .send_thread_search_request(codex_app_server_protocol::ThreadSearchParams {
             include_attached_threads: false,
-            current_account_only: false,
             cursor: None,
             limit: Some(10),
             sort_key: None,
@@ -1915,7 +1902,6 @@ async fn thread_list_reports_loaded_subagent_direct_input_capability() -> Result
             request_id,
             params: codex_app_server_protocol::ThreadListParams {
                 include_attached_threads: false,
-                current_account_only: false,
                 excluded_thread_ids: None,
                 attached_to_thread_id: None,
                 originators: None,
@@ -2742,7 +2728,6 @@ async fn thread_list_backwards_cursor_can_seed_forward_delta_sync() -> Result<()
         let request_id = mcp
             .send_thread_list_request(codex_app_server_protocol::ThreadListParams {
                 include_attached_threads: false,
-                current_account_only: false,
                 excluded_thread_ids: None,
                 attached_to_thread_id: None,
                 originators: None,
@@ -2788,7 +2773,6 @@ async fn thread_list_backwards_cursor_can_seed_forward_delta_sync() -> Result<()
         let request_id = mcp
             .send_thread_list_request(codex_app_server_protocol::ThreadListParams {
                 include_attached_threads: false,
-                current_account_only: false,
                 excluded_thread_ids: None,
                 attached_to_thread_id: None,
                 originators: None,
@@ -3224,7 +3208,6 @@ async fn thread_list_invalid_cursor_returns_error() -> Result<()> {
     let request_id = mcp
         .send_thread_list_request(codex_app_server_protocol::ThreadListParams {
             include_attached_threads: false,
-            current_account_only: false,
             excluded_thread_ids: None,
             attached_to_thread_id: None,
             originators: None,

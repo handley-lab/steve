@@ -19,7 +19,6 @@ use crate::ArchiveThreadParams;
 use crate::CreateThreadParams;
 use crate::DeleteThreadParams;
 use crate::ListTurnsParams;
-use crate::LocalHistoryAccount;
 use crate::RevertThreadParams;
 use crate::SortDirection;
 use crate::StoredTurnItemsView;
@@ -129,25 +128,6 @@ async fn revert_keeps_thread_id_and_hides_suffix_across_repeated_reverts() {
     .await
     .expect("write legacy replacement rollout");
 
-    for (user, expected) in [("creator-user", true), ("other-user", false)] {
-        let account = LocalHistoryAccount {
-            user_id: Some(user.to_string()),
-            account_id: Some("creator-account".to_string()),
-        };
-        assert_eq!(
-            account
-                .includes(
-                    home.path(),
-                    thread_id,
-                    Some(&first_replacement_path),
-                    &[thread_id],
-                    /*original_paths*/ &mut None,
-                )
-                .await,
-            expected
-        );
-    }
-
     store
         .revert_thread(RevertThreadParams {
             thread_id,
@@ -216,11 +196,6 @@ async fn revert_preserves_legacy_scope_and_resolved_multi_agent_version() {
     .await
     .expect("initialize state database");
     let store = LocalThreadStore::new(config, Some(state_db.clone()));
-    let other_account = LocalHistoryAccount {
-        user_id: Some("other-user".to_string()),
-        account_id: Some("other-account".to_string()),
-    };
-    let mut archived_threads = Vec::new();
 
     for version in [
         MultiAgentVersion::V1,
@@ -294,44 +269,11 @@ async fn revert_preserves_legacy_scope_and_resolved_multi_agent_version() {
                 (meta.meta.multi_agent_version, meta.meta.account_scoped),
                 (Some(version), false)
             );
-            assert!(
-                other_account
-                    .includes(
-                        home.path(),
-                        thread_id,
-                        Some(&path),
-                        &[thread_id],
-                        /*original_paths*/ &mut None,
-                    )
-                    .await
-            );
         }
         store
             .archive_thread(ArchiveThreadParams { thread_id })
             .await
             .expect("archive reverted legacy thread");
-        let path = state_db
-            .get_thread(thread_id)
-            .await
-            .expect("read archived metadata")
-            .expect("archived thread")
-            .rollout_path;
-        archived_threads.push((thread_id, path));
-    }
-    let page_thread_ids: Vec<_> = archived_threads.iter().map(|(id, _)| *id).collect();
-    let mut original_paths = None;
-    for (thread_id, path) in archived_threads {
-        assert!(
-            other_account
-                .includes(
-                    home.path(),
-                    thread_id,
-                    Some(&path),
-                    &page_thread_ids,
-                    &mut original_paths,
-                )
-                .await
-        );
     }
 }
 

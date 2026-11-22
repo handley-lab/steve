@@ -1001,7 +1001,6 @@ async fn thread_list(endpoint: &Endpoint, config_overrides: &[String], limit: u3
 
         let response = client.thread_list(ThreadListParams {
             include_attached_threads: false,
-            current_account_only: false,
             excluded_thread_ids: None,
             attached_to_thread_id: None,
             originators: None,
