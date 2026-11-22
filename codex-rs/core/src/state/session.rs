@@ -449,7 +449,7 @@ impl SessionState {
         self.active_connector_selection.clone()
     }
 
-    // Returns the current connector selection tracked on session state.
+    #[cfg(test)]
     pub(crate) fn get_connector_selection(&self) -> HashSet<String> {
         self.active_connector_selection.clone()
     }

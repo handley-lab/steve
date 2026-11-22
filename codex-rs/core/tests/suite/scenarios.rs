@@ -234,9 +234,6 @@ mod tools_namespace_budget;
 #[path = "scenarios_skill_catalog_dedup.rs"]
 mod skill_catalog_dedup;
 
-#[path = "scenarios_frozen_cloud_skills.rs"]
-mod frozen_cloud_skills;
-
 #[path = "scenarios_compaction_tests.rs"]
 mod compaction;
 
@@ -1579,9 +1576,14 @@ async fn astra_omits_disabled_executor_and_plugin_skills_from_model_context(
             codex_core::ConfigRefreshOutcome::Published
         );
     }
-    // Refresh shared MCP for the new roots (there is no Apps server in this test), then
-    // replace its plugin list before the next step captures it or needs another refresh.
-    let _ = thread.refresh_codex_apps_tools().await;
+    // Refresh shared MCP for the new roots, then replace its plugin list before the next
+    // step captures it or needs another refresh.
+    let _ = thread
+        .read_mcp_resource(
+            "missing",
+            rmcp::model::ReadResourceRequestParams::new("missing://resource"),
+        )
+        .await;
     let shared = thread.thread_extension_data();
     assert_eq!(
         shared
@@ -2645,7 +2647,6 @@ async fn code_mode_catalog_messages(ranked_search: bool) -> Result<()> {
         .with_config(move |config| {
             configure_scenario_catalog(config);
             config.chatgpt_base_url = apps.chatgpt_base_url;
-            config.features.enable(Feature::Apps).expect("enable apps");
             config.features.set_enabled(Feature::CodeModeToolSearch, ranked_search)
                 .expect("set ranked tool search");
             config.workspace_roots = vec![config.cwd.clone()];
@@ -3048,64 +3049,6 @@ async fn guardian_elastic_budgeting_request_history() -> Result<()> {
             .into_owned();
     }
     insta::assert_snapshot!("guardian_elastic_budgeting", snapshot);
-    Ok(())
-}
-
-#[cfg(not(target_os = "windows"))]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn guardian_code_mode_messaging_request_history() -> Result<()> {
-    skip_if_no_network!(Ok(()));
-    skip_if_wine_exec!(
-        Ok(()),
-        "Guardian approval actions require host-native paths"
-    );
-    let mut requests =
-        super::guardian_subagent_authorization::code_mode_guardian_request_history().await?;
-    let root =
-        requests.first().expect("root model request").body_json()["client_metadata"]["thread_id"]
-            .clone();
-    requests.sort_by_key(|request| {
-        let body = request.body_json();
-        let metadata = &body["client_metadata"];
-        if metadata["x-openai-subagent"] == "guardian" {
-            2
-        } else {
-            usize::from(metadata["thread_id"] != root)
-        }
-    });
-    let mut snapshot = context_snapshot::format_request_history_snapshot(
-        "A root uses Code Mode to send a confirmation and receives a real user reply; a worker then requests an action that Guardian reviews with the confirmed question as assistant context. Independent model streams are grouped as root, worker, then Guardian.",
-        &requests,
-        &ContextSnapshotOptions::default().rewrite_known_segments(),
-    );
-    for (pattern, replacement) in [
-        (
-            r#"(?m)^(\s*"environment_id": )"(?:local|remote)""#,
-            "$1\"<ENVIRONMENT>\"",
-        ),
-        (
-            r#"(For this action on environment )"(?:local|remote)","#,
-            "$1\"<ENVIRONMENT>\",",
-        ),
-        (r#"(?m)^(\s*"cwd": )"[^"]*""#, "$1\"<CWD>\""),
-        (
-            r#""command": \[\s*(?:"[^"]*",\s*)*"true"\s*\]"#,
-            "\"command\": [\"<SHELL>\", \"true\"]",
-        ),
-        (
-            r#"\{"type":"text","text":"Message sent\."\}"#,
-            r#"{"text":"Message sent.","type":"text"}"#,
-        ),
-        (
-            r#"\{"cmd":"true","sandbox_permissions":"require_escalated","justification":"Review the production deployment\."\}"#,
-            r#"{"cmd":"true","justification":"Review the production deployment.","sandbox_permissions":"require_escalated"}"#,
-        ),
-    ] {
-        snapshot = regex_lite::Regex::new(pattern)?
-            .replace_all(&snapshot, replacement)
-            .into_owned();
-    }
-    insta::assert_snapshot!("guardian_code_mode_messaging", snapshot);
     Ok(())
 }
 
@@ -4493,10 +4436,6 @@ async fn catalog_selected_plugin_wording_preserves_capability_policy(
             config.chatgpt_base_url = apps.chatgpt_base_url;
             config
                 .features
-                .enable(Feature::Apps)
-                .expect("enable Apps for selected-plugin scenario");
-            config
-                .features
                 .set_enabled(Feature::SimplifiedSelectionHints, simplified_selection)
                 .expect("configure selected-plugin hint mode");
             let catalog = config
@@ -4686,7 +4625,6 @@ async fn catalog_selected_plugin_omission_bounds_runtime_capabilities() -> Resul
         .with_config(move |config| {
             configure_catalog_plugin_scenario(config);
             config.chatgpt_base_url = apps.chatgpt_base_url;
-            config.features.enable(Feature::Apps).unwrap();
             config
                 .features
                 .disable(Feature::SimplifiedSelectionHints)

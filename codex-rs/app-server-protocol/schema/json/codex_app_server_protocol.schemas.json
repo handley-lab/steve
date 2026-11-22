@@ -5248,26 +5248,6 @@
           "properties": {
             "method": {
               "enum": [
-                "mcpServer/event/stream/notification"
-              ],
-              "title": "McpServer/event/stream/notificationNotificationMethod",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/definitions/v2/McpServerEventStreamNotification"
-            }
-          },
-          "required": [
-            "method",
-            "params"
-          ],
-          "title": "McpServer/event/stream/notificationNotification",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "method": {
-              "enum": [
                 "account/updated"
               ],
               "title": "Account/updatedNotificationMethod",
@@ -13768,38 +13748,14 @@
         "properties": {
           "_meta": {
             "additionalProperties": true,
-            "description": "Additional MCP request metadata. Account and turn routing keys are reserved.",
+            "description": "Additional MCP request metadata. Turn routing keys are reserved.",
             "type": [
               "object",
               "null"
             ]
           },
-          "connectorId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "originCallId": {
-            "description": "Originating MCP tool call used to select the resource's app.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "server": {
             "type": "string"
-          },
-          "target": {
-            "anyOf": [
-              {
-                "$ref": "#/definitions/v2/McpResourceReadTarget"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Explicit hosted app/account. Omit to retain legacy resource discovery."
           },
           "threadId": {
             "type": [
@@ -13826,38 +13782,12 @@
               "$ref": "#/definitions/v2/ResourceContent"
             },
             "type": "array"
-          },
-          "originCallId": {
-            "description": "Originating call when the server applied app-specific resource scoping.",
-            "type": [
-              "string",
-              "null"
-            ]
           }
         },
         "required": [
           "contents"
         ],
         "title": "McpResourceReadResponse",
-        "type": "object"
-      },
-      "McpResourceReadTarget": {
-        "properties": {
-          "connectorId": {
-            "type": "string"
-          },
-          "linkId": {
-            "description": "Null explicitly requests no-auth access, subject to the app's resource policy.",
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "connectorId",
-          "linkId"
-        ],
         "type": "object"
       },
       "McpServerConnectionStatus": {
@@ -13871,36 +13801,6 @@
           "disabled"
         ],
         "type": "string"
-      },
-      "McpServerEventNotification": {
-        "properties": {
-          "method": {
-            "type": "string"
-          },
-          "params": true
-        },
-        "required": [
-          "method",
-          "params"
-        ],
-        "type": "object"
-      },
-      "McpServerEventStreamNotification": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "notification": {
-            "$ref": "#/definitions/v2/McpServerEventNotification"
-          },
-          "subscriptionId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "notification",
-          "subscriptionId"
-        ],
-        "title": "McpServerEventStreamNotification",
-        "type": "object"
       },
       "McpServerInfo": {
         "description": "Presentation metadata advertised by an initialized MCP server.",

@@ -32,5 +32,4 @@ async fn guardian_review_session_config_allows_pinned_disabled_feature() {
 
     assert!(guardian_config.features.enabled(Feature::Collab));
     assert!(guardian_config.mcp_servers.get().is_empty());
-    assert!(!guardian_config.include_apps_instructions);
 }

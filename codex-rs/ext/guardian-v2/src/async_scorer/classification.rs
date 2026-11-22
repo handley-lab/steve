@@ -14,7 +14,6 @@ use codex_analytics::GuardianV2EventKind;
 use codex_core::CodexThread;
 use codex_core::GuardianAuthorizationVersion;
 use codex_core::GuardianRootSnapshot;
-use codex_core::ThreadManager;
 use codex_core::config::Config;
 use codex_core::context::ContextualUserFragment;
 use codex_core::context::GuardianContextMode;
@@ -72,7 +71,6 @@ pub(super) struct Classification {
     pub(super) root_turn_id: Option<String>,
     pub(super) cyber_access_program: Option<CyberAccessProgram>,
     pub(super) parent_response_id: Option<String>,
-    pub(super) manager: Arc<ThreadManager>,
     pub(super) thread: Arc<CodexThread>,
     pub(super) config: Arc<Config>,
     pub(super) context_mode: GuardianContextMode,
@@ -127,7 +125,6 @@ impl Classification {
             root_turn_id,
             cyber_access_program,
             parent_response_id,
-            manager,
             thread,
             config,
             context_mode,
@@ -156,7 +153,7 @@ impl Classification {
             metadata = async {
                 let trusted_tool_context = match mcp_tool.as_ref() {
                     Some(tool) => {
-                        trusted_tool_context(tool.tool_info(), tool.source(), &manager, &config).await
+                        trusted_tool_context(tool.tool_info(), tool.source(), &config).await
                     }
                     None => None,
                 };

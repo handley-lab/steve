@@ -54,7 +54,6 @@ pub async fn build_prompt_input(
     let thread_manager = ThreadManager::new(
         &config,
         startup,
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(
             EnvironmentManager::from_codex_home(

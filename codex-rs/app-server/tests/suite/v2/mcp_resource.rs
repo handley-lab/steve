@@ -28,7 +28,6 @@ use codex_app_server_protocol::InitializeParams;
 use codex_app_server_protocol::McpResourceContent;
 use codex_app_server_protocol::McpResourceReadParams;
 use codex_app_server_protocol::McpResourceReadResponse;
-use codex_app_server_protocol::McpResourceReadTarget;
 use codex_app_server_protocol::McpServerToolCallParams;
 use codex_app_server_protocol::McpServerToolCallResponse;
 use codex_app_server_protocol::ProjectCreateParams;
@@ -148,120 +147,6 @@ const SKILL_CONTENTS: &str = concat!(
 const SKILL_REFERENCE_CONTENTS: &str =
     "# Deploy reference\n\nUse the orchestrator deployment API.\n";
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn mcp_resource_read_returns_resource_contents() -> Result<()> {
-    let responses_server = responses::start_mock_server().await;
-    let (apps_server_url, apps_server_calls, apps_server_handle) =
-        start_resource_apps_mcp_server().await?;
-    let responses_server_uri = responses_server.uri();
-    let (_codex_home, mut mcp) = start_resource_test_app_server(
-        &apps_server_url,
-        &responses_server_uri,
-        ResourceTestEnvironment::Auto,
-    )
-    .await?;
-
-    let ThreadStartResponse { thread, .. } = mcp
-        .start_thread(ThreadStartParams {
-            model: Some("mock-model".to_string()),
-            ..Default::default()
-        })
-        .await?;
-    let metadata_value = json!({"sequence": [1, 2]});
-    let targets = [
-        None,
-        Some(McpResourceReadTarget {
-            connector_id: "calendar".to_string(),
-            link_id: Some("link_calendar".to_string()),
-        }),
-        Some(McpResourceReadTarget {
-            connector_id: "calendar".to_string(),
-            link_id: None,
-        }),
-    ];
-    for thread_id in [Some(thread.id.clone()), None] {
-        for target in &targets {
-            let read_response: McpResourceReadResponse = mcp
-                .request(|request_id| ClientRequest::McpResourceRead {
-                    request_id,
-                    params: McpResourceReadParams {
-                        meta: Some(serde_json::Map::from_iter([(
-                            "example/trace".into(),
-                            metadata_value.clone(),
-                        )])),
-                        thread_id: thread_id.clone(),
-                        origin_call_id: None,
-                        server: "codex_apps".to_string(),
-                        uri: TEST_RESOURCE_URI.to_string(),
-                        connector_id: None,
-                        target: target.clone(),
-                    },
-                })
-                .await?;
-            assert_eq!(read_response, expected_resource_read_response());
-            let metadata = apps_server_calls
-                .read_metadata
-                .lock()
-                .expect("read metadata lock");
-            let metadata = metadata
-                .last()
-                .expect("resource read reached the MCP server");
-            assert_eq!(metadata.get("example/trace"), Some(&metadata_value));
-            assert_eq!(
-                (
-                    metadata.get("connector_id").cloned(),
-                    metadata.get("link_id").cloned()
-                ),
-                match target {
-                    Some(target) => (
-                        Some(json!(target.connector_id)),
-                        Some(json!(target.link_id)),
-                    ),
-                    None => (None, None),
-                },
-            );
-        }
-    }
-
-    let reads_before_invalid_requests = apps_server_calls.read_metadata.lock().unwrap().len();
-    let other_route = json!({"resource_uri": "/calendar/link_other/events"});
-    let [_, pinned, no_auth] = targets;
-    for (key, value, origin_call_id, target) in [
-        ("connector_id", json!("spoofed"), None, None),
-        ("link_id", json!("spoofed"), Some("call".into()), None),
-        ("_codex_apps", other_route.clone(), None, pinned),
-        ("_codex_apps", other_route, None, no_auth),
-    ] {
-        let request_id = mcp
-            .send_mcp_resource_read_request(McpResourceReadParams {
-                thread_id: Some(thread.id.clone()),
-                origin_call_id,
-                meta: Some(serde_json::Map::from_iter([(key.into(), value)])),
-                server: "codex_apps".into(),
-                uri: TEST_RESOURCE_URI.into(),
-                connector_id: None,
-                target,
-            })
-            .await?;
-        let error = timeout(
-            DEFAULT_READ_TIMEOUT,
-            mcp.read_stream_until_error_message(RequestId::Integer(request_id)),
-        )
-        .await??;
-        assert_eq!(error.error.code, -32600);
-        assert!(error.error.message.contains(key));
-    }
-
-    assert_eq!(
-        apps_server_calls.read_metadata.lock().unwrap().len(),
-        reads_before_invalid_requests
-    );
-
-    apps_server_handle.abort();
-    let _ = apps_server_handle.await;
-    Ok(())
-}
-
 #[test_case(ProtocolVersion::V_2025_06_18; "legacy")]
 #[test_case(ProtocolVersion::V_2026_07_28; "modern")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -311,11 +196,8 @@ async fn mcp_resource_read_preserves_protocol_errors(protocol: ProtocolVersion) 
                 .send_mcp_resource_read_request(McpResourceReadParams {
                     meta: None,
                     thread_id,
-                    origin_call_id: None,
                     server: server.to_string(),
                     uri: TEST_ERROR_RESOURCE_URI.to_string(),
-                    connector_id: None,
-                    target: None,
                 })
                 .await?;
             let error = timeout(
@@ -504,11 +386,8 @@ async fn mcp_resource_read_returns_error_for_unknown_thread() -> Result<()> {
             params: McpResourceReadParams {
                 meta: None,
                 thread_id: Some("00000000-0000-4000-8000-000000000000".to_string()),
-                origin_call_id: None,
                 server: "codex_apps".to_string(),
                 uri: TEST_RESOURCE_URI.to_string(),
-                connector_id: None,
-                target: None,
             },
         })
         .await;
@@ -632,11 +511,8 @@ async fn metadata_and_mcp_requests_complete_while_unrelated_resume_loads_config(
                     params: McpResourceReadParams {
                         meta: None,
                         thread_id: Some(thread.id.clone()),
-                        origin_call_id: None,
                         server: "resource_server".to_string(),
                         uri: TEST_RESOURCE_URI.to_string(),
-                        connector_id: None,
-                        target: None,
                     },
                 }),
                 sender.request(ClientRequest::McpServerToolCall {
@@ -1288,7 +1164,6 @@ async fn start_resource_test_app_server_with_extra_config(
         .with_root_config(&format!(
             "chatgpt_base_url = \"{apps_server_url}\"\nmcp_oauth_credentials_store = \"file\""
         ))
-        .enable_feature(Feature::Apps)
         .with_extra_config(&format!(
             "[skills]\ninclude_instructions = true\n{extra_config}"
         ))
@@ -1350,7 +1225,6 @@ fn expected_resource_read_response() -> McpResourceReadResponse {
                 meta: None,
             },
         ],
-        origin_call_id: None,
     }
 }
 

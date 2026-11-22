@@ -219,16 +219,13 @@ pub(crate) fn startup(
                     .await?;
                 let (tools, meta) = list_tools_for_client_uncached(
                     "test_server",
-                    /*is_codex_apps_mcp_server*/ false,
-                    "test",
                     &client.client,
                     /*timeout*/ None,
                     /*catalog_item_limit*/ 100,
                     /*server_instructions*/ None,
                 )
                 .await?;
-                client.tool_catalog =
-                    Arc::new(ClientToolCatalog::new(tools, meta, /*updates*/ None));
+                client.tool_catalog = Arc::new(ClientToolCatalog::new(tools, meta));
                 client.connection_sharing = sharing;
                 Ok(client)
             }
@@ -703,113 +700,6 @@ async fn connection_key_changes_with_the_owner_but_survives_credential_refresh()
 
     refreshed.auth_state.as_mut().unwrap().1.owner_generation += 1;
     assert!(original != refreshed);
-}
-
-#[tokio::test(start_paused = true)]
-async fn new_chat_relists_tools_without_invalidating_or_waiting_for_existing_calls() {
-    let pool = McpConnectionPool::default();
-    let key = key(&context(), &config());
-    let server = TestServer::default();
-    let starts = Arc::new(AtomicUsize::new(0));
-    let release = Arc::new(Notify::new());
-    release.notify_one();
-    let launch = startup(
-        ConnectionSharing::Negotiated,
-        Arc::clone(&starts),
-        Arc::default(),
-        release,
-        server.clone(),
-    );
-    let first = pool
-        .connect(
-            Arc::default(),
-            key.clone(),
-            Arc::default(),
-            /*tool_catalog_cache_context*/ None,
-            CancellationToken::new(),
-            &launch,
-        )
-        .await
-        .unwrap();
-    let before = first.tool_catalog.read(|snapshot| snapshot).await;
-    let release_call = Notify::new();
-    let call = first
-        .tool_catalog
-        .run_with_snapshot(&before, || release_call.notified());
-    tokio::pin!(call);
-    assert!(futures::poll!(&mut call).is_pending());
-    for tool_name in ["test", "new"] {
-        *server.tools.lock().unwrap() = vec![create_test_tool("test_server", tool_name).tool];
-        let second = tokio::time::timeout(
-            Duration::from_secs(1),
-            pool.connect(
-                Arc::default(),
-                key.clone(),
-                Arc::default(),
-                /*tool_catalog_cache_context*/ None,
-                CancellationToken::new(),
-                &launch,
-            ),
-        )
-        .await
-        .expect("new chats must not wait for existing calls")
-        .unwrap();
-        assert_eq!(starts.load(Ordering::SeqCst), 1);
-        assert_eq!(
-            second
-                .tool_catalog
-                .read(|snapshot| snapshot.tools[0].tool.name.to_string())
-                .await,
-            tool_name
-        );
-        tokio::time::timeout(
-            Duration::from_secs(1),
-            second.tool_catalog.refresh(
-                || async { Ok((vec![create_test_tool("test_server", "refreshed")], None, ())) },
-                || Some(()),
-                |_, _, ()| {},
-            ),
-        )
-        .await
-        .expect("one chat's refresh must not wait for another chat's calls")
-        .unwrap();
-        assert_eq!(
-            first
-                .tool_catalog
-                .read(|snapshot| snapshot.tools[0].tool.name.to_string())
-                .await,
-            "test"
-        );
-    }
-    release_call.notify_one();
-    assert_eq!(call.await, Some(()));
-
-    server.block_listing.store(true, Ordering::Release);
-    let failed = pool
-        .connect(
-            Arc::default(),
-            key,
-            Arc::default(),
-            /*tool_catalog_cache_context*/ None,
-            CancellationToken::new(),
-            &launch,
-        )
-        .await;
-    assert!(failed.is_err());
-    let _cancelled =
-        tokio::time::timeout(Duration::from_secs(1), server.cancelled_listings.acquire())
-            .await
-            .expect("timed-out listings must be cancelled")
-            .unwrap();
-    first
-        .call_tool(
-            "test".to_string(),
-            /*arguments*/ None,
-            |_| Ok(None),
-            /*timeout*/ None,
-        )
-        .await
-        .unwrap();
 }
 
 #[tokio::test]

@@ -43,8 +43,6 @@ pub enum ToolCallOutcome {
 /// Provenance captured from the immutable MCP call selected for one tool invocation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum McpToolSource {
-    /// A connector routed through the host-owned Codex Apps MCP server.
-    Connector,
     /// An MCP server whose frozen registration matches the active Codex configuration.
     Config,
     /// An MCP server registered by a locally loaded plugin.
@@ -78,9 +76,7 @@ impl McpToolContext {
     ) -> Self {
         let tool = call.tool_info().clone();
         let registration = call.config().mcp_server_catalog.server(call.server_name());
-        let source = if tool.connector_id.is_some() && call.is_host_owned_apps() {
-            McpToolSource::Connector
-        } else if call.is_selected_plugin_server() {
+        let source = if call.is_selected_plugin_server() {
             McpToolSource::SelectedPlugin
         } else if let Some(McpServerSource::Plugin(plugin)) =
             registration.map(ResolvedMcpServer::source)

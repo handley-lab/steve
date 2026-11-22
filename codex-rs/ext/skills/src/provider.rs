@@ -3,7 +3,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 mod executor;
-mod frozen_cloud;
 mod host;
 
 use crate::HostSkillsSnapshot;
@@ -23,7 +22,6 @@ use crate::catalog::SkillSearchResult;
 
 pub use executor::ExecutorSkillProvider;
 pub(crate) use executor::attribute_executor_plugins;
-pub use frozen_cloud::FrozenCloudSkillProvider;
 pub use host::HostSkillProvider;
 
 pub(crate) const MAX_SKILL_RESOURCE_CONTENT_BYTES: usize = 1024 * 1024;

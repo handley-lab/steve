@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
-use codex_mcp::CODEX_APPS_MCP_SERVER_NAME;
 use codex_mcp::McpResourceListing;
 use codex_protocol::items::McpToolCallError;
 use codex_protocol::items::McpToolCallItem;
@@ -46,23 +45,6 @@ pub use list_mcp_resource_templates::ListMcpResourceTemplatesHandler;
 pub use list_mcp_resources::ListMcpResourcesHandler;
 pub use read_mcp_resource::ReadMcpResourceHandler;
 
-fn model_can_access_mcp_server(turn: &TurnContext, server: &str) -> bool {
-    turn.config.orchestrator_mcp_enabled || server != CODEX_APPS_MCP_SERVER_NAME
-}
-
-fn ensure_model_can_access_mcp_server(
-    turn: &TurnContext,
-    server: &str,
-) -> Result<(), FunctionCallError> {
-    if model_can_access_mcp_server(turn, server) {
-        Ok(())
-    } else {
-        Err(FunctionCallError::RespondToModel(format!(
-            "MCP server '{server}' is disabled by `orchestrator.mcp.enabled`"
-        )))
-    }
-}
-
 enum ResourceOperation {
     List,
     Read,
@@ -85,7 +67,6 @@ fn resource_environments(
         });
     };
     let step = &invocation.step_context;
-    ensure_model_can_access_mcp_server(&step.turn, &server)?;
     let environment_id = step.mcp.server_environment_id(&server).ok_or_else(|| {
         FunctionCallError::RespondToModel(format!("unknown MCP server '{server}'"))
     })?;
@@ -126,11 +107,9 @@ impl ListResourceArgs {
 
     fn target(
         &self,
-        turn: &TurnContext,
     ) -> Result<Option<(String, Option<PaginatedRequestParams>)>, FunctionCallError> {
         match &self.server {
             Some(server) => {
-                ensure_model_can_access_mcp_server(turn, server)?;
                 let params = self
                     .cursor
                     .clone()

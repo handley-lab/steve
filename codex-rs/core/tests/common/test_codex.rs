@@ -406,7 +406,6 @@ impl TestAuth {
 }
 
 pub struct TestCodexBuilder {
-    apps_tools_cache: codex_core::CodexAppsToolsCache,
     config_mutators: Vec<Box<ConfigMutator>>,
     thread_manager_configurer: Option<Box<dyn FnOnce(ThreadManager) -> ThreadManager + Send>>,
     auth: TestAuth,
@@ -431,11 +430,6 @@ pub struct TestCodexBuilder {
 }
 
 impl TestCodexBuilder {
-    pub fn with_apps_tools_cache(mut self, cache: codex_core::CodexAppsToolsCache) -> Self {
-        self.apps_tools_cache = cache;
-        self
-    }
-
     pub fn with_thread_store(mut self, thread_store: Arc<dyn ThreadStore>) -> Self {
         self.thread_store = Some(thread_store);
         self
@@ -897,7 +891,6 @@ impl TestCodexBuilder {
             let thread_manager = ThreadManager::new(
                 &config,
                 startup,
-                self.apps_tools_cache.clone(),
                 SessionSource::Exec,
                 Arc::clone(&environment_manager),
                 Arc::new(extensions.build()),
@@ -1552,18 +1545,17 @@ fn function_call_output<'a>(bodies: &'a [Value], call_id: &str) -> &'a Value {
 
 pub fn test_codex() -> TestCodexBuilder {
     TestCodexBuilder {
-        apps_tools_cache: Default::default(),
         thread_manager_configurer: None,
         config_mutators: vec![Box::new(|config| {
-            config
-                .features
-                .disable(Feature::Apps)
-                .expect("test config should allow Apps override");
             // Snapshot tests opt in explicitly; avoid spawning login shells for every test.
             config
                 .features
                 .disable(Feature::ShellSnapshot)
                 .expect("test config should allow ShellSnapshot override");
+            // Steve requires an explicit reviewer; the inherited tests expect upstream's.
+            config
+                .guardian_model
+                .get_or_insert_with(|| "codex-auto-review".to_string());
         })],
         auth: TestAuth::Cached(CodexAuth::from_api_key("dummy")),
         analytics_events_client: None,

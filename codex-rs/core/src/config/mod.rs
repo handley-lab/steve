@@ -760,14 +760,6 @@ pub struct Config {
     /// Frozen section policy for sync Guardian; absence keeps fixed budgeting.
     pub guardian_sync_elastic_budget: Option<codex_guardian_context::ElasticBudgetConfig>,
 
-    /// Optional replacement for the gated history-retrieval instructions.
-    /// Blank config values are treated as unset, like other Guardian policy overrides.
-    pub guardian_conversation_history_prompt: Option<String>,
-
-    /// Optional per-response history-tool budget. Guardian defaults to 4,000 tokens and
-    /// preserves stricter parent tool limits.
-    pub guardian_conversation_history_max_output_tokens: Option<NonZeroUsize>,
-
     /// Include a structured error when Guardian's circuit breaker interrupts a turn.
     pub guardian_circuit_break_action: CircuitBreakAction,
 
@@ -776,9 +768,6 @@ pub struct Config {
 
     /// Whether to inject the `<permissions instructions>` developer block.
     pub include_permissions_instructions: bool,
-
-    /// Whether to inject the `<apps_instructions>` developer block.
-    pub include_apps_instructions: bool,
 
     /// Whether to inject the `<collaboration_mode>` developer block.
     pub include_collaboration_mode_instructions: bool,
@@ -2024,7 +2013,6 @@ impl Config {
         }
 
         McpConfig {
-            chatgpt_base_url: self.chatgpt_base_url.clone(),
             apps_mcp_product_sku: self.apps_mcp_product_sku.clone(),
             requires_read_only_mcp_tools: false,
             codex_home: self.codex_home.to_path_buf(),
@@ -2054,10 +2042,6 @@ impl Config {
             codex_self_exe: self.codex_self_exe.clone(),
             codex_linux_sandbox_exe: self.codex_linux_sandbox_exe.clone(),
             use_legacy_landlock: self.features.use_legacy_landlock(),
-            apps_enabled: self.features.enabled(Feature::Apps),
-            apps_early_resource_discovery: self
-                .features
-                .enabled(Feature::AppsEarlyResourceDiscovery),
             prefix_mcp_tool_names: self.prefix_mcp_tool_names(),
             non_prefixed_mcp_tool_servers: if self
                 .features
@@ -2071,11 +2055,6 @@ impl Config {
             },
             protocol_mode: self.mcp_protocol_mode(),
             discover_local_stdio: self.features.enabled(Feature::McpConnectionSharing),
-            host_owned_apps_protocol_mode: if self.features.enabled(Feature::CodexAppsMcp20260728) {
-                McpProtocolMode::V20260728
-            } else {
-                McpProtocolMode::Legacy
-            },
             client_elicitation_capability: if self.features.enabled(Feature::AuthElicitation) {
                 ElicitationCapability::new()
                     .with_form(FormElicitationCapability::new())
@@ -4417,7 +4396,6 @@ impl Config {
             .map(|_| BaseInstructionsProvenance::Custom);
         let developer_instructions = developer_instructions.or(cfg.developer_instructions);
         let include_permissions_instructions = cfg.include_permissions_instructions.unwrap_or(true);
-        let include_apps_instructions = cfg.include_apps_instructions.unwrap_or(true);
         let include_collaboration_mode_instructions =
             cfg.include_collaboration_mode_instructions.unwrap_or(true);
         let include_skill_instructions = cfg
@@ -4474,15 +4452,6 @@ impl Config {
                 policy.validate().map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
                 Ok::<_, std::io::Error>(policy)
             }).transpose()?;
-        let guardian_conversation_history_prompt = cfg.auto_review.as_ref().and_then(|auto_review| {
-            normalize_guardian_policy_config(
-                auto_review.experimental_conversation_history_prompt.as_deref(),
-            )
-        });
-        let guardian_conversation_history_max_output_tokens = cfg
-            .auto_review
-            .as_ref()
-            .and_then(|auto_review| auto_review.conversation_history_max_output_tokens);
         let personality = personality.or(cfg.personality);
 
         let experimental_compact_prompt_path = cfg.experimental_compact_prompt_file.as_ref();
@@ -4758,7 +4727,6 @@ impl Config {
             developer_instructions,
             compact_prompt,
             include_permissions_instructions,
-            include_apps_instructions,
             include_collaboration_mode_instructions,
             include_skill_instructions,
             skill_max_context_tokens,
@@ -4856,8 +4824,6 @@ impl Config {
             guardian_policy_template: None,
             guardian_transcript_mode,
             guardian_sync_elastic_budget,
-            guardian_conversation_history_prompt,
-            guardian_conversation_history_max_output_tokens,
             guardian_review_timeout: cfg
                 .auto_review
                 .as_ref()

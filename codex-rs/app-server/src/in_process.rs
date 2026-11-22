@@ -514,7 +514,6 @@ async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcess
         let mut processor_handle = tokio::spawn(async move {
             let (startup_warnings_tx, mut startup_warnings_rx) = mpsc::unbounded_channel();
             let processor = Arc::new(MessageProcessor::new(MessageProcessorArgs {
-                cloud_skill_provider: None,
                 outgoing: Arc::clone(&processor_outgoing),
                 analytics_events_client,
                 arg0_paths: args.arg0_paths,
@@ -884,19 +883,15 @@ mod tests {
     use tempfile::TempDir;
 
     async fn build_test_config(codex_home: &Path) -> Config {
-        match ConfigBuilder::default()
+        ConfigBuilder::default()
             .codex_home(codex_home.to_path_buf())
+            .harness_overrides(codex_core::config::ConfigOverrides {
+                model_provider: Some("openai".to_string()),
+                ..Default::default()
+            })
             .build()
             .await
-        {
-            Ok(config) => config,
-            Err(_) => Config::load_default_with_cli_overrides_for_codex_home(
-                codex_home.to_path_buf(),
-                Vec::new(),
-            )
-            .await
-            .expect("default config should load"),
-        }
+            .expect("test config should load")
     }
 
     async fn start_test_client_with_options(

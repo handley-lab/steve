@@ -1743,12 +1743,6 @@ impl Session {
         state.merge_connector_selection(connector_ids)
     }
 
-    // Returns the connector IDs currently selected for this session.
-    pub(crate) async fn get_connector_selection(&self) -> HashSet<String> {
-        let state = self.state.lock().await;
-        state.get_connector_selection()
-    }
-
     // Clears connector IDs that were accumulated for explicit selection.
     pub(crate) async fn clear_connector_selection(&self) {
         let mut state = self.state.lock().await;
@@ -2980,7 +2974,6 @@ impl Session {
             }
             None => None,
         };
-        self.services.mcp_runtime.observe_event(&event.msg);
         let (before_event, after_event) = match realtime_history.as_mut() {
             Some(history) => {
                 let effects = history.observe(&event.msg);
@@ -4923,7 +4916,7 @@ impl Session {
                 replacement_history: Some(replacement_history),
                 guardian_history: state.history.guardian_history_checkpoint(),
                 retained_context: Some(state.history.retained_context().clone()),
-                mcp_resource_origins: self.services.mcp_runtime.resource_origin_checkpoint(),
+                mcp_resource_origins: None,
                 window_number: Some(metadata.window_number),
                 first_window_id: Some(metadata.window_ids.first_window_id.to_string()),
                 previous_window_id: metadata

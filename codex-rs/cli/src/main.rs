@@ -538,9 +538,6 @@ struct AppServerCommand {
     #[command(flatten)]
     startup_config: codex_app_server::StartupConfigArgs,
 
-    /// Load frozen cloud skills from a JSON snapshot instead of a live skill service.
-    #[arg(long, value_name = "PATH")]
-    cloud_skills_snapshot: Option<PathBuf>,
     /// Omit to run the app server; specify a subcommand for tooling.
     #[command(subcommand)]
     subcommand: Option<AppServerSubcommand>,
@@ -1193,7 +1190,6 @@ async fn dispatch_cli(
         Some(Subcommand::AppServer(app_server_cli)) => {
             let AppServerCommand {
                 startup_config,
-                cloud_skills_snapshot,
                 subcommand,
                 code_mode_host,
                 strict_config: app_server_strict_config,
@@ -1242,7 +1238,6 @@ async fn dispatch_cli(
                         let _ = codex_app_server_daemon::maintain_stderr_log();
                     }
                     let runtime_options = codex_app_server::AppServerRuntimeOptions {
-                        cloud_skills_snapshot,
                         code_mode_host_transport: code_mode_host.into(),
                         managed_daemon,
                         ..Default::default()

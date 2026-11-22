@@ -65,10 +65,7 @@ impl Session {
                 }
             };
         if !matches!(scope, RuntimeConfigRefresh::UserFiles) {
-            for (feature, description) in [
-                (Feature::Mcp20260728, "MCP protocol"),
-                (Feature::CodexAppsMcp20260728, "Codex Apps MCP protocol"),
-            ] {
+            for (feature, description) in [(Feature::Mcp20260728, "MCP protocol")] {
                 if let Err(err) = config
                     .features
                     .set_enabled(feature, next_config.features.enabled(feature))

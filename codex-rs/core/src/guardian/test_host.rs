@@ -36,7 +36,6 @@ pub(crate) fn install(
             session.installation_id.clone(),
             crate::test_support::fixed_model_catalog(Arc::clone(&session.services.models_manager)),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         session.services.turn_environments.environment_manager(),
         codex_extension_api::empty_extension_registry(),

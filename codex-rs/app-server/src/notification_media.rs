@@ -101,7 +101,6 @@ pub(crate) fn without_notification_media(notification: ServerNotification) -> Se
         | ServerNotification::McpToolCallProgress(_)
         | ServerNotification::McpServerOauthLoginCompleted(_)
         | ServerNotification::McpServerStatusUpdated(_)
-        | ServerNotification::McpServerEventStream(_)
         | ServerNotification::AccountUpdated(_)
         | ServerNotification::AccountRateLimitsUpdated(_)
         | ServerNotification::ExternalAgentConfigImportProgress(_)

@@ -35,15 +35,8 @@ pub(crate) async fn prepare_approval_action(
         tool: advertised_tool.tool.name.to_string(),
         arguments,
     };
-    let metadata = mcp_tool_metadata(
-        call.tool_info(),
-        call.plugin_id(),
-        mcp_invocation.arguments.as_ref(),
-    )
-    .map_err(|error| FunctionCallError::RespondToModel(error.to_string()))?;
-    let policy = mcp_tool_approval_policy(&call, &metadata).ok_or_else(|| {
-        FunctionCallError::RespondToModel("MCP tool call blocked by app configuration".into())
-    })?;
+    let metadata = mcp_tool_metadata(call.tool_info(), call.plugin_id());
+    let policy = mcp_tool_approval_policy(&call);
     match prepare_mcp_tool_approval(
         &invocation.session,
         &invocation.step_context,

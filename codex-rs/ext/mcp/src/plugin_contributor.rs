@@ -1,30 +1,30 @@
-//! Coordinates cloud turn refreshes and executor MCP contributions with thread-owned catalogs.
+//! Coordinates executor MCP contributions with thread-owned catalogs.
 //!
-//! One contributor is registered for both lifecycles. Provider instances are shared, while
-//! catalogs and executor metadata live together in thread extension data.
+//! Provider instances are shared, while catalogs and executor metadata live in thread
+//! extension data.
 
 use crate::PluginProviders;
+use crate::PluginsThreadState;
 use codex_core::config::Config;
 use codex_core_plugins::ExecutorPluginProvider;
 use codex_exec_server::EnvironmentManager;
+use codex_extension_api::ExtensionFuture;
 use codex_extension_api::ExtensionRegistryBuilder;
+use codex_extension_api::ThreadLifecycleContributor;
+use codex_extension_api::ThreadStartInput;
 use std::sync::Arc;
 
 pub(crate) struct PluginContributor {
     pub(crate) providers: PluginProviders,
 }
 
-/// Installs one coordinator for cloud turn-start and executor MCP callbacks.
-/// The optional cloud provider never disables executor plugins, and Core's plugin policy applies
-/// to both paths.
+/// Installs one coordinator for executor MCP callbacks; Core's plugin policy applies.
 pub fn install_plugin_providers(
     builder: &mut ExtensionRegistryBuilder<Config>,
     providers: PluginProviders,
 ) {
     let contributor = Arc::new(PluginContributor { providers });
     builder.thread_lifecycle_contributor(contributor.clone());
-    builder.config_contributor(contributor.clone());
-    builder.turn_lifecycle_contributor(contributor.clone());
     builder.mcp_server_contributor(contributor);
 }
 
@@ -37,4 +37,16 @@ pub fn install_plugins(
         builder,
         PluginProviders::new(Arc::new(ExecutorPluginProvider::new(environment_manager))),
     );
+}
+
+impl ThreadLifecycleContributor<Config> for PluginContributor {
+    fn on_thread_start<'a>(
+        &'a self,
+        input: ThreadStartInput<'a, Config>,
+    ) -> ExtensionFuture<'a, ()> {
+        Box::pin(async move {
+            let state = input.thread_store.get_or_init(PluginsThreadState::default);
+            state.contributor_state().extension_metrics = input.extension_metrics;
+        })
+    }
 }

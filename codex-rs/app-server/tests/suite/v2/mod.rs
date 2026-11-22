@@ -64,7 +64,6 @@ mod external_agent_config;
 mod external_agent_import_sync;
 mod external_agent_memory_concurrency;
 mod feedback;
-mod frozen_cloud_skills;
 mod fs;
 #[path = "gateway_oauth_tests.rs"]
 mod gateway_oauth;
@@ -82,7 +81,6 @@ mod marketplace_remove;
 mod marketplace_upgrade;
 mod mcp_connection_sharing;
 mod mcp_resource;
-mod mcp_resource_origin;
 mod mcp_server_elicitation;
 mod mcp_server_status;
 mod mcp_tool;
