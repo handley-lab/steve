@@ -59,7 +59,6 @@ use codex_protocol::protocol::TruncationPolicy;
 use codex_protocol::security_risk::SecurityRiskScore;
 use codex_protocol_test_support::uuid_v7_item_id_generator_for_test;
 use core_test_support::ThreadIdle;
-use core_test_support::apps_test_server::HostedMessagingServer;
 use core_test_support::responses;
 use core_test_support::responses::WebSocketConnectionConfig;
 use core_test_support::responses::ev_assistant_message;
@@ -963,15 +962,9 @@ async fn sample_configured_conversation_history_with_source(
         guardian_config,
         model_defaults,
         source,
-        MessagingSetup::Disabled,
     )
     .await?;
     Ok((request, test, registry))
-}
-
-enum MessagingSetup {
-    Disabled,
-    CodeMode(String),
 }
 
 async fn sample_configured_conversation_history_with_delivery(
@@ -981,7 +974,6 @@ async fn sample_configured_conversation_history_with_delivery(
     guardian_config: &str,
     model_defaults: Option<GuardianV2ModelConfig>,
     source: ToolCallSource,
-    messaging: MessagingSetup,
 ) -> Result<(
     serde_json::Value,
     TestCodex,
@@ -1004,12 +996,8 @@ async fn sample_configured_conversation_history_with_delivery(
         "model_provider = 'openai'\n{guardian_config}\n[features.guardianv2.review_scope]\ncomputer_use_only = false\n"
     );
     let has_model_defaults = model_defaults.is_some();
-    let code_mode = matches!(&messaging, MessagingSetup::CodeMode(_));
     let mut extensions = ExtensionRegistryBuilder::new();
     extensions.thread_lifecycle_contributor(Arc::new(ThreadIdle));
-    if let MessagingSetup::CodeMode(url) = messaging {
-        extensions.mcp_server_contributor(Arc::new(HostedMessagingServer(url)));
-    }
     let builder = test_codex()
         .with_extensions(Arc::new(extensions.build()))
         .with_auth(CodexAuth::from_api_key("dummy"))
@@ -1027,17 +1015,6 @@ async fn sample_configured_conversation_history_with_delivery(
         .with_config(move |config| {
             config.approvals_reviewer = ApprovalsReviewer::AutoReview;
             config.guardian_policy_config = Some("Policy from the live thread.".to_owned());
-            if code_mode {
-                for feature in [
-                    Feature::Apps,
-                    Feature::CodeMode,
-                    Feature::CodeModeInterrupt,
-                    Feature::Collab,
-                    Feature::MultiAgentV2,
-                ] {
-                    config.features.enable(feature).expect("enable Code Mode");
-                }
-            }
         })
         .with_pre_build_hook(move |home| {
             std::fs::write(home.join("config.toml"), guardian_config)
@@ -1054,12 +1031,7 @@ async fn sample_configured_conversation_history_with_delivery(
     } else {
         builder
     };
-    let mut builder = if code_mode {
-        builder
-            .with_code_mode_host_program(codex_utils_cargo_bin::cargo_bin("steve-code-mode-host")?)
-    } else {
-        builder
-    };
+    let mut builder = builder;
     let mut test = builder.build_with_auto_env(&thread_server).await?;
     if guardian_policy.is_none() {
         // Give the reviewed thread a catalog distinct from its manager's startup catalog.
@@ -1500,7 +1472,6 @@ classifier_instructions = "Predict future violations.\n# Security Policy\n{{ ten
         configuration,
         /*model_defaults*/ None,
         ToolCallSource::Direct,
-        MessagingSetup::Disabled,
     )
     .await?;
 
@@ -2875,9 +2846,6 @@ async fn stale_review_context_blocks_cached_approval_without_changing_authorizat
     );
     Ok(())
 }
-
-#[path = "extension_cached_delivery_tests.rs"]
-mod cached_delivery;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn incompatible_compaction_blocks_cached_score_and_initial_cua_allowance() -> Result<()> {

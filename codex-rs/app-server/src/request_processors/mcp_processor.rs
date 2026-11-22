@@ -8,33 +8,25 @@ use codex_otel::auth_storage::AuthStorageOriginator;
 use codex_rmcp_client::McpRequestTrace;
 use std::future::Future;
 
-use crate::thread_state::ThreadStateManager;
-
 const MCP_THREAD_ID_META_KEY: &str = "threadId";
 
 #[derive(Clone)]
 pub(crate) struct McpRequestProcessor {
-    pub(super) auth_manager: Arc<AuthManager>,
     thread_manager: Arc<ThreadManager>,
     pub(super) outgoing: Arc<OutgoingMessageSender>,
     config_manager: ConfigManager,
-    pub(super) thread_state_manager: ThreadStateManager,
 }
 
 impl McpRequestProcessor {
     pub(crate) fn new(
-        auth_manager: Arc<AuthManager>,
         thread_manager: Arc<ThreadManager>,
-        thread_state_manager: ThreadStateManager,
         outgoing: Arc<OutgoingMessageSender>,
         config_manager: ConfigManager,
     ) -> Self {
         Self {
-            auth_manager,
             thread_manager,
             outgoing,
             config_manager,
-            thread_state_manager,
         }
     }
 
@@ -359,7 +351,6 @@ impl McpRequestProcessor {
                 &mcp_config,
                 auth.as_ref(),
                 runtime_context,
-                mcp_manager.codex_apps_tools_cache(),
                 mcp_manager.tool_catalog_cache(),
                 detail,
                 params.server_name.as_deref(),
@@ -430,9 +421,7 @@ impl McpRequestProcessor {
                         | McpServerSource::SelectedPlugin(plugin) => {
                             Some(plugin.plugin_id().to_owned())
                         }
-                        McpServerSource::Config
-                        | McpServerSource::Compatibility { .. }
-                        | McpServerSource::Extension { .. } => None,
+                        McpServerSource::Config | McpServerSource::Extension { .. } => None,
                     },
                 ),
                 http_origin: mcp_config
@@ -479,58 +468,21 @@ impl McpRequestProcessor {
         let McpResourceReadParams {
             meta,
             thread_id,
-            origin_call_id,
             server,
             uri,
-            connector_id,
-            target,
         } = params;
         let mut resource_params = ReadResourceRequestParams::new(uri);
-        let mut meta = meta.unwrap_or_default();
-        let is_codex_apps = server == codex_mcp::CODEX_APPS_MCP_SERVER_NAME;
-        let reserved_key = meta.iter().find_map(|(key, value)| match key.as_str() {
+        let meta = meta.unwrap_or_default();
+        let reserved_key = meta.keys().find_map(|key| match key.as_str() {
             "x-codex-turn-metadata"
             | MCP_THREAD_ID_META_KEY
             | codex_mcp::MCP_CONNECTION_LEASE_META_KEY => Some(key.as_str()),
-            "connector_id" | "link_id" if is_codex_apps => Some(key.as_str()),
-            // This legacy routing hint can override an explicit app and account target.
-            "_codex_apps" if is_codex_apps && value.get("resource_uri").is_some() => {
-                Some("_codex_apps.resource_uri")
-            }
             _ => None,
         });
         if let Some(key) = reserved_key {
             return Err(invalid_request(format!(
                 "reserved resource read metadata key: {key}"
             )));
-        }
-        if let Some(connector_id) = connector_id {
-            meta.insert(
-                "x-codex-turn-metadata".to_string(),
-                serde_json::json!({
-                    "mcp_request_meta": {"selected_connector_ids": [connector_id]},
-                }),
-            );
-        }
-        if origin_call_id.is_none()
-            && let Some(target) = target
-        {
-            if !is_codex_apps
-                || target.connector_id.trim().is_empty()
-                || target
-                    .link_id
-                    .as_ref()
-                    .is_some_and(|id| id.trim().is_empty() || id.starts_with("synthetic_link::"))
-            {
-                return Err(invalid_request(
-                    "target requires codex_apps, a connectorId, and a real linkId or null",
-                ));
-            }
-            meta.insert(
-                "connector_id".to_string(),
-                serde_json::json!(target.connector_id),
-            );
-            meta.insert("link_id".to_string(), serde_json::json!(target.link_id));
         }
         if !meta.is_empty() {
             resource_params.meta = Some(meta.into());
@@ -541,35 +493,16 @@ impl McpRequestProcessor {
             let response_request_id = request_id.clone();
 
             let task = async move {
-                let origin_call_id = origin_call_id.filter(|_| is_codex_apps);
-                let result = match origin_call_id.as_deref() {
-                    Some(call_id) => {
-                        thread
-                            .read_mcp_resource_for_call(call_id, resource_params)
-                            .await
-                    }
-                    None => thread.read_mcp_resource(&server, resource_params).await,
-                };
-                Self::send_mcp_resource_read_response(
-                    outgoing,
-                    response_request_id,
-                    result,
-                    origin_call_id,
-                )
-                .await;
+                let result = thread.read_mcp_resource(&server, resource_params).await;
+                Self::send_mcp_resource_read_response(outgoing, response_request_id, result).await;
             };
             self.spawn_mcp_request(request_id, task).await;
             return Ok(());
         }
 
-        if origin_call_id.is_some() {
-            return Err(invalid_request("originCallId requires threadId"));
-        }
-
         let config = self.load_global_config().await?;
         let mcp_manager = self.thread_manager.mcp_manager();
         let mcp_config = mcp_manager.runtime_config(&config).await;
-        let codex_apps_tools_cache = mcp_manager.codex_apps_tools_cache();
         let tool_catalog_cache = mcp_manager.tool_catalog_cache();
         self.thread_manager
             .runtime_auth_for_mcp_manager(&config, &mcp_manager)
@@ -588,20 +521,13 @@ impl McpRequestProcessor {
                 &mcp_config,
                 auth.as_ref(),
                 runtime_context,
-                codex_apps_tools_cache,
                 tool_catalog_cache,
                 &server,
                 resource_params,
             )
             .await
             .and_then(|result| serde_json::to_value(result).map_err(anyhow::Error::from));
-            Self::send_mcp_resource_read_response(
-                outgoing,
-                response_request_id,
-                result,
-                /*origin_call_id*/ None,
-            )
-            .await;
+            Self::send_mcp_resource_read_response(outgoing, response_request_id, result).await;
         };
         self.spawn_mcp_request(request_id, task).await;
         Ok(())
@@ -611,21 +537,14 @@ impl McpRequestProcessor {
         outgoing: Arc<OutgoingMessageSender>,
         request_id: ConnectionRequestId,
         result: anyhow::Result<serde_json::Value>,
-        origin_call_id: Option<String>,
     ) {
-        let result = result
-            .map_err(mcp_operation_error)
-            .and_then(|result| {
-                serde_json::from_value::<McpResourceReadResponse>(result).map_err(|error| {
-                    internal_error(format!(
-                        "failed to deserialize MCP resource read response: {error}"
-                    ))
-                })
+        let result = result.map_err(mcp_operation_error).and_then(|result| {
+            serde_json::from_value::<McpResourceReadResponse>(result).map_err(|error| {
+                internal_error(format!(
+                    "failed to deserialize MCP resource read response: {error}"
+                ))
             })
-            .map(|mut response| {
-                response.origin_call_id = origin_call_id;
-                response
-            });
+        });
         outgoing.send_result(request_id, result).await;
     }
 

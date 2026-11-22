@@ -34,7 +34,6 @@ from .v2_all import ItemCompletedNotification
 from .v2_all import ItemGuardianApprovalReviewCompletedNotification
 from .v2_all import ItemGuardianApprovalReviewStartedNotification
 from .v2_all import ItemStartedNotification
-from .v2_all import McpServerEventStreamNotification
 from .v2_all import McpServerOauthLoginCompletedNotification
 from .v2_all import McpServerStatusUpdatedNotification
 from .v2_all import McpToolCallProgressNotification
@@ -118,7 +117,6 @@ KnownNotificationPayload: TypeAlias = (
     | ItemGuardianApprovalReviewCompletedNotification
     | ItemGuardianApprovalReviewStartedNotification
     | ItemStartedNotification
-    | McpServerEventStreamNotification
     | McpServerOauthLoginCompletedNotification
     | McpServerStatusUpdatedNotification
     | McpToolCallProgressNotification
@@ -207,7 +205,6 @@ NOTIFICATION_MODELS: dict[str, type[KnownNotificationPayload]] = {
     "item/reasoning/summaryTextDelta": ReasoningSummaryTextDeltaNotification,
     "item/reasoning/textDelta": ReasoningTextDeltaNotification,
     "item/started": ItemStartedNotification,
-    "mcpServer/event/stream/notification": McpServerEventStreamNotification,
     "mcpServer/oauthLogin/completed": McpServerOauthLoginCompletedNotification,
     "mcpServer/startupStatus/updated": McpServerStatusUpdatedNotification,
     "model/rerouted": ModelReroutedNotification,

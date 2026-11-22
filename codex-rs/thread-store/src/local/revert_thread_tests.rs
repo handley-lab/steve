@@ -128,7 +128,6 @@ async fn revert_keeps_thread_id_and_hides_suffix_across_repeated_reverts() {
     .await
     .expect("write legacy replacement rollout");
 
-
     store
         .revert_thread(RevertThreadParams {
             thread_id,

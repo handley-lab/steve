@@ -1261,14 +1261,44 @@ pub async fn mount_models_once_with_etag(
     models_mock
 }
 
+/// Upstream's model catalogue, which the inherited tests assume; it is test data only.
+const UPSTREAM_TEST_CATALOG: &str = include_str!("../../../models-manager/models.json");
+
+/// Model slugs that shared test configurations select and the upstream catalogue lacks.
+const EXTRA_TEST_MODELS: &[&str] = &["gpt-5.4", "gpt-5.2", "gpt-5.2-codex", "mock-model"];
+
+/// The models a mock provider lists unless a test mounts its own `/models` response.
+pub fn default_test_models() -> Vec<codex_protocol::openai_models::ModelInfo> {
+    let mut models = serde_json::from_str::<ModelsResponse>(UPSTREAM_TEST_CATALOG)
+        .expect("upstream test catalogue parses")
+        .models;
+    for slug in EXTRA_TEST_MODELS {
+        if !models.iter().any(|model| model.slug == *slug) {
+            models.push(codex_models_manager::test_support::model_info(slug));
+        }
+    }
+    models
+}
+
 pub async fn start_mock_server() -> MockServer {
     let server = MockServer::builder()
         .body_print_limit(BodyPrintLimit::Limited(80_000))
         .start()
         .await;
 
-    // Provide a default `/models` response so tests remain hermetic when the client queries it.
-    let _ = mount_models_once(&server, ModelsResponse { models: Vec::new() }).await;
+    // Serve the models tests configure by default; a test's own `/models` mock takes precedence.
+    Mock::given(method("GET"))
+        .and(path_regex(".*/models$"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/json")
+                .set_body_json(ModelsResponse {
+                    models: default_test_models(),
+                }),
+        )
+        .with_priority(u8::MAX)
+        .mount(&server)
+        .await;
 
     server
 }

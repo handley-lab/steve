@@ -1627,7 +1627,6 @@ async fn mcp_invalidation_refreshes_threads_that_are_still_starting() {
             TEST_INSTALLATION_ID.to_string(),
             Arc::new(ModelCatalogSettings::disk(config.codex_home.to_path_buf())),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         Arc::new(extensions.build()),
@@ -1914,7 +1913,6 @@ async fn spawn_internal_session_preserves_parent_lineage_without_forking_history
     manager_state.mcp_manager = Arc::new(McpManager::new_with_extensions(
         Arc::clone(&manager_state.plugins_manager),
         Arc::clone(&manager_state.extensions),
-        manager_state.mcp_manager.codex_apps_tools_cache(),
     ));
     let parent_provider = Arc::new(ParentInstructionsProvider(parent_instructions.clone()));
     manager_state.user_instructions_provider = parent_provider.clone();
@@ -2267,10 +2265,6 @@ async fn start_thread_seeds_extension_data_for_mcp_and_lifecycle_contributors() 
     config.cwd = config.codex_home.abs();
     config
         .features
-        .enable(Feature::Apps)
-        .expect("test config should allow apps");
-    config
-        .features
         .enable(Feature::Plugins)
         .expect("enable plugins");
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");
@@ -2297,7 +2291,6 @@ async fn start_thread_seeds_extension_data_for_mcp_and_lifecycle_contributors() 
             TEST_INSTALLATION_ID.to_string(),
             Arc::new(ModelCatalogSettings::disk(config.codex_home.to_path_buf())),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         Arc::new(extensions.build()),
@@ -2746,7 +2739,6 @@ async fn resume_and_fork_do_not_restore_thread_environments_from_rollout() {
             TEST_INSTALLATION_ID.to_string(),
             Arc::new(ModelCatalogSettings::disk(config.codex_home.to_path_buf())),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),
@@ -2908,7 +2900,6 @@ async fn explicit_installation_id_skips_codex_home_file() {
             installation_id.clone(),
             Arc::new(ModelCatalogSettings::disk(config.codex_home.to_path_buf())),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),
@@ -2954,7 +2945,6 @@ async fn resume_active_thread_from_rollout_returns_running_thread() {
             TEST_INSTALLATION_ID.to_string(),
             Arc::new(ModelCatalogSettings::disk(config.codex_home.to_path_buf())),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),
@@ -3022,7 +3012,6 @@ async fn resume_stopped_thread_from_rollout_spawns_new_thread() {
             TEST_INSTALLATION_ID.to_string(),
             Arc::new(ModelCatalogSettings::disk(config.codex_home.to_path_buf())),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),
@@ -3097,7 +3086,6 @@ async fn resume_stopped_thread_from_rollout_preserves_thread_source() {
             TEST_INSTALLATION_ID.to_string(),
             Arc::new(ModelCatalogSettings::disk(config.codex_home.to_path_buf())),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),
@@ -3186,7 +3174,6 @@ async fn subtree_listing_uses_injected_graph_store_without_state_db() {
             TEST_INSTALLATION_ID.to_string(),
             Arc::new(ModelCatalogSettings::disk(config.codex_home.to_path_buf())),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),
@@ -3236,7 +3223,6 @@ async fn rollout_path_resume_and_fork_read_history_through_thread_store() {
             TEST_INSTALLATION_ID.to_string(),
             Arc::new(ModelCatalogSettings::disk(config.codex_home.to_path_buf())),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),
@@ -3348,7 +3334,6 @@ async fn metadata_update_without_result_reads_only_when_the_caller_needs_the_thr
             TEST_INSTALLATION_ID.to_string(),
             Arc::new(ModelCatalogSettings::disk(config.codex_home.to_path_buf())),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),
@@ -3511,7 +3496,6 @@ async fn thread_metadata_follows_manager_construction_inputs() {
     let manager = ThreadManager::new(
         &config,
         startup,
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),
@@ -3673,7 +3657,6 @@ async fn new_uses_active_provider_for_model_refresh(with_cache: bool) {
                 ModelCatalogSettings::default()
             }),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),
@@ -3832,7 +3815,6 @@ async fn startup_catalog_cache_policy_controls_refresh() {
             TEST_INSTALLATION_ID.to_string(),
             Arc::new(ModelCatalogSettings::default()),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Custom("test-embedder".to_string()),
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),
@@ -4116,7 +4098,6 @@ async fn interrupted_fork_snapshot_does_not_synthesize_turn_id_for_legacy_histor
             TEST_INSTALLATION_ID.to_string(),
             Arc::new(ModelCatalogSettings::disk(config.codex_home.to_path_buf())),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),
@@ -4230,7 +4211,6 @@ async fn interrupted_fork_snapshot_preserves_explicit_turn_id() {
             TEST_INSTALLATION_ID.to_string(),
             Arc::new(ModelCatalogSettings::disk(config.codex_home.to_path_buf())),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),
@@ -4337,7 +4317,6 @@ async fn interrupted_fork_snapshot_uses_persisted_mid_turn_history_without_live_
             TEST_INSTALLATION_ID.to_string(),
             Arc::new(ModelCatalogSettings::disk(config.codex_home.to_path_buf())),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),
@@ -4521,7 +4500,6 @@ async fn temporary_models_manager_refreshes_only_selected_provider() {
     let manager = ThreadManager::new(
         &config,
         startup,
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),
@@ -4636,7 +4614,6 @@ async fn models_manager_reuse_tracks_provider_scope() {
     let manager = ThreadManager::new(
         &config,
         startup,
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         empty_extension_registry(),

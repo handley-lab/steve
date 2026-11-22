@@ -46,7 +46,6 @@ fn test_thread_manager(
     Arc::new(codex_core::ThreadManager::new(
         config,
         startup,
-        codex_core::CodexAppsToolsCache::default(),
         codex_protocol::protocol::SessionSource::Exec,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
         codex_extension_api::empty_extension_registry(),

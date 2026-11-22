@@ -119,7 +119,6 @@ async fn publication_harness(
             "spawn-publication-cleanup-test".to_string(),
             crate::test_support::fixed_model_catalog(harness.manager.get_models_manager()),
         ),
-        crate::CodexAppsToolsCache::default(),
         SessionSource::Exec,
         harness.manager.environment_manager(),
         empty_extension_registry(),

@@ -185,6 +185,10 @@ mod tests {
     async fn test_config(codex_home: &TempDir, cwd: &TempDir) -> Config {
         ConfigBuilder::default()
             .codex_home(codex_home.path().to_path_buf())
+            .harness_overrides(crate::legacy_core::config::ConfigOverrides {
+                model_provider: Some("openai".to_string()),
+                ..Default::default()
+            })
             .fallback_cwd(Some(cwd.path().to_path_buf()))
             .build()
             .await

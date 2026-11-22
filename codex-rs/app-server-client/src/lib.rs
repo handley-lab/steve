@@ -899,19 +899,15 @@ mod tests {
     }
 
     async fn build_test_config_for_codex_home(codex_home: &Path) -> Config {
-        match ConfigBuilder::default()
+        ConfigBuilder::default()
             .codex_home(codex_home.to_path_buf())
+            .harness_overrides(codex_core::config::ConfigOverrides {
+                model_provider: Some("openai".to_string()),
+                ..Default::default()
+            })
             .build()
             .await
-        {
-            Ok(config) => config,
-            Err(_) => Config::load_default_with_cli_overrides_for_codex_home(
-                codex_home.to_path_buf(),
-                Vec::new(),
-            )
-            .await
-            .expect("default config should load"),
-        }
+            .expect("test config should load")
     }
 
     struct TestClient {

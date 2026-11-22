@@ -4,15 +4,12 @@
 use codex_protocol::openai_models::CatalogModel;
 use std::sync::Arc;
 
-use codex_features::Feature;
 use codex_guardian_reviewer::reviewer_instructions;
 use codex_prompts::ResolvedModelMessages;
 use codex_protocol::models::BaseInstructionsProvenance;
 
 use crate::config::Config;
 use crate::config::NetworkProxySpec;
-use crate::context::ContextualUserFragment;
-use crate::context::GuardianConversationHistory;
 
 /// Adds the captured model, policy prompt and live network rules before reuse selection.
 pub fn build_guardian_review_session_config(
@@ -34,20 +31,6 @@ pub fn build_guardian_review_session_config(
     guardian_config.model_reasoning_effort = reasoning_effort;
     guardian_config.model_reasoning_summary = Some(reasoning_summary);
     guardian_config.personality = personality;
-    let conversation_history = (guardian_config
-        .features
-        .enabled(Feature::GuardianConversationHistoryTools)
-        && guardian_config.features.enabled(Feature::Apps))
-    .then(|| {
-        GuardianConversationHistory {
-            prompt: guardian_config
-                .guardian_conversation_history_prompt
-                .as_deref(),
-        }
-        .render()
-        .into_text()
-        .unwrap_or_default()
-    });
     // The model catalog can come from user configuration. Managed rules need a trusted
     // template with policy slots unless the host explicitly supplies its own template.
     let requirements = guardian_config.config_layer_stack.requirements_toml();
@@ -70,7 +53,6 @@ pub fn build_guardian_review_session_config(
         guardian_config.guardian_extra_policy.as_deref(),
         policy_template,
         model_messages,
-        conversation_history.as_deref(),
     );
     guardian_config.base_instructions = Some(instructions);
     guardian_config.base_instructions_provenance = Some(BaseInstructionsProvenance::Custom);

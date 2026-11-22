@@ -1815,27 +1815,6 @@ impl Session {
                     None => ThreadProductUpdate::Clear,
                 },
             );
-            for item in initial_history.get_rollout_items() {
-                match item {
-                    RolloutItem::Compacted(compacted) => {
-                        if let Some(checkpoint) = &compacted.mcp_resource_origins {
-                            mcp_runtime.restore_resource_origin_checkpoint(checkpoint);
-                        }
-                    }
-                    RolloutItem::EventMsg(event) => mcp_runtime.observe_event(event),
-                    RolloutItem::DynamicToolsUpdated { .. }
-                    | RolloutItem::SessionMeta(_)
-                    | RolloutItem::ResponseItem(_)
-                    | RolloutItem::InterAgentCommunication(_)
-                    | RolloutItem::InterAgentCommunicationMetadata { .. }
-                    | RolloutItem::TurnContext(_)
-                    | RolloutItem::WorldState(_)
-                    | RolloutItem::RealtimeItem(_)
-                    | RolloutItem::TokenUsageRecord(_)
-                    | RolloutItem::RetainedContext(_)
-                    | RolloutItem::SecurityRiskScore(_) => {}
-                }
-            }
             let session_extension_data =
                 codex_extension_api::ExtensionData::new(session_id.to_string());
             session_extension_data.insert(analytics_events_client.clone());

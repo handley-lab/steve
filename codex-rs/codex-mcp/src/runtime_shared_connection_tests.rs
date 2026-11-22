@@ -79,7 +79,6 @@ async fn forced_refresh_replaces_pending_connection_without_interrupting_other_c
         cached_binding: Mutex::new(None),
     }));
     let input = McpRuntimeInput {
-        network_policy_metadata: None,
         startup_policy: McpStartupPolicy::Eager,
         config,
         plugins_available: false,
@@ -89,7 +88,6 @@ async fn forced_refresh_replaces_pending_connection_without_interrupting_other_c
         tx_event: None,
         startup_cancellation_token: CancellationToken::new(),
         runtime_context: fixture::context(),
-        codex_apps_tools_cache: ConnectorRuntimeManager::default(),
         tool_catalog_cache: McpToolCatalogCache::default(),
         codex_apps_tools_cache_key: ConnectorRuntimeContextKey::personal(
             /*account_id*/ None, /*chatgpt_user_id*/ None,

@@ -1,39 +1,29 @@
 //! Executor-discovered plugin hook admission and trusted MCP routing.
 
-use codex_config::DEFAULT_MCP_SERVER_ENVIRONMENT_ID;
 use codex_config::HookHandlerConfig;
 use codex_config::types::PluginsConfigToml;
 use codex_exec_server::DiscoveredPluginFiles;
 use codex_exec_server::ExecutorCapabilityDiscoverySnapshot;
 use codex_exec_server::ExecutorCapabilityDiscoveryV2Snapshot;
-use codex_mcp::CODEX_APPS_MCP_SERVER_NAME;
-use codex_mcp::MCP_TOOL_CODEX_APPS_META_KEY;
-use codex_mcp::ToolInfo;
 use codex_plugin::ExecutorPluginHookSource;
 use codex_plugin::PluginId;
 use codex_plugin::is_allowlisted_bundled_cleanup_hook;
 use codex_plugin::manifest::PluginManifestHooks;
 use codex_protocol::capabilities::CapabilityRootLocation;
 use codex_utils_path_uri::PathUri;
-use serde_json::Map;
-use serde_json::Value;
 
 use crate::manifest::parse_plugin_manifest_uri;
 
 /// Returns accepted inline hook sources from executor-discovered plugin manifests.
-/// Each source carries its trusted MCP routing metadata. `lookup_enabled_tool` must use a
-/// consistent catalog/config snapshot, include app-only tools, and exclude tools disabled by
-/// app policy.
 ///
 /// Executor scoped hooks are best-effort because executor capabilities can become available
 /// after earlier lifecycle events have passed.
 ///
 /// Note: Executor manifests are not signed yet, so temporarily we only admit the known cleanup
 /// hooks from the bundled cleanup allowlist and the remote Browser plugin.
-pub fn executor_plugin_hook_sources<'a>(
+pub fn executor_plugin_hook_sources(
     snapshot: &ExecutorCapabilityDiscoverySnapshot,
     plugins_config: &PluginsConfigToml,
-    lookup_enabled_tool: impl Fn(&str, &str) -> Option<&'a ToolInfo>,
 ) -> Vec<ExecutorPluginHookSource> {
     let plugins = snapshot.roots().iter().filter_map(|entry| {
         let CapabilityRootLocation::Environment {
@@ -48,15 +38,14 @@ pub fn executor_plugin_hook_sources<'a>(
             plugin,
         ))
     });
-    admitted_hook_sources(plugins, plugins_config, lookup_enabled_tool)
+    admitted_hook_sources(plugins, plugins_config)
 }
 
 /// Applies the same inline-hook admission and MCP routing policy to V2 inventories.
 /// Callers must additionally restrict sources to their accepted plugin installations.
-pub fn executor_plugin_hook_sources_v2<'a>(
+pub fn executor_plugin_hook_sources_v2(
     snapshots: &[ExecutorCapabilityDiscoveryV2Snapshot],
     plugins_config: &PluginsConfigToml,
-    lookup_enabled_tool: impl Fn(&str, &str) -> Option<&'a ToolInfo>,
 ) -> Vec<ExecutorPluginHookSource> {
     let plugins = snapshots.iter().flat_map(|snapshot| {
         snapshot.result.iter().flat_map(move |inventory| {
@@ -70,13 +59,12 @@ pub fn executor_plugin_hook_sources_v2<'a>(
             })
         })
     });
-    admitted_hook_sources(plugins, plugins_config, lookup_enabled_tool)
+    admitted_hook_sources(plugins, plugins_config)
 }
 
-fn admitted_hook_sources<'a, 'b>(
+fn admitted_hook_sources<'b>(
     plugins: impl Iterator<Item = (&'b str, &'b str, &'b PathUri, &'b DiscoveredPluginFiles)>,
     plugins_config: &PluginsConfigToml,
-    lookup_enabled_tool: impl Fn(&str, &str) -> Option<&'a ToolInfo>,
 ) -> Vec<ExecutorPluginHookSource> {
     let mut sources = Vec::new();
     for (plugin_id, environment_id, plugin_root, plugin) in plugins {
@@ -126,21 +114,12 @@ fn admitted_hook_sources<'a, 'b>(
             for (event, groups) in source.hooks.matcher_groups_mut() {
                 groups.retain_mut(|group| {
                     group.hooks.retain(|handler| {
-                        let app_connector_id = match handler {
-                            HookHandlerConfig::McpTool { server, tool, .. }
-                                if server == CODEX_APPS_MCP_SERVER_NAME =>
-                            {
-                                lookup_enabled_tool(server, tool)
-                                    .and_then(|info| info.connector_id.as_deref())
-                            }
-                            _ => None,
-                        };
                         is_allowlisted_bundled_cleanup_hook(
                             &plugin_id,
                             event,
                             group.matcher.as_deref(),
                             handler,
-                            app_connector_id,
+                            /*app_connector_id*/ None,
                         )
                     });
                     !group.hooks.is_empty()
@@ -148,16 +127,13 @@ fn admitted_hook_sources<'a, 'b>(
             }
             (!source.hooks.is_empty()).then_some(source)
         })
-        .filter_map(|source| resolve_mcp_routing(source, &lookup_enabled_tool))
+        .filter_map(resolve_mcp_routing)
         .collect()
 }
 
 /// Resolves routing for an admitted MCP hook source.
-fn resolve_mcp_routing<'a>(
-    mut source: ExecutorPluginHookSource,
-    lookup_enabled_tool: &impl Fn(&str, &str) -> Option<&'a ToolInfo>,
-) -> Option<ExecutorPluginHookSource> {
-    let HookHandlerConfig::McpTool { server, tool, .. } = source
+fn resolve_mcp_routing(mut source: ExecutorPluginHookSource) -> Option<ExecutorPluginHookSource> {
+    let HookHandlerConfig::McpTool { .. } = source
         .hooks
         .matcher_groups_mut()
         .into_iter()
@@ -167,23 +143,6 @@ fn resolve_mcp_routing<'a>(
     else {
         return None;
     };
-    if server != CODEX_APPS_MCP_SERVER_NAME {
-        return Some(source);
-    }
-
-    let tool_info = lookup_enabled_tool(server, tool)?;
-    let routing_metadata = tool_info
-        .tool
-        .meta
-        .as_ref()?
-        .get(MCP_TOOL_CODEX_APPS_META_KEY)?
-        .as_object()?;
-    routing_metadata.get("resource_uri")?.as_str()?;
-    source.mcp_environment_id = Some(DEFAULT_MCP_SERVER_ENVIRONMENT_ID.to_string());
-    source.mcp_metadata = Some(Map::from_iter([(
-        MCP_TOOL_CODEX_APPS_META_KEY.to_string(),
-        Value::Object(routing_metadata.clone()),
-    )]));
     Some(source)
 }
 

@@ -564,7 +564,6 @@ async fn reviewer_tool_policy_exclude_optional_core_tools() {
         &step_context.settings.model_info,
         &step_context.environments,
         &step_context.mcp,
-        /*apps_enabled*/ false,
         &turn.extension_data,
         session.dynamic_tools().await.as_ref(),
     )
@@ -617,7 +616,6 @@ async fn reviewer_tool_policy_respect_managed_shell_restrictions() {
             &step_context.settings.model_info,
             &step_context.environments,
             &step_context.mcp,
-            /*apps_enabled*/ false,
             &turn.extension_data,
             session.dynamic_tools().await.as_ref(),
         )
@@ -653,7 +651,6 @@ async fn reviewer_tool_policy_preserve_code_mode() {
         &step_context.settings.model_info,
         &step_context.environments,
         &step_context.mcp,
-        /*apps_enabled*/ false,
         &turn.extension_data,
         session.dynamic_tools().await.as_ref(),
     )
@@ -723,7 +720,6 @@ async fn reviewer_tool_policy_require_managed_secondary_environments() {
             &step_context.settings.model_info,
             &step_context.environments,
             &step_context.mcp,
-            /*apps_enabled*/ false,
             &turn.extension_data,
             session.dynamic_tools().await.as_ref(),
         )

@@ -1,14 +1,10 @@
 //! Client-local catalog revisions and synchronization for MCP calls.
 //!
-//! Apps clients read the provider's current catalog without retaining old arrays.
-//! Only active readers, calls, and frozen model bindings pin earlier snapshots.
 //! Explicit refreshes publish after calls using this client's current revision finish.
-//! Equivalent shared publications preserve calls, but explicit refreshes invalidate them.
-//! Ordinary servers coalesce list-change notifications and publish only a stable listing.
+//! Servers coalesce list-change notifications and publish only a stable listing.
 //! Notifications update discovery without waiting for admitted calls to finish.
 //! Failed refreshes retain the last catalog and share a short retry cooldown.
 
-use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -18,27 +14,15 @@ use std::time::Duration;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
-use codex_connectors::ConnectorRuntimeSnapshot;
 use codex_rmcp_client::ToolListRevision;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio::sync::RwLockReadGuard;
-use tokio::sync::watch;
 use tokio::time::Instant;
 
 use crate::tools::ToolInfo;
 
-type ToolCatalogUpdates = watch::Receiver<Option<Arc<ConnectorRuntimeSnapshot<ToolInfo>>>>;
 const NOTIFICATION_REFRESH_COOLDOWN: Duration = Duration::from_secs(5);
-
-/// The exact Apps catalog returned by an awaited refresh of one published runtime.
-pub struct CodexAppsToolSnapshot {
-    /// Raw installed tools, including tools hidden or disabled for the model.
-    pub tools: Vec<ToolInfo>,
-    /// Raw MCP tool names allowed by the same runtime's generic MCP policy.
-    /// App-specific policy is applied by the caller.
-    pub model_visible_tool_names: HashSet<String>,
-}
 
 pub(crate) struct ClientToolCatalog {
     current: RwLock<CatalogState>,
@@ -54,19 +38,8 @@ struct CatalogState {
     revision: u64,
     /// The catalog revision installed by this client's last explicit refresh.
     last_refresh_revision: u64,
-    source: CatalogSource,
-}
-
-/// Ordinary MCP clients own their tools; Apps clients observe the shared provider.
-enum CatalogSource {
-    Local {
-        tools: Arc<[ToolInfo]>,
-        meta: Option<Arc<serde_json::Value>>,
-    },
-    Live {
-        updates: ToolCatalogUpdates,
-        tools_version: u64,
-    },
+    tools: Arc<[ToolInfo]>,
+    meta: Option<Arc<serde_json::Value>>,
 }
 
 #[derive(Clone)]
@@ -77,33 +50,16 @@ pub(crate) struct ToolCatalogSnapshot {
 }
 
 impl ClientToolCatalog {
-    /// Live clients read the provider; callers publish startup tools before subscribing.
     pub(crate) fn new(
         tools: impl Into<Arc<[ToolInfo]>>,
         meta: Option<Arc<serde_json::Value>>,
-        updates: Option<ToolCatalogUpdates>,
     ) -> Self {
-        let source = match updates {
-            Some(mut updates) => {
-                let tools_version = updates
-                    .borrow_and_update()
-                    .as_ref()
-                    .map_or(0, |snapshot| snapshot.tools_version());
-                CatalogSource::Live {
-                    updates,
-                    tools_version,
-                }
-            }
-            None => CatalogSource::Local {
-                tools: tools.into(),
-                meta,
-            },
-        };
         Self {
             current: RwLock::new(CatalogState {
                 revision: 0,
                 last_refresh_revision: 0,
-                source,
+                tools: tools.into(),
+                meta,
             }),
             refresh_lock: Mutex::new(None),
             calls: RwLock::new(()),
@@ -118,54 +74,13 @@ impl ClientToolCatalog {
 
     /// Captures tools and their client-local revision together, without retaining them in the client.
     async fn read_current(&self) -> (RwLockReadGuard<'_, CatalogState>, ToolCatalogSnapshot) {
-        loop {
-            {
-                let current = self.current.read().await;
-                let catalog = match &current.source {
-                    CatalogSource::Local { tools, meta } => Some((Arc::clone(tools), meta.clone())),
-                    CatalogSource::Live { updates, .. } => {
-                        // Hold the watch borrow while checking its version so the tools and
-                        // revision come from the same publication.
-                        let snapshot = updates.borrow();
-                        (!updates.has_changed().unwrap_or(false)).then(|| {
-                            snapshot
-                                .as_ref()
-                                .map(|snapshot| {
-                                    (snapshot.shared_tools(), snapshot.shared_tool_list_meta())
-                                })
-                                .unwrap_or_default()
-                        })
-                    }
-                };
-                if let Some((tools, meta)) = catalog {
-                    let snapshot = ToolCatalogSnapshot {
-                        revision: current.revision,
-                        tools,
-                        meta,
-                    };
-                    return (current, snapshot);
-                }
-            }
-            let mut current = self.current.write().await;
-            let changed = match &mut current.source {
-                CatalogSource::Live {
-                    updates,
-                    tools_version,
-                } => {
-                    let version = updates
-                        .borrow_and_update()
-                        .as_ref()
-                        .map_or(0, |snapshot| snapshot.tools_version());
-                    let changed = *tools_version != version;
-                    *tools_version = version;
-                    changed
-                }
-                CatalogSource::Local { .. } => false,
-            };
-            if changed {
-                current.revision += 1;
-            }
-        }
+        let current = self.current.read().await;
+        let snapshot = ToolCatalogSnapshot {
+            revision: current.revision,
+            tools: Arc::clone(&current.tools),
+            meta: current.meta.clone(),
+        };
+        (current, snapshot)
     }
 
     pub(crate) fn notifications_current(&self, notifications: &ToolListRevision) -> bool {
@@ -212,10 +127,8 @@ impl ClientToolCatalog {
                     continue;
                 }
                 let (tools, meta) = tools?;
-                current.source = CatalogSource::Local {
-                    tools: tools.into(),
-                    meta,
-                };
+                current.tools = tools.into();
+                current.meta = meta;
                 current.revision += 1;
                 self.listed_notification_revision
                     .store(revision, Ordering::Release);
@@ -238,46 +151,6 @@ impl ClientToolCatalog {
         clippy::await_holding_invalid_type,
         reason = "refreshes must remain serialized through fetching and catalog publication"
     )]
-    pub(crate) async fn refresh<C, R, Fut, G>(
-        &self,
-        fetch: impl FnOnce() -> Fut,
-        validate: impl FnOnce() -> Option<G>,
-        publish: impl FnOnce(&[ToolInfo], Option<Arc<serde_json::Value>>, C) -> R,
-    ) -> Result<Option<R>>
-    where
-        Fut: Future<Output = Result<(Vec<ToolInfo>, Option<Arc<serde_json::Value>>, C)>>,
-    {
-        let _refresh = self.refresh_lock.lock().await;
-        let (tools, meta, context) = fetch().await?;
-        let _calls = self.calls.write().await;
-        let mut current = self.current.write().await;
-        let Some(_validity) = validate() else {
-            return Ok(None);
-        };
-        let result = publish(&tools, meta.clone(), context);
-        match &mut current.source {
-            CatalogSource::Local {
-                tools: current_tools,
-                meta: current_meta,
-            } => {
-                *current_tools = tools.into();
-                *current_meta = meta;
-            }
-            CatalogSource::Live {
-                updates,
-                tools_version,
-            } => {
-                *tools_version = updates
-                    .borrow_and_update()
-                    .as_ref()
-                    .map_or(0, |snapshot| snapshot.tools_version());
-            }
-        }
-        current.revision += 1;
-        current.last_refresh_revision = current.revision;
-        Ok(Some(result))
-    }
-
     /// Reject stale calls before preparation. Explicit refreshes wait for execution;
     /// ordinary list-change notifications may publish while an admitted call runs.
     #[expect(
@@ -301,16 +174,8 @@ impl ClientToolCatalog {
         {
             return None;
         }
-        let current = match current.source {
-            CatalogSource::Local { .. } => {
-                drop(current);
-                None
-            }
-            CatalogSource::Live { .. } => Some(current),
-        };
-        let result = run().await;
         drop(current);
-        Some(result)
+        Some(run().await)
     }
 }
 

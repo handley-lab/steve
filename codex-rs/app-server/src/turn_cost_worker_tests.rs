@@ -80,6 +80,10 @@ async fn worker_starts_with_otlp_metrics_exporter_without_log_exporter() {
     let codex_home = TempDir::new().expect("temporary Codex home");
     let mut config = ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())
+        .harness_overrides(codex_core::config::ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .build()
         .await
         .expect("test config");
@@ -104,6 +108,10 @@ async fn handle_observes_only_matching_model_provider() {
     let codex_home = TempDir::new().expect("temporary Codex home");
     let mut config = ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())
+        .harness_overrides(codex_core::config::ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .build()
         .await
         .expect("test config");
@@ -230,6 +238,10 @@ async fn custom_provider_auth_failure_retries_without_auth_changes() {
     let codex_home = TempDir::new().expect("temporary Codex home");
     let mut config = ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())
+        .harness_overrides(codex_core::config::ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .build()
         .await
         .expect("test config");
@@ -278,6 +290,10 @@ async fn custom_provider_does_not_send_chatgpt_auth_for_turn_costs() {
     let codex_home = TempDir::new().expect("temporary Codex home");
     let mut config = ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())
+        .harness_overrides(codex_core::config::ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .build()
         .await
         .expect("test config");
@@ -438,6 +454,10 @@ async fn test_runtime(server: &MockServer, auth_manager: Arc<AuthManager>) -> Wo
     let codex_home = TempDir::new().expect("temporary Codex home");
     let mut config = ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())
+        .harness_overrides(codex_core::config::ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .build()
         .await
         .expect("test config");
@@ -565,6 +585,10 @@ async fn account_cost_backend_waits_for_auth_then_uses_the_account_url() {
     let codex_home = TempDir::new().expect("temporary Codex home");
     let mut config = ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())
+        .harness_overrides(codex_core::config::ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .harness_overrides(ConfigOverrides {
             model_provider: Some("openai".to_string()),
             ..Default::default()
@@ -629,6 +653,10 @@ async fn env_key_cost_query_uses_the_model_url() {
         let codex_home = TempDir::new().expect("temporary Codex home");
         let mut config = ConfigBuilder::default()
             .codex_home(codex_home.path().to_path_buf())
+            .harness_overrides(codex_core::config::ConfigOverrides {
+                model_provider: Some("openai".to_string()),
+                ..Default::default()
+            })
             .harness_overrides(ConfigOverrides {
                 model_provider: Some("openai".to_string()),
                 ..Default::default()

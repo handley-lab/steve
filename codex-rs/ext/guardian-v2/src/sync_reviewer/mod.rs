@@ -34,7 +34,6 @@ use codex_protocol::protocol::InternalSessionSource;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::ThreadSource;
 
-mod conversation_history;
 mod reviewer_config;
 
 /// Owns reviewer agents through the same thread manager as the parent conversation.
@@ -71,7 +70,7 @@ impl ThreadLifecycleContributor<Config> for GuardianExtension {
                     Arc::clone(&runtime),
                     move |context, key, kind, snapshot, cancel| {
                         let manager = manager.clone();
-                        let parent_thread_id = parent_thread_id.clone();
+                        let _parent_thread_id = parent_thread_id.clone();
                         let runtime = Arc::clone(&runtime);
                         Box::pin(async move {
                             let history_reset = context.history_reset.clone();
@@ -111,36 +110,7 @@ impl ThreadLifecycleContributor<Config> for GuardianExtension {
                             options
                                 .thread_extension_init
                                 .insert(SessionIsolation::Isolated);
-                            let mut tool_policy = codex_guardian_reviewer::reviewer_tool_policy();
-                            if options
-                                .config
-                                .features
-                                .enabled(codex_features::Feature::GuardianConversationHistoryTools)
-                            {
-                                let parent = manager
-                                    .get_thread(ThreadId::from_string(&parent_thread_id)?)
-                                    .await?;
-                                let mut extensions = ExtensionRegistryBuilder::<Config>::default();
-                                let history_tools =
-                                    Arc::new(conversation_history::ConversationHistoryTools {
-                                        parent: Arc::downgrade(&parent),
-                                    });
-                                extensions.tool_contributor(history_tools.clone());
-                                extensions.turn_lifecycle_contributor(history_tools);
-                                options.thread_extension_init.insert(
-                                    codex_extension_api::IsolatedSessionExtensions(Arc::new(
-                                        extensions.build(),
-                                    )),
-                                );
-                                tool_policy.allowed_tools.get_or_insert_default().extend(
-                                    ["search_messages", "read_messages"].map(|name| {
-                                        codex_extension_api::ToolName::namespaced(
-                                            "user_message",
-                                            name,
-                                        )
-                                    }),
-                                );
-                            }
+                            let tool_policy = codex_guardian_reviewer::reviewer_tool_policy();
                             options.thread_extension_init.insert(tool_policy);
                             let session_cancel = cancel.clone();
                             let until = async move {

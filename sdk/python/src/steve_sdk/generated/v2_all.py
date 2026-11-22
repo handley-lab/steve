@@ -2265,18 +2265,20 @@ class McpAuthStatus(Enum):
     o_auth = "oAuth"
 
 
-class McpResourceReadTarget(BaseModel):
+class McpResourceReadParams(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    connector_id: Annotated[str, Field(alias="connectorId")]
-    link_id: Annotated[
-        str | None,
+    field_meta: Annotated[
+        dict[str, Any] | None,
         Field(
-            alias="linkId",
-            description="Null explicitly requests no-auth access, subject to the app's resource policy.",
+            alias="_meta",
+            description="Additional MCP request metadata. Turn routing keys are reserved.",
         ),
-    ]
+    ] = None
+    server: str
+    thread_id: Annotated[str | None, Field(alias="threadId")] = None
+    uri: str
 
 
 class McpServerConnectionStatus(Enum):
@@ -2287,22 +2289,6 @@ class McpServerConnectionStatus(Enum):
     failed = "failed"
     cancelled = "cancelled"
     disabled = "disabled"
-
-
-class McpServerEventNotification(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    method: str
-    params: Any
-
-
-class McpServerEventStreamNotification(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    notification: McpServerEventNotification
-    subscription_id: Annotated[str, Field(alias="subscriptionId")]
 
 
 class McpServerInfo(BaseModel):
@@ -4298,24 +4284,6 @@ class McpServerStartupStatusUpdatedServerNotification(BaseModel):
         Field(title="McpServer/startupStatus/updatedNotificationMethod"),
     ]
     params: McpServerStatusUpdatedNotification
-
-
-class McpServerEventStreamNotificationServerNotification(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    emitted_at_ms: Annotated[
-        int | None,
-        Field(
-            alias="emittedAtMs",
-            description="Unix timestamp (in milliseconds) when app-server emitted this notification.",
-        ),
-    ] = None
-    method: Annotated[
-        Literal["mcpServer/event/stream/notification"],
-        Field(title="McpServer/event/stream/notificationNotificationMethod"),
-    ]
-    params: McpServerEventStreamNotification
 
 
 class FsChangedServerNotification(BaseModel):
@@ -7422,6 +7390,17 @@ class ConfigMcpServerReloadRequest(BaseModel):
     params: Annotated[None, Field(None)] = None
 
 
+class McpServerResourceReadRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    id: RequestId
+    method: Annotated[
+        Literal["mcpServer/resource/read"], Field(title="McpServer/resource/readRequestMethod")
+    ]
+    params: McpResourceReadParams
+
+
 class McpServerToolCallRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -8509,46 +8488,11 @@ class ListMcpServerStatusParams(BaseModel):
     thread_id: Annotated[str | None, Field(alias="threadId")] = None
 
 
-class McpResourceReadParams(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    field_meta: Annotated[
-        dict[str, Any] | None,
-        Field(
-            alias="_meta",
-            description="Additional MCP request metadata. Account and turn routing keys are reserved.",
-        ),
-    ] = None
-    connector_id: Annotated[str | None, Field(alias="connectorId")] = None
-    origin_call_id: Annotated[
-        str | None,
-        Field(
-            alias="originCallId",
-            description="Originating MCP tool call used to select the resource's app.",
-        ),
-    ] = None
-    server: str
-    target: Annotated[
-        McpResourceReadTarget | None,
-        Field(description="Explicit hosted app/account. Omit to retain legacy resource discovery."),
-    ] = None
-    thread_id: Annotated[str | None, Field(alias="threadId")] = None
-    uri: str
-
-
 class McpResourceReadResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
     contents: list[ResourceContent]
-    origin_call_id: Annotated[
-        str | None,
-        Field(
-            alias="originCallId",
-            description="Originating call when the server applied app-specific resource scoping.",
-        ),
-    ] = None
 
 
 class McpServerStatus(BaseModel):
@@ -10657,17 +10601,6 @@ class McpServerStatusListRequest(BaseModel):
         Literal["mcpServerStatus/list"], Field(title="McpServerStatus/listRequestMethod")
     ]
     params: ListMcpServerStatusParams
-
-
-class McpServerResourceReadRequest(BaseModel):
-    model_config = ConfigDict(
-        populate_by_name=True,
-    )
-    id: RequestId
-    method: Annotated[
-        Literal["mcpServer/resource/read"], Field(title="McpServer/resource/readRequestMethod")
-    ]
-    params: McpResourceReadParams
 
 
 class FeedbackSaveRequest(BaseModel):
@@ -12832,7 +12765,6 @@ class ServerNotification(
         | ItemMcpToolCallProgressServerNotification
         | McpServerOauthLoginCompletedServerNotification
         | McpServerStartupStatusUpdatedServerNotification
-        | McpServerEventStreamNotificationServerNotification
         | AccountUpdatedServerNotification
         | AccountGatewayOAuthChangedServerNotification
         | AccountRateLimitsUpdatedServerNotification
@@ -12919,7 +12851,6 @@ class ServerNotification(
         | ItemMcpToolCallProgressServerNotification
         | McpServerOauthLoginCompletedServerNotification
         | McpServerStartupStatusUpdatedServerNotification
-        | McpServerEventStreamNotificationServerNotification
         | AccountUpdatedServerNotification
         | AccountGatewayOAuthChangedServerNotification
         | AccountRateLimitsUpdatedServerNotification

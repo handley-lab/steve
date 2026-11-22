@@ -90,10 +90,6 @@ impl SessionTask for RegularTask {
                     TurnStartPhase::RegularTaskStart,
                 )
                 .await;
-                if prepares_mcp {
-                    // Resource discovery can overlap the fetch. Wait before reprojection.
-                    sess.wait_for_apps_tool_refresh().await;
-                }
             }
             .or_cancel(&cancellation_token)
             .await;

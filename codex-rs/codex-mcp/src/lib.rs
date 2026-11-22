@@ -1,15 +1,10 @@
 pub use binding::McpBinding;
 pub use binding::McpPermissionSource;
 pub use binding::PreparedMcpCall;
-pub use binding::SEARCH_CONNECTOR;
-pub use binding::SearchDiscovery;
-pub use binding::is_model_search_tool;
 pub use binding_clients::McpResourceListing;
 pub use client_capabilities::client_mcp_extensions;
-pub use client_tool_catalog::CodexAppsToolSnapshot;
 pub use codex_rmcp_client::McpProtocolMode;
 pub use connection_manager::NetworkPolicyMetadata;
-pub use connection_manager::NetworkPolicyMetadataProvider;
 pub use connection_manager::tool_is_model_visible;
 pub use connection_pool::LEASE_META_KEY as MCP_CONNECTION_LEASE_META_KEY;
 pub use connection_pool::McpConnectionPool;
@@ -17,12 +12,6 @@ pub use elicitation::ElicitationLifecycle;
 pub use elicitation::ElicitationReviewRequest;
 pub use elicitation::ElicitationReviewer;
 pub use elicitation::ElicitationReviewerHandle;
-pub use event_stream::McpEventStreamOpener;
-pub use resource_client::CodexAppsResourceListParams;
-pub use resource_client::McpEventCatalogSnapshot;
-pub use resource_client::McpEventDefinition;
-pub use resource_client::McpEventNotification;
-pub use resource_client::McpEventStream;
 pub use resource_client::McpResourceClient;
 pub use resource_client::McpResourceClientAuthKey;
 pub use resource_client::McpResourceClientCacheKey;
@@ -45,11 +34,6 @@ pub use tool_catalog_cache::McpToolCatalogCache;
 pub use tool_request_meta::McpToolRequestMetaHook;
 pub use tool_request_meta::McpToolRequestMetaProvider;
 pub use tools::ToolInfo;
-
-/// Backward-compatible name for the shared Codex Apps tools runtime.
-pub type CodexAppsToolsCache = codex_connectors::ConnectorRuntimeManager<ToolInfo>;
-/// Backward-compatible name for the Codex Apps runtime context key.
-pub type CodexAppsToolsCacheKey = codex_connectors::ConnectorRuntimeContextKey;
 
 pub use catalog::McpCatalogBuilder;
 pub use catalog::McpEnvironmentAuthority;
@@ -79,7 +63,6 @@ pub use auth_elicitation::build_auth_elicitation_plan;
 pub use auth_elicitation::connector_auth_failure_from_tool_result;
 pub use auth_elicitation::is_connector_auth_failure_from_tool_result;
 /// Backward-compatible name for the Codex Apps runtime context key builder.
-pub use codex_connectors::connector_runtime_context_key as codex_apps_tools_cache_key;
 pub use mcp::configured_mcp_servers;
 pub use mcp::effective_mcp_servers;
 pub use mcp::effective_mcp_servers_from_configured;
@@ -120,17 +103,14 @@ pub(crate) mod binding_clients;
 mod catalog;
 mod client_capabilities;
 mod client_tool_catalog;
-pub(crate) mod codex_apps;
 pub(crate) mod connection_manager;
 mod connection_pool;
 pub(crate) mod elicitation;
-mod event_stream;
 mod executor_environment_http_client;
 pub(crate) mod mcp;
 mod pagination;
 mod plugin_config;
 mod resource_client;
-mod resource_origin;
 pub(crate) mod rmcp_client;
 pub(crate) mod runtime;
 mod sandbox_executable;

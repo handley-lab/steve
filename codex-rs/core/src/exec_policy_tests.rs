@@ -745,6 +745,10 @@ async fn ignore_user_config_keeps_user_policy_files() -> std::io::Result<()> {
 
     let config = ConfigBuilder::default()
         .codex_home(codex_home)
+        .harness_overrides(crate::config::ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .fallback_cwd(Some(temp.path().to_path_buf()))
         .loader_overrides(LoaderOverrides {
             ignore_user_config: true,
@@ -2443,6 +2447,10 @@ async fn exec_policies_only_load_from_trusted_project_layers() -> std::io::Resul
 
     let config = ConfigBuilder::default()
         .codex_home(codex_home)
+        .harness_overrides(crate::config::ConfigOverrides {
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        })
         .fallback_cwd(Some(nested))
         .build()
         .await?;
@@ -2505,6 +2513,10 @@ async fn exec_policies_require_project_trust_without_config_toml() -> std::io::R
 
         let config = ConfigBuilder::default()
             .codex_home(codex_home)
+            .harness_overrides(crate::config::ConfigOverrides {
+                model_provider: Some("openai".to_string()),
+                ..Default::default()
+            })
             .fallback_cwd(Some(nested.clone()))
             .build()
             .await?;
@@ -2557,6 +2569,10 @@ async fn exec_policy_warnings_ignore_untrusted_project_rules_without_config_toml
 
         let config = ConfigBuilder::default()
             .codex_home(codex_home)
+            .harness_overrides(crate::config::ConfigOverrides {
+                model_provider: Some("openai".to_string()),
+                ..Default::default()
+            })
             .fallback_cwd(Some(nested.clone()))
             .build()
             .await?;

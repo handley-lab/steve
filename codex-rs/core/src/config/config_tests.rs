@@ -7589,34 +7589,6 @@ pane = { selected = "console", expanded = false }
 }
 
 #[tokio::test]
-async fn to_mcp_config_preserves_apps_feature_from_config() -> std::io::Result<()> {
-    let codex_home = TempDir::new()?;
-    let mut config = Config::load_from_base_config_with_overrides(
-        ConfigToml::default(),
-        ConfigOverrides::default(),
-        codex_home.abs(),
-    )
-    .await?;
-    let plugins_manager =
-        plugins_manager_for_config(&config, auth_manager_from_optional_auth(/*auth*/ None));
-
-    config.apps_mcp_product_sku = Some("tpp".to_string());
-    let mcp_config = config.to_mcp_config(&plugins_manager).await;
-    assert!(mcp_config.apps_enabled);
-    assert_eq!(mcp_config.apps_mcp_product_sku.as_deref(), Some("tpp"));
-
-    let _ = config.features.disable(Feature::Apps);
-    let mcp_config = config.to_mcp_config(&plugins_manager).await;
-    assert!(!mcp_config.apps_enabled);
-
-    let _ = config.features.enable(Feature::Apps);
-    let mcp_config = config.to_mcp_config(&plugins_manager).await;
-    assert!(mcp_config.apps_enabled);
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn to_mcp_config_flows_mcp_tool_prefix_from_feature() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     let mut config = Config::load_from_base_config_with_overrides(
@@ -7666,42 +7638,13 @@ async fn to_mcp_config_flows_independent_mcp_2026_features() -> std::io::Result<
         plugins_manager_for_config(&config, auth_manager_from_optional_auth(/*auth*/ None));
 
     let mcp_config = config.to_mcp_config(&plugins_manager).await;
-    assert_eq!(
-        (
-            mcp_config.protocol_mode,
-            mcp_config.host_owned_apps_protocol_mode,
-        ),
-        (
-            codex_mcp::McpProtocolMode::Legacy,
-            codex_mcp::McpProtocolMode::Legacy,
-        )
-    );
+    assert_eq!(mcp_config.protocol_mode, codex_mcp::McpProtocolMode::Legacy);
 
     let _ = config.features.enable(Feature::Mcp20260728);
     let mcp_config = config.to_mcp_config(&plugins_manager).await;
     assert_eq!(
-        (
-            mcp_config.protocol_mode,
-            mcp_config.host_owned_apps_protocol_mode,
-        ),
-        (
-            codex_mcp::McpProtocolMode::V20260728,
-            codex_mcp::McpProtocolMode::Legacy,
-        )
-    );
-
-    let _ = config.features.disable(Feature::Mcp20260728);
-    let _ = config.features.enable(Feature::CodexAppsMcp20260728);
-    let mcp_config = config.to_mcp_config(&plugins_manager).await;
-    assert_eq!(
-        (
-            mcp_config.protocol_mode,
-            mcp_config.host_owned_apps_protocol_mode,
-        ),
-        (
-            codex_mcp::McpProtocolMode::Legacy,
-            codex_mcp::McpProtocolMode::V20260728,
-        )
+        mcp_config.protocol_mode,
+        codex_mcp::McpProtocolMode::V20260728
     );
 
     Ok(())
@@ -9080,40 +9023,6 @@ async fn requirements_guardian_policy_beats_auto_review() -> std::io::Result<()>
             (Some("Use the managed guardian policy."), expected_extra,)
         );
     }
-    Ok(())
-}
-
-#[tokio::test]
-async fn load_config_ignores_empty_auto_review_guardian_policy_config() -> std::io::Result<()> {
-    let codex_home = TempDir::new()?;
-    let cfg = ConfigToml {
-        auto_review: Some(AutoReviewToml {
-            policy: Some("   ".to_string()),
-            experimental_conversation_history_prompt: Some(String::new()),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-
-    let config = Config::load_from_base_config_with_overrides(
-        cfg,
-        ConfigOverrides {
-            cwd: Some(codex_home.path().to_path_buf()),
-            ..Default::default()
-        },
-        codex_home.abs(),
-    )
-    .await?;
-
-    assert_eq!(
-        (
-            config.guardian_policy_config,
-            config.guardian_extra_policy,
-            config.guardian_conversation_history_prompt,
-        ),
-        (None, None, None)
-    );
-
     Ok(())
 }
 
@@ -12588,7 +12497,6 @@ async fn prompt_instruction_blocks_can_be_disabled_from_config() -> std::io::Res
     std::fs::write(
         codex_home.path().join(CONFIG_TOML_FILE),
         r#"include_permissions_instructions = false
-include_apps_instructions = false
 include_collaboration_mode_instructions = false
 include_environment_context = false
 include_environment_context_time = false
@@ -12605,7 +12513,6 @@ include_instructions = false
         .await?;
 
     assert!(!config.include_permissions_instructions);
-    assert!(!config.include_apps_instructions);
     assert!(!config.include_collaboration_mode_instructions);
     assert!(!config.include_skill_instructions);
     assert!(!config.include_environment_context);
@@ -14381,6 +14288,35 @@ fn sqlite_home_env_conflict_reports_an_override() -> std::io::Result<()> {
         &mut warnings,
     );
     assert!(warnings.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn load_config_ignores_empty_auto_review_guardian_policy_config() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    let cfg = ConfigToml {
+        auto_review: Some(AutoReviewToml {
+            policy: Some("   ".to_string()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let config = Config::load_from_base_config_with_overrides(
+        cfg,
+        ConfigOverrides {
+            cwd: Some(codex_home.path().to_path_buf()),
+            ..Default::default()
+        },
+        codex_home.abs(),
+    )
+    .await?;
+
+    assert_eq!(
+        (config.guardian_policy_config, config.guardian_extra_policy),
+        (None, None)
+    );
 
     Ok(())
 }
