@@ -59,7 +59,8 @@ review and baseline risk classification, with D3 alongside for decision comparis
 Put this in `~/.steve/config.toml`:
 
 ```toml
-model = "moonshotai/Kimi-K3"
+model = "moonshotai/Kimi-K3.1-Pro"
+model_context_window = 1048576
 model_provider = "cambridge"
 web_search = "disabled"
 check_for_update_on_startup = false
@@ -68,7 +69,7 @@ approvals_reviewer = "auto_review"
 
 [auto_review]
 model_provider = "cambridge"
-model = "moonshotai/Kimi-K3"
+model = "moonshotai/Kimi-K3.1-Pro"
 
 [features]
 guardian_approval = true
@@ -77,13 +78,13 @@ guardianv2_decisions_comparison = true
 [features.guardianv2]
 enabled = true
 model_provider = "cambridge"
-model = "moonshotai/Kimi-K3"
+model = "moonshotai/Kimi-K3.1-Pro"
 comparison_model_provider = "cambridge"
 comparison_model = "vllm-sr/d3"
 
 [model_providers.cambridge]
 name = "Cambridge HPC"
-default_model = "moonshotai/Kimi-K3"
+default_model = "moonshotai/Kimi-K3.1-Pro"
 base_url = "https://llm.hpc.cam.ac.uk/v1"
 env_key = "CAMBRIDGE_LLM_API_KEY"
 wire_api = "responses"
@@ -94,6 +95,8 @@ enabled = false
 [feedback]
 enabled = false
 ```
+
+Adjust `model_context_window` to match the context limit if you select another model.
 
 Supply `CAMBRIDGE_LLM_API_KEY` in the process environment. Keep credentials out
 of this repository. D3 uses the configured provider's `/decisions` endpoint;
@@ -109,7 +112,7 @@ Catalogue ordering never selects a model.
 Model discovery polls the explicitly configured providers at `models`, or their
 full `model_catalog_url` when supplied. It accepts Codex-native catalogs and
 OpenAI-compatible `data/id` lists. `steve models` and the app server's
-`model/list` expose qualified choices such as `cambridge/moonshotai/Kimi-K3`,
+`model/list` expose qualified choices such as `cambridge/moonshotai/Kimi-K3.1-Pro`,
 explicit global/provider defaults, and provider discovery errors. Provider
 defaults come from `default_model`, never from list order. Pass a qualified choice
 with `-m` or a model-only API request. Explicit provider/model request pairs use
